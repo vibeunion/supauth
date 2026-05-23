@@ -38,7 +38,7 @@
     </div>
 
     <div class="px-6 py-4 border-t border-surface-700 text-xs text-surface-500">
-      your-oauth-domain.example.com
+      SupaOAuth
     </div>
   </nav>
 
