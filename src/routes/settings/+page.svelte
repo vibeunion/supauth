@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { getAuthConfig, getOAuthServerStatus } from '$lib/api/client.js';
 
   let config = $state(null);

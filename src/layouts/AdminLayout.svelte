@@ -1,4 +1,5 @@
 <script>
+  import { base, resolve } from '$app/paths';
   import { page } from '$app/state';
   let { children } = $props();
 
@@ -20,15 +21,20 @@
     </div>
 
     <div class="flex-1 px-3 py-4 space-y-1">
-      {#each navItems as item}
+      {#each navItems as item (item.path)}
         <a
-          href={item.path}
-          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[15px] transition-colors {page.url.pathname.startsWith(item.path) ? 'bg-brand-600 text-white' : 'text-surface-300 hover:bg-surface-800 hover:text-white'}"
+          href={resolve(item.path)}
+          class={[
+            'flex items-center gap-3 px-3 py-2.5 rounded-lg text-[15px] transition-colors',
+            page.url.pathname === `${base}${item.path}` || page.url.pathname === `${base}${item.path}/`
+              ? 'bg-brand-600 text-white'
+              : 'text-surface-300 hover:bg-surface-800 hover:text-white',
+          ].join(' ')}
         >
           <span class="text-lg">{item.icon}</span>
           {item.label}
         </a>
-     {/each}
+      {/each}
     </div>
 
     <div class="px-6 py-4 border-t border-surface-700 text-xs text-surface-500">

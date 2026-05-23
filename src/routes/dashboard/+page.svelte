@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { getOAuthServerStatus, getDiscovery, getProject } from '$lib/api/client.js';
 
   let status = $state(null);
@@ -62,7 +63,7 @@
           ['UserInfo', discovery.userinfo_endpoint],
           ['JWKS', discovery.jwks_uri],
           ['Discovery', discovery.issuer + '/.well-known/openid-configuration'],
-        ] as [label, url]}
+        ] as [label, url] (label)}
           <div class="flex items-center gap-4 py-2">
             <span class="text-sm font-medium text-surface-600 w-28 shrink-0">{label}</span>
             <code class="text-sm font-mono text-brand-700 break-all bg-surface-50 px-2 py-1 rounded flex-1">{url}</code>
@@ -77,13 +78,13 @@
     <div class="bg-white rounded-xl border border-surface-200 p-6">
       <h3 class="text-lg font-semibold text-surface-800 mb-4">支持的能力</h3>
       <div class="flex flex-wrap gap-2">
-        {#each discovery.scopes_supported || [] as scope}
+        {#each discovery.scopes_supported || [] as scope (scope)}
           <span class="px-3 py-1 bg-brand-50 text-brand-700 rounded-full text-sm font-medium">{scope}</span>
         {/each}
-        {#each discovery.code_challenge_methods_supported || [] as method}
+        {#each discovery.code_challenge_methods_supported || [] as method (method)}
           <span class="px-3 py-1 bg-surface-100 text-surface-700 rounded-full text-sm font-medium">PKCE {method}</span>
         {/each}
-        {#each discovery.id_token_signing_alg_values_supported || [] as alg}
+        {#each discovery.id_token_signing_alg_values_supported || [] as alg (alg)}
           <span class="px-3 py-1 bg-surface-100 text-surface-700 rounded-full text-sm font-medium">{alg}</span>
         {/each}
       </div>

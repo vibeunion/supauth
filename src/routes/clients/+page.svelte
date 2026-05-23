@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { listOAuthClients, createOAuthClient, deleteOAuthClient } from '$lib/api/client.js';
 
   let clients = $state([]);
@@ -64,16 +65,16 @@
     <h3 class="text-lg font-semibold text-surface-800 mb-4">新建 OAuth 客户端</h3>
     <div class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-surface-700 mb-1">名称</label>
-        <input bind:value={newClient.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="My App">
+        <label for="client-name" class="block text-sm font-medium text-surface-700 mb-1">名称</label>
+        <input id="client-name" bind:value={newClient.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="My App">
       </div>
       <div>
-        <label class="block text-sm font-medium text-surface-700 mb-1">回调地址 (逗号分隔)</label>
-        <input bind:value={newClient.redirect_uris} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="http://localhost:3000/auth/callback">
+        <label for="client-redirects" class="block text-sm font-medium text-surface-700 mb-1">回调地址 (逗号分隔)</label>
+        <input id="client-redirects" bind:value={newClient.redirect_uris} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="http://localhost:3000/auth/callback">
       </div>
       <div>
-        <label class="block text-sm font-medium text-surface-700 mb-1">类型</label>
-        <select bind:value={newClient.client_type} class="px-3 py-2 border border-surface-300 rounded-lg text-sm">
+        <label for="client-type" class="block text-sm font-medium text-surface-700 mb-1">类型</label>
+        <select id="client-type" bind:value={newClient.client_type} class="px-3 py-2 border border-surface-300 rounded-lg text-sm">
           <option value="confidential">机密 (Confidential)</option>
           <option value="public">公共 (Public / SPA)</option>
         </select>
@@ -92,7 +93,7 @@
   </div>
 {:else}
   <div class="space-y-3">
-    {#each clients as client}
+    {#each clients as client (client.client_id)}
       <div class="bg-white rounded-xl border border-surface-200 p-5">
         <div class="flex items-start justify-between">
           <div>
@@ -105,7 +106,7 @@
           <p class="text-sm text-surface-600">类型: <span class="font-medium">{client.client_type || 'confidential'}</span></p>
           {#if client.redirect_uris?.length}
             <p class="text-sm text-surface-600">回调:</p>
-            {#each client.redirect_uris as uri}
+            {#each client.redirect_uris as uri (uri)}
               <code class="text-xs font-mono text-brand-700 bg-surface-50 px-2 py-0.5 rounded ml-4">{uri}</code>
             {/each}
           {/if}

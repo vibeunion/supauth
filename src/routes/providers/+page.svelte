@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { listProviders } from '$lib/api/client.js';
 
   let providers = $state([]);
@@ -30,7 +31,7 @@
   <!-- International -->
   <h3 class="text-lg font-semibold text-surface-800 mb-3">国际提供商</h3>
   <div class="grid grid-cols-4 gap-3 mb-8">
-    {#each providers.filter(p => !chinaProviders.includes(p.id)) as provider}
+    {#each providers.filter(p => !chinaProviders.includes(p.id)) as provider (provider.id)}
       <div class="bg-white rounded-lg border {provider.enabled ? 'border-green-300 bg-green-50' : 'border-surface-200'} p-4">
         <div class="flex items-center justify-between">
           <span class="font-medium text-surface-900 capitalize">{provider.id}</span>
@@ -45,7 +46,7 @@
   <!-- China -->
   <h3 class="text-lg font-semibold text-surface-800 mb-3">国内提供商</h3>
   <div class="grid grid-cols-4 gap-3">
-    {#each providers.filter(p => chinaProviders.includes(p.id)) as provider}
+    {#each providers.filter(p => chinaProviders.includes(p.id)) as provider (provider.id)}
       <div class="bg-white rounded-lg border {provider.enabled ? 'border-green-300 bg-green-50' : 'border-surface-200'} p-4">
         <div class="flex items-center justify-between">
           <span class="font-medium text-surface-900">{provider.id}</span>

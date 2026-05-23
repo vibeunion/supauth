@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { listUsers } from '$lib/api/client.js';
 
   let users = $state([]);
@@ -40,7 +41,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each users as user}
+        {#each users as user (user.id)}
           <tr class="border-b border-surface-100">
             <td class="px-4 py-3 font-mono text-xs text-surface-500">{user.id?.slice(0,8)}...</td>
             <td class="px-4 py-3 text-surface-900">{user.email || '-'}</td>
