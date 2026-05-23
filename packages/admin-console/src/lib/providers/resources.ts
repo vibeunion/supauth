@@ -1,0 +1,142 @@
+// SupaOAuth resource definitions for @svadmin/core
+
+import type { ResourceDefinition, MenuItem } from '@svadmin/core';
+
+export const supaoauthResources: ResourceDefinition[] = [
+  {
+    name: 'applications',
+    label: 'Applications',
+    icon: 'key-round',
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    canShow: true,
+    showInMenu: true,
+    menuOrder: 1,
+    fields: [
+      { key: 'client_name', label: 'Name', type: 'text', required: true, searchable: true, sortable: true, showInList: true, showInForm: true },
+      { key: 'client_id', label: 'Client ID', type: 'text', showInList: true, showInForm: false },
+      { key: 'client_type', label: 'Type', type: 'select', options: [{ label: 'Confidential', value: 'confidential' }, { label: 'Public', value: 'public' }], showInList: true, showInForm: true },
+      { key: 'redirect_uris', label: 'Redirect URIs', type: 'tags', showInForm: true, showInCreate: true },
+      { key: 'grant_types', label: 'Grant Types', type: 'tags', showInForm: true },
+    ],
+  },
+  {
+    name: 'connectors',
+    label: 'Connectors',
+    icon: 'plug',
+    canCreate: false,
+    canEdit: true,
+    canDelete: false,
+    canShow: true,
+    showInMenu: true,
+    menuOrder: 2,
+    fields: [
+      { key: 'id', label: 'Provider', type: 'text', searchable: true, sortable: true, showInList: true },
+      { key: 'enabled', label: 'Enabled', type: 'boolean', showInList: true, showInForm: true },
+    ],
+  },
+  {
+    name: 'resources',
+    label: 'API Resources',
+    icon: 'server',
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    canShow: true,
+    showInMenu: true,
+    menuOrder: 3,
+    fields: [
+      { key: 'name', label: 'Name', type: 'text', required: true, searchable: true, sortable: true, showInList: true, showInForm: true },
+      { key: 'indicator', label: 'Indicator', type: 'url', required: true, showInList: true, showInForm: true },
+      { key: 'description', label: 'Description', type: 'textarea', showInForm: true },
+      { key: 'scopes', label: 'Scopes', type: 'array', showInList: true, subFields: [
+        { key: 'name', label: 'Scope Name', type: 'text', required: true },
+      ]},
+    ],
+  },
+  {
+    name: 'users',
+    label: 'Users',
+    icon: 'users',
+    canCreate: false,
+    canEdit: false,
+    canDelete: true,
+    canShow: true,
+    showInMenu: true,
+    menuOrder: 4,
+    fields: [
+      { key: 'id', label: 'ID', type: 'text', showInList: true },
+      { key: 'email', label: 'Email', type: 'email', searchable: true, sortable: true, showInList: true },
+      { key: 'role', label: 'Role', type: 'text', showInList: true },
+      { key: 'created_at', label: 'Created', type: 'date', sortable: true, showInList: true },
+    ],
+  },
+  {
+    name: 'organizations',
+    label: 'Organizations',
+    icon: 'building-2',
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    canShow: true,
+    showInMenu: true,
+    menuOrder: 5,
+    fields: [
+      { key: 'name', label: 'Name', type: 'text', required: true, searchable: true, sortable: true, showInList: true, showInForm: true },
+      { key: 'description', label: 'Description', type: 'textarea', showInForm: true },
+    ],
+  },
+  {
+    name: 'webhooks',
+    label: 'Webhooks',
+    icon: 'webhook',
+    canCreate: true,
+    canEdit: true,
+    canDelete: true,
+    canShow: true,
+    showInMenu: true,
+    menuOrder: 6,
+    fields: [
+      { key: 'url', label: 'URL', type: 'url', required: true, showInList: true, showInForm: true },
+      { key: 'events', label: 'Events', type: 'tags', required: true, showInList: true, showInForm: true },
+      { key: 'enabled', label: 'Enabled', type: 'boolean', showInList: true, showInForm: true },
+    ],
+  },
+  {
+    name: 'audit',
+    label: 'Audit Logs',
+    icon: 'scroll-text',
+    canCreate: false,
+    canEdit: false,
+    canDelete: false,
+    canShow: true,
+    showInMenu: true,
+    menuOrder: 7,
+    fields: [
+      { key: 'event_type', label: 'Event', type: 'text', searchable: true, sortable: true, showInList: true },
+      { key: 'actor_type', label: 'Actor', type: 'text', showInList: true },
+      { key: 'resource_type', label: 'Resource', type: 'text', showInList: true },
+      { key: 'resource_id', label: 'Resource ID', type: 'text', showInList: true },
+      { key: 'created_at', label: 'Time', type: 'date', sortable: true, showInList: true },
+    ],
+  },
+];
+
+export const supaoauthMenuItems: MenuItem[] = [
+  { name: 'dashboard', label: 'Overview', icon: 'layout-dashboard', href: '/admin/dashboard' },
+  { name: 'identity', label: 'Identity', icon: 'fingerprint', children: [
+    { name: 'applications', label: 'Applications', icon: 'key-round', href: '/admin/applications' },
+    { name: 'connectors', label: 'Connectors', icon: 'plug', href: '/admin/connectors' },
+    { name: 'resources', label: 'API Resources', icon: 'server', href: '/admin/resources' },
+  ]},
+  { name: 'users-orgs', label: 'Users & Orgs', icon: 'users', children: [
+    { name: 'users', label: 'Users', icon: 'user', href: '/admin/users' },
+    { name: 'organizations', label: 'Organizations', icon: 'building-2', href: '/admin/organizations' },
+  ]},
+  { name: 'settings', label: 'Settings', icon: 'settings', href: '/admin/settings' },
+  { name: 'system', label: 'System', icon: 'cpu', children: [
+    { name: 'webhooks', label: 'Webhooks', icon: 'webhook', href: '/admin/webhooks' },
+    { name: 'audit', label: 'Audit Logs', icon: 'scroll-text', href: '/admin/audit' },
+  ]},
+];

@@ -1,26 +1,25 @@
 {
-	"name": "supaoauth",
-	"private": true,
-	"version": "0.0.1",
-	"type": "module",
-	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''"
-	},
-	"devDependencies": {
-		"@sveltejs/adapter-auto": "^7.0.1",
-		"@sveltejs/adapter-static": "^3.0.9",
-		"@sveltejs/kit": "^2.57.0",
-		"@sveltejs/vite-plugin-svelte": "^7.0.0",
-		"@types/node": "^25.9.1",
-		"svelte": "^5.55.2",
-		"vite": "^8.0.7"
-	},
-	"dependencies": {
-		"@svadmin/core": "^0.25.4",
-		"@tailwindcss/vite": "^4.3.0",
-		"tailwindcss": "^4.3.0"
-	}
+  "name": "supaoauth",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "packages/sdks/*"
+  ],
+  "scripts": {
+    "setup": "bun run scripts/setup.ts",
+    "migrate": "bun run --filter '@supaoauth/auth-server' migrate",
+    "dev": "bun run scripts/dev.ts",
+    "dev:admin": "bun run --filter '@supaoauth/admin-console' dev",
+    "dev:server": "bun run --filter '@supaoauth/auth-server' dev",
+    "build": "bun run --filter '@supaoauth/shared' typecheck && bun run --filter '@supaoauth/auth-server' build && bun run --filter '@supaoauth/admin-console' build",
+    "typecheck": "bun run --filter '@supaoauth/shared' typecheck && bun run --filter '@supaoauth/auth-server' typecheck",
+    "test": "bun run --filter '@supaoauth/shared' test && bun run --filter '@supaoauth/auth-server' test",
+    "check": "bun run typecheck && bun run test && bun run --filter '@supaoauth/admin-console' build"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.8.0"
+  }
 }

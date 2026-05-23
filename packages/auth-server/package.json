@@ -1,0 +1,27 @@
+{
+  "name": "@supaoauth/auth-server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "migrate": "bun run src/db/migrate.ts",
+    "start": "bun run dist/index.js",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.3.1",
+    "@elysiajs/swagger": "^1.3.0",
+    "@supaoauth/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "elysia": "^1.3.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6.0.3"
+  }
+}

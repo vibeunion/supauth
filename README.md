@@ -1,42 +1,106 @@
-# sv
+# SupaOAuth
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SupaOAuth is an independent Identity Provider (IdP) — a standalone user center comparable to Logto. It orchestrates authentication, authorization, and user management for business applications while remaining compatible with the Supabase ecosystem.
 
-## Creating a project
+It is not a thin admin panel for GoTrue environment variables.
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Architecture
 
-```sh
-# create a new project
-npx sv create my-app
+Three explicit layers:
+
+1. **Supabase-compatible runtime** — GoTrue, Kong, and Supabase API paths handle OIDC/OAuth protocol, JWT signing, `auth.users`, and RLS-compatible claims.
+2. **Logto-like product control plane** — SupaOAuth owns Applications, API Resources, Scopes, Roles, Organizations, Connectors, Sign-in Experience, Audit, Webhooks, and Management API/SDKs.
+3. **SupaCloud orchestration** — Applies product intent to GoTrue env injection, Kong routes, instance lifecycle, user/MFA proxy.
+
+SupaOAuth does not reimplement OIDC token signing or authorization-code issuance. GoTrue handles the protocol runtime. SupaOAuth is the control plane, BFF, metadata owner, and runtime verifier.
+
+See [docs/architecture.md](docs/architecture.md) for full details.
+
+## Supabase Compatibility
+
+Compatibility is a hard requirement. SupaOAuth must not break:
+
+- `supabase-js` auth flows
+- `auth.users` as primary identity (gotrue mode)
+- JWT claims needed by RLS (`sub`, `role`, `aud`, `iss`, `exp`, `app_metadata`, `user_metadata`)
+- OIDC discovery and JWKS endpoints
+- Supabase API paths (`/auth/v1/*`, `/rest/v1/*`, `/storage/v1/*`, `/realtime/v1/*`)
+- Self-hosted deployment via SupaCloud
+
+See [docs/supabase-compatibility.md](docs/supabase-compatibility.md) for the full spec.
+
+## Package Structure
+
+```
+packages/
+  auth-server/     # Elysia/Bun Management API + BFF + SupaCloud adapter + metadata APIs
+  admin-console/   # SvelteKit + @svadmin/core management UI
+  shared/          # Shared schemas and types
+  sdks/typescript/ # Management API client SDK
 ```
 
-To recreate this project with the same configuration:
+Root `src/` is a thin sync of `packages/admin-console/src/` for backward compatibility.
+
+## Quick Start
+
+Install dependencies and create `.env` from `.env.example`:
 
 ```sh
-# recreate this project
-npx sv@0.15.3 create --template minimal --no-types --no-install .
+bun run setup
 ```
 
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Edit `.env` with your SupaCloud values, then initialize the metadata schema in SupaCloud Postgres:
 
 ```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+bun run migrate
 ```
 
-## Building
-
-To create a production version of your app:
+Start auth-server and admin console together:
 
 ```sh
-npm run build
+bun run dev
 ```
 
-You can preview the production build with `npm run preview`.
+The admin console runs on `http://localhost:5173/admin`. During development, Vite proxies `/api/*` to `http://localhost:4000/*`, so browser code still uses `VITE_AUTH_SERVER_URL=/api`.
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Useful commands:
+
+```sh
+bun run dev:server   # auth-server only
+bun run dev:admin    # admin-console only
+bun run build        # all packages
+bun run check        # typecheck + tests + admin-console build
+```
+
+## Environment
+
+Auth server (server-side only, no `VITE_` prefix):
+
+```sh
+PORT=4000
+HOST=0.0.0.0
+SUPACLOUD_API_URL=http://localhost:9090
+SUPACLOUD_MASTER_TOKEN=<never-expose-to-browser>
+PROJECT_REF=<your-project>
+OAUTH_RUNTIME_URL=http://localhost:9999
+RUNTIME_MODE=gotrue
+DATABASE_URL=postgres://supaoauth:password@localhost:5432/supabase
+CORS_ORIGINS=http://localhost:5173
+ADMIN_TOKEN=<development-admin-token>
+LOG_LEVEL=info
+```
+
+Admin console (browser-side):
+
+```sh
+VITE_AUTH_SERVER_URL=/api
+```
+
+No management tokens or service-role keys in `VITE_*` variables.
+
+Optional:
+
+```sh
+SUPACLOUD_STORAGE_URL=http://localhost:8000
+AUTH_SERVER_PROXY_TARGET=http://localhost:4000
+```

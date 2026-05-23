@@ -4,11 +4,13 @@
   let { children } = $props();
 
   const navItems = [
-    { path: '/dashboard', label: '概览', icon: '◉' },
-    { path: '/clients', label: 'OAuth 客户端', icon: '⬡' },
-    { path: '/providers', label: 'SSO 提供商', icon: '⊕' },
-    { path: '/users', label: '用户管理', icon: '⊙' },
-    { path: '/settings', label: '认证配置', icon: '⚙' },
+    { path: '/dashboard', label: 'Overview', icon: '◉' },
+    { path: '/applications', label: 'Applications', icon: '⬡' },
+    { path: '/connectors', label: 'Connectors', icon: '⊕' },
+    { path: '/resources', label: 'API Resources', icon: '◆' },
+    { path: '/users', label: 'Users', icon: '⊙' },
+    { path: '/organizations', label: 'Organizations', icon: '⬢' },
+    { path: '/settings', label: 'Settings', icon: '⚙' },
   ];
 </script>
 
@@ -17,7 +19,7 @@
   <nav class="w-64 shrink-0 bg-surface-900 text-white flex flex-col">
     <div class="px-6 py-5 border-b border-surface-700">
       <h1 class="text-lg font-bold tracking-tight">SupaOAuth</h1>
-      <p class="text-xs text-surface-400 mt-1">统一授权中心</p>
+      <p class="text-xs text-surface-400 mt-1">Identity Provider</p>
     </div>
 
     <div class="flex-1 px-3 py-4 space-y-1">

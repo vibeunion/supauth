@@ -1,20 +1,18 @@
-// SupaOAuth API client — talks to SupaCloud Management API
-const API_BASE = import.meta.env.VITE_SUPACLOUD_API_URL || 'http://localhost:9090';
-const MASTER_TOKEN = import.meta.env.VITE_MASTER_TOKEN || '';
-const PROJECT_REF = import.meta.env.VITE_PROJECT_REF || '';
+// SupaOAuth API client — all management calls go through the auth-server BFF.
+// No SupaCloud master token or service-role key is exposed to the browser.
 
-if (!API_BASE || !PROJECT_REF) {
-  console.warn('SupaOAuth: VITE_SUPACLOUD_API_URL and VITE_PROJECT_REF must be set');
-}
+const API_BASE = import.meta.env.VITE_AUTH_SERVER_URL || '/api';
+const TOKEN_KEY = 'supaoauth_admin_token';
 
 async function request(path, options = {}) {
   const url = `${API_BASE}${path}`;
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
   const headers = {
     'Content-Type': 'application/json',
-    ...(MASTER_TOKEN ? { Authorization: `Bearer ${MASTER_TOKEN}` } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
-  const res = await fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers, credentials: 'include' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API ${res.status}: ${body}`);
@@ -22,103 +20,178 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-// OAuth Server status
+// Dashboard / Runtime status
 export function getOAuthServerStatus() {
-  return request(`/v1/projects/${PROJECT_REF}/auth/oauth-server`);
+  return request('/v1/runtime/oauth-server');
 }
 
-// OAuth Clients
-export function listOAuthClients() {
-  return request(`/v1/projects/${PROJECT_REF}/auth/oauth-clients`);
+export function getProject() {
+  return request('/v1/project');
 }
 
-export function createOAuthClient(data) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/oauth-clients`, {
+// OIDC Discovery (proxied through BFF to avoid CORS issues)
+export function getDiscovery() {
+  return request('/v1/runtime/discovery');
+}
+
+export function getJWKS() {
+  return request('/v1/runtime/jwks');
+}
+
+// Applications (formerly OAuth Clients)
+export function listApplications() {
+  return request('/v1/applications');
+}
+
+export function createApplication(data) {
+  return request('/v1/applications', {
     method: 'POST',
     body: JSON.stringify(data),
   });
 }
 
-export function getOAuthClient(clientId) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/oauth-clients/${clientId}`);
+export function getApplication(appId) {
+  return request(`/v1/applications/${appId}`);
 }
 
-export function updateOAuthClient(clientId, data) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/oauth-clients/${clientId}`, {
+export function updateApplication(appId, data) {
+  return request(`/v1/applications/${appId}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
 }
 
-export function deleteOAuthClient(clientId) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/oauth-clients/${clientId}`, {
+export function deleteApplication(appId) {
+  return request(`/v1/applications/${appId}`, {
     method: 'DELETE',
   });
 }
 
-export function regenerateClientSecret(clientId) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/oauth-clients/${clientId}/regenerate-secret`, {
+export function rotateApplicationSecret(appId) {
+  return request(`/v1/applications/${appId}/rotate-secret`, {
     method: 'POST',
   });
 }
 
-// SSO Providers
-export function listProviders() {
-  return request(`/v1/projects/${PROJECT_REF}/auth/providers`);
+// Connectors (formerly SSO Providers)
+export function listConnectors() {
+  return request('/v1/connectors');
 }
 
-export function getProvider(providerId) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/providers/${providerId}`);
+export function getConnector(connectorId) {
+  return request(`/v1/connectors/${connectorId}`);
 }
 
-export function updateProvider(providerId, data) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/providers/${providerId}`, {
+export function updateConnector(connectorId, data) {
+  return request(`/v1/connectors/${connectorId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
 }
 
-// Users
-export function listUsers() {
-  return request(`/v1/projects/${PROJECT_REF}/auth/users`);
+export function testConnector(connectorId) {
+  return request(`/v1/connectors/${connectorId}/test`, {
+    method: 'POST',
+  });
 }
 
-export function getUser(userId) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/users/${userId}`);
+// API Resources
+export function listResources() {
+  return request('/v1/resources');
 }
 
-export function deleteUser(userId) {
-  return request(`/v1/projects/${PROJECT_REF}/auth/users/${userId}`, {
+export function createResource(data) {
+  return request('/v1/resources', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function getResource(resourceId) {
+  return request(`/v1/resources/${resourceId}`);
+}
+
+export function updateResource(resourceId, data) {
+  return request(`/v1/resources/${resourceId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteResource(resourceId) {
+  return request(`/v1/resources/${resourceId}`, {
     method: 'DELETE',
   });
 }
 
-// Auth config
+// Users (proxied through BFF)
+export function listUsers() {
+  return request('/v1/users');
+}
+
+export function getUser(userId) {
+  return request(`/v1/users/${userId}`);
+}
+
+export function deleteUser(userId) {
+  return request(`/v1/users/${userId}`, {
+    method: 'DELETE',
+  });
+}
+
+// Organizations
+export function listOrganizations() {
+  return request('/v1/organizations');
+}
+
+export function createOrganization(data) {
+  return request('/v1/organizations', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function getOrganization(orgId) {
+  return request(`/v1/organizations/${orgId}`);
+}
+
+export function updateOrganization(orgId, data) {
+  return request(`/v1/organizations/${orgId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteOrganization(orgId) {
+  return request(`/v1/organizations/${orgId}`, {
+    method: 'DELETE',
+  });
+}
+
+// Settings / Sign-in Experience
+export function getSignInExperience() {
+  return request('/v1/sign-in-experience');
+}
+
+export function updateSignInExperience(data) {
+  return request('/v1/sign-in-experience', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
 export function getAuthConfig() {
-  return request(`/v1/projects/${PROJECT_REF}/config/auth`);
+  return request('/v1/auth-config');
 }
 
 export function updateAuthConfig(data) {
-  return request(`/v1/projects/${PROJECT_REF}/config/auth`, {
+  return request('/v1/auth-config', {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
 }
 
-// OIDC Discovery (direct to GoTrue via Kong)
-const OAUTH_BASE = import.meta.env.VITE_OAUTH_URL || 'http://localhost:9999';
-
-export async function getDiscovery() {
-  const res = await fetch(`${OAUTH_BASE}/auth/v1/.well-known/openid-configuration`);
-  return res.json();
-}
-
-export async function getJWKS() {
-  const res = await fetch(`${OAUTH_BASE}/auth/v1/.well-known/jwks.json`);
-  return res.json();
-}
-
-// Project info
-export function getProject() {
-  return request(`/v1/projects/${PROJECT_REF}`);
+// Compatibility check
+export function getCompatibilityReport() {
+  return request('/v1/compatibility/supabase');
 }
