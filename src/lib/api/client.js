@@ -3,6 +3,10 @@ const API_BASE = import.meta.env.VITE_SUPACLOUD_API_URL || 'http://localhost:909
 const MASTER_TOKEN = import.meta.env.VITE_MASTER_TOKEN || '';
 const PROJECT_REF = import.meta.env.VITE_PROJECT_REF || '';
 
+if (!API_BASE || !PROJECT_REF) {
+  console.warn('SupaOAuth: VITE_SUPACLOUD_API_URL and VITE_PROJECT_REF must be set');
+}
+
 async function request(path, options = {}) {
   const url = `${API_BASE}${path}`;
   const headers = {
