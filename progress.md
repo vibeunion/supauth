@@ -1,6 +1,6 @@
 # SupaOAuth — 独立用户中心执行看板
 
-更新时间： 2026-05-23
+更新时间： 2026-05-25
 
 ## 结论
 
@@ -56,7 +56,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ### Track D — 登录体验与安全策略
 - [x] **D1.1** Sign-in Experience 配置模型 (DB-backed)
-- [ ] **D1.2** MFA / Passkey / Passwordless 能力对齐 → 已编写 `docs/security-capabilities.md`，Admin Console 页面拆分规划完成，待实现 UI 页面
+- [x] **D1.2** MFA / Passkey / Passwordless 能力对齐 → `docs/security-capabilities.md` 完成，Admin Console `Security Policy` 页面已实现
 - [x] **D1.3** Consent 与授权体验 → `docs/consent-flow.md` 完成，数据模型和 API 设计已输出
 
 - [ ] **D1.4** @svadmin/sso 生产认证集成 (需 @svadmin/sso package 支持)
@@ -140,6 +140,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - `packages/admin-console/src/lib/providers/auth.ts` — @svadmin/core AuthProvider
 - `packages/admin-console/src/lib/providers/resources.ts` — Resource definitions + menu items
 - `packages/admin-console/src/routes/roles/+page.svelte` — Roles & Permissions management page
+- `packages/admin-console/src/routes/security/+page.svelte` — MFA / Passwordless / password policy / session policy page
 - `packages/admin-console/src/routes/webhooks/+page.svelte` — Webhooks management page
 - `packages/admin-console/src/routes/audit/+page.svelte` — Audit Logs page
 - `packages/admin-console/src/layouts/AdminLayout.svelte` — Updated sidebar navigation
@@ -163,17 +164,15 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - `packages/auth-server/src/compatibility/supabase.ts` — Extended with RBAC checks from rbac.ts module
 - `packages/sdks/typescript/src/index.ts` — Added RLS migration assistant methods (generateRLSMigration, getRLSMigrationDemo) + types
 - `packages/admin-console/src/lib/api/client.js` — Added roles, bindings, webhooks, sync, permissions API methods
+- `packages/admin-console/src/lib/providers/resources.ts` — Added Security Policy menu item
+- `packages/admin-console/src/layouts/AdminLayout.svelte` — Added Security Policy navigation and a11y label fixes
 - `packages/shared/src/index.ts` — Added claims.ts re-export
 
 ## 验证记录
-- [x] `bunx tsc --noEmit` — shared + auth-server typecheck pass (0 errors)
-- [x] `bun test` — 47 pass, 1 fail (pre-existing integration test requiring localhost:4000)
-  - auth-server unit: 5 RBAC compat + 7 RLS migration = 12 new pass
-  - All other existing tests continue passing
-- [x] `bunx tsc --noEmit` — sdks/typescript typecheck pass (0 errors)
-- [x] `bun test tests/integration/supabase-compat/` — 9 pass, 13 skip, 0 fail (live runtime checks gated by env flags)
-- [x] `bun run typecheck` — shared + auth-server typecheck pass
-- [x] `bun run test` — shared + auth-server tests pass (28 pass, 0 fail)
+- [x] `bunx tsc --noEmit` — root TS check pass (0 errors)
+- [x] `bun test` — 44 pass, 13 skip, 0 fail (live runtime checks gated by env flags)
+- [x] `bun run check` — shared + auth-server typecheck/test + admin-console build pass
+- [x] `bun run scripts/export-openapi.ts /tmp/supaoauth-openapi.json` — OpenAPI export pass (54 paths)
 1. Run setup: `bun run setup`
 2. 填写 `.env` 后运行 migration: `bun run migrate`
 3. 启动开发环境: `bun run dev`

@@ -41,13 +41,14 @@
 | Adaptive MFA (risk-based) | 需 SupaOAuth 自持风险评估引擎 |
 | SSO session binding | Enterprise SSO 登录后的 session 与 org 绑定 |
 
-## Admin Console 页面规划
+## Admin Console 页面
 
-**Security Policy 页面**（Settings 子页）：
-- MFA requirement toggle (global + org override)
+**Security Policy 页面**：
+- MFA requirement toggle
 - Password policy (min length, complexity rules)
-- Session policy (JWT expiry, refresh token rotation)
+- Session policy (JWT expiry)
 - Sign-in method enable/disable (password, magic link, phone OTP, passkey)
+- GoTrue auth config projection (sign-up, email confirmations, anonymous users, MFA factor limit)
 
 **Runtime Health 页面**（Dashboard 子卡片）：
 - GoTrue version + MFA module status

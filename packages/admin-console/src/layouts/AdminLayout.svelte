@@ -11,6 +11,7 @@
     { path: '/roles', label: 'Roles & Permissions', icon: '★' },
     { path: '/users', label: 'Users', icon: '⊙' },
     { path: '/organizations', label: 'Organizations', icon: '⬢' },
+    { path: '/security', label: 'Security Policy', icon: '◇' },
     { path: '/settings', label: 'Settings', icon: '⚙' },
     { path: '/webhooks', label: 'Webhooks', icon: '↗' },
     { path: '/audit', label: 'Audit Logs', icon: '≡' },

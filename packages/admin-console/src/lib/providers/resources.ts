@@ -134,6 +134,7 @@ export const supaoauthMenuItems: MenuItem[] = [
     { name: 'users', label: 'Users', icon: 'user', href: '/admin/users' },
     { name: 'organizations', label: 'Organizations', icon: 'building-2', href: '/admin/organizations' },
   ]},
+  { name: 'security', label: 'Security Policy', icon: 'shield-check', href: '/admin/security' },
   { name: 'settings', label: 'Settings', icon: 'settings', href: '/admin/settings' },
   { name: 'system', label: 'System', icon: 'cpu', children: [
     { name: 'webhooks', label: 'Webhooks', icon: 'webhook', href: '/admin/webhooks' },
