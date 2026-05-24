@@ -22,12 +22,16 @@ interface CheckResult {
 
 const results: CheckResult[] = [];
 
-async function check(name: string, url: string, opts: { expectStatus?: number; expectJson?: boolean; hostHeader?: string } = {}): Promise<void> {
+async function check(name: string, url: string, opts: { expectStatus?: number | number[]; expectJson?: boolean; hostHeader?: string } = {}): Promise<void> {
   try {
     const headers: Record<string, string> = {};
     if (opts.hostHeader) headers['Host'] = opts.hostHeader;
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(5_000) });
-    const ok = opts.expectStatus ? res.status === opts.expectStatus : res.ok;
+    const ok = Array.isArray(opts.expectStatus)
+      ? opts.expectStatus.includes(res.status)
+      : opts.expectStatus
+        ? res.status === opts.expectStatus
+        : res.ok;
     let detail = '';
     if (opts.expectJson && ok) {
       try {
@@ -85,7 +89,7 @@ async function main() {
 
   // 8. Storage route not occupied by SupaOAuth
   await check('Storage route free', `${kongHost}/storage/v1/bucket`, {
-    expectStatus: [200, 401].includes, // Either accessible or auth required, both fine
+    expectStatus: [200, 401], // Either accessible or auth required, both fine
   });
 
   // Summary

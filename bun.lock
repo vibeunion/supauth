@@ -50,6 +50,9 @@
     "packages/sdks/typescript": {
       "name": "@supaoauth/sdk-typescript",
       "version": "0.0.1",
+      "dependencies": {
+        "@supaoauth/shared": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "^1.2.0",
         "typescript": "^5.8.0",

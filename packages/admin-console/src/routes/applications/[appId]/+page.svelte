@@ -143,16 +143,16 @@
       <h3 class="text-lg font-semibold text-surface-800 mb-4">Edit Application</h3>
       <div class="space-y-4">
         <div>
-          <label class="block text-sm font-medium text-surface-700 mb-1">Name</label>
-          <input bind:value={editForm.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
+          <label for="application-name" class="block text-sm font-medium text-surface-700 mb-1">Name</label>
+          <input id="application-name" bind:value={editForm.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
         </div>
         <div>
-          <label class="block text-sm font-medium text-surface-700 mb-1">Redirect URIs (comma-separated)</label>
-          <input bind:value={editForm.redirect_uris} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
+          <label for="application-redirect-uris" class="block text-sm font-medium text-surface-700 mb-1">Redirect URIs (comma-separated)</label>
+          <input id="application-redirect-uris" bind:value={editForm.redirect_uris} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
         </div>
         <div>
-          <label class="block text-sm font-medium text-surface-700 mb-1">Grant Types (comma-separated)</label>
-          <input bind:value={editForm.grant_types} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
+          <label for="application-grant-types" class="block text-sm font-medium text-surface-700 mb-1">Grant Types (comma-separated)</label>
+          <input id="application-grant-types" bind:value={editForm.grant_types} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
         </div>
         <button onclick={handleUpdate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Save</button>
       </div>

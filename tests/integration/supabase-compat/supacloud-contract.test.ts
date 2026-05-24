@@ -43,10 +43,17 @@ describe('SupaCloud adapter contract verification', () => {
   it('updateUser payload uses SupaCloud expected shape', () => {
     // SupaCloud updateUser should accept app_metadata and user_metadata
     const payload = {
-      app_metadata: { supaoauth_roles: ['admin'], org_id: 'test-org-id' },
+      app_metadata: {
+        supaoauth: {
+          roles: ['admin'],
+          current_org_id: 'test-org-id',
+          rbac_version: 1,
+        },
+      },
       user_metadata: { avatar_storage_key: 'avatars/123/avatar' },
     };
     expect(payload.app_metadata).toBeDefined();
+    expect(payload.app_metadata.supaoauth).toBeDefined();
     expect(payload.user_metadata).toBeDefined();
   });
 

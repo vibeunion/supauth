@@ -169,4 +169,5 @@ Orchestration APIs:
 - SupaOAuth should present a Logto-like product model but emit Supabase-compatible runtime behavior.
 - Any feature that requires replacing GoTrue token semantics must be isolated behind `runtime_mode=external_oidc`.
 - Claims added by SupaOAuth should use stable namespacing and must not break existing RLS policies.
-
+- In `runtime_mode=gotrue`, RBAC should be exposed to Supabase through `supaoauth` schema projection tables and RLS helper functions, not by changing the JWT `role` claim.
+- See `docs/rbac-supabase-compatibility.md` for the RBAC migration baseline.

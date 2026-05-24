@@ -15,7 +15,9 @@ const children = commands.map(({ name, args }) => {
   });
 });
 
-async function stopAll(signal?: string) {
+type KillSignal = Parameters<(typeof children)[number]['kill']>[0];
+
+async function stopAll(signal?: KillSignal) {
   for (const child of children) {
     child.kill(signal ?? 'SIGTERM');
   }

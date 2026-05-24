@@ -53,6 +53,11 @@
 
 {#if loading}
   <p class="text-surface-400">Loading...</p>
+{:else if connectors.length === 0}
+  <div class="bg-surface-50 rounded-xl border border-surface-200 p-8 text-center">
+    <p class="text-surface-500">No connectors available</p>
+    <p class="text-sm text-surface-400 mt-2">Connectors are configured through SupaCloud. Check your project settings.</p>
+  </div>
 {:else}
   <!-- International -->
   <h3 class="text-lg font-semibold text-surface-800 mb-3">Social Connectors</h3>

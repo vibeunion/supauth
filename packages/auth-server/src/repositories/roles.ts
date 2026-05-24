@@ -1,6 +1,6 @@
 // Roles and Permissions repository — backed by SupaCloud Postgres
 
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { roles, permissions, roleAssignments } from '../db/schema.js';
 
@@ -123,15 +123,6 @@ export async function getOrgRoleAssignments(orgId: string) {
 /** Resolve effective permissions for a user (optionally in org context) */
 export async function resolveUserPermissions(userId: string, orgId?: string) {
   const db = getDb();
-  // Get all assignments for this user (user-level + org-level if specified)
-  const conditions = [eq(roleAssignments.userId, userId)];
-  if (orgId) {
-    // Get both user-level (no org) and org-level assignments
-    const userLevel = await db.select().from(roleAssignments)
-      .where(and(eq(roleAssignments.userId, userId), // org is null
-        // We need a separate query for user-level only
-      ));
-  }
   const assignments = await db.select().from(roleAssignments)
     .where(eq(roleAssignments.userId, userId));
 

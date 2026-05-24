@@ -14,10 +14,14 @@ export interface SyncResult {
 }
 
 /** Sync a user's SupaOAuth roles/org to GoTrue app_metadata.
- *  In gotrue mode, writes to:
- *    - app_metadata.supaoauth_roles: string[]
- *    - app_metadata.org_id: string (primary org)
- *    - app_metadata.org_role: string (role in primary org)
+ *  In gotrue mode, writes canonical data to:
+ *    - app_metadata.supaoauth.roles: string[]
+ *    - app_metadata.supaoauth.current_org_id: string
+ *    - app_metadata.supaoauth.current_org_role: string
+ *
+ *  The full permission decision stays in the Supabase DB projection through
+ *  supaoauth.authorize(...), so JWTs remain small and revocation is immediate
+ *  once projection tables are updated.
  */
 export async function syncUserMetadata(userId: string, orgId?: string): Promise<SyncResult> {
   const config = getConfig();
@@ -30,15 +34,21 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
   try {
     const { roles, permissions } = await roleRepo.resolveUserPermissions(userId, orgId);
 
-    const patch: Record<string, unknown> = {};
-    patch.supaoauth_roles = roles.map(r => r.name);
+    const supaoauthMetadata: Record<string, unknown> = {
+      roles: roles.map(r => r.name),
+      rbac_version: Date.now(),
+    };
 
     if (orgId) {
       const assignments = await roleRepo.getOrgRoleAssignments(orgId);
       const userAssignment = assignments.find(a => a.userId === userId);
-      patch.org_id = orgId;
-      patch.org_role = userAssignment?.role?.name || 'member';
+      supaoauthMetadata.current_org_id = orgId;
+      supaoauthMetadata.current_org_role = userAssignment?.role?.name || 'member';
     }
+
+    const patch: Record<string, unknown> = {
+      supaoauth: supaoauthMetadata,
+    };
 
     await adapter.updateUser(userId, {
       app_metadata: patch,

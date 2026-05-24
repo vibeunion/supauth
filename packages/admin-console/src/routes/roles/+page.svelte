@@ -80,12 +80,12 @@
     <h3 class="text-lg font-semibold text-surface-800 mb-4">New Role</h3>
     <div class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-surface-700 mb-1">Name</label>
-        <input bind:value={newRole.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="admin">
+        <label for="new-role-name" class="block text-sm font-medium text-surface-700 mb-1">Name</label>
+        <input id="new-role-name" bind:value={newRole.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="admin">
       </div>
       <div>
-        <label class="block text-sm font-medium text-surface-700 mb-1">Description</label>
-        <input bind:value={newRole.description} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="Full administrator access">
+        <label for="new-role-description" class="block text-sm font-medium text-surface-700 mb-1">Description</label>
+        <input id="new-role-description" bind:value={newRole.description} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="Full administrator access">
       </div>
       <button onclick={handleCreate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Create</button>
     </div>

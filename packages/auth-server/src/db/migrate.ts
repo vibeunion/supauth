@@ -148,6 +148,51 @@ CREATE INDEX IF NOT EXISTS idx_role_assignments_role_id ON supaoauth.role_assign
 CREATE INDEX IF NOT EXISTS idx_role_assignments_user_id ON supaoauth.role_assignments (user_id);
 CREATE INDEX IF NOT EXISTS idx_role_assignments_org_id ON supaoauth.role_assignments (organization_id);
 
+-- Supabase-compatible RBAC projection helpers
+--
+-- These helpers let existing Supabase projects migrate RLS incrementally:
+--   USING (auth.uid() = owner_id OR supaoauth.authorize('project.read'))
+--
+-- The JWT role claim remains authenticated; business RBAC is resolved from
+-- supaoauth metadata tables so permission revocation does not wait for token
+-- refresh. SECURITY DEFINER is required because authenticated users should not
+-- get direct table privileges on supaoauth metadata tables.
+CREATE OR REPLACE FUNCTION supaoauth.authorize(permission_name TEXT, target_organization_id UUID DEFAULT NULL)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = supaoauth, public, auth
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM supaoauth.role_assignments ra
+    JOIN supaoauth.permissions p ON p.role_id = ra.role_id
+    WHERE ra.user_id = auth.uid()
+      AND p.name = permission_name
+      AND (
+        target_organization_id IS NULL
+        OR ra.organization_id IS NULL
+        OR ra.organization_id = target_organization_id
+      )
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION supaoauth.has_org_permission(organization_id UUID, permission_name TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = supaoauth, public, auth
+AS $$
+  SELECT supaoauth.authorize(permission_name, organization_id);
+$$;
+
+REVOKE ALL ON FUNCTION supaoauth.authorize(TEXT, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION supaoauth.authorize(TEXT, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) TO authenticated;
+
 -- Insert default sign-in experience row if empty
 INSERT INTO supaoauth.sign_in_experience (page_title, sign_up_enabled, mfa_required)
 SELECT 'SupaOAuth', true, false

@@ -87,12 +87,12 @@
     <h3 class="text-lg font-semibold text-surface-800 mb-4">New Webhook</h3>
     <div class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-surface-700 mb-1">URL</label>
-        <input bind:value={newWebhook.url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://example.com/webhook">
+        <label for="new-webhook-url" class="block text-sm font-medium text-surface-700 mb-1">URL</label>
+        <input id="new-webhook-url" bind:value={newWebhook.url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://example.com/webhook">
       </div>
       <div>
-        <label class="block text-sm font-medium text-surface-700 mb-1">Events (comma-separated)</label>
-        <input bind:value={newWebhook.events} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="user.created, user.signed_in">
+        <label for="new-webhook-events" class="block text-sm font-medium text-surface-700 mb-1">Events (comma-separated)</label>
+        <input id="new-webhook-events" bind:value={newWebhook.events} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="user.created, user.signed_in">
         {#if availableEvents.length}
           <p class="text-xs text-surface-400 mt-1">Available: {availableEvents.join(', ')}</p>
         {/if}

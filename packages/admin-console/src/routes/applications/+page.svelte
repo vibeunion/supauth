@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { resolve } from '$app/paths';
   import { listApplications, createApplication, deleteApplication, rotateApplicationSecret } from '$lib/api/client.js';
 
   let applications = $state([]);
@@ -119,10 +120,11 @@
       <div class="bg-white rounded-xl border border-surface-200 p-5">
         <div class="flex items-start justify-between">
           <div>
-            <h4 class="font-semibold text-surface-900">{app.client_name || app.client_id}</h4>
+            <a href={resolve(`/applications/${app.client_id}`)} class="font-semibold text-surface-900 hover:text-brand-600 transition-colors">{app.client_name || app.client_id}</a>
             <p class="text-sm font-mono text-surface-500 mt-1">client_id: {app.client_id}</p>
           </div>
           <div class="flex gap-2">
+            <a href={resolve(`/applications/${app.client_id}`)} class="text-sm text-brand-600 hover:text-brand-800">View</a>
             <button onclick={() => handleRotateSecret(app.client_id)} class="text-sm text-brand-600 hover:text-brand-800">Rotate Secret</button>
             <button onclick={() => handleDelete(app.client_id)} class="text-sm text-red-500 hover:text-red-700">Delete</button>
           </div>

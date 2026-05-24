@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { SUPABASE_REQUIRED_CLAIMS, SUPAOAUTH_CLAIMS_NAMESPACE } from '../index.js';
+import { GOTRUE_CLAIMS_STRATEGY, SUPABASE_REQUIRED_CLAIMS, SUPAOAUTH_APP_METADATA_KEY, SUPAOAUTH_CLAIMS_NAMESPACE } from '../index.js';
 
 describe('Shared types', () => {
   it('exports required Supabase claims', () => {
@@ -14,5 +14,11 @@ describe('Shared types', () => {
 
   it('exports claims namespace', () => {
     expect(SUPAOAUTH_CLAIMS_NAMESPACE).toBe('supaoauth');
+  });
+
+  it('uses app_metadata.supaoauth as gotrue-mode namespace', () => {
+    expect(SUPAOAUTH_APP_METADATA_KEY).toBe('supaoauth');
+    expect(GOTRUE_CLAIMS_STRATEGY.roles.key).toBe('supaoauth.roles');
+    expect(GOTRUE_CLAIMS_STRATEGY.organization.key).toBe('supaoauth.current_org_id');
   });
 });

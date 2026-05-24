@@ -2,6 +2,8 @@
 
 export const SUPAOAUTH_CLAIMS_NAMESPACE = 'supaoauth';
 
+export const SUPAOAUTH_APP_METADATA_KEY = 'supaoauth';
+
 // JWT claims that Supabase RLS depends on (must never be removed/altered)
 export const SUPABASE_REQUIRED_CLAIMS = [
   'sub',
@@ -43,6 +45,14 @@ export interface SupaOAuthJWTClaims {
   'supaoauth:permissions'?: string[];
 }
 
+export interface SupaOAuthAppMetadata {
+  rbac_version?: number;
+  roles?: string[];
+  org_ids?: string[];
+  current_org_id?: string;
+  current_org_role?: string;
+}
+
 // Mapping strategy: how SupaOAuth concepts map to JWT claims in each mode
 export interface ClaimsMappingStrategy {
   mode: 'gotrue' | 'external_oidc';
@@ -66,8 +76,8 @@ export interface ClaimsMappingStrategy {
 
 export const GOTRUE_CLAIMS_STRATEGY: ClaimsMappingStrategy = {
   mode: 'gotrue',
-  roles: { location: 'app_metadata', key: 'supaoauth_roles' },
-  organization: { location: 'app_metadata', key: 'org_id' },
+  roles: { location: 'app_metadata', key: 'supaoauth.roles' },
+  organization: { location: 'app_metadata', key: 'supaoauth.current_org_id' },
   scopes: { location: 'management_api', key: '' },
   permissions: { location: 'management_api', key: '' },
 };

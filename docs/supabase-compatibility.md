@@ -45,6 +45,7 @@ SupaOAuth may add namespaced claims (e.g. `supaoauth:roles`, `supaoauth:org_id`)
 
 In `runtime_mode=gotrue`:
 - GoTrue's `/.well-known/openid-configuration` is the authoritative discovery document
+- GoTrue's `/.well-known/oauth-authorization-server` is the authoritative OAuth 2.1 authorization-server metadata document
 - GoTrue's `/.well-known/jwks.json` is the authoritative key set
 - SupaOAuth does not replace or proxy these endpoints with its own signing
 
@@ -139,9 +140,11 @@ SupaOAuth-added claims use the `supaoauth:` namespace:
 For each release, verify:
 
 - [ ] `supabase-js` can sign in, get session, refresh token, sign out
+- [ ] OAuth 2.1 metadata, authorization-code + PKCE, refresh-token, UserInfo, and unsupported-grant behavior pass `tests/integration/supabase-compat/oauth21.test.ts` against a real runtime
 - [ ] `auth.users` is the primary identity table (no parallel user table in gotrue mode)
 - [ ] JWT contains all required RLS claims (`sub`, `role`, `aud`, `iss`, `exp`, `app_metadata`, `user_metadata`)
 - [ ] OIDC discovery document is accessible at `/.well-known/openid-configuration`
+- [ ] OAuth authorization-server metadata is accessible at `/.well-known/oauth-authorization-server`
 - [ ] JWKS is accessible at `/.well-known/jwks.json`
 - [ ] Supabase API paths (`/auth/v1/*`, `/rest/v1/*`, `/storage/v1/*`, `/realtime/v1/*`) remain functional
 - [ ] No management tokens or service-role keys appear in browser-visible code or `VITE_*` variables

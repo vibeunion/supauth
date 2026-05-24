@@ -1,10 +1,12 @@
 // Supabase compatibility inspector — checks runtime against compatibility spec
+// Extended with RBAC-specific checks (P1-8)
 
 import { checkRuntimeHealth, getDiscovery } from '../runtime/index.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { getConfig } from '../config/index.js';
+import { runRBACCompatibilityChecks } from './rbac.js';
 
-interface CompatibilityCheckResult {
+export interface CompatibilityCheckResult {
   check_id: string;
   status: 'pass' | 'fail' | 'warn';
   message: string;
@@ -14,6 +16,8 @@ interface CompatibilityCheckResult {
 export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult[]> {
   const results: CompatibilityCheckResult[] = [];
   const config = getConfig();
+
+  // ─── SC checks (Supabase runtime compatibility) ───
 
   // SC-1: Discovery endpoint reachable
   const health = await checkRuntimeHealth();
@@ -96,11 +100,15 @@ export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult
     });
   } catch {
     results.push({
-      check_id: 'sc-7-scopes',
+     check_id: 'sc-7-scopes',
       status: 'warn',
       message: 'Could not check discovery scopes',
     });
   }
+
+  // ─── RB checks (RBAC compatibility — P1-8) ───
+  const rbacChecks = await runRBACCompatibilityChecks();
+  results.push(...rbacChecks);
 
   return results;
 }
