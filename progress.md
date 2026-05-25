@@ -75,14 +75,14 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ## P0 任务
 
-- [ ] **P0-8 SupaCloud Postgres migration 实机验证** (需真实 SupaCloud Postgres 环境)
-- [ ] **P0-9 Supabase runtime 端到端兼容测试** (已补 OAuth 2.1 black-box fixture；仍需真实 Supabase runtime 环境执行)
+- [x] **P0-8 SupaCloud Postgres migration 实机验证** (已在 B 机真实 SupaCloud Postgres 执行: management DB 与 tenant DB migration 均通过)
+- [ ] **P0-9 Supabase runtime 端到端兼容测试** (基础 live fixture 已通过；OAuth 2.1 fixture 暴露当前 GoTrue OAuth server signing key 配置缺口，未完成)
 - [x] **P0-10 生产认证替换 — 开发模式 ADMIN_TOKEN auth 完成生产认证** (`auth/index.ts` 已有 TODO 标注 @svadmin/sso 集成点)
 - [x] **P0-11 SupaOAuth metadata → GoTrue app_metadata 同步** (`sync/index.ts` 完成: syncUserMetadata, syncOrgMetadata, scheduleSyncRetry)
 - [x] **P0-12 Storage 头像与品牌资源策略修正** (avatar 存储 storage key 而非 signed URL, branding bucket 为 public, avatar bucket 为 private)
 - [x] **P0-13 SupaCloud API contract 验证** (`__tests__/adapter-contract.test.ts` + `tests/integration/supabase-compat/supacloud-contract.test.ts`)
 - [x] **P0-14 Supabase-compatible RBAC 投影基线** (`docs/rbac-supabase-compatibility.md` + `supaoauth.authorize(...)` / `supaoauth.has_org_permission(...)` migration helpers + canonical `app_metadata.supaoauth`)
-- [ ] **P0-15 RBAC RLS helper 实机验证** (需真实 Supabase runtime: 创建示例表、启用 RLS、使用 `supaoauth.authorize(...)` 验证授权/撤权即时生效)
+- [x] **P0-15 RBAC RLS helper 实机验证** (已在 B 机 tenant DB 创建临时 RLS 表，验证 `before_grant=0 / after_grant=1 / after_revoke=0`)
 
 ## P1 任务
 
@@ -173,6 +173,11 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - [x] `bun test` — 44 pass, 13 skip, 0 fail (live runtime checks gated by env flags)
 - [x] `bun run check` — shared + auth-server typecheck/test + admin-console build pass
 - [x] `bun run scripts/export-openapi.ts /tmp/supaoauth-openapi.json` — OpenAPI export pass (54 paths)
+- [x] B 机部署验证 — `auth.x.aizhuliren.cn` SupaOAuth admin/API HTTPS 200；`api.x.aizhuliren.cn/auth/v1/health` GoTrue HTTPS 200；`api.x.aizhuliren.cn/rest/v1/` PostgREST HTTPS 200；`api.x.aizhuliren.cn/storage/v1/bucket` Storage HTTPS 200
+- [x] B 机 runtime 验证 — `supacloud-pgrst@acgpswqcuaqoccjypdzy` 与 `supacloud-gotrue@acgpswqcuaqoccjypdzy` active，Kong tenant routes 已生成
+- [x] `RUN_SUPABASE_RUNTIME_COMPAT=1 OAUTH_RUNTIME_URL=https://api.x.aizhuliren.cn PORT=4010 bun test tests/integration/supabase-compat/supabase-js.test.ts` — 6 pass
+- [x] B 机 RBAC RLS helper 实机验证 — 临时 RLS 表 `before_grant=0 / after_grant=1 / after_revoke=0`
+- [ ] `RUN_SUPABASE_OAUTH21_COMPAT=1 OAUTH_RUNTIME_URL=https://api.x.aizhuliren.cn bun test tests/integration/supabase-compat/oauth21.test.ts` — OAuth server metadata 失败；GoTrue OAuth server 启用后因 signing key 配置无法启动，已回滚保持 Auth runtime 可用
 1. Run setup: `bun run setup`
 2. 填写 `.env` 后运行 migration: `bun run migrate`
 3. 启动开发环境: `bun run dev`
@@ -180,9 +185,9 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 ## 剩余任务
 
 ### P0 — 发布前必须完成（需外部环境）
-- [ ] **P0-8** SupaCloud Postgres migration 实机验证（需真实 SupaCloud Postgres）
-- [ ] **P0-9** Supabase runtime 端到端兼容测试（已补 OAuth 2.1 black-box fixture；需真实 Supabase runtime）
-- [ ] **P0-15** RBAC RLS helper 实机验证（需真实 Supabase runtime）
+- [x] **P0-8** SupaCloud Postgres migration 实机验证（B 机真实 SupaCloud Postgres 已通过）
+- [ ] **P0-9** Supabase runtime 端到端兼容测试（基础 live fixture 已通过；OAuth 2.1 fixture 因 GoTrue OAuth server signing key 配置缺口仍未通过）
+- [x] **P0-15** RBAC RLS helper 实机验证（B 机 tenant DB 已通过授权/撤权即时生效验证）
 - [ ] **D1.4** @svadmin/sso 生产认证集成（需 @svadmin/sso package 支持）
 
 ### P1 — 产品闭环 (全部完成)
