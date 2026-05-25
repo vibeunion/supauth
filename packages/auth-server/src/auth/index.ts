@@ -1,11 +1,18 @@
-// Admin console authentication — simple token-based auth for SupaOAuth admin
-// In production, this should use @svadmin/sso or a proper IdP
+// Admin console authentication for SupaOAuth.
+// Development accepts ADMIN_TOKEN and issues an in-memory session token.
+// Production accepts OIDC access tokens from @svadmin/sso via issuer JWKS.
 
 import { Elysia } from 'elysia';
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 
-// Simple admin token auth for development
-// In production: integrate with @svadmin/sso
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+const ADMIN_AUTH_MODE = (process.env.ADMIN_AUTH_MODE || 'auto').toLowerCase();
+const ADMIN_SSO_ISSUER = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
+const ADMIN_SSO_CLIENT_ID = process.env.ADMIN_SSO_CLIENT_ID || '';
+const ADMIN_SSO_AUDIENCE = process.env.ADMIN_SSO_AUDIENCE || ADMIN_SSO_CLIENT_ID;
+const ADMIN_SSO_JWKS_URI = process.env.ADMIN_SSO_JWKS_URI || (ADMIN_SSO_ISSUER ? `${ADMIN_SSO_ISSUER}/.well-known/jwks.json` : '');
+const ADMIN_SSO_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS);
+const ADMIN_SSO_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((domain) => domain.toLowerCase());
 
 interface AdminSession {
   id: string;
@@ -15,13 +22,97 @@ interface AdminSession {
   authenticated: boolean;
 }
 
-// In-memory session store (replace with DB/Redis in production)
 const sessions = new Map<string, AdminSession>();
+const jwks = ADMIN_SSO_JWKS_URI ? createRemoteJWKSet(new URL(ADMIN_SSO_JWKS_URI)) : null;
 
 function generateSessionToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
+
+function parseCsv(value?: string): string[] {
+  return (value || '').split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function bearerToken(headers: Record<string, string | undefined>): string | null {
+  const authHeader = headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  return authHeader.slice(7);
+}
+
+function sessionFromPayload(payload: JWTPayload): AdminSession {
+  const email = typeof payload.email === 'string' ? payload.email : '';
+  const name =
+    (typeof payload.name === 'string' && payload.name) ||
+    (typeof payload.preferred_username === 'string' && payload.preferred_username) ||
+    email ||
+    String(payload.sub || 'admin');
+
+  return {
+    id: String(payload.sub || email || 'admin'),
+    email,
+    name,
+    role: 'admin',
+    authenticated: true,
+  };
+}
+
+function isAllowedSsoAdmin(session: AdminSession): boolean {
+  if (ADMIN_SSO_ALLOWED_EMAILS.length === 0 && ADMIN_SSO_ALLOWED_DOMAINS.length === 0) return true;
+  const email = session.email.toLowerCase();
+  if (ADMIN_SSO_ALLOWED_EMAILS.map((item) => item.toLowerCase()).includes(email)) return true;
+  const domain = email.split('@')[1] || '';
+  return ADMIN_SSO_ALLOWED_DOMAINS.includes(domain);
+}
+
+async function verifySsoToken(token: string): Promise<AdminSession | null> {
+  if (ADMIN_AUTH_MODE === 'token' || !ADMIN_SSO_ISSUER || !jwks) return null;
+
+  try {
+    const result = await jwtVerify(token, jwks, {
+      issuer: ADMIN_SSO_ISSUER,
+      audience: ADMIN_SSO_AUDIENCE || undefined,
+      algorithms: ['ES256', 'RS256'],
+    });
+    const session = sessionFromPayload(result.payload);
+    return isAllowedSsoAdmin(session) ? session : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyAdminBearer(headers: Record<string, string | undefined>): Promise<AdminSession | null> {
+  const token = bearerToken(headers);
+  if (!token) return null;
+
+  const session = sessions.get(token);
+  if (session?.authenticated) return session;
+
+  return verifySsoToken(token);
+}
+
+function publicAdminPath(pathname: string): boolean {
+  return pathname === '/v1/health'
+    || pathname === '/v1/project'
+    || pathname.startsWith('/v1/runtime')
+    || pathname.startsWith('/v1/auth')
+    || pathname.startsWith('/swagger');
+}
+
+export const adminAuthGuard = new Elysia()
+  .onBeforeHandle({ as: 'global' }, async ({ request, headers }) => {
+    const pathname = new URL(request.url).pathname;
+    if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) return;
+
+    const session = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    if (!session) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+  });
 
 export const authRoutes = new Elysia({ prefix: '/v1/auth' })
   .post('/login', async ({ body }) => {
@@ -41,25 +132,16 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
       return { success: true, token: sessionToken };
     }
 
-    // TODO: Integrate @svadmin/sso for production auth
-    return { success: false, error: { message: 'Invalid credentials' } };
+    return { success: false, error: { message: USE_SSO_MESSAGE() || 'Invalid credentials' } };
   })
   .post('/logout', async ({ headers }) => {
-    const authHeader = headers.authorization as string;
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.slice(7);
-      sessions.delete(token);
-    }
+    const token = bearerToken(headers as Record<string, string | undefined>);
+    if (token) sessions.delete(token);
     return { success: true };
   })
   .get('/identity', async ({ headers }) => {
-    const authHeader = headers.authorization as string;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response('Unauthorized', { status: 401 });
-    }
-    const token = authHeader.slice(7);
-    const session = sessions.get(token);
-    if (!session?.authenticated) {
+    const session = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    if (!session) {
       return new Response('Unauthorized', { status: 401 });
     }
     return {
@@ -70,3 +152,8 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
     };
   })
   .get('/health', () => ({ status: 'ok' }));
+
+function USE_SSO_MESSAGE(): string | null {
+  if (ADMIN_AUTH_MODE === 'sso') return 'Password login is disabled; use SSO';
+  return null;
+}

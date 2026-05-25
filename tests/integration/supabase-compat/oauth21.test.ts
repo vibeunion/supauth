@@ -32,11 +32,25 @@ const ACCESS_TOKEN = process.env.OAUTH21_ACCESS_TOKEN || '';
 const REFRESH_TOKEN = process.env.OAUTH21_REFRESH_TOKEN || '';
 const CLIENT_SECRET = process.env.OAUTH21_CLIENT_SECRET || '';
 const TOKEN_AUTH_METHOD = process.env.OAUTH21_TOKEN_AUTH_METHOD || 'none';
+const LIVE_TIMEOUT_MS = parseInt(process.env.OAUTH21_TEST_TIMEOUT_MS || '30000', 10);
 
-const liveIt = RUN_LIVE ? it : it.skip;
-const clientLiveIt = RUN_LIVE && CLIENT_ID ? it : it.skip;
-const accessTokenLiveIt = RUN_LIVE && ACCESS_TOKEN ? it : it.skip;
-const refreshTokenLiveIt = RUN_LIVE && REFRESH_TOKEN ? it : it.skip;
+type LiveTestHandler = () => void | Promise<unknown>;
+
+function liveIt(name: string, fn: LiveTestHandler) {
+  return RUN_LIVE ? it(name, fn, LIVE_TIMEOUT_MS) : it.skip(name, fn);
+}
+
+function clientLiveIt(name: string, fn: LiveTestHandler) {
+  return RUN_LIVE && CLIENT_ID ? it(name, fn, LIVE_TIMEOUT_MS) : it.skip(name, fn);
+}
+
+function accessTokenLiveIt(name: string, fn: LiveTestHandler) {
+  return RUN_LIVE && ACCESS_TOKEN ? it(name, fn, LIVE_TIMEOUT_MS) : it.skip(name, fn);
+}
+
+function refreshTokenLiveIt(name: string, fn: LiveTestHandler) {
+  return RUN_LIVE && REFRESH_TOKEN ? it(name, fn, LIVE_TIMEOUT_MS) : it.skip(name, fn);
+}
 
 type JsonObject = Record<string, unknown>;
 

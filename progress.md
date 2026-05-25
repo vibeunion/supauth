@@ -59,7 +59,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - [x] **D1.2** MFA / Passkey / Passwordless 能力对齐 → `docs/security-capabilities.md` 完成，Admin Console `Security Policy` 页面已实现
 - [x] **D1.3** Consent 与授权体验 → `docs/consent-flow.md` 完成，数据模型和 API 设计已输出
 
-- [ ] **D1.4** @svadmin/sso 生产认证集成 (需 @svadmin/sso package 支持)
+- [x] **D1.4** @svadmin/sso 生产认证集成 (已接入 @svadmin/sso OIDC PKCE；auth-server 使用 JWKS 校验 SSO bearer token 并保留 ADMIN_TOKEN 开发入口)
 
 ### Track S — 文档
 - [x] **S1.1** Supabase compatibility spec → `docs/supabase-compatibility.md`
@@ -76,7 +76,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 ## P0 任务
 
 - [x] **P0-8 SupaCloud Postgres migration 实机验证** (已在 B 机真实 SupaCloud Postgres 执行: management DB 与 tenant DB migration 均通过)
-- [ ] **P0-9 Supabase runtime 端到端兼容测试** (基础 live fixture 已通过；OAuth 2.1 fixture 暴露当前 GoTrue OAuth server signing key 配置缺口，未完成)
+- [x] **P0-9 Supabase runtime 端到端兼容测试** (基础 live fixture 与 OAuth 2.1 live fixture 均已通过；B 机 GoTrue OAuth server 使用 ES256 project-scoped signing key)
 - [x] **P0-10 生产认证替换 — 开发模式 ADMIN_TOKEN auth 完成生产认证** (`auth/index.ts` 已有 TODO 标注 @svadmin/sso 集成点)
 - [x] **P0-11 SupaOAuth metadata → GoTrue app_metadata 同步** (`sync/index.ts` 完成: syncUserMetadata, syncOrgMetadata, scheduleSyncRetry)
 - [x] **P0-12 Storage 头像与品牌资源策略修正** (avatar 存储 storage key 而非 signed URL, branding bucket 为 public, avatar bucket 为 private)
@@ -175,9 +175,11 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - [x] `bun run scripts/export-openapi.ts /tmp/supaoauth-openapi.json` — OpenAPI export pass (54 paths)
 - [x] B 机部署验证 — `auth.x.aizhuliren.cn` SupaOAuth admin/API HTTPS 200；`api.x.aizhuliren.cn/auth/v1/health` GoTrue HTTPS 200；`api.x.aizhuliren.cn/rest/v1/` PostgREST HTTPS 200；`api.x.aizhuliren.cn/storage/v1/bucket` Storage HTTPS 200
 - [x] B 机 runtime 验证 — `supacloud-pgrst@acgpswqcuaqoccjypdzy` 与 `supacloud-gotrue@acgpswqcuaqoccjypdzy` active，Kong tenant routes 已生成
-- [x] `RUN_SUPABASE_RUNTIME_COMPAT=1 OAUTH_RUNTIME_URL=https://api.x.aizhuliren.cn PORT=4010 bun test tests/integration/supabase-compat/supabase-js.test.ts` — 6 pass
+- [x] `RUN_SUPABASE_RUNTIME_COMPAT=1 OAUTH_RUNTIME_URL=https://api.x.aizhuliren.cn PORT=4012 bun test tests/integration/supabase-compat/supabase-js.test.ts` — 6 pass (通过 SSH tunnel 转发 B 机 SupaOAuth 管理 API `127.0.0.1:4010`)
 - [x] B 机 RBAC RLS helper 实机验证 — 临时 RLS 表 `before_grant=0 / after_grant=1 / after_revoke=0`
-- [ ] `RUN_SUPABASE_OAUTH21_COMPAT=1 OAUTH_RUNTIME_URL=https://api.x.aizhuliren.cn bun test tests/integration/supabase-compat/oauth21.test.ts` — OAuth server metadata 失败；GoTrue OAuth server 启用后因 signing key 配置无法启动，已回滚保持 Auth runtime 可用
+- [x] `RUN_SUPABASE_OAUTH21_COMPAT=1 OAUTH_RUNTIME_URL=https://api.x.aizhuliren.cn bun test tests/integration/supabase-compat/oauth21.test.ts` — 5 pass, 4 skip；OAuth metadata / OIDC alignment / unsupported grant rejection / UserInfo no-token rejection 均通过
+- [x] B 机 SupaOAuth SSO 部署验证 — Admin OAuth client `56d90635-bf21-4c1a-8077-1ff26f8927d5` 已注册；`https://auth.x.aizhuliren.cn/admin` 200；未认证 `https://auth.x.aizhuliren.cn/api/v1/applications` 返回 401；`/api/v1/health` 200
+- [x] B 机资源修复 — 停用非核心 Victoria/Grafana/Exporter 观测服务并增加 4G swap，Postgres/GoTrue 延迟从 5-30s 超时恢复到 100ms 级响应
 1. Run setup: `bun run setup`
 2. 填写 `.env` 后运行 migration: `bun run migrate`
 3. 启动开发环境: `bun run dev`
@@ -186,9 +188,9 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ### P0 — 发布前必须完成（需外部环境）
 - [x] **P0-8** SupaCloud Postgres migration 实机验证（B 机真实 SupaCloud Postgres 已通过）
-- [ ] **P0-9** Supabase runtime 端到端兼容测试（基础 live fixture 已通过；OAuth 2.1 fixture 因 GoTrue OAuth server signing key 配置缺口仍未通过）
+- [x] **P0-9** Supabase runtime 端到端兼容测试（基础 live fixture 与 OAuth 2.1 live fixture 均已通过）
 - [x] **P0-15** RBAC RLS helper 实机验证（B 机 tenant DB 已通过授权/撤权即时生效验证）
-- [ ] **D1.4** @svadmin/sso 生产认证集成（需 @svadmin/sso package 支持）
+- [x] **D1.4** @svadmin/sso 生产认证集成（@svadmin/sso 已接入 admin-console；auth-server 已启用 OIDC JWKS bearer 校验；B 机已注册 Admin Console OAuth client 并部署）
 
 ### P1 — 产品闭环 (全部完成)
 - [x] **P1-6** OpenAPI 与 SDK 生成

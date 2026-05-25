@@ -6,7 +6,7 @@ import { cors } from '@elysiajs/cors';
 import { swagger } from '@elysiajs/swagger';
 import { getConfig, validateConfig } from './config/index.js';
 import { observabilityMiddleware } from './middleware/index.js';
-import { authRoutes } from './auth/index.js';
+import { adminAuthGuard, authRoutes } from './auth/index.js';
 import { storageRoutes } from './storage/index.js';
 import { healthRoutes, runtimeRoutes } from './routes/health.js';
 import { applicationRoutes } from './routes/applications.js';
@@ -65,6 +65,7 @@ const app = new Elysia()
       ],
     },
   }))
+  .use(adminAuthGuard)
 
   // ─── Route groups ────────────────────────────────────
   .use(healthRoutes)

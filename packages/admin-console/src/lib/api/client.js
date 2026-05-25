@@ -1,12 +1,13 @@
 // SupaOAuth API client — all management calls go through the auth-server BFF.
 // No SupaCloud master token or service-role key is exposed to the browser.
 
+import { getAdminAccessToken } from '../auth-token';
+
 const API_BASE = import.meta.env.VITE_AUTH_SERVER_URL || '/api';
-const TOKEN_KEY = 'supaoauth_admin_token';
 
 async function request(path, options = {}) {
   const url = `${API_BASE}${path}`;
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+  const token = await getAdminAccessToken();
   const headers = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
