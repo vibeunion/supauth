@@ -3,6 +3,8 @@
 import { desc, eq, and, gte, lte } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { auditLogs } from '../db/schema.js';
+import { getCurrentRequestId } from '../middleware/index.js';
+import { getConfig } from '../config/index.js';
 
 export async function logAudit(event: {
   eventType: string;
@@ -13,15 +15,26 @@ export async function logAudit(event: {
   details?: Record<string, unknown>;
 }) {
   const db = getDb();
+  const config = getConfig();
   const [entry] = await db.insert(auditLogs).values({
     eventType: event.eventType,
     actorId: event.actorId || null,
     actorType: event.actorType || 'system',
     resourceType: event.resourceType,
     resourceId: event.resourceId,
-    details: event.details || {},
+    details: {
+      ...(event.details || {}),
+      request_id: getCurrentRequestId() || null,
+      project_ref: config.projectRef || null,
+    },
   }).returning();
   return entry;
+}
+
+export async function getAuditLog(id: string) {
+  const db = getDb();
+  const rows = await db.select().from(auditLogs).where(eq(auditLogs.id, id)).limit(1);
+  return rows[0] || null;
 }
 
 export async function queryAuditLogs(options?: {

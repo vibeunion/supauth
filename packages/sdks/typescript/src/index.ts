@@ -98,6 +98,128 @@ interface WebhookEventList {
   events: string[];
 }
 
+interface UserConsent {
+  id: string;
+  userId?: string;
+  user_id?: string;
+  applicationId?: string;
+  application_id?: string;
+  scopeId?: string | null;
+  scope_id?: string | null;
+  organizationId?: string | null;
+  organization_id?: string | null;
+  grantedAt?: string;
+  granted_at?: string;
+  revokedAt?: string | null;
+  revoked_at?: string | null;
+}
+
+interface OrganizationTemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  templateRoles?: Array<{ name: string; permissions: string[] }>;
+  template_roles?: Array<{ name: string; permissions: string[] }>;
+  templateScopes?: Array<{ name: string; description?: string }>;
+  template_scopes?: Array<{ name: string; description?: string }>;
+  isDefault?: boolean;
+  is_default?: boolean;
+}
+
+interface SecurityStatus {
+  admin_auth_mode: string;
+  token_auth_allowed: boolean;
+  rate_limit_rpm: number;
+  brute_force_protection: boolean;
+  enforce_https: boolean;
+  warnings: string[];
+}
+
+interface EnterpriseSSOConfig {
+  id: string;
+  connectorId?: string;
+  connector_id?: string;
+  domains: string[];
+  ssoProtocol?: string;
+  sso_protocol?: string;
+  jitProvisioning?: boolean;
+  jit_provisioning?: boolean;
+  orgMembershipMapping?: Record<string, string>;
+  org_membership_mapping?: Record<string, string>;
+  roleMapping?: Record<string, string>;
+  role_mapping?: Record<string, string>;
+}
+
+interface Passkey {
+  id: string;
+  userId?: string;
+  user_id?: string;
+  credentialId?: string;
+  credential_id?: string;
+  name?: string | null;
+  createdAt?: string;
+  created_at?: string;
+  lastUsedAt?: string | null;
+  last_used_at?: string | null;
+}
+
+interface ApplicationSecret {
+  id: string;
+  applicationId?: string;
+  application_id?: string;
+  secretId?: string;
+  secret_id?: string;
+  name: string;
+  status: string;
+  expiresAt?: string | null;
+  expires_at?: string | null;
+  secret?: string;
+}
+
+interface ApplicationConsentSettings {
+  user_scopes?: string[];
+  organization_scopes?: string[];
+  allowed_organization_ids?: string[];
+  require_explicit_consent?: boolean;
+  custom_data?: Record<string, unknown>;
+}
+
+interface OrganizationInvitation {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  token?: string;
+}
+
+interface OrganizationJitSettings {
+  email_domains?: string[];
+  sso_connector_ids?: string[];
+  default_role_ids?: string[];
+  enabled: boolean;
+}
+
+interface ConnectorFactory {
+  id: string;
+  factoryId?: string;
+  factory_id?: string;
+  name: string;
+  protocol: string;
+  category: string;
+  configSchema?: Record<string, unknown>;
+  config_schema?: Record<string, unknown>;
+  enabled: boolean;
+}
+
+interface TenantConfig {
+  id: string;
+  configType?: string;
+  config_type?: string;
+  key: string;
+  value: Record<string, unknown>;
+  enabled: boolean;
+}
+
 // ─── RLS Migration Assistant types ──────────────────────
 export interface ExistingPolicy {
   schemaname: string;
@@ -239,6 +361,36 @@ export class SupaOAuthClient {
     );
   }
 
+  listApplicationSecrets(appId: string) {
+    return this.request<ListResponse<ApplicationSecret>>(`/v1/applications/${appId}/secrets`);
+  }
+
+  createApplicationSecret(appId: string, data: { name?: string; expires_at?: string }) {
+    return this.request<ApplicationSecret & { secret: string }>(`/v1/applications/${appId}/secrets`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  disableApplicationSecret(appId: string, secretId: string) {
+    return this.request<ApplicationSecret>(`/v1/applications/${appId}/secrets/${secretId}/disable`, { method: 'POST' });
+  }
+
+  deleteApplicationSecret(appId: string, secretId: string) {
+    return this.request<ApplicationSecret>(`/v1/applications/${appId}/secrets/${secretId}`, { method: 'DELETE' });
+  }
+
+  getApplicationConsentSettings(appId: string) {
+    return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/consent`);
+  }
+
+  updateApplicationConsentSettings(appId: string, data: ApplicationConsentSettings) {
+    return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/consent`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   // ─── Application bindings ──────────────────────────────
   listApplicationBindings(appId: string) {
     return this.request<ListResponse<ApplicationBinding>>(`/v1/applications/${appId}/bindings`);
@@ -280,6 +432,33 @@ export class SupaOAuthClient {
       `/v1/connectors/${connectorId}/test`,
       { method: 'POST' },
     );
+  }
+
+  getConnectorAuthorizationUri(connectorId: string, params?: { redirect_uri?: string; state?: string; scope?: string }) {
+    const qs = new URLSearchParams();
+    if (params?.redirect_uri) qs.set('redirect_uri', params.redirect_uri);
+    if (params?.state) qs.set('state', params.state);
+    if (params?.scope) qs.set('scope', params.scope);
+    const query = qs.toString();
+    return this.request<unknown>(`/v1/connectors/${connectorId}/authorization-uri${query ? `?${query}` : ''}`);
+  }
+
+  listConnectorFactories(category?: string) {
+    const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+    return this.request<ListResponse<ConnectorFactory>>(`/v1/connectors/factories${qs}`);
+  }
+
+  upsertConnectorFactory(factoryId: string, data: {
+    name: string;
+    protocol: string;
+    category: string;
+    config_schema?: Record<string, unknown>;
+    enabled?: boolean;
+  }) {
+    return this.request<ConnectorFactory>(`/v1/connectors/factories/${factoryId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   // ─── API Resources ────────────────────────────────────
@@ -330,8 +509,73 @@ export class SupaOAuthClient {
     return this.request<unknown>(`/v1/users/${userId}`);
   }
 
+  updateUser(userId: string, data: Record<string, unknown>) {
+    return this.request<unknown>(`/v1/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  suspendUser(userId: string, data: Record<string, unknown> = {}) {
+    return this.request<unknown>(`/v1/users/${userId}/suspend`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   deleteUser(userId: string) {
     return this.request<void>(`/v1/users/${userId}`, { method: 'DELETE' });
+  }
+
+  listUserSessions(userId: string) {
+    return this.request<ListResponse<unknown>>(`/v1/users/${userId}/sessions`);
+  }
+
+  revokeUserSession(userId: string, sessionId: string) {
+    return this.request<unknown>(`/v1/users/${userId}/sessions/${sessionId}/revoke`, { method: 'POST' });
+  }
+
+  unlinkUserIdentity(userId: string, identityId: string) {
+    return this.request<unknown>(`/v1/users/${userId}/identities/${identityId}`, { method: 'DELETE' });
+  }
+
+  resetUserMfa(userId: string, factorId: string) {
+    return this.request<unknown>(`/v1/users/${userId}/mfa/${factorId}/reset`, { method: 'POST' });
+  }
+
+  // ─── Account Center ───────────────────────────────────
+  getMyAccountProfile(userId: string) {
+    return this.request<unknown>('/v1/my-account/profile', { headers: { 'x-supaoauth-user-id': userId } });
+  }
+
+  updateMyAccountProfile(userId: string, data: Record<string, unknown>) {
+    return this.request<unknown>('/v1/my-account/profile', {
+      method: 'PATCH',
+      headers: { 'x-supaoauth-user-id': userId },
+      body: JSON.stringify(data),
+    });
+  }
+
+  listMyAccountSessions(userId: string) {
+    return this.request<ListResponse<unknown>>('/v1/my-account/sessions', { headers: { 'x-supaoauth-user-id': userId } });
+  }
+
+  revokeMyAccountSession(userId: string, sessionId: string) {
+    return this.request<unknown>(`/v1/my-account/sessions/${sessionId}/revoke`, {
+      method: 'POST',
+      headers: { 'x-supaoauth-user-id': userId },
+    });
+  }
+
+  listMyAccountGrants(userId: string) {
+    return this.request<ListResponse<UserConsent>>('/v1/my-account/grants', { headers: { 'x-supaoauth-user-id': userId } });
+  }
+
+  revokeMyAccountGrant(userId: string, consentId: string) {
+    return this.request<UserConsent>(`/v1/my-account/grants/${consentId}`, {
+      method: 'DELETE',
+      headers: { 'x-supaoauth-user-id': userId },
+    });
   }
 
   getUserPermissions(userId: string, orgId?: string) {
@@ -388,6 +632,49 @@ export class SupaOAuthClient {
     });
   }
 
+  listOrganizationInvitations(orgId: string) {
+    return this.request<ListResponse<OrganizationInvitation>>(`/v1/organizations/${orgId}/invitations`);
+  }
+
+  createOrganizationInvitation(orgId: string, data: { email: string; role?: string; expires_at?: string }) {
+    return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  updateOrganizationInvitationStatus(orgId: string, invitationId: string, action: 'accepted' | 'revoked' | 'expired') {
+    return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations/${invitationId}/${action}`, {
+      method: 'POST',
+    });
+  }
+
+  getOrganizationJitSettings(orgId: string) {
+    return this.request<OrganizationJitSettings>(`/v1/organizations/${orgId}/jit`);
+  }
+
+  updateOrganizationJitSettings(orgId: string, data: Partial<OrganizationJitSettings>) {
+    return this.request<OrganizationJitSettings>(`/v1/organizations/${orgId}/jit`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  listOrganizationApplications(orgId: string) {
+    return this.request<ListResponse<unknown>>(`/v1/organizations/${orgId}/applications`);
+  }
+
+  upsertOrganizationApplication(orgId: string, appId: string, data: { role_ids?: string[]; enabled?: boolean }) {
+    return this.request<unknown>(`/v1/organizations/${orgId}/applications/${appId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  removeOrganizationApplication(orgId: string, appId: string) {
+    return this.request<unknown>(`/v1/organizations/${orgId}/applications/${appId}`, { method: 'DELETE' });
+  }
+
   // ─── Roles ────────────────────────────────────────────
   listRoles() {
     return this.request<ListResponse<Role>>('/v1/roles');
@@ -436,7 +723,7 @@ export class SupaOAuthClient {
   // ─── Role assignments ─────────────────────────────────
   assignRole(
     roleId: string,
-    data: { user_id: string; organization_id?: string; application_id?: string },
+    data: { user_id?: string; organization_id?: string; application_id?: string },
   ) {
     return this.request<RoleAssignment>(`/v1/roles/${roleId}/assign`, {
       method: 'POST',
@@ -483,6 +770,33 @@ export class SupaOAuthClient {
     return this.request<{ checks: CompatibilityCheckResult[]; total: number; passed: number }>('/v1/compatibility/supabase');
   }
 
+  // ─── Tenant Config ────────────────────────────────────
+  listTenantConfigs(type?: string) {
+    const qs = type ? `?type=${encodeURIComponent(type)}` : '';
+    return this.request<ListResponse<TenantConfig>>(`/v1/tenant-config${qs}`);
+  }
+
+  getTenantConfig(type: string, key: string) {
+    return this.request<TenantConfig>(`/v1/tenant-config/${encodeURIComponent(type)}/${encodeURIComponent(key)}`);
+  }
+
+  upsertTenantConfig(type: string, key: string, data: { value?: Record<string, unknown>; enabled?: boolean }) {
+    return this.request<TenantConfig>(`/v1/tenant-config/${encodeURIComponent(type)}/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  deleteTenantConfig(type: string, key: string) {
+    return this.request<TenantConfig>(`/v1/tenant-config/${encodeURIComponent(type)}/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  checkTenantDomain(domain: string) {
+    return this.request<unknown>(`/v1/tenant-config/domain/${encodeURIComponent(domain)}/check`, { method: 'POST' });
+  }
+
   // ─── Webhooks ─────────────────────────────────────────
   listWebhooks() {
     return this.request<ListResponse<Webhook>>('/v1/webhooks');
@@ -513,6 +827,25 @@ export class SupaOAuthClient {
   rotateWebhookSecret(webhookId: string) {
     return this.request<Webhook & { secret: string }>(`/v1/webhooks/${webhookId}/rotate-secret`, {
       method: 'POST',
+    });
+  }
+
+  listWebhookLogs(webhookId: string, limit?: number) {
+    const qs = limit ? `?limit=${limit}` : '';
+    return this.request<ListResponse<AuditLogEntry>>(`/v1/webhooks/${webhookId}/logs${qs}`);
+  }
+
+  testWebhook(webhookId: string, data?: { event?: string; payload?: Record<string, unknown> }) {
+    return this.request<{ ok: boolean; status?: number; error?: string }>(`/v1/webhooks/${webhookId}/test`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    });
+  }
+
+  replayWebhook(webhookId: string, data: { event: string; payload?: Record<string, unknown> }) {
+    return this.request<{ ok: boolean; status?: number; error?: string }>(`/v1/webhooks/${webhookId}/replay`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 
@@ -567,5 +900,86 @@ export class SupaOAuthClient {
 
   getRLSMigrationDemo() {
     return this.request<MigrationResult>('/v1/admin-tools/rls-migration/demo');
+  }
+
+  // ─── Consents ─────────────────────────────────────────
+  listUserConsents(userId: string) {
+    return this.request<ListResponse<UserConsent>>(`/v1/consents?user_id=${encodeURIComponent(userId)}`);
+  }
+
+  grantConsent(data: { user_id: string; application_id: string; scope_id?: string; organization_id?: string }) {
+    return this.request<UserConsent>('/v1/consents', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  revokeConsent(consentId: string) {
+    return this.request<UserConsent>(`/v1/consents/${consentId}`, { method: 'DELETE' });
+  }
+
+  listApplicationConsents(applicationId: string) {
+    return this.request<ListResponse<UserConsent>>(`/v1/consents/application/${applicationId}`);
+  }
+
+  // ─── Organization templates ───────────────────────────
+  listOrgTemplates() {
+    return this.request<ListResponse<OrganizationTemplate>>('/v1/org-templates');
+  }
+
+  createOrgTemplate(data: {
+    name: string;
+    description?: string;
+    template_roles?: Array<{ name: string; permissions: string[] }>;
+    template_scopes?: Array<{ name: string; description?: string }>;
+    is_default?: boolean;
+  }) {
+    return this.request<OrganizationTemplate>('/v1/org-templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  instantiateOrgTemplate(templateId: string, data: { name: string; description?: string; creator_user_id: string }) {
+    return this.request<unknown>(`/v1/org-templates/${templateId}/instantiate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Security and provisioning ────────────────────────
+  getSecurityStatus() {
+    return this.request<SecurityStatus>('/v1/security-config/status');
+  }
+
+  getProvisioningStatus(projectRef: string) {
+    return this.request<unknown>(`/v1/provisioning/${projectRef}`);
+  }
+
+  reconcileProject(projectRef: string) {
+    return this.request<unknown>(`/v1/provisioning/${projectRef}/reconcile`, { method: 'POST' });
+  }
+
+  // ─── Enterprise SSO / Passkeys ────────────────────────
+  listEnterpriseSSOConfigs() {
+    return this.request<ListResponse<EnterpriseSSOConfig>>('/v1/enterprise-sso');
+  }
+
+  createEnterpriseSSOConfig(data: {
+    connector_id: string;
+    domains: string[];
+    sso_protocol?: string;
+    jit_provisioning?: boolean;
+    org_membership_mapping?: Record<string, string>;
+    role_mapping?: Record<string, string>;
+  }) {
+    return this.request<EnterpriseSSOConfig>('/v1/enterprise-sso', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  listUserPasskeys(userId: string) {
+    return this.request<ListResponse<Passkey>>(`/v1/passkeys/${userId}`);
   }
 }

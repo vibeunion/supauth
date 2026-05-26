@@ -22,4 +22,15 @@ export const auditRoutes = new Elysia({ prefix: '/v1/audit' })
       description: 'Returns admin action audit logs with filtering by event type, resource, actor, and time range',
       tags: ['Audit'],
     },
+  })
+  .get('/:logId', async ({ params }) => {
+    const log = await auditRepo.getAuditLog(params.logId);
+    if (!log) return new Response('Not found', { status: 404 });
+    return log;
+  }, {
+    detail: {
+      summary: 'Get audit log detail',
+      description: 'Returns a single audit log entry including request/project correlation details',
+      tags: ['Audit'],
+    },
   });

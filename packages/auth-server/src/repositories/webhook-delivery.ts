@@ -49,6 +49,48 @@ export async function dispatchEvent(event: WebhookEvent): Promise<void> {
   }
 }
 
+/** Deliver one webhook synchronously for diagnostics and manual replay. */
+export async function deliverWebhookOnce(
+  webhookId: string,
+  url: string,
+  secret: string,
+  event: WebhookEvent,
+): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const payload = JSON.stringify(event);
+  const signature = await computeSignature(payload, secret);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-SupaOAuth-Signature': `sha256=${signature}`,
+        'X-SupaOAuth-Event': event.type,
+        'X-SupaOAuth-Delivery-Id': `${webhookId}-${Date.now()}`,
+      },
+      body: payload,
+      signal: AbortSignal.timeout(10_000),
+    });
+    await auditRepo.logAudit({
+      eventType: res.ok ? 'webhook.diagnostic_delivered' : 'webhook.diagnostic_failed',
+      resourceType: 'webhook',
+      resourceId: webhookId,
+      actorType: 'system',
+      details: { url, event: event.type, status: res.status },
+    });
+    return { ok: res.ok, status: res.status };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await auditRepo.logAudit({
+      eventType: 'webhook.diagnostic_failed',
+      resourceType: 'webhook',
+      resourceId: webhookId,
+      actorType: 'system',
+      details: { url, event: event.type, error: message },
+    });
+    return { ok: false, error: message };
+  }
+}
+
 async function deliverWithRetry(
   webhookId: string,
   url: string,
@@ -128,12 +170,18 @@ export const SUPPORTED_WEBHOOK_EVENTS = [
   'application.created',
   'application.updated',
   'application.deleted',
+  'application.secret_created',
   'organization.created',
+  'organization.invitation_created',
   'organization.member_added',
   'organization.member_removed',
   'role.assigned',
   'role.revoked',
   'connector.updated',
+  'consent.granted',
+  'consent.revoked',
+  'org_template.created',
+  'organization.created_from_template',
 ] as const;
 
 export type SupportedWebhookEvent = typeof SUPPORTED_WEBHOOK_EVENTS[number];

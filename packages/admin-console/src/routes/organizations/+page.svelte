@@ -1,12 +1,17 @@
 <script>
   import { onMount } from 'svelte';
-  import { listOrganizations, createOrganization, deleteOrganization } from '$lib/api/client.js';
+  import { listOrganizations, createOrganization, deleteOrganization, listOrganizationInvitations, createOrganizationInvitation, getOrganizationJit, updateOrganizationJit, listOrganizationApplications, upsertOrganizationApplication } from '$lib/api/client.js';
 
   let organizations = $state([]);
   let loading = $state(true);
   let error = $state(null);
   let showCreate = $state(false);
   let newOrg = $state({ name: '', description: '' });
+  let selectedOrg = $state(null);
+  let orgControls = $state({ invitations: [], applications: [], jit: null });
+  let inviteEmail = $state('');
+  let jitDomains = $state('');
+  let appAccess = $state({ app_id: '', role_ids: '' });
 
   async function load() {
     loading = true;
@@ -35,6 +40,52 @@
     try {
       await deleteOrganization(id);
       await load();
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function loadControls(org) {
+    selectedOrg = org;
+    const [invites, jit, apps] = await Promise.all([
+      listOrganizationInvitations(org.id).catch(() => ({ items: [] })),
+      getOrganizationJit(org.id).catch(() => null),
+      listOrganizationApplications(org.id).catch(() => ({ items: [] })),
+    ]);
+    orgControls = { invitations: invites.items || [], applications: apps.items || [], jit };
+    jitDomains = (jit?.emailDomains || jit?.email_domains || []).join(', ');
+  }
+
+  async function handleInvite() {
+    try {
+      await createOrganizationInvitation(selectedOrg.id, { email: inviteEmail });
+      inviteEmail = '';
+      await loadControls(selectedOrg);
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function handleSaveJit() {
+    try {
+      await updateOrganizationJit(selectedOrg.id, {
+        email_domains: jitDomains.split(',').map(s => s.trim()).filter(Boolean),
+        enabled: true,
+      });
+      await loadControls(selectedOrg);
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function handleGrantApp() {
+    try {
+      await upsertOrganizationApplication(selectedOrg.id, appAccess.app_id, {
+        role_ids: appAccess.role_ids.split(',').map(s => s.trim()).filter(Boolean),
+        enabled: true,
+      });
+      appAccess = { app_id: '', role_ids: '' };
+      await loadControls(selectedOrg);
     } catch (e) {
       error = e.message;
     }
@@ -89,8 +140,39 @@
               <p class="text-sm text-surface-500 mt-1">{org.description}</p>
             {/if}
           </div>
-          <button onclick={() => handleDelete(org.id)} class="text-sm text-red-500 hover:text-red-700">Delete</button>
+          <div class="flex gap-3">
+            <button onclick={() => loadControls(org)} class="text-sm text-brand-600 hover:text-brand-800">Controls</button>
+            <button onclick={() => handleDelete(org.id)} class="text-sm text-red-500 hover:text-red-700">Delete</button>
+          </div>
         </div>
+        {#if selectedOrg?.id === org.id}
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5 border-t border-surface-100 pt-4">
+            <div>
+              <h5 class="text-sm font-semibold text-surface-700 mb-2">Invitations</h5>
+              <div class="flex gap-2 mb-2">
+                <input bind:value={inviteEmail} class="min-w-0 flex-1 px-2 py-1 border border-surface-300 rounded text-sm" placeholder="user@example.com">
+                <button onclick={handleInvite} class="px-2 py-1 bg-brand-600 text-white rounded text-xs">Invite</button>
+              </div>
+              {#each orgControls.invitations as invite (invite.id)}
+                <p class="text-xs text-surface-500">{invite.email} · {invite.status}</p>
+              {/each}
+            </div>
+            <div>
+              <h5 class="text-sm font-semibold text-surface-700 mb-2">JIT Provisioning</h5>
+              <input bind:value={jitDomains} class="w-full px-2 py-1 border border-surface-300 rounded text-sm mb-2" placeholder="example.com, corp.com">
+              <button onclick={handleSaveJit} class="px-2 py-1 bg-brand-600 text-white rounded text-xs">Enable / Save</button>
+            </div>
+            <div>
+              <h5 class="text-sm font-semibold text-surface-700 mb-2">Application Access</h5>
+              <input bind:value={appAccess.app_id} class="w-full px-2 py-1 border border-surface-300 rounded text-sm mb-2" placeholder="client_id">
+              <input bind:value={appAccess.role_ids} class="w-full px-2 py-1 border border-surface-300 rounded text-sm mb-2" placeholder="role IDs">
+              <button onclick={handleGrantApp} class="px-2 py-1 bg-brand-600 text-white rounded text-xs">Grant</button>
+              {#each orgControls.applications as app (app.id)}
+                <p class="text-xs text-surface-500 mt-1">{app.applicationId || app.application_id} · {app.enabled ? 'enabled' : 'disabled'}</p>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </div>
     {/each}
   </div>

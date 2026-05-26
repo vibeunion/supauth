@@ -21,6 +21,15 @@ import { auditRoutes } from './routes/audit.js';
 import { compatibilityRoutes } from './routes/compatibility.js';
 import { syncRoutes } from './routes/sync.js';
 import { adminToolRoutes } from './routes/admin-tools.js';
+import { consentRoutes } from './routes/consents.js';
+import { orgTemplateRoutes } from './routes/org-templates.js';
+import { securityConfigRoutes } from './routes/security-config.js';
+import { provisioningRoutes } from './routes/provisioning.js';
+import { enterpriseSSORoutes } from './routes/enterprise-sso.js';
+import { passkeyRoutes } from './routes/passkeys.js';
+import { apiVersionRoutes } from './routes/api-versions.js';
+import { tenantConfigRoutes } from './routes/tenant-config.js';
+import { myAccountRoutes } from './routes/my-account.js';
 
 const config = getConfig();
 const configErrors = validateConfig(config);
@@ -37,7 +46,7 @@ const app = new Elysia()
   .use(swagger({
     path: '/swagger',
     documentation: {
-      info: { title: 'SupaOAuth Management API', version: '0.1.0', description: 'SupaOAuth is an independent Identity Provider (IdP) — a standalone user center that orchestrates GoTrue as the OIDC runtime and provides product RBAC, organizations, connectors, and sign-in experience management.' },
+      info: { title: 'SupaOAuth Management API', version: '0.2.0', description: 'SupaOAuth is an independent Identity Provider (IdP) — a standalone user center that orchestrates GoTrue as the OIDC runtime and provides product RBAC, organizations, connectors, and sign-in experience management.' },
       tags: [
         { name: 'Health', description: 'Server health and project info' },
         { name: 'Project', description: 'Project-level metadata' },
@@ -49,6 +58,7 @@ const app = new Elysia()
         { name: 'Scopes', description: 'OAuth scope management' },
         { name: 'Users', description: 'User CRUD and permission resolution' },
         { name: 'Organizations', description: 'Organization and member management' },
+        { name: 'Org Templates', description: 'Organization templates for auto-provisioning roles and permissions' },
         { name: 'Members', description: 'Organization member operations' },
         { name: 'RBAC', description: 'Role-based access control — roles, permissions, assignments' },
         { name: 'Permissions', description: 'Permission management under roles' },
@@ -62,6 +72,19 @@ const app = new Elysia()
         { name: 'Auth', description: 'Admin console authentication' },
         { name: 'Storage', description: 'Avatar and branding asset storage proxy' },
         { name: 'Admin Tools', description: 'RLS migration assistant and SDK tools' },
+        { name: 'Consents', description: 'User consent management for OAuth authorization' },
+        { name: 'Security', description: 'Production security configuration and enforcement' },
+        { name: 'Provisioning', description: 'SupaCloud project provisioning and idempotent reconcile' },
+        { name: 'Enterprise SSO', description: 'Enterprise SSO configuration, domain discovery, JIT provisioning' },
+        { name: 'Passkeys', description: 'WebAuthn passkey enrollment, listing, and revocation' },
+        { name: 'API Versions', description: 'API version tracking and breaking change detection' },
+        { name: 'Tenant Config', description: 'Captcha, message templates, domains, phrases, branding, and custom profile fields' },
+        { name: 'Secrets', description: 'Application client secret lifecycle' },
+        { name: 'Consent', description: 'Application consent configuration' },
+        { name: 'Connector Factory', description: 'Connector provider catalog and factory definitions' },
+        { name: 'Invitations', description: 'Organization invitations' },
+        { name: 'JIT', description: 'Organization just-in-time provisioning settings' },
+        { name: 'Account Center', description: 'User profile, sessions, identities, MFA, and suspension operations' },
       ],
     },
   }))
@@ -83,6 +106,15 @@ const app = new Elysia()
   .use(compatibilityRoutes)
   .use(syncRoutes)
   .use(adminToolRoutes)
+  .use(consentRoutes)
+  .use(orgTemplateRoutes)
+  .use(securityConfigRoutes)
+  .use(provisioningRoutes)
+  .use(enterpriseSSORoutes)
+  .use(passkeyRoutes)
+  .use(apiVersionRoutes)
+  .use(tenantConfigRoutes)
+  .use(myAccountRoutes)
 
   .listen({ port: config.port, hostname: config.host });
 

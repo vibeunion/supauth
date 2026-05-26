@@ -1,8 +1,9 @@
 <script>
   import { onMount } from 'svelte';
-  import { listConnectors, updateConnector, testConnector } from '$lib/api/client.js';
+  import { listConnectors, updateConnector, testConnector, listConnectorFactories } from '$lib/api/client.js';
 
   let connectors = $state([]);
+  let factories = $state([]);
   let loading = $state(true);
   let error = $state(null);
   let testing = $state(null);
@@ -13,7 +14,9 @@
     loading = true;
     try {
       const res = await listConnectors();
+      const factoryRes = await listConnectorFactories().catch(() => ({ items: [] }));
       connectors = Array.isArray(res) ? res : (res.items || res.data || []);
+      factories = factoryRes.items || [];
     } catch (e) {
       error = e.message;
     }
@@ -59,6 +62,19 @@
     <p class="text-sm text-surface-400 mt-2">Connectors are configured through SupaCloud. Check your project settings.</p>
   </div>
 {:else}
+  <h3 class="text-lg font-semibold text-surface-800 mb-3">Factory Catalog</h3>
+  <div class="grid grid-cols-3 gap-3 mb-8">
+    {#each factories as factory (factory.id)}
+      <div class="bg-white rounded-lg border border-surface-200 p-4">
+        <p class="font-medium text-surface-900">{factory.name}</p>
+        <p class="text-xs text-surface-500 mt-1">{factory.factoryId || factory.factory_id} · {factory.protocol} · {factory.category}</p>
+      </div>
+    {/each}
+    {#if factories.length === 0}
+      <div class="bg-surface-50 rounded-lg border border-surface-200 p-4 text-sm text-surface-500">No factory definitions yet.</div>
+    {/if}
+  </div>
+
   <!-- International -->
   <h3 class="text-lg font-semibold text-surface-800 mb-3">Social Connectors</h3>
   <div class="grid grid-cols-4 gap-3 mb-8">

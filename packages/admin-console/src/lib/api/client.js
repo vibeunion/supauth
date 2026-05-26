@@ -18,7 +18,10 @@ async function request(path, options = {}) {
     const body = await res.text();
     throw new Error(`API ${res.status}: ${body}`);
   }
-  return res.json();
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(text);
 }
 
 // Dashboard / Runtime status
@@ -73,6 +76,32 @@ export function rotateApplicationSecret(appId) {
   });
 }
 
+export function listApplicationSecrets(appId) {
+  return request(`/v1/applications/${appId}/secrets`);
+}
+
+export function createApplicationSecret(appId, data) {
+  return request(`/v1/applications/${appId}/secrets`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function disableApplicationSecret(appId, secretId) {
+  return request(`/v1/applications/${appId}/secrets/${secretId}/disable`, { method: 'POST' });
+}
+
+export function getApplicationConsent(appId) {
+  return request(`/v1/applications/${appId}/consent`);
+}
+
+export function updateApplicationConsent(appId, data) {
+  return request(`/v1/applications/${appId}/consent`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
 // Application-Resource/Scope bindings
 export function listApplicationBindings(appId) {
   return request(`/v1/applications/${appId}/bindings`);
@@ -117,6 +146,18 @@ export function testConnector(connectorId) {
   });
 }
 
+export function listConnectorFactories(category) {
+  const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+  return request(`/v1/connectors/factories${qs}`);
+}
+
+export function upsertConnectorFactory(factoryId, data) {
+  return request(`/v1/connectors/factories/${factoryId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
 // API Resources
 export function listResources() {
   return request('/v1/resources');
@@ -155,6 +196,20 @@ export function getUser(userId) {
   return request(`/v1/users/${userId}`);
 }
 
+export function updateUser(userId, data) {
+  return request(`/v1/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function suspendUser(userId, data = {}) {
+  return request(`/v1/users/${userId}/suspend`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export function deleteUser(userId) {
   return request(`/v1/users/${userId}`, {
     method: 'DELETE',
@@ -168,6 +223,22 @@ export function getUserPermissions(userId, orgId) {
 
 export function getUserRoles(userId) {
   return request(`/v1/users/${userId}/roles`);
+}
+
+export function listUserSessions(userId) {
+  return request(`/v1/users/${userId}/sessions`);
+}
+
+export function revokeUserSession(userId, sessionId) {
+  return request(`/v1/users/${userId}/sessions/${sessionId}/revoke`, { method: 'POST' });
+}
+
+export function unlinkUserIdentity(userId, identityId) {
+  return request(`/v1/users/${userId}/identities/${identityId}`, { method: 'DELETE' });
+}
+
+export function resetUserMfa(userId, factorId) {
+  return request(`/v1/users/${userId}/mfa/${factorId}/reset`, { method: 'POST' });
 }
 
 // Organizations
@@ -196,6 +267,43 @@ export function updateOrganization(orgId, data) {
 export function deleteOrganization(orgId) {
   return request(`/v1/organizations/${orgId}`, {
     method: 'DELETE',
+  });
+}
+
+export function listOrganizationInvitations(orgId) {
+  return request(`/v1/organizations/${orgId}/invitations`);
+}
+
+export function createOrganizationInvitation(orgId, data) {
+  return request(`/v1/organizations/${orgId}/invitations`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateOrganizationInvitationStatus(orgId, invitationId, action) {
+  return request(`/v1/organizations/${orgId}/invitations/${invitationId}/${action}`, { method: 'POST' });
+}
+
+export function getOrganizationJit(orgId) {
+  return request(`/v1/organizations/${orgId}/jit`);
+}
+
+export function updateOrganizationJit(orgId, data) {
+  return request(`/v1/organizations/${orgId}/jit`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function listOrganizationApplications(orgId) {
+  return request(`/v1/organizations/${orgId}/applications`);
+}
+
+export function upsertOrganizationApplication(orgId, appId, data) {
+  return request(`/v1/organizations/${orgId}/applications/${appId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
   });
 }
 
@@ -286,6 +394,27 @@ export function getCompatibilityReport() {
   return request('/v1/compatibility/supabase');
 }
 
+// Tenant config
+export function listTenantConfigs(type) {
+  const qs = type ? `?type=${encodeURIComponent(type)}` : '';
+  return request(`/v1/tenant-config${qs}`);
+}
+
+export function upsertTenantConfig(type, key, data) {
+  return request(`/v1/tenant-config/${encodeURIComponent(type)}/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteTenantConfig(type, key) {
+  return request(`/v1/tenant-config/${encodeURIComponent(type)}/${encodeURIComponent(key)}`, { method: 'DELETE' });
+}
+
+export function checkTenantDomain(domain) {
+  return request(`/v1/tenant-config/domain/${encodeURIComponent(domain)}/check`, { method: 'POST' });
+}
+
 // Webhooks
 export function listWebhooks() {
   return request('/v1/webhooks');
@@ -318,6 +447,24 @@ export function deleteWebhook(webhookId) {
 export function rotateWebhookSecret(webhookId) {
   return request(`/v1/webhooks/${webhookId}/rotate-secret`, {
     method: 'POST',
+  });
+}
+
+export function listWebhookLogs(webhookId, limit = 50) {
+  return request(`/v1/webhooks/${webhookId}/logs?limit=${limit}`);
+}
+
+export function testWebhook(webhookId, data = {}) {
+  return request(`/v1/webhooks/${webhookId}/test`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function replayWebhook(webhookId, data) {
+  return request(`/v1/webhooks/${webhookId}/replay`, {
+    method: 'POST',
+    body: JSON.stringify(data),
   });
 }
 
@@ -374,4 +521,87 @@ export function syncUserMetadata(userId, orgId) {
 
 export function syncOrgMetadata(orgId) {
   return request(`/v1/sync/org/${orgId}`, { method: 'POST' });
+}
+
+// Consents
+export function listUserConsents(userId) {
+  return request(`/v1/consents?user_id=${encodeURIComponent(userId)}`);
+}
+
+export function grantConsent(data) {
+  return request('/v1/consents', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function revokeConsent(consentId) {
+  return request(`/v1/consents/${consentId}`, { method: 'DELETE' });
+}
+
+export function listApplicationConsents(applicationId) {
+  return request(`/v1/consents/application/${applicationId}`);
+}
+
+// Organization templates
+export function listOrgTemplates() {
+  return request('/v1/org-templates');
+}
+
+export function createOrgTemplate(data) {
+  return request('/v1/org-templates', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteOrgTemplate(templateId) {
+  return request(`/v1/org-templates/${templateId}`, { method: 'DELETE' });
+}
+
+export function instantiateOrgTemplate(templateId, data) {
+  return request(`/v1/org-templates/${templateId}/instantiate`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// Security and provisioning
+export function getSecurityConfig() {
+  return request('/v1/security-config');
+}
+
+export function updateSecurityConfig(data) {
+  return request('/v1/security-config', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function getSecurityStatus() {
+  return request('/v1/security-config/status');
+}
+
+export function getProvisioningStatus(projectRef) {
+  return request(`/v1/provisioning/${projectRef}`);
+}
+
+export function reconcileProject(projectRef) {
+  return request(`/v1/provisioning/${projectRef}/reconcile`, { method: 'POST' });
+}
+
+// Enterprise SSO and passkeys
+export function listEnterpriseSSOConfigs() {
+  return request('/v1/enterprise-sso');
+}
+
+export function createEnterpriseSSOConfig(data) {
+  return request('/v1/enterprise-sso', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function listUserPasskeys(userId) {
+  return request(`/v1/passkeys/${userId}`);
 }

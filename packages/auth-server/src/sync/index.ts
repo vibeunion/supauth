@@ -79,7 +79,7 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
 /** Sync all members of an organization (batch) */
 export async function syncOrgMetadata(orgId: string): Promise<SyncResult[]> {
   const assignments = await roleRepo.getOrgRoleAssignments(orgId);
-  const userIds = [...new Set(assignments.map(a => a.userId))];
+  const userIds = [...new Set(assignments.map(a => a.userId).filter((userId): userId is string => !!userId))];
   const results: SyncResult[] = [];
 
   for (const userId of userIds) {

@@ -16,9 +16,13 @@
     "build": "bun run --filter '@supaoauth/shared' typecheck && bun run --filter '@supaoauth/auth-server' build && bun run --filter '@supaoauth/admin-console' build",
     "typecheck": "bun run --filter '@supaoauth/shared' typecheck && bun run --filter '@supaoauth/auth-server' typecheck",
     "test": "bun run --filter '@supaoauth/shared' test && bun run --filter '@supaoauth/auth-server' test",
-    "check": "bun run typecheck && bun run test && bun run --filter '@supaoauth/admin-console' build"
+    "check": "bun run typecheck && bun run test && bun run --filter '@supaoauth/admin-console' build",
+    "release:gate": "bun run scripts/release-gate.ts",
+    "backup:drill": "bun run scripts/backup-restore-drill.ts backup",
+    "capacity:baseline": "bun run scripts/capacity-baseline.ts"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.106.1",
     "@types/bun": "^1.2.0",
     "typescript": "^5.8.0"
   }

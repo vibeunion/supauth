@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { listWebhooks, createWebhook, deleteWebhook, updateWebhook, rotateWebhookSecret, listWebhookEvents } from '$lib/api/client.js';
+  import { listWebhooks, createWebhook, deleteWebhook, updateWebhook, rotateWebhookSecret, listWebhookEvents, listWebhookLogs, testWebhook } from '$lib/api/client.js';
 
   let webhooks = $state([]);
   let availableEvents = $state([]);
@@ -9,6 +9,7 @@
   let showCreate = $state(false);
   let newWebhook = $state({ url: '', events: '', enabled: true });
   let revealedSecrets = $state({});
+  let diagnostics = $state({});
 
   async function load() {
     loading = true;
@@ -65,6 +66,17 @@
       }
     } catch (e) {
       error = e.message;
+    }
+  }
+
+  async function handleTest(whId) {
+    try {
+      diagnostics[whId] = { status: 'testing', logs: diagnostics[whId]?.logs || [] };
+      const result = await testWebhook(whId, { event: 'webhook.test', payload: { source: 'admin_console' } });
+      const logs = await listWebhookLogs(whId, 5).catch(() => ({ items: [] }));
+      diagnostics[whId] = { status: result.ok ? 'delivered' : (result.error || `HTTP ${result.status}`), logs: logs.items || [] };
+    } catch (e) {
+      diagnostics[whId] = { status: e.message, logs: [] };
     }
   }
 
@@ -130,9 +142,18 @@
               {wh.enabled ? 'Disable' : 'Enable'}
             </button>
             <button onclick={() => handleRotateSecret(wh.id)} class="text-xs text-surface-600 hover:text-surface-800">Rotate Secret</button>
+            <button onclick={() => handleTest(wh.id)} class="text-xs text-surface-600 hover:text-surface-800">Test</button>
             <button onclick={() => handleDelete(wh.id)} class="text-xs text-red-500 hover:text-red-700">Delete</button>
           </div>
         </div>
+        {#if diagnostics[wh.id]}
+          <div class="mt-3 rounded-lg border border-surface-200 bg-surface-50 p-3">
+            <p class="text-xs font-medium text-surface-700">Diagnostic: {diagnostics[wh.id].status}</p>
+            {#each diagnostics[wh.id].logs as log (log.id)}
+              <p class="text-xs text-surface-500 mt-1">{log.eventType || log.event_type} · {log.createdAt || log.created_at}</p>
+            {/each}
+          </div>
+        {/if}
         {#if revealedSecrets[wh.id]}
           <div class="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <p class="text-xs text-yellow-700 font-medium mb-1">Secret (shown only once)</p>

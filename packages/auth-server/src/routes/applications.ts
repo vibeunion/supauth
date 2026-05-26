@@ -5,6 +5,7 @@ import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as bindingRepo from '../repositories/bindings.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
+import * as appControlRepo from '../repositories/application-control.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -62,6 +63,74 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     return result;
   }, {
     detail: { summary: 'Rotate client secret', tags: ['Applications'] },
+  })
+
+  .get('/:appId/secrets', async ({ params }) => {
+    const items = await appControlRepo.listApplicationSecrets(params.appId);
+    return { items, total: items.length };
+  }, {
+    detail: { summary: 'List application client secrets', tags: ['Applications', 'Secrets'] },
+  })
+
+  .post('/:appId/secrets', async ({ params, body }) => {
+    const data = body as { name?: string; expires_at?: string };
+    const secret = await appControlRepo.createApplicationSecret(params.appId, {
+      name: data.name,
+      expiresAt: data.expires_at ? new Date(data.expires_at) : null,
+    });
+    await fireWebhook('application.secret_created', { client_id: params.appId, secret_id: secret.secretId });
+    return secret;
+  }, {
+    detail: { summary: 'Create application client secret', tags: ['Applications', 'Secrets'] },
+  })
+
+  .post('/:appId/secrets/:secretId/disable', async ({ params }) => {
+    const secret = await appControlRepo.disableApplicationSecret(params.appId, params.secretId);
+    if (!secret) return new Response('Not found', { status: 404 });
+    return secret;
+  }, {
+    detail: { summary: 'Disable application client secret', tags: ['Applications', 'Secrets'] },
+  })
+
+  .delete('/:appId/secrets/:secretId', async ({ params }) => {
+    const secret = await appControlRepo.deleteApplicationSecret(params.appId, params.secretId);
+    if (!secret) return new Response('Not found', { status: 404 });
+    return secret;
+  }, {
+    detail: { summary: 'Delete application client secret metadata', tags: ['Applications', 'Secrets'] },
+  })
+
+  .get('/:appId/consent', async ({ params }) => {
+    const settings = await appControlRepo.getApplicationConsentSettings(params.appId);
+    return settings || {
+      applicationId: params.appId,
+      userScopes: [],
+      organizationScopes: [],
+      allowedOrganizationIds: [],
+      requireExplicitConsent: true,
+      customData: {},
+    };
+  }, {
+    detail: { summary: 'Get application consent configuration', tags: ['Applications', 'Consent'] },
+  })
+
+  .put('/:appId/consent', async ({ params, body }) => {
+    const data = body as {
+      user_scopes?: string[];
+      organization_scopes?: string[];
+      allowed_organization_ids?: string[];
+      require_explicit_consent?: boolean;
+      custom_data?: Record<string, unknown>;
+    };
+    return appControlRepo.upsertApplicationConsentSettings(params.appId, {
+      userScopes: data.user_scopes,
+      organizationScopes: data.organization_scopes,
+      allowedOrganizationIds: data.allowed_organization_ids,
+      requireExplicitConsent: data.require_explicit_consent,
+      customData: data.custom_data,
+    });
+  }, {
+    detail: { summary: 'Update application consent configuration', tags: ['Applications', 'Consent'] },
   })
 
   // ─── Application-Resource/Scope bindings ───

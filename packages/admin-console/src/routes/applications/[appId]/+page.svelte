@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { getApplication, updateApplication, deleteApplication, rotateApplicationSecret, listApplicationBindings, createApplicationBinding, deleteApplicationBinding, listResources } from '$lib/api/client.js';
+  import { getApplication, updateApplication, deleteApplication, rotateApplicationSecret, listApplicationBindings, createApplicationBinding, deleteApplicationBinding, listResources, listApplicationSecrets, createApplicationSecret, disableApplicationSecret, getApplicationConsent, updateApplicationConsent } from '$lib/api/client.js';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
 
@@ -14,20 +14,34 @@
   let editing = $state(false);
   let editForm = $state({ name: '', redirect_uris: '', grant_types: '' });
   let revealedSecret = $state(null);
+  let applicationSecrets = $state([]);
+  let newSecretName = $state('');
+  let consent = $state({ user_scopes: '', organization_scopes: '', allowed_organization_ids: '', require_explicit_consent: true });
   let showBinding = $state(false);
   let newBinding = $state({ resource_id: '', scope_id: '' });
 
   async function load() {
     loading = true;
     try {
-      const [appData, bindingData, resData] = await Promise.all([
+      const [appData, bindingData, resData, secretData, consentData] = await Promise.all([
         getApplication(appId).catch(() => null),
         listApplicationBindings(appId).catch(() => ({ items: [] })),
         listResources().catch(() => ({ items: [] })),
+        listApplicationSecrets(appId).catch(() => ({ items: [] })),
+        getApplicationConsent(appId).catch(() => null),
       ]);
       app = appData;
       bindings = bindingData.items || [];
       resources = resData.items || [];
+      applicationSecrets = secretData.items || [];
+      if (consentData) {
+        consent = {
+          user_scopes: (consentData.userScopes || consentData.user_scopes || []).join(', '),
+          organization_scopes: (consentData.organizationScopes || consentData.organization_scopes || []).join(', '),
+          allowed_organization_ids: (consentData.allowedOrganizationIds || consentData.allowed_organization_ids || []).join(', '),
+          require_explicit_consent: consentData.requireExplicitConsent ?? consentData.require_explicit_consent ?? true,
+        };
+      }
       if (app) {
         editForm = {
           name: app.client_name || '',
@@ -70,6 +84,41 @@
     try {
       const res = await rotateApplicationSecret(appId);
       if (res.client_secret) revealedSecret = res.client_secret;
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function handleCreateSecret() {
+    try {
+      const res = await createApplicationSecret(appId, { name: newSecretName || 'Client secret' });
+      revealedSecret = res.secret;
+      newSecretName = '';
+      await load();
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function handleDisableSecret(secretId) {
+    if (!confirm('Disable this client secret?')) return;
+    try {
+      await disableApplicationSecret(appId, secretId);
+      await load();
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function handleSaveConsent() {
+    try {
+      await updateApplicationConsent(appId, {
+        user_scopes: consent.user_scopes.split(',').map(s => s.trim()).filter(Boolean),
+        organization_scopes: consent.organization_scopes.split(',').map(s => s.trim()).filter(Boolean),
+        allowed_organization_ids: consent.allowed_organization_ids.split(',').map(s => s.trim()).filter(Boolean),
+        require_explicit_consent: consent.require_explicit_consent,
+      });
+      await load();
     } catch (e) {
       error = e.message;
     }
@@ -180,6 +229,47 @@
       {/if}
     </div>
   {/if}
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <div class="bg-white rounded-xl border border-surface-200 p-6">
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">Client Secrets</h3>
+      <div class="flex gap-2 mb-4">
+        <input bind:value={newSecretName} class="flex-1 px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="Secret label">
+        <button onclick={handleCreateSecret} class="px-3 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700">Create</button>
+      </div>
+      {#if applicationSecrets.length === 0}
+        <p class="text-sm text-surface-400">No tracked client secrets yet.</p>
+      {:else}
+        <div class="space-y-2">
+          {#each applicationSecrets as secret (secret.id)}
+            <div class="flex items-center justify-between border-b border-surface-100 py-2">
+              <div>
+                <p class="text-sm font-medium text-surface-900">{secret.name}</p>
+                <p class="text-xs font-mono text-surface-400">{secret.secretId || secret.secret_id} · {secret.status}</p>
+              </div>
+              {#if secret.status === 'active'}
+                <button onclick={() => handleDisableSecret(secret.secretId || secret.secret_id)} class="text-xs text-red-600 hover:text-red-800">Disable</button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <div class="bg-white rounded-xl border border-surface-200 p-6">
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">Consent Policy</h3>
+      <div class="space-y-3">
+        <input bind:value={consent.user_scopes} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="User scopes, comma-separated">
+        <input bind:value={consent.organization_scopes} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="Organization scopes, comma-separated">
+        <input bind:value={consent.allowed_organization_ids} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="Allowed organization IDs, comma-separated">
+        <label class="flex items-center gap-2 text-sm text-surface-700">
+          <input type="checkbox" bind:checked={consent.require_explicit_consent}>
+          Require explicit consent
+        </label>
+        <button onclick={handleSaveConsent} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Save Consent</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Resource/Scope bindings -->
   <div class="bg-white rounded-xl border border-surface-200 p-6">

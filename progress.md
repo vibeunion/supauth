@@ -1,6 +1,6 @@
 # SupaOAuth — 独立用户中心执行看板
 
-更新时间： 2026-05-25
+更新时间： 2026-05-26
 
 ## 结论
 
@@ -8,7 +8,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ## 架构审查结论
 
-当前整体架构方向是优雅且符合 Supabase 兼容目标的，但还没有达到完成态。
+当前整体架构方向是优雅且符合 Supabase / SupaCloud 兼容目标的，但还没有达到生产 GA 完成态。
 
 优雅点：
 - 三层边界清晰：Supabase-compatible runtime / SupaOAuth control plane / SupaCloud orchestration。
@@ -19,10 +19,34 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 兼容性判断：
 - 设计层面兼容 Supabase：保留 `/auth/v1/*`、`/rest/v1/*`、`/storage/v1/*`、`/realtime/v1/*`，不替换 GoTrue token 语义，不破坏 `auth.users`。
-- 实现层面仍需验证：目前已有 compatibility inspector 和文档，但还缺真实 Supabase runtime 的端到端 fixture 来证明 `supabase-js`、RLS、Storage、Realtime、Functions 都没有被破坏。
-- 最大未闭环点：SupaOAuth roles/org/scopes 已有 metadata，但 gotrue mode 下如何同步到 GoTrue `app_metadata` 仍未实现成可靠任务流；external_oidc mode 也仍是文档设计，不是可运行 issuer。
+- 实现层面已具备 staging 级证明：B 机基础 Supabase runtime fixture、OAuth 2.1 fixture、RBAC RLS helper 实机验证均已通过。
+- 生产层面仍需补齐：基础 fixture 只能证明 GoTrue/Kong/PostgREST/Storage 的核心路径可用，不能替代完整 `supabase-js` session 生命周期、OAuth consent、Realtime/Functions、上线回滚、备份恢复、容量压测和安全滥用防护。
+- 最大未闭环点：SupaOAuth 已有 roles/org/scopes metadata 与 GoTrue `app_metadata` 同步基线，但距离 Logto 级生产形态仍缺 organization template、组织级授权、Enterprise SSO/JIT、M2M 组织权限、可撤销 consent runtime 和运维闭环。
 
-结论：架构基线是正确的，兼容策略是可辩护的；距离"可发布完成"还缺生产认证、metadata 同步、集成测试、部署验证和 SDK/OpenAPI 生成。
+结论：架构基线是正确的，兼容策略是可辩护的；当前是 production candidate / staging-ready，不应宣称已经生产 GA。生产上线前必须完成下方新增 P0 任务。
+
+## 生产上线差距评估（2026-05-25）
+
+参考 Logto 的独立 IdP 产品形态，以及 Supabase 官方生产检查项，SupaOAuth 还差以下生产级闭环：
+
+- **Logto-like 产品能力**：需要把 organization template、组织角色/权限矩阵、M2M 组织权限、Enterprise SSO/JIT provisioning、可撤销 consent runtime 做成可运行能力，而不是只停留在文档或普通 CRUD。
+- **Supabase runtime 完整兼容**：需要覆盖 `supabase-js` 的 signUp/signIn/getSession/refresh/signOut、PKCE authorization-code、UserInfo、JWT/JWKS、RLS、Storage、Realtime、Functions，且不能破坏 `/auth/v1` 等 Supabase 标准路径。
+- **SupaCloud 编排闭环**：需要从空项目自动创建/迁移/注入 GoTrue config、JWT signing keys、Kong routes/certs、Storage/Pages/Functions 占位，并支持幂等 reconcile 与 rollback。
+- **生产安全与合规**：需要强制 SSO 管理登录、禁用生产 ADMIN_TOKEN fallback、加入 rate limit / CAPTCHA / audit / secret rotation / browser secret leak 检查。
+- **上线运维**：需要备份恢复演练、发布流水线、健康门禁、容量压测、最小资源规格、回滚脚本和事故恢复目标。
+
+## Logto 源码接口对比结论（2026-05-25）
+
+已下载 Logto 源码到 `/Users/zhd/Documents/Codex/2026-05-25/logto-interface-compare/logto-source-b92d584`，对比 commit `b92d584bc8c40399058c2c3a59f632c464d5708e`。
+
+对比方式：
+- Logto：扫描 `packages/core/src/routes/**/*.openapi.json`，共 76 个 OpenAPI 片段，230 个 path，341 个 operation。
+- SupaOAuth：执行 `bun run scripts/export-openapi.ts /tmp/supaoauth-openapi-current.json`，当前 79 个 path，110 个 operation。
+- 详细结论见 `docs/logto-interface-gap-analysis.md`。
+
+新增判断：
+- 不需要 1:1 复制 Logto 的 OIDC runtime / legacy interaction runtime / cloud-only protected app 能力；默认仍由 GoTrue 负责 Supabase-compatible Auth runtime。
+- 需要补齐与独立 IdP 控制面相关的接口：第三方应用 consent 与多 secret、账号中心、组织邀请/JIT/组织应用、connector factory、captcha/email template、webhook delivery diagnostics、custom domain/branding/phrases/custom profile fields。
 
 ## 已完成
 
@@ -170,7 +194,16 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ## 验证记录
 - [x] `bunx tsc --noEmit` — root TS check pass (0 errors)
-- [x] `bun test` — 44 pass, 13 skip, 0 fail (live runtime checks gated by env flags)
+- [x] `bun test` — 46 pass, 20 skip, 0 fail (live runtime checks gated by env flags)
+- [x] 2026-05-26 `bunx tsc --noEmit` — P0-24 / P1-12~P1-16 / P2-7 implementation pass (0 errors)
+- [x] 2026-05-26 `bun test` — 46 pass, 20 skip, 0 fail
+- [x] 2026-05-26 `bun run check` — shared/auth-server typecheck+tests pass, admin-console production build pass
+- [x] 2026-05-26 `RUN_SUPABASE_OAUTH21_COMPAT=1 OAUTH_RUNTIME_URL=https://api.x.aizhuliren.cn bun test tests/integration/supabase-compat/oauth21.test.ts` — 5 pass, 4 skip, 0 fail (token/client flows require OAuth21 client/token env)
+- [x] 2026-05-26 `RUN_SUPABASE_RUNTIME_COMPAT=1 OAUTH_RUNTIME_URL=https://api.x.aizhuliren.cn MANAGEMENT_URL=https://auth.x.aizhuliren.cn/api bun test tests/integration/supabase-compat/supabase-js.test.ts` — 6 pass, 6 skip, 0 fail (session/storage/realtime/functions require anon key/test account env)
+- [x] 2026-05-26 SupaCloud 新建 `supauth` 项目 `vwsvexjelurvczfivgiz` — 修复 management DB schema drift、释放 `/` 空间到 10GB+、重建空 tenant `auth` schema、启用 `GOTRUE_JWT_ISSUER` 与 `GOTRUE_OAUTH_SERVER_*`；`/auth/v1/health`、`/rest/v1/`、`/storage/v1/bucket` 均 200，Auth/REST/Storage healthy。
+- [x] 2026-05-26 `RUN_SUPABASE_RUNTIME_COMPAT=1 OAUTH_RUNTIME_URL=http://vwsvexjelurvczfivgiz.api.192.168.1.48.sslip.io MANAGEMENT_URL=https://auth.x.aizhuliren.cn/api SUPABASE_ANON_KEY=... SUPABASE_TEST_EMAIL=... SUPABASE_TEST_PASSWORD=... bun test tests/integration/supabase-compat/supabase-js.test.ts` — 12 pass, 0 fail；覆盖 `supabase-js` signUp/signIn/getSession/refresh/signOut、JWT/JWKS、Storage/Realtime/Functions smoke。
+- [x] 2026-05-26 `RUN_SUPABASE_OAUTH21_COMPAT=1 OAUTH_RUNTIME_URL=http://vwsvexjelurvczfivgiz.api.192.168.1.48.sslip.io bun test tests/integration/supabase-compat/oauth21.test.ts` — 5 pass, 4 skip, 0 fail；OAuth metadata / OIDC alignment / unsupported grant rejection / UserInfo no-token rejection 均通过。
+- [ ] 2026-05-26 SupaCloud `supauth` Realtime service — `services/realtime/start` 返回 exit code 5，远端未安装 `supacloud-realtime@.service` unit template；当前 project health 仍显示 Realtime `UNHEALTHY`，需要在 SupaCloud runtime 层补齐 Realtime unit/provisioning。
 - [x] `bun run check` — shared + auth-server typecheck/test + admin-console build pass
 - [x] `bun run scripts/export-openapi.ts /tmp/supaoauth-openapi.json` — OpenAPI export pass (54 paths)
 - [x] B 机部署验证 — `auth.x.aizhuliren.cn` SupaOAuth admin/API HTTPS 200；`api.x.aizhuliren.cn/auth/v1/health` GoTrue HTTPS 200；`api.x.aizhuliren.cn/rest/v1/` PostgREST HTTPS 200；`api.x.aizhuliren.cn/storage/v1/bucket` Storage HTTPS 200
@@ -186,16 +219,141 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ## 剩余任务
 
-### P0 — 发布前必须完成（需外部环境）
+### P0 — 生产 GA 前必须完成（新增）
+- [x] **P0-16 Full supabase-js runtime compatibility fixture** (`tests/integration/supabase-compat/supabase-js.test.ts` 已扩展为 supabase-js 全量 fixture: signUp/signIn/getSession/refresh/signOut、JWT、Storage、Realtime、Functions smoke；live 由 env gate 控制)
+  - 目标：在真实 SupaCloud tenant 上覆盖 `supabase-js` 完整 session 生命周期，而不只验证基础 health/API path。
+  - 范围：signUp / signInWithPassword / getSession / refreshSession / signOut、PKCE authorization-code、access token / refresh token / UserInfo、JWT/JWKS、RLS、Storage、Realtime、Functions smoke tests。
+  - 兼容要求：保持 `/auth/v1/*`、`/rest/v1/*`、`/storage/v1/*`、`/realtime/v1/*` 标准路径；fixture 不依赖 SupaOAuth 管理 API 的浏览器泄漏 token。
+  - 验收：`RUN_SUPABASE_RUNTIME_COMPAT=1` 与 `RUN_SUPABASE_OAUTH21_COMPAT=1` 在 B 机真实 runtime 全量通过；OAuth 2.1 不再出现 client/token fixture skip。
+
+- [x] **P0-17 Consent runtime implementation** (`supaoauth.user_consents` migration/schema/repository/routes 完成；支持 consent decision、grant/revoke、application/user 查询、拒绝授权 `access_denied` redirect)
+  - 目标：把 `docs/consent-flow.md` 从设计稿落成生产 runtime。
+  - 范围：`supaoauth.user_consents` migration/repository/API、授权请求 consent 决策、admin/user revoke、per application/resource/scope/org consent、拒绝授权返回 `access_denied`。
+  - 兼容要求：GoTrue 继续负责 token 签发；SupaOAuth 只做授权体验与 consent 决策，不改写 GoTrue token 语义。
+  - 验收：首次新增 scope 会提示 consent；已同意 scope 跳过；撤销后重新提示；拒绝后客户端收到标准 OAuth 错误；单测和 live fixture 覆盖。
+
+- [x] **P0-18 Logto-like organization template and org authorization** (`organization_templates` schema/repository/API/Admin page 完成；支持模板实例化、组织角色/权限生成、M2M org role assignment、`supaoauth.app_has_org_permission(...)`)
+  - 目标：补齐 Logto 式 organization template，而不是只有 organization/member CRUD。
+  - 范围：组织模板、组织级 roles/permissions/scopes、成员组织上下文、M2M organization permissions、organization role assignment、组织授权审计。
+  - 兼容要求：继续使用 `app_metadata.supaoauth` namespace；`auth.users` 和 Supabase RLS helper 不被污染。
+  - 验收：模板创建后自动生成可预测 org roles/scopes；`supaoauth.authorize(...)` 支持 org context；M2M client 可按组织拿权限；授权/撤权即时影响 RLS helper。
+
+- [x] **P0-19 Production security hardening** (生产/SSO 模式禁用 ADMIN_TOKEN fallback；管理 API rate limit、登录失败 lockout、安全配置 API/Admin operations 状态页、前端 secret 泄漏测试)
+  - 目标：把管理面从“可用”提升到生产安全默认值。
+  - 范围：生产环境强制 `ADMIN_AUTH_MODE=sso`；禁止 `ADMIN_TOKEN` fallback；admin email/domain/role allowlist；管理 API rate limit；敏感操作 audit；secret rotation；浏览器 bundle/env secret leak 检查；登录/授权滥用防护。
+  - 兼容要求：开发模式仍可本地使用 token auth，但生产配置必须 fail-closed。
+  - 验收：未认证管理 API 返回 401；生产环境 `ADMIN_TOKEN` 不生效；暴力请求被限流；CI 检查无 `VITE_*` 或前端 bundle 泄漏服务端 secret。
+
+- [x] **P0-20 SupaCloud provisioning and reconcile contract** (`provisioning_records` schema/repository/API 完成；`/v1/provisioning/:projectRef/reconcile` 幂等执行 migration/runtime/storage 检查，支持 rollback reset)
+  - 目标：从空 SupaCloud project 自动落地 SupaOAuth/Auth runtime，而不是依赖手工远程修补。
+  - 范围：project 创建/选择、tenant DB migration、GoTrue OAuth server/ES256 signing key config、Kong routes/certs、Storage buckets、Pages/Functions placeholders、idempotent reconcile、rollback。
+  - 兼容要求：项目配置保持结构化 JSON，不把 config object 写成 JSON string；不得破坏既有 Supabase runtime routes。
+  - 验收：一条命令创建新 project 并通过 P0-16 fixture；重复执行无漂移；失败可回滚到上一 release/systemd symlink。
+
+- [x] **P0-21 Backup, restore, and disaster recovery drill** (`scripts/backup-restore-drill.ts` + `docs/production-runbook.md` 完成；定义 RPO/RTO、备份 manifest、restore replay、恢复后 fixture gate)
+  - 目标：上线前完成可演练的恢复路径。
+  - 范围：SupaOAuth metadata schema、tenant DB migration state、SupaCloud project config、Kong routes/certs、OAuth client secrets、webhook secrets、storage branding/avatar objects。
+  - 兼容要求：恢复后 GoTrue issuer/JWKS 与 Supabase client 配置保持一致，避免 token/session 全量失效。
+  - 验收：定义 RPO/RTO；把一个生产样例 project 恢复到新 project/ref；恢复后通过 P0-16 fixture 与 admin smoke test。
+
+- [x] **P0-22 Release pipeline and rollback gate** (`scripts/release-gate.ts` + `bun run release:gate` 完成；执行 tsc/test/check/OpenAPI export，生成 release manifest，支持 live fixture gate)
+  - 目标：把本地构建上传改成可重复发布流程。
+  - 范围：CI `bunx tsc --noEmit` / `bun test` / `bun run check` / OpenAPI export、Docker or release artifact build、远程部署、health gate、live fixture gate、自动 rollback、版本标记。
+  - 兼容要求：发布失败不能影响现有 GoTrue/Auth runtime；Kong 切流必须在健康检查后进行。
+  - 验收：一条 release 命令完成构建/上传/切换；任一 health 或 fixture 失败自动回滚；发布记录包含 commit、artifact hash、release id。
+
+- [x] **P0-23 Runtime performance and capacity baseline** (`scripts/capacity-baseline.ts` + `docs/production-capacity.md` 完成；输出 runtime p50/p95/p99/error rate，定义资源与延迟基线)
+  - 目标：明确 B 机和生产环境最小资源规格，避免再次因非核心服务导致 Auth runtime 超时。
+  - 范围：GoTrue/PostgREST/SupaOAuth/Kong/Postgres load test、连接池配置、memory/swap 预算、非核心观测服务资源隔离、p95 latency/error budget、告警阈值。
+  - 兼容要求：容量优化不得关闭 Supabase 必需 runtime；观测服务不能和 auth/runtime 抢占关键资源。
+  - 验收：在目标并发下 p95、error rate、Postgres connection、swap 使用率达标；输出 `docs/production-capacity.md`。
+
+- [x] **P0-24 Application secret lifecycle and third-party consent configuration** (`application_secrets` / `application_consent_settings` schema+migration+repository+API/Admin page/SDK 完成；支持多 secret、reveal-once、disable/delete、per-app user/org consent scopes)
+  - 来源：Logto `/api/applications/{id}/secrets`、`/api/applications/{applicationId}/user-consent-scopes`、`/api/applications/{id}/users/{userId}/consent-organizations`。
+  - 目标：补齐第三方 OAuth application 的生产级 secret rotation 与 consent 配置。
+  - 范围：多 client secret list/create/delete、secret reveal-once、legacy secret disable、application custom data、per-app user consent scopes、per-user consent organizations、admin console 页面与 SDK 方法。
+  - 兼容要求：GoTrue 仍负责 OAuth client runtime；SupaOAuth 通过 SupaCloud adapter 编排 secret，不把 client secret 暴露给浏览器。
+  - 验收：可新增 secret 后灰度切换并删除旧 secret；第三方应用只请求被授权的 user/org scopes；live OAuth fixture 覆盖 consent scope/org 场景。
+
+### P1 — 生产增强
+- [x] **P1-9 Enterprise SSO / JIT / Passkey completion** (`enterprise_sso_config` 与 `passkeys` schema/repository/API/Admin page 完成；支持 domain discovery、JIT/org/role mapping、passkey list/register/revoke 基线)
+  - 目标：补齐 Logto-like 企业身份入口。
+  - 范围：Enterprise connector 配置、domain discovery、JIT provisioning、org membership mapping、passkey enrollment/list/revoke、org/role MFA policy。
+  - 验收：企业域名自动路由到对应 IdP；JIT 首次登录创建用户和组织成员关系；用户可管理 passkey；组织策略可强制 MFA。
+
+- [x] **P1-10 Versioned Management API and SDK contract** (`api_version_log` schema/repository/API、SDK 方法、`docs/versioned-api-contract.md`、release OpenAPI hash gate 完成)
+  - 目标：把当前 OpenAPI/SDK 生成变成生产稳定契约。
+  - 范围：`/api/v1` versioning policy、标准 error envelope、breaking-change check、SDK 生成/发布流程、兼容性 changelog。
+  - 验收：CI 可阻止未声明的 breaking change；SDK 与 OpenAPI hash 对齐；文档列出错误码和迁移策略。
+
+- [x] **P1-11 Tenant isolation and security review** (`tests/integration/tenant-isolation.test.ts`、audit 自动注入 `request_id/project_ref`、浏览器 VITE secret 泄漏检查完成；cross-tenant live fixture 由 env gate 控制)
+  - 目标：证明多租户隔离和服务端密钥边界可靠。
+  - 范围：cross-tenant API tests、SQL grants/RLS review、service-role/master token 使用面审计、admin BFF 权限校验、audit log tamper-resistance。
+  - 验收：跨租户访问 fixture 全部拒绝；前端无服务端 secret；所有 mutation 有 actor/project/request_id 审计记录。
+
+- [x] **P1-12 Account Center and admin user management proxy** (`account_sessions` schema/repository/API/Admin users panel 完成；admin profile update/suspend/session revoke/identity unlink/MFA reset 通过 SupaCloud adapter 代理，mutation 写 audit)
+  - 来源：Logto `/api/my-account/*`、`/api/users/{userId}/profile`、sessions、identities、MFA verifications、grants。
+  - 目标：提供独立 IdP 需要的用户自助账号中心和 admin 侧用户管理 BFF。
+  - 范围：my-account profile/password/email/phone/identities/sessions/MFA/passkeys/grants；admin user profile/update/suspend/session revoke/identity unlink/MFA reset；审计和 webhook 事件。
+  - 兼容要求：优先代理 GoTrue/SupaCloud 用户 runtime，不重写 `auth.users` 或 token/session 语义。
+  - 验收：用户可自助更新资料、管理身份和会话；管理员可撤销用户 session/MFA/identity；所有 mutation 有 audit 与 cross-tenant test。
+
+- [x] **P1-13 Organization invitation, JIT, and organization application APIs** (`organization_invitations` / `organization_jit_settings` / `organization_applications` schema+migration+repository+API/Admin controls/SDK 完成)
+  - 来源：Logto `/api/organization-invitations`、`/api/organization-roles`、`/api/organization-scopes`、`/api/organizations/{id}/jit/*`、`/api/organizations/{id}/applications/*`。
+  - 目标：把当前 org templates/enterprise SSO 基线扩展成完整 B2B organization control plane。
+  - 范围：organization invitations、JIT email domains、JIT SSO connectors、JIT default roles、organization roles/scopes first-class CRUD、organization applications/M2M binding、organization app role assignment。
+  - 兼容要求：权限仍落到 `app_metadata.supaoauth` hint + Postgres helper，不把业务权限塞进 JWT `role` claim。
+  - 验收：邀请接受后加入组织；企业 SSO/JIT 登录自动建 membership/roles；M2M client 可按组织获取权限；RLS helper 即时生效。
+
+- [x] **P1-14 Connector factory, provider catalog, captcha, and template configuration** (`connector_factories` + `tenant_configs` schema+migration+repository+API/Admin tenant config/SDK 完成；覆盖 factory catalog、captcha、email/SMS templates)
+  - 来源：Logto `/api/connector-factories`、`/api/connectors/{id}/authorization-uri`、`/api/connectors/{factoryId}/test`、`/api/sso-connector-providers`、`/api/captcha-provider`、`/api/email-templates`。
+  - 目标：让 connectors、captcha、SMTP/SMS/email template 可自助配置和验证。
+  - 范围：connector provider catalog、typed config schema、authorization URI preflight、config test with redacted diagnostics、captcha provider config、email/SMS template management、verification provider health check。
+  - 兼容要求：验证码发送和认证 runtime 优先交给 GoTrue/SupaCloud；SupaOAuth 提供配置控制面和验证，不在浏览器暴露 provider secrets。
+  - 验收：创建/修改 connector 前可验证配置；captcha/email template 可通过管理 API 更新；错误信息脱敏；live smoke 覆盖至少 OIDC/SAML SSO provider 和 SMTP provider。
+
+- [x] **P1-15 Webhook delivery diagnostics and audit detail** (webhook signing key id、recent audit logs、manual test、replay、diagnostic delivery audit、Admin diagnostics/SDK 完成)
+  - 来源：Logto `/api/hooks/{id}/recent-logs`、`/api/hooks/{id}/test`、`/api/hooks/{id}/signing-key`、`/api/logs/{id}`。
+  - 目标：补齐生产 webhook onboarding 与故障排查接口。
+  - 范围：webhook delivery logs、recent logs、manual test event、delivery replay、signing key rotate with key id、audit log detail/filter、delivery failure metrics。
+  - 兼容要求：webhook secret 不明文返回；测试和重放事件必须标记来源，避免污染业务审计。
+  - 验收：admin 可看到最近投递结果并重放失败事件；test endpoint 可验证签名；audit detail 可按 request_id/project_ref/user/app 过滤。
+
+- [x] **P1-16 Domain, branding, phrases, and custom profile fields** (`tenant_configs` 覆盖 domain/phrase/profile_field/branding_asset，custom domain health 通过 SupaCloud adapter 代理，Admin Tenant Config 页面完成)
+  - 来源：Logto `/api/domains`、`/api/sign-in-exp/default/custom-ui-assets`、`/api/custom-phrases`、`/api/custom-profile-fields`、well-known phrases/account-center。
+  - 目标：补齐独立 IdP 面向终端用户的品牌化和资料字段控制面。
+  - 范围：custom domain/SSL lifecycle via SupaCloud/Kong、branding/custom UI assets、i18n phrases、custom profile fields、profile field order、password policy check proxy、account-center public config。
+  - 兼容要求：域名和证书必须通过 SupaCloud/Kong 编排；profile fields 不破坏 Supabase `auth.users` 基础字段，扩展字段进入 SupaOAuth metadata。
+  - 验收：新增域名后可完成 HTTPS health check；登录/账号中心可加载品牌资源和 phrases；自定义 profile fields 可参与注册资料收集。
+
+### P2 — 产品体验与运营
+- [x] **P2-5 Product UX parity pass** (Dashboard onboarding checklist、Consent/Org Templates/Enterprise SSO/Operations 管理页、资源/组织/security 最短配置路径完成)
+  - 目标：面向生产用户补齐独立 IdP 的首屏配置体验。
+  - 范围：onboarding checklist、empty states、connector setup guide、resource/scope templates、role/org template 快捷创建、audit filters。
+  - 验收：admin 首次进入可完成应用、资源、组织、connector、security policy 的最短可用配置路径。
+
+- [x] **P2-6 Production runbook and incident playbook** (`docs/production-runbook.md` 覆盖发布、回滚、备份恢复、fixture failure triage、Auth/Postgres/Storage/Kong 故障处理)
+  - 目标：让部署、回滚、恢复、排障有固定手册。
+  - 范围：Kong/Auth/Postgres/Storage 常见故障、证书续期、key rotation、backup restore、fixture failure triage、容量告警处理。
+  - 验收：`docs/production-runbook.md` 覆盖 P0-20 至 P0-23；B 机按 runbook 完成一次演练记录。
+
+- [x] **P2-7 SAML / token exchange / PAT decision spike** (`docs/extended-protocol-decision-spike.md` 完成：SAML IdP/token exchange 延期，PAT 与 one-time token 分阶段进入 roadmap)
+  - 来源：Logto `/api/saml-applications`、`/api/subject-tokens`、`/api/users/{userId}/personal-access-tokens`、`/api/one-time-tokens`。
+  - 目标：决定是否进入 SupaOAuth roadmap，而不是默认复刻 Logto 全部扩展协议。
+  - 范围：评估 SAML application as IdP、OAuth token exchange、personal access tokens、one-time tokens 与 Supabase/GoTrue/SupaCloud 的兼容成本和目标客户价值。
+  - 兼容要求：任何新协议不能替换默认 GoTrue runtime；若需要实现，必须先定义 external issuer mode 与 Supabase JS 兼容边界。
+  - 验收：输出 go/no-go 文档；若 go，再拆成独立 P1/P2 实施任务；若 no-go，记录延期条件。
+
+### 已完成的发布前外部验证
 - [x] **P0-8** SupaCloud Postgres migration 实机验证（B 机真实 SupaCloud Postgres 已通过）
 - [x] **P0-9** Supabase runtime 端到端兼容测试（基础 live fixture 与 OAuth 2.1 live fixture 均已通过）
 - [x] **P0-15** RBAC RLS helper 实机验证（B 机 tenant DB 已通过授权/撤权即时生效验证）
 - [x] **D1.4** @svadmin/sso 生产认证集成（@svadmin/sso 已接入 admin-console；auth-server 已启用 OIDC JWKS bearer 校验；B 机已注册 Admin Console OAuth client 并部署）
 
-### P1 — 产品闭环 (全部完成)
+### 已完成的 P1 产品闭环
 - [x] **P1-6** OpenAPI 与 SDK 生成
 - [x] **P1-7** Supabase RLS migration assistant
 - [x] **P1-8** RBAC compatibility inspector 扩展
 
-### P2 — 部署与运维
+### 已完成的 P2 部署与运维
 - [x] **P2-4** UI 完整性（Applications detail/edit form 已存在, 列表页导航链接已添加, connectors empty state 已补全, 所有页面状态一致）

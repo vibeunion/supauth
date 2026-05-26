@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { SupaCloudAdapter } from '../supacloud/adapter.js';
+import { loadConfig } from '../config/index.js';
 
 // P0-13: Contract tests for SupaCloud adapter
 // These test the adapter's method signatures and response shape expectations
@@ -8,6 +9,15 @@ import { SupaCloudAdapter } from '../supacloud/adapter.js';
 describe('SupaCloudAdapter contract', () => {
   // We test method shapes without hitting real SupaCloud
   // by verifying the adapter constructs correct requests
+
+  beforeEach(() => {
+    process.env.SUPACLOUD_API_URL = 'http://test-api:9090';
+    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
+    process.env.PROJECT_REF = 'test-ref';
+    process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
+    process.env.DATABASE_URL = 'postgres://test';
+    loadConfig();
+  });
 
   it('has all required methods', () => {
     const adapter = new SupaCloudAdapter();
@@ -19,6 +29,7 @@ describe('SupaCloudAdapter contract', () => {
       'updateProvider', 'listUsers', 'getUser', 'deleteUser', 'updateUser',
       'listStorageBuckets', 'getStorageBucket', 'createStorageBucket',
       'uploadFile', 'deleteFile', 'createSignedUrl', 'getPublicUrl',
+      'verifyGatewayRoutes',
     ];
     for (const method of requiredMethods) {
       expect(typeof (adapter as any)[method]).toBe('function');
@@ -32,15 +43,28 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('SupaCloud API URL is constructed correctly', () => {
-    // Verify the adapter uses the config correctly
-    process.env.SUPACLOUD_API_URL = 'http://test-api:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-    process.env.PROJECT_REF = 'test-ref';
-    process.env.DATABASE_URL = 'postgres://test';
-
     const adapter = new SupaCloudAdapter();
     // The constructor should not throw
     expect(adapter).toBeDefined();
+  });
+
+  it('verifyGatewayRoutes fails when Kong returns an upstream error', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith('/auth/v1/health')) {
+        return Promise.resolve(new Response('{"status":"ok"}', { status: 200 }));
+      }
+      return Promise.resolve(new Response('{"message":"An invalid response was received from the upstream server"}', { status: 502 }));
+    }) as unknown as typeof fetch;
+
+    const adapter = new SupaCloudAdapter();
+    const verification = await adapter.verifyGatewayRoutes();
+
+    expect(verification.ok).toBe(false);
+    expect(verification.probes.find((probe) => probe.name === 'postgrest_root')?.status).toBe(502);
+
+    globalThis.fetch = originalFetch;
   });
 });
 

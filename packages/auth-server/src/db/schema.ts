@@ -114,6 +114,7 @@ export const webhooks = supaoauth.table('webhooks', {
   url: text('url').notNull(),
   events: jsonb('events').$type<string[]>().notNull(),
   secret: text('secret').notNull(),
+  signingKeyId: varchar('signing_key_id', { length: 255 }),
   enabled: boolean('enabled').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -152,7 +153,7 @@ export const applicationBindings = supaoauth.table('application_bindings', {
 export const roleAssignments = supaoauth.table('role_assignments', {
   id: uuid('id').primaryKey().defaultRandom(),
   roleId: uuid('role_id').notNull().references(() => roles.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').notNull(), // references auth.users.id (cross-schema)
+  userId: uuid('user_id'), // references auth.users.id (cross-schema); null for M2M assignments
   organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }),
   applicationId: varchar('application_id', { length: 255 }), // GoTrue client_id for M2M
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -160,4 +161,231 @@ export const roleAssignments = supaoauth.table('role_assignments', {
   index('idx_role_assignments_role_id').on(t.roleId),
   index('idx_role_assignments_user_id').on(t.userId),
   index('idx_role_assignments_org_id').on(t.organizationId),
+]);
+
+// ─── User Consents (P0-17) ───────────────────────────────────────────────
+// Tracks user consent decisions per application/scope/org.
+// When a user authorizes an application requesting new scopes, a consent
+// record is created. Revoked consents trigger re-prompt on next auth.
+export const userConsents = supaoauth.table('user_consents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(), // references auth.users.id (cross-schema)
+  applicationId: varchar('application_id', { length: 255 }).notNull(), // GoTrue client_id
+  scopeId: uuid('scope_id').references(() => scopes.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id').references(() => organizations.id, { onDelete: 'cascade' }),
+  grantedAt: timestamp('granted_at', { withTimezone: true }).defaultNow().notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (t) => [
+  index('idx_user_consents_user_id').on(t.userId),
+  index('idx_user_consents_app_id').on(t.applicationId),
+  index('idx_user_consents_org_id').on(t.organizationId),
+]);
+
+// ─── Organization Templates (P0-18) ──────────────────────────────────────
+// Templates define the default roles, permissions, and scopes that are
+// auto-created when a new organization is instantiated from the template.
+export const organizationTemplates = supaoauth.table('organization_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  // Template defines roles as JSON: [{ name, permissions: [string] }]
+  templateRoles: jsonb('template_roles').$type<Array<{ name: string; permissions: string[] }>>().default([]),
+  // Template defines default scopes as JSON: [{ name, description }]
+  templateScopes: jsonb('template_scopes').$type<Array<{ name: string; description?: string }>>().default([]),
+  isDefault: boolean('is_default').default(false).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ─── Provisioning Records (P0-20) ────────────────────────────────────────
+// Tracks SupaCloud project provisioning state for idempotent reconcile.
+export const provisioningRecords = supaoauth.table('provisioning_records', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectRef: varchar('project_ref', { length: 255 }).notNull(),
+  step: varchar('step', { length: 100 }).notNull(), // e.g. 'db_migration', 'gotrue_config', 'kong_routes', etc.
+  status: varchar('status', { length: 50 }).notNull().default('pending'), // pending | completed | failed
+  details: jsonb('details').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_provisioning_project_ref').on(t.projectRef),
+  index('idx_provisioning_step').on(t.step),
+]);
+
+// ─── Security Config (P0-19) ─────────────────────────────────────────────
+// Production security settings enforced by auth-server.
+export const securityConfig = supaoauth.table('security_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  adminAuthMode: varchar('admin_auth_mode', { length: 50 }).notNull().default('auto'), // auto | sso | token
+  adminAllowedEmails: jsonb('admin_allowed_emails').$type<string[]>().default([]),
+  adminAllowedDomains: jsonb('admin_allowed_domains').$type<string[]>().default([]),
+  rateLimitRpm: integer('rate_limit_rpm').default(300).notNull(), // requests per minute per IP
+  rateLimitBurst: integer('rate_limit_burst').default(50).notNull(),
+  bruteForceProtection: boolean('brute_force_protection').default(true).notNull(),
+  maxLoginAttempts: integer('max_login_attempts').default(10).notNull(),
+  lockoutDurationSec: integer('lockout_duration_sec').default(900).notNull(), // 15 min
+  secretRotationReminderDays: integer('secret_rotation_reminder_days').default(90).notNull(),
+  enforceHttps: boolean('enforce_https').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ─── Enterprise SSO Connectors (P1-9) ────────────────────────────────────
+// Extended connector metadata for enterprise SSO (SAML, OIDC, domain mapping)
+export const enterpriseSSOConfig = supaoauth.table('enterprise_sso_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  connectorId: uuid('connector_id').notNull().references(() => connectors.id, { onDelete: 'cascade' }),
+  domains: jsonb('domains').$type<string[]>().notNull(), // e.g. ['company.com']
+  ssoProtocol: varchar('sso_protocol', { length: 50 }).notNull().default('oidc'), // oidc | saml
+  jitProvisioning: boolean('jit_provisioning').default(false).notNull(),
+  orgMembershipMapping: jsonb('org_membership_mapping').$type<Record<string, string>>().default({}), // domain → org_id
+  roleMapping: jsonb('role_mapping').$type<Record<string, string>>().default({}), // IdP group → supaoauth role
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_enterprise_sso_connector_id').on(t.connectorId),
+]);
+
+// ─── Passkeys (P1-9) ─────────────────────────────────────────────────────
+// WebAuthn credential metadata for passkey enrollment/list/revoke
+export const passkeys = supaoauth.table('passkeys', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(), // references auth.users.id
+  credentialId: text('credential_id').notNull(), // WebAuthn credential ID (base64url)
+  publicKey: text('public_key').notNull(), // COSE public key (base64url)
+  counter: integer('counter').default(0).notNull(),
+  deviceType: varchar('device_type', { length: 100 }), // e.g. 'singleDevice', 'multiDevice'
+  backedUp: boolean('backed_up').default(false).notNull(),
+  name: varchar('name', { length: 255 }), // user-assigned name
+  transports: jsonb('transports').$type<string[]>().default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+}, (t) => [
+  index('idx_passkeys_user_id').on(t.userId),
+]);
+
+// ─── API Version Log (P1-10) ─────────────────────────────────────────────
+// Tracks API version changes for contract enforcement
+export const apiVersionLog = supaoauth.table('api_version_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  version: varchar('version', { length: 50 }).notNull(), // e.g. '0.2.0'
+  changeType: varchar('change_type', { length: 50 }).notNull(), // added | deprecated | breaking | removed
+  path: varchar('path', { length: 500 }).notNull(),
+  method: varchar('method', { length: 10 }).notNull(),
+  description: text('description'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_api_version_log_version').on(t.version),
+]);
+
+// ─── Application Secrets / Consent Configuration (P0-24) ────────────────
+export const applicationSecrets = supaoauth.table('application_secrets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  applicationId: varchar('application_id', { length: 255 }).notNull(),
+  secretId: varchar('secret_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('active'), // active | disabled | deleted
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  disabledAt: timestamp('disabled_at', { withTimezone: true }),
+}, (t) => [
+  index('idx_application_secrets_app_id').on(t.applicationId),
+  index('idx_application_secrets_secret_id').on(t.secretId),
+]);
+
+export const applicationConsentSettings = supaoauth.table('application_consent_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  applicationId: varchar('application_id', { length: 255 }).notNull(),
+  userScopes: jsonb('user_scopes').$type<string[]>().default([]),
+  organizationScopes: jsonb('organization_scopes').$type<string[]>().default([]),
+  allowedOrganizationIds: jsonb('allowed_organization_ids').$type<string[]>().default([]),
+  requireExplicitConsent: boolean('require_explicit_consent').default(true).notNull(),
+  customData: jsonb('custom_data').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_application_consent_settings_app_id').on(t.applicationId),
+]);
+
+// ─── Account Center / Organization B2B Control Plane (P1-12/P1-13) ──────
+export const accountSessions = supaoauth.table('account_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull(),
+  sessionId: varchar('session_id', { length: 255 }).notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('active'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (t) => [
+  index('idx_account_sessions_user_id').on(t.userId),
+]);
+
+export const organizationInvitations = supaoauth.table('organization_invitations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  email: varchar('email', { length: 320 }).notNull(),
+  role: varchar('role', { length: 100 }).notNull().default('member'),
+  status: varchar('status', { length: 50 }).notNull().default('pending'), // pending | accepted | revoked | expired
+  tokenHash: varchar('token_hash', { length: 255 }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_org_invitations_org_id').on(t.organizationId),
+  index('idx_org_invitations_email').on(t.email),
+]);
+
+export const organizationJitSettings = supaoauth.table('organization_jit_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  emailDomains: jsonb('email_domains').$type<string[]>().default([]),
+  ssoConnectorIds: jsonb('sso_connector_ids').$type<string[]>().default([]),
+  defaultRoleIds: jsonb('default_role_ids').$type<string[]>().default([]),
+  enabled: boolean('enabled').default(false).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_org_jit_settings_org_id').on(t.organizationId),
+]);
+
+export const organizationApplications = supaoauth.table('organization_applications', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  applicationId: varchar('application_id', { length: 255 }).notNull(),
+  roleIds: jsonb('role_ids').$type<string[]>().default([]),
+  enabled: boolean('enabled').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_org_apps_org_id').on(t.organizationId),
+  index('idx_org_apps_app_id').on(t.applicationId),
+]);
+
+// ─── Connector Factory / Tenant UX Configuration (P1-14/P1-16) ──────────
+export const connectorFactories = supaoauth.table('connector_factories', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  factoryId: varchar('factory_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  protocol: varchar('protocol', { length: 50 }).notNull(),
+  category: varchar('category', { length: 100 }).notNull(),
+  configSchema: jsonb('config_schema').$type<Record<string, unknown>>().default({}),
+  enabled: boolean('enabled').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_connector_factories_factory_id').on(t.factoryId),
+]);
+
+export const tenantConfigs = supaoauth.table('tenant_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  configType: varchar('config_type', { length: 100 }).notNull(), // captcha | email_template | sms_template | domain | phrase | profile_field | branding_asset
+  key: varchar('key', { length: 255 }).notNull(),
+  value: jsonb('value').$type<Record<string, unknown>>().default({}),
+  enabled: boolean('enabled').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_tenant_configs_type').on(t.configType),
+  index('idx_tenant_configs_key').on(t.key),
 ]);

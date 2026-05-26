@@ -76,14 +76,17 @@ export async function listRolePermissions(roleId: string) {
 
 export async function assignRole(data: {
   roleId: string;
-  userId: string;
+  userId?: string;
   organizationId?: string;
   applicationId?: string;
 }) {
+  if (!data.userId && !data.applicationId) {
+    throw new Error('Either userId or applicationId is required for role assignment');
+  }
   const db = getDb();
   const [assignment] = await db.insert(roleAssignments).values({
     roleId: data.roleId,
-    userId: data.userId,
+    userId: data.userId || null,
     organizationId: data.organizationId || null,
     applicationId: data.applicationId || null,
   }).returning();

@@ -79,7 +79,7 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
 
   // ─── Role Assignments ───
   .post('/:roleId/assign', async ({ params, body }) => {
-    const data = body as { user_id: string; organization_id?: string; application_id?: string };
+    const data = body as { user_id?: string; organization_id?: string; application_id?: string };
     const assignment = await roleRepo.assignRole({
       roleId: params.roleId,
       userId: data.user_id,
@@ -88,7 +88,7 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
     });
     await audit('role.assign', 'role_assignment', assignment.id, { role_id: params.roleId, user_id: data.user_id });
     await fireWebhook('role.assigned', { role_id: params.roleId, user_id: data.user_id });
-    await syncUserMetadata(data.user_id, data.organization_id);
+    if (data.user_id) await syncUserMetadata(data.user_id, data.organization_id);
     return assignment;
   }, {
     detail: { summary: 'Assign role to user', tags: ['RBAC', 'Assignments'] },

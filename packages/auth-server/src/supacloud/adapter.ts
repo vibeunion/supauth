@@ -8,12 +8,14 @@ export class SupaCloudAdapter {
   private masterToken: string;
   private projectRef: string;
   private storageUrl: string;
+  private runtimeUrl: string;
 
   constructor() {
     const config = getConfig();
     this.apiUrl = config.supacloudApiUrl;
     this.masterToken = config.supacloudMasterToken;
     this.projectRef = config.projectRef;
+    this.runtimeUrl = config.oauthRuntimeUrl.replace(/\/+$/, '');
     // Storage API uses the same base as the runtime URL (Kong-routed)
     // or can be overridden via SUPACLOUD_STORAGE_URL
     this.storageUrl = process.env.SUPACLOUD_STORAGE_URL || config.oauthRuntimeUrl;
@@ -38,6 +40,50 @@ export class SupaCloudAdapter {
 
   async getProject() {
     return this.request(`/v1/projects/${this.projectRef}`);
+  }
+
+  async verifyGatewayRoutes(): Promise<{
+    ok: boolean;
+    probes: Array<{ name: string; path: string; status: number | null; ok: boolean; error?: string }>;
+  }> {
+    const probes = await Promise.all([
+      this.probeRuntimeRoute('gotrue_health', '/auth/v1/health', (status) => status === 200),
+      this.probeRuntimeRoute('postgrest_root', '/rest/v1/', (status) => status >= 200 && status < 500),
+    ]);
+    return { ok: probes.every((probe) => probe.ok), probes };
+  }
+
+  private async probeRuntimeRoute(
+    name: string,
+    path: string,
+    acceptsStatus: (status: number) => boolean,
+  ): Promise<{ name: string; path: string; status: number | null; ok: boolean; error?: string }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(`${this.runtimeUrl}${path}`, { signal: controller.signal });
+      const body = await res.text().catch(() => '');
+      const kongRouteMiss = body.includes('no Route matched with those values');
+      const upstreamFailure = res.status === 502 || res.status === 503 || res.status === 504;
+      const ok = acceptsStatus(res.status) && !kongRouteMiss && !upstreamFailure;
+      return {
+        name,
+        path,
+        status: res.status,
+        ok,
+        error: ok ? undefined : body.slice(0, 300),
+      };
+    } catch (e) {
+      return {
+        name,
+        path,
+        status: null,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   // ─── Auth config ──────────────────────────────────────────────────
@@ -95,6 +141,29 @@ export class SupaCloudAdapter {
     });
   }
 
+  async listClientSecrets(clientId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets`);
+  }
+
+  async createClientSecret(clientId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async disableClientSecret(clientId: string, secretId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets/${secretId}/disable`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteClientSecret(clientId: string, secretId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets/${secretId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // ─── SSO Providers ────────────────────────────────────────────────
 
   async listProviders() {
@@ -133,6 +202,35 @@ export class SupaCloudAdapter {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+  }
+
+  async suspendUser(userId: string, data: Record<string, unknown> = {}) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/suspend`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async revokeUserSession(userId: string, sessionId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/sessions/${sessionId}/revoke`, {
+      method: 'POST',
+    });
+  }
+
+  async unlinkUserIdentity(userId: string, identityId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/identities/${identityId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async resetUserMfa(userId: string, factorId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/mfa/${factorId}/reset`, {
+      method: 'POST',
+    });
+  }
+
+  async checkCustomDomain(domain: string) {
+    return this.request(`/v1/projects/${this.projectRef}/domains/${encodeURIComponent(domain)}/health`);
   }
 
   // ─── Storage ──────────────────────────────────────────────────────

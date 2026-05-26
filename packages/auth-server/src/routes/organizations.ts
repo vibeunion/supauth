@@ -3,6 +3,7 @@
 import { Elysia } from 'elysia';
 import * as orgRepo from '../repositories/organizations.js';
 import * as roleRepo from '../repositories/roles.js';
+import * as orgControlRepo from '../repositories/organization-control.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import { syncUserMetadata, syncOrgMetadata } from '../sync/index.js';
@@ -82,4 +83,82 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
     return { items: assignments, total: assignments.length };
   }, {
     detail: { summary: 'Get role assignments for organization', tags: ['Organizations', 'RBAC'] },
+  })
+  .get('/:orgId/invitations', async ({ params }) => {
+    const items = await orgControlRepo.listOrganizationInvitations(params.orgId);
+    return { items, total: items.length };
+  }, {
+    detail: { summary: 'List organization invitations', tags: ['Organizations', 'Invitations'] },
+  })
+  .post('/:orgId/invitations', async ({ params, body }) => {
+    const data = body as { email: string; role?: string; expires_at?: string };
+    const invitation = await orgControlRepo.createOrganizationInvitation(params.orgId, {
+      email: data.email,
+      role: data.role,
+      expiresAt: data.expires_at ? new Date(data.expires_at) : null,
+    });
+    await fireWebhook('organization.invitation_created', { org_id: params.orgId, email: data.email });
+    return invitation;
+  }, {
+    detail: { summary: 'Create organization invitation', tags: ['Organizations', 'Invitations'] },
+  })
+  .post('/:orgId/invitations/:invitationId/:action', async ({ params }) => {
+    if (!['accepted', 'revoked', 'expired'].includes(params.action)) {
+      return new Response('Invalid invitation action', { status: 400 });
+    }
+    const invitation = await orgControlRepo.updateOrganizationInvitationStatus(params.orgId, params.invitationId, params.action);
+    if (!invitation) return new Response('Not found', { status: 404 });
+    return invitation;
+  }, {
+    detail: { summary: 'Update organization invitation status', tags: ['Organizations', 'Invitations'] },
+  })
+  .get('/:orgId/jit', async ({ params }) => {
+    const settings = await orgControlRepo.getOrganizationJitSettings(params.orgId);
+    return settings || {
+      organizationId: params.orgId,
+      emailDomains: [],
+      ssoConnectorIds: [],
+      defaultRoleIds: [],
+      enabled: false,
+    };
+  }, {
+    detail: { summary: 'Get organization JIT provisioning settings', tags: ['Organizations', 'JIT'] },
+  })
+  .put('/:orgId/jit', async ({ params, body }) => {
+    const data = body as {
+      email_domains?: string[];
+      sso_connector_ids?: string[];
+      default_role_ids?: string[];
+      enabled?: boolean;
+    };
+    return orgControlRepo.upsertOrganizationJitSettings(params.orgId, {
+      emailDomains: data.email_domains,
+      ssoConnectorIds: data.sso_connector_ids,
+      defaultRoleIds: data.default_role_ids,
+      enabled: data.enabled,
+    });
+  }, {
+    detail: { summary: 'Update organization JIT provisioning settings', tags: ['Organizations', 'JIT'] },
+  })
+  .get('/:orgId/applications', async ({ params }) => {
+    const items = await orgControlRepo.listOrganizationApplications(params.orgId);
+    return { items, total: items.length };
+  }, {
+    detail: { summary: 'List organization application access', tags: ['Organizations', 'Applications'] },
+  })
+  .put('/:orgId/applications/:appId', async ({ params, body }) => {
+    const data = body as { role_ids?: string[]; enabled?: boolean };
+    return orgControlRepo.upsertOrganizationApplication(params.orgId, params.appId, {
+      roleIds: data.role_ids,
+      enabled: data.enabled,
+    });
+  }, {
+    detail: { summary: 'Grant or update organization application access', tags: ['Organizations', 'Applications'] },
+  })
+  .delete('/:orgId/applications/:appId', async ({ params }) => {
+    const record = await orgControlRepo.removeOrganizationApplication(params.orgId, params.appId);
+    if (!record) return new Response('Not found', { status: 404 });
+    return record;
+  }, {
+    detail: { summary: 'Remove organization application access', tags: ['Organizations', 'Applications'] },
   });

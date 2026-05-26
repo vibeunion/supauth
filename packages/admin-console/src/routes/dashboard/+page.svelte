@@ -1,22 +1,53 @@
 <script>
   import { onMount } from 'svelte';
-  import { getOAuthServerStatus, getDiscovery, getProject, getCompatibilityReport } from '$lib/api/client.js';
+  import {
+    getOAuthServerStatus,
+    getDiscovery,
+    getProject,
+    getCompatibilityReport,
+    listApplications,
+    listResources,
+    listOrganizations,
+    listConnectors,
+    getSignInExperience,
+  } from '$lib/api/client.js';
 
   let status = $state(null);
   let discovery = $state(null);
   let project = $state(null);
   let compatReport = $state(null);
+  let onboarding = $state([]);
   let loading = $state(true);
   let error = $state(null);
 
   onMount(async () => {
     try {
-      [status, discovery, project, compatReport] = await Promise.all([
+      const [statusRes, discoveryRes, projectRes, compatRes, apps, resources, orgs, connectors, signIn] = await Promise.all([
         getOAuthServerStatus().catch(() => null),
         getDiscovery().catch(() => null),
         getProject().catch(() => null),
         getCompatibilityReport().catch(() => null),
+        listApplications().catch(() => ({ items: [] })),
+        listResources().catch(() => ({ items: [] })),
+        listOrganizations().catch(() => ({ items: [] })),
+        listConnectors().catch(() => []),
+        getSignInExperience().catch(() => null),
       ]);
+      status = statusRes;
+      discovery = discoveryRes;
+      project = projectRes;
+      compatReport = compatRes;
+      const appItems = apps.items || apps.data || (Array.isArray(apps) ? apps : []);
+      const resourceItems = resources.items || resources.data || (Array.isArray(resources) ? resources : []);
+      const orgItems = orgs.items || orgs.data || (Array.isArray(orgs) ? orgs : []);
+      const connectorItems = connectors.items || connectors.data || (Array.isArray(connectors) ? connectors : []);
+      onboarding = [
+        { label: 'Create application', done: appItems.length > 0, path: '/applications' },
+        { label: 'Define API resources', done: resourceItems.length > 0, path: '/resources' },
+        { label: 'Create organization', done: orgItems.length > 0, path: '/organizations' },
+        { label: 'Configure connector', done: connectorItems.some((item) => item.enabled), path: '/connectors' },
+        { label: 'Set security policy', done: !!signIn?.password_policy, path: '/security' },
+      ];
     } catch (e) {
       error = e.message;
     }
@@ -32,6 +63,20 @@
   <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">{error}</div>
 {:else}
   <!-- Status cards -->
+  {#if onboarding.length}
+    <div class="bg-white rounded-xl border border-surface-200 p-6 mb-8">
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">Onboarding Checklist</h3>
+      <div class="grid grid-cols-5 gap-3">
+        {#each onboarding as item (item.label)}
+          <a href={item.path} class="rounded-lg border border-surface-200 px-3 py-3 text-sm hover:border-brand-300 hover:bg-brand-50">
+            <span class="block w-5 h-5 rounded-full mb-2 {item.done ? 'bg-green-500' : 'bg-surface-300'}"></span>
+            <span class="font-medium text-surface-800">{item.label}</span>
+          </a>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
   <div class="grid grid-cols-3 gap-4 mb-8">
     <div class="bg-white rounded-xl border border-surface-200 p-5">
       <p class="text-sm text-surface-500 mb-1">OAuth Server</p>
