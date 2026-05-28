@@ -104,6 +104,9 @@ export interface SignInExperience {
     favicon_url?: string;
     primary_color?: string;
     page_title?: string;
+    background_url?: string;
+    button_label?: string;
+    custom_css?: string;
   };
   sign_in_methods: string[];
   sign_up_enabled: boolean;
@@ -115,6 +118,36 @@ export interface SignInExperience {
     require_numbers: boolean;
     require_symbols: boolean;
   };
+}
+
+export interface ApplicationSignInExperience {
+  application_id: string;
+  enabled: boolean;
+  branding: {
+    logo_url?: string | null;
+    favicon_url?: string | null;
+    primary_color?: string | null;
+    page_title?: string | null;
+    background_url?: string | null;
+    button_label?: string | null;
+    custom_css?: string | null;
+  };
+}
+
+export interface EffectiveSignInExperience extends SignInExperience {
+  application?: ApplicationSignInExperience | null;
+  authorization?: {
+    authorization_id: string;
+    client_id: string;
+    redirect_uri: string;
+    scope?: string | null;
+    state?: string | null;
+    resource?: string | null;
+    code_challenge?: string | null;
+    code_challenge_method?: string | null;
+    response_type: string;
+    nonce?: string | null;
+  } | null;
 }
 
 // Audit log

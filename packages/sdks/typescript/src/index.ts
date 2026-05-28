@@ -11,6 +11,8 @@ import type {
   Role,
   Permission,
   SignInExperience,
+  ApplicationSignInExperience,
+  EffectiveSignInExperience,
   AuditLogEntry,
   Webhook,
   RuntimeMode,
@@ -183,6 +185,8 @@ interface ApplicationConsentSettings {
   require_explicit_consent?: boolean;
   custom_data?: Record<string, unknown>;
 }
+
+type ApplicationSignInExperienceInput = Partial<Omit<ApplicationSignInExperience, 'application_id'>>;
 
 interface OrganizationInvitation {
   id: string;
@@ -389,6 +393,21 @@ export class SupaOAuthClient {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+  }
+
+  getApplicationSignInExperience(appId: string) {
+    return this.request<ApplicationSignInExperience>(`/v1/applications/${appId}/sign-in-experience`);
+  }
+
+  updateApplicationSignInExperience(appId: string, data: ApplicationSignInExperienceInput) {
+    return this.request<ApplicationSignInExperience>(`/v1/applications/${appId}/sign-in-experience`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  deleteApplicationSignInExperience(appId: string) {
+    return this.request<void>(`/v1/applications/${appId}/sign-in-experience`, { method: 'DELETE' });
   }
 
   // ─── Application bindings ──────────────────────────────
@@ -744,6 +763,19 @@ export class SupaOAuthClient {
   // ─── Sign-in Experience ───────────────────────────────
   getSignInExperience() {
     return this.request<SignInExperience>('/v1/sign-in-experience');
+  }
+
+  resolveSignInExperience(applicationId?: string) {
+    const qs = applicationId ? `?application_id=${encodeURIComponent(applicationId)}` : '';
+    return this.request<EffectiveSignInExperience>(`/v1/sign-in-experience/resolve${qs}`);
+  }
+
+  resolvePublicSignInExperience(params: { application_id?: string; authorization_id?: string } = {}) {
+    const qs = new URLSearchParams();
+    if (params.application_id) qs.set('application_id', params.application_id);
+    if (params.authorization_id) qs.set('authorization_id', params.authorization_id);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<EffectiveSignInExperience>(`/v1/public/sign-in-experience/resolve${suffix}`);
   }
 
   updateSignInExperience(data: Partial<SignInExperience>) {

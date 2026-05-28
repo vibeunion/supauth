@@ -9,6 +9,8 @@ describe('ServerConfig', () => {
     delete process.env.SUPACLOUD_MASTER_TOKEN;
     delete process.env.PROJECT_REF;
     delete process.env.OAUTH_RUNTIME_URL;
+    delete process.env.OAUTH_RUNTIME_INTERNAL_URL;
+    delete process.env.GOTRUE_INTERNAL_URL;
     delete process.env.RUNTIME_MODE;
     delete process.env.CORS_ORIGINS;
     delete process.env.LOG_LEVEL;
@@ -53,5 +55,13 @@ describe('ServerConfig', () => {
     process.env.PORT = '8080';
     const config = loadConfig();
     expect(config.port).toBe(8080);
+  });
+
+  it('uses dedicated internal runtime URL when provided', () => {
+    process.env.OAUTH_RUNTIME_URL = 'https://api.example.com/auth/v1';
+    process.env.OAUTH_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3210';
+    const config = loadConfig();
+    expect(config.oauthRuntimeUrl).toBe('https://api.example.com/auth/v1');
+    expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3210');
   });
 });

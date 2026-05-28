@@ -102,6 +102,21 @@ export function updateApplicationConsent(appId, data) {
   });
 }
 
+export function getApplicationSignInExperience(appId) {
+  return request(`/v1/applications/${appId}/sign-in-experience`);
+}
+
+export function updateApplicationSignInExperience(appId, data) {
+  return request(`/v1/applications/${appId}/sign-in-experience`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteApplicationSignInExperience(appId) {
+  return request(`/v1/applications/${appId}/sign-in-experience`, { method: 'DELETE' });
+}
+
 // Application-Resource/Scope bindings
 export function listApplicationBindings(appId) {
   return request(`/v1/applications/${appId}/bindings`);
@@ -369,6 +384,19 @@ export function revokeRole(roleId, assignmentId) {
 // Settings / Sign-in Experience
 export function getSignInExperience() {
   return request('/v1/sign-in-experience');
+}
+
+export function resolveSignInExperience(applicationId) {
+  const qs = applicationId ? `?application_id=${encodeURIComponent(applicationId)}` : '';
+  return request(`/v1/sign-in-experience/resolve${qs}`);
+}
+
+export function resolvePublicSignInExperience(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.application_id) qs.set('application_id', params.application_id);
+  if (params.authorization_id) qs.set('authorization_id', params.authorization_id);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return request(`/v1/public/sign-in-experience/resolve${suffix}`);
 }
 
 export function updateSignInExperience(data) {

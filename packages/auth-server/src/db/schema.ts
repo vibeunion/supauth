@@ -92,6 +92,25 @@ export const signInExperience = supaoauth.table('sign_in_experience', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ─── Per-Application Sign-in Experience ─────────────────────────────────
+// Optional branding overrides for a GoTrue OAuth client application.
+export const applicationSignInExperience = supaoauth.table('application_sign_in_experience', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  applicationId: varchar('application_id', { length: 255 }).notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  logoUrl: text('logo_url'),
+  faviconUrl: text('favicon_url'),
+  primaryColor: varchar('primary_color', { length: 32 }),
+  pageTitle: varchar('page_title', { length: 255 }),
+  backgroundUrl: text('background_url'),
+  buttonLabel: varchar('button_label', { length: 255 }),
+  customCss: text('custom_css'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_app_sie_app_id').on(t.applicationId),
+]);
+
 // ─── Audit Logs ───────────────────────────────────────────────────────────
 export const auditLogs = supaoauth.table('audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),

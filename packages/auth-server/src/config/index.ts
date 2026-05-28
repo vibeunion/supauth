@@ -7,6 +7,7 @@ export interface ServerConfig {
   supacloudMasterToken: string;
   projectRef: string;
   oauthRuntimeUrl: string;
+  oauthRuntimeInternalUrl: string;
   runtimeMode: 'gotrue' | 'external_oidc';
   databaseUrl: string;
   corsOrigins: string[];
@@ -23,6 +24,7 @@ export function loadConfig(): ServerConfig {
     supacloudMasterToken: process.env.SUPACLOUD_MASTER_TOKEN || '',
     projectRef: process.env.PROJECT_REF || '',
     oauthRuntimeUrl: process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999',
+    oauthRuntimeInternalUrl: process.env.OAUTH_RUNTIME_INTERNAL_URL || process.env.GOTRUE_INTERNAL_URL || process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999',
     runtimeMode: (process.env.RUNTIME_MODE as ServerConfig['runtimeMode']) || 'gotrue',
     databaseUrl: process.env.DATABASE_URL || '',
     corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173').split(','),

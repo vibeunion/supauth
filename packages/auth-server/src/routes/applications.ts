@@ -6,6 +6,7 @@ import * as bindingRepo from '../repositories/bindings.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import * as appControlRepo from '../repositories/application-control.js';
+import * as sieRepo from '../repositories/sign-in-experience.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -131,6 +132,42 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     });
   }, {
     detail: { summary: 'Update application consent configuration', tags: ['Applications', 'Consent'] },
+  })
+
+  .get('/:appId/sign-in-experience', async ({ params }) => {
+    const experience = await sieRepo.getApplicationSignInExperience(params.appId);
+    return experience || {
+      application_id: params.appId,
+      enabled: false,
+      branding: {
+        logo_url: null,
+        favicon_url: null,
+        primary_color: null,
+        page_title: null,
+        background_url: null,
+        button_label: null,
+        custom_css: null,
+      },
+    };
+  }, {
+    detail: { summary: 'Get application sign-in experience overrides', tags: ['Applications', 'Sign-in Experience'] },
+  })
+
+  .put('/:appId/sign-in-experience', async ({ params, body }) => {
+    const data = body as Parameters<typeof sieRepo.upsertApplicationSignInExperience>[1];
+    const saved = await sieRepo.upsertApplicationSignInExperience(params.appId, data);
+    await audit('application.sign_in_experience.update', 'application', params.appId, { enabled: saved.enabled });
+    return saved;
+  }, {
+    detail: { summary: 'Update application sign-in experience overrides', tags: ['Applications', 'Sign-in Experience'] },
+  })
+
+  .delete('/:appId/sign-in-experience', async ({ params }) => {
+    await sieRepo.deleteApplicationSignInExperience(params.appId);
+    await audit('application.sign_in_experience.delete', 'application', params.appId);
+    return new Response(null, { status: 204 });
+  }, {
+    detail: { summary: 'Delete application sign-in experience overrides', tags: ['Applications', 'Sign-in Experience'] },
   })
 
   // ─── Application-Resource/Scope bindings ───

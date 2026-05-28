@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SupaOAuth Sign In</title>
+    <style>
+      * { box-sizing: border-box; }
+      :root { --primary: #2563eb; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f6f7f9;
+        color: #111827;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body.has-bg {
+        background-position: center;
+        background-size: cover;
+      }
+      body.has-bg::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: rgba(255, 255, 255, 0.72);
+      }
+      .card {
+        position: relative;
+        width: min(420px, calc(100vw - 32px));
+        padding: 36px;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+      }
+      .logo {
+        display: none;
+        max-width: 180px;
+        max-height: 72px;
+        margin: 0 auto 18px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        text-align: center;
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .subtitle {
+        margin: 0 0 24px;
+        text-align: center;
+        color: #6b7280;
+        font-size: 14px;
+      }
+      label {
+        display: block;
+        margin: 0 0 6px;
+        color: #374151;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        height: 42px;
+        margin: 0 0 14px;
+        padding: 0 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 14px;
+        outline: none;
+      }
+      input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+      }
+      button {
+        width: 100%;
+        height: 44px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--primary);
+        color: #fff;
+        cursor: pointer;
+        font-size: 15px;
+        font-weight: 700;
+      }
+      button:disabled { opacity: 0.65; cursor: wait; }
+      .message {
+        display: none;
+        margin: 0 0 14px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+      }
+      .message.error { display: block; background: #fef2f2; color: #991b1b; }
+      .message.ok { display: block; background: #ecfdf5; color: #065f46; }
+      .footer {
+        margin-top: 18px;
+        text-align: center;
+        color: #9ca3af;
+        font-size: 12px;
+      }
+    </style>
+    <style id="custom-style"></style>
+  </head>
+  <body>
+    <main class="card">
+      <img id="logo" class="logo" alt="">
+      <h1 id="title">SupaOAuth</h1>
+      <p class="subtitle">Sign in to continue</p>
+      <div id="message" class="message"></div>
+      <form id="login-form">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button id="submit" type="submit">Sign In</button>
+      </form>
+      <div class="footer">SupaOAuth Identity Provider</div>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const authorizationId = params.get('authorization_id') || '';
+      let authorizationRedirectUrl = params.get('redirect_to') || '';
+
+      function publicApiBase() {
+        const { protocol, hostname, port, origin } = window.location;
+        if (hostname === '127.0.0.1' || hostname === 'localhost') {
+          return `${protocol}//${hostname}:4010/v1/public`;
+        }
+        if (hostname.startsWith('api.')) {
+          return `${protocol}//${hostname.replace(/^api\./, 'auth.')}${port ? `:${port}` : ''}/api/v1/public`;
+        }
+        return `${origin}/api/v1/public`;
+      }
+
+      function setMessage(type, text) {
+        const el = document.getElementById('message');
+        el.className = `message ${type}`;
+        el.textContent = text;
+      }
+
+      function buildAuthorizeUrl(authorization) {
+        const next = new URL('/auth/v1/oauth/authorize', window.location.origin);
+        const fields = {
+          client_id: authorization.client_id,
+          redirect_uri: authorization.redirect_uri,
+          response_type: authorization.response_type || 'code',
+          scope: authorization.scope,
+          state: authorization.state,
+          resource: authorization.resource,
+          code_challenge: authorization.code_challenge,
+          code_challenge_method: authorization.code_challenge_method,
+          nonce: authorization.nonce,
+        };
+        Object.entries(fields).forEach(([key, value]) => {
+          if (value) next.searchParams.set(key, value);
+        });
+        return `${next.pathname}${next.search}`;
+      }
+
+      async function approveAuthorization(accessToken) {
+        if (!authorizationId) return null;
+        const res = await fetch(`${publicApiBase()}/oauth/authorizations/${encodeURIComponent(authorizationId)}/approve`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.msg || data.error_description || data.error || 'Authorization approval failed');
+        }
+        return data.redirect_url || null;
+      }
+
+      async function loadExperience() {
+        if (!authorizationId) return;
+        const url = `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`;
+        try {
+          const res = await fetch(url, { credentials: 'include' });
+          if (!res.ok) return;
+          const experience = await res.json();
+          if (!authorizationRedirectUrl && experience.authorization) {
+            authorizationRedirectUrl = buildAuthorizeUrl(experience.authorization);
+          }
+          const branding = experience.branding || {};
+          if (branding.page_title) {
+            document.title = branding.page_title;
+            document.getElementById('title').textContent = branding.page_title;
+          }
+          if (branding.primary_color) {
+            document.documentElement.style.setProperty('--primary', branding.primary_color);
+          }
+          if (branding.logo_url) {
+            const logo = document.getElementById('logo');
+            logo.src = branding.logo_url;
+            logo.style.display = 'block';
+          }
+          if (branding.favicon_url) {
+            const icon = document.createElement('link');
+            icon.rel = 'icon';
+            icon.href = branding.favicon_url;
+            document.head.appendChild(icon);
+          }
+          if (branding.background_url) {
+            document.body.classList.add('has-bg');
+            document.body.style.backgroundImage = `url("${branding.background_url}")`;
+          }
+          if (branding.button_label) {
+            document.getElementById('submit').textContent = branding.button_label;
+          }
+          if (branding.custom_css) {
+            document.getElementById('custom-style').textContent = branding.custom_css;
+          }
+        } catch {
+          // Branding is non-critical; login should continue with the default page.
+        }
+      }
+
+      document.getElementById('login-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const button = document.getElementById('submit');
+        button.disabled = true;
+        const originalText = button.textContent;
+        button.textContent = 'Signing in...';
+        try {
+          const res = await fetch('/auth/v1/token?grant_type=password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              email: document.getElementById('email').value,
+              password: document.getElementById('password').value,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setMessage('error', data.msg || data.error_description || 'Login failed');
+            return;
+          }
+          const approvedRedirectUrl = await approveAuthorization(data.access_token);
+          const redirectUrl = approvedRedirectUrl || authorizationRedirectUrl;
+          if (redirectUrl) {
+            setMessage('ok', 'Login successful. Redirecting...');
+            window.location.href = redirectUrl;
+          } else {
+            setMessage('ok', 'Login successful.');
+          }
+        } catch {
+          setMessage('error', 'Network error');
+        } finally {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      });
+
+      loadExperience();
+    </script>
+  </body>
+</html>

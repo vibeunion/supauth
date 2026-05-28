@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { getApplication, updateApplication, deleteApplication, rotateApplicationSecret, listApplicationBindings, createApplicationBinding, deleteApplicationBinding, listResources, listApplicationSecrets, createApplicationSecret, disableApplicationSecret, getApplicationConsent, updateApplicationConsent } from '$lib/api/client.js';
+  import { getApplication, updateApplication, deleteApplication, rotateApplicationSecret, listApplicationBindings, createApplicationBinding, deleteApplicationBinding, listResources, listApplicationSecrets, createApplicationSecret, disableApplicationSecret, getApplicationConsent, updateApplicationConsent, getApplicationSignInExperience, updateApplicationSignInExperience, deleteApplicationSignInExperience } from '$lib/api/client.js';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
 
@@ -17,18 +17,29 @@
   let applicationSecrets = $state([]);
   let newSecretName = $state('');
   let consent = $state({ user_scopes: '', organization_scopes: '', allowed_organization_ids: '', require_explicit_consent: true });
+  let signInExperience = $state({
+    enabled: false,
+    page_title: '',
+    primary_color: '',
+    logo_url: '',
+    favicon_url: '',
+    background_url: '',
+    button_label: '',
+    custom_css: '',
+  });
   let showBinding = $state(false);
   let newBinding = $state({ resource_id: '', scope_id: '' });
 
   async function load() {
     loading = true;
     try {
-      const [appData, bindingData, resData, secretData, consentData] = await Promise.all([
+      const [appData, bindingData, resData, secretData, consentData, signInData] = await Promise.all([
         getApplication(appId).catch(() => null),
         listApplicationBindings(appId).catch(() => ({ items: [] })),
         listResources().catch(() => ({ items: [] })),
         listApplicationSecrets(appId).catch(() => ({ items: [] })),
         getApplicationConsent(appId).catch(() => null),
+        getApplicationSignInExperience(appId).catch(() => null),
       ]);
       app = appData;
       bindings = bindingData.items || [];
@@ -40,6 +51,18 @@
           organization_scopes: (consentData.organizationScopes || consentData.organization_scopes || []).join(', '),
           allowed_organization_ids: (consentData.allowedOrganizationIds || consentData.allowed_organization_ids || []).join(', '),
           require_explicit_consent: consentData.requireExplicitConsent ?? consentData.require_explicit_consent ?? true,
+        };
+      }
+      if (signInData) {
+        signInExperience = {
+          enabled: signInData.enabled ?? false,
+          page_title: signInData.branding?.page_title || '',
+          primary_color: signInData.branding?.primary_color || '',
+          logo_url: signInData.branding?.logo_url || '',
+          favicon_url: signInData.branding?.favicon_url || '',
+          background_url: signInData.branding?.background_url || '',
+          button_label: signInData.branding?.button_label || '',
+          custom_css: signInData.branding?.custom_css || '',
         };
       }
       if (app) {
@@ -118,6 +141,46 @@
         allowed_organization_ids: consent.allowed_organization_ids.split(',').map(s => s.trim()).filter(Boolean),
         require_explicit_consent: consent.require_explicit_consent,
       });
+      await load();
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function handleSaveSignInExperience() {
+    try {
+      await updateApplicationSignInExperience(appId, {
+        enabled: signInExperience.enabled,
+        branding: {
+          page_title: signInExperience.page_title || null,
+          primary_color: signInExperience.primary_color || null,
+          logo_url: signInExperience.logo_url || null,
+          favicon_url: signInExperience.favicon_url || null,
+          background_url: signInExperience.background_url || null,
+          button_label: signInExperience.button_label || null,
+          custom_css: signInExperience.custom_css || null,
+        },
+      });
+      await load();
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function handleClearSignInExperience() {
+    if (!confirm('Clear application-specific sign-in experience?')) return;
+    try {
+      await deleteApplicationSignInExperience(appId);
+      signInExperience = {
+        enabled: false,
+        page_title: '',
+        primary_color: '',
+        logo_url: '',
+        favicon_url: '',
+        background_url: '',
+        button_label: '',
+        custom_css: '',
+      };
       await load();
     } catch (e) {
       error = e.message;
@@ -268,6 +331,59 @@
         </label>
         <button onclick={handleSaveConsent} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Save Consent</button>
       </div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl border border-surface-200 p-6 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="text-lg font-semibold text-surface-800">Application Login Experience</h3>
+        <p class="text-sm text-surface-500 mt-1">Overrides the tenant default login branding for this OAuth client.</p>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-surface-700">
+        <input type="checkbox" bind:checked={signInExperience.enabled}>
+        Enabled
+      </label>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div>
+        <label for="app-login-title" class="block text-sm font-medium text-surface-700 mb-1">Page Title</label>
+        <input id="app-login-title" bind:value={signInExperience.page_title} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={app.client_name || 'SupaOAuth'}>
+      </div>
+      <div>
+        <label for="app-login-button" class="block text-sm font-medium text-surface-700 mb-1">Button Label</label>
+        <input id="app-login-button" bind:value={signInExperience.button_label} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="Sign In">
+      </div>
+      <div>
+        <label for="app-login-primary" class="block text-sm font-medium text-surface-700 mb-1">Primary Color</label>
+        <div class="flex gap-2">
+          <input id="app-login-primary" bind:value={signInExperience.primary_color} class="flex-1 px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="#2563eb">
+          <div class="w-10 h-10 rounded-lg border border-surface-200" style:background-color={signInExperience.primary_color || '#ffffff'}></div>
+        </div>
+      </div>
+      <div>
+        <label for="app-login-logo" class="block text-sm font-medium text-surface-700 mb-1">Logo URL</label>
+        <input id="app-login-logo" bind:value={signInExperience.logo_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://...">
+      </div>
+      <div>
+        <label for="app-login-favicon" class="block text-sm font-medium text-surface-700 mb-1">Favicon URL</label>
+        <input id="app-login-favicon" bind:value={signInExperience.favicon_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://...">
+      </div>
+      <div>
+        <label for="app-login-background" class="block text-sm font-medium text-surface-700 mb-1">Background URL</label>
+        <input id="app-login-background" bind:value={signInExperience.background_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://...">
+      </div>
+    </div>
+
+    <div class="mt-4">
+      <label for="app-login-css" class="block text-sm font-medium text-surface-700 mb-1">Custom CSS</label>
+      <textarea id="app-login-css" bind:value={signInExperience.custom_css} rows="4" class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm font-mono" placeholder="Custom CSS for the hosted login page"></textarea>
+    </div>
+
+    <div class="flex gap-2 mt-4">
+      <button onclick={handleSaveSignInExperience} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Save Login Experience</button>
+      <button onclick={handleClearSignInExperience} class="px-4 py-2 bg-surface-100 text-surface-700 rounded-lg text-sm font-medium hover:bg-surface-200">Clear Override</button>
     </div>
   </div>
 

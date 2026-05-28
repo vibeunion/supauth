@@ -145,6 +145,7 @@ function publicAdminPath(pathname: string): boolean {
     || pathname === '/v1/project'
     || pathname.startsWith('/v1/runtime')
     || pathname.startsWith('/v1/auth')
+    || pathname.startsWith('/v1/public')
     || pathname.startsWith('/swagger');
 }
 

@@ -326,6 +326,13 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
   - 兼容要求：域名和证书必须通过 SupaCloud/Kong 编排；profile fields 不破坏 Supabase `auth.users` 基础字段，扩展字段进入 SupaOAuth metadata。
   - 验收：新增域名后可完成 HTTPS health check；登录/账号中心可加载品牌资源和 phrases；自定义 profile fields 可参与注册资料收集。
 
+- [x] **P1-17 Per-application sign-in experience** (`application_sign_in_experience` schema+migration/repository/API/Admin page/SDK/hosted authorize page 完成；支持按 OAuth client 覆盖 logo、favicon、primary color、title、background、button label、custom CSS，并提供 public/effective resolve 接口)
+  - 来源：Logto per-app branding / sign-in experience 能力缺口。
+  - 目标：让 Volt 等不同业务应用可以使用独立登录页品牌，而不是只能使用租户级统一模板。
+  - 范围：应用级登录体验覆盖表、应用详情页配置、管理 API、SDK、全局配置兜底、hosted `authorize.html` 和运行时 resolve。
+  - 兼容要求：GoTrue 继续负责 OAuth/OIDC runtime；SupaOAuth 只提供登录体验配置和授权页渲染数据，不改写 token 签发语义。
+  - 验收：未配置应用覆盖时返回全局登录体验；启用应用覆盖时按 `application_id/client_id` 或 GoTrue `authorization_id` 返回合并后的登录体验；Admin 可保存或清除应用覆盖；授权页加载应用品牌后继续回到 GoTrue OAuth authorize。
+
 ### P2 — 产品体验与运营
 - [x] **P2-5 Product UX parity pass** (Dashboard onboarding checklist、Consent/Org Templates/Enterprise SSO/Operations 管理页、资源/组织/security 最短配置路径完成)
   - 目标：面向生产用户补齐独立 IdP 的首屏配置体验。

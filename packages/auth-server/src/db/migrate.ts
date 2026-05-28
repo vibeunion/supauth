@@ -229,6 +229,7 @@ export async function runMigration() {
   try {
     await sql.unsafe(MIGRATION_SQL);
     await sql.unsafe(MIGRATION_V2_SQL);
+    await sql.unsafe(MIGRATION_V3_SQL);
     console.log('SupaOAuth schema migration completed');
   } catch (e) {
     console.error('Migration failed:', e);
@@ -472,6 +473,27 @@ WHERE NOT EXISTS (SELECT 1 FROM supaoauth.connector_factories WHERE factory_id =
 INSERT INTO supaoauth.tenant_configs (config_type, key, value, enabled)
 SELECT 'captcha', 'default', '{"provider":"none","configured":false}'::jsonb, false
 WHERE NOT EXISTS (SELECT 1 FROM supaoauth.tenant_configs WHERE config_type = 'captcha' AND key = 'default');
+`;
+
+// ─── V3 Migration: Per-application sign-in experience ───────────────────
+
+const MIGRATION_V3_SQL = `
+CREATE TABLE IF NOT EXISTS supaoauth.application_sign_in_experience (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id VARCHAR(255) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  logo_url TEXT,
+  favicon_url TEXT,
+  primary_color VARCHAR(32),
+  page_title VARCHAR(255),
+  background_url TEXT,
+  button_label VARCHAR(255),
+  custom_css TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_app_sie_app_id ON supaoauth.application_sign_in_experience (application_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_app_sie_app_id ON supaoauth.application_sign_in_experience (application_id);
 `;
 
 // Can be run standalone: bun run src/db/migrate.ts
