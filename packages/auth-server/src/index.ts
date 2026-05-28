@@ -31,6 +31,8 @@ import { apiVersionRoutes } from './routes/api-versions.js';
 import { tenantConfigRoutes } from './routes/tenant-config.js';
 import { myAccountRoutes } from './routes/my-account.js';
 import { authHookRoutes } from './routes/auth-hooks.js';
+import { rbacBridgeRoutes } from './routes/rbac-bridge.js';
+import { routeGateRoutes } from './routes/route-gate.js';
 
 const config = getConfig();
 const configErrors = validateConfig(config);
@@ -79,7 +81,7 @@ const app = new Elysia()
         { name: 'Admin Tools', description: 'RLS migration assistant and SDK tools' },
         { name: 'Consents', description: 'User consent management for OAuth authorization' },
         { name: 'Security', description: 'Production security configuration and enforcement' },
-        { name: 'Provisioning', description: 'SupaCloud project provisioning and idempotent reconcile' },
+        { name: 'Provisioning', description: 'SupaCloud project provisioning and idempotent reconcile (P0-26: project-scoped)' },
         { name: 'Enterprise SSO', description: 'Enterprise SSO configuration, domain discovery, JIT provisioning' },
         { name: 'Passkeys', description: 'WebAuthn passkey enrollment, listing, and revocation' },
         { name: 'API Versions', description: 'API version tracking and breaking change detection' },
@@ -91,6 +93,8 @@ const app = new Elysia()
         { name: 'JIT', description: 'Organization just-in-time provisioning settings' },
         { name: 'Account Center', description: 'User profile, sessions, identities, MFA, and suspension operations' },
         { name: 'Auth Hooks', description: 'Supabase Auth Hooks bridge for signup policy, token shaping, and MFA risk checks' },
+        { name: 'RBAC Bridge', description: 'Legacy role migration and compatibility bridge (P0-28)' },
+        { name: 'Route Gate', description: 'Route/domain integration gate for deployment verification (P0-29)' },
       ],
     },
   }))
@@ -121,6 +125,8 @@ const app = new Elysia()
   .use(apiVersionRoutes)
   .use(tenantConfigRoutes)
   .use(myAccountRoutes)
+  .use(rbacBridgeRoutes)
+  .use(routeGateRoutes)
 
   .listen({ port: config.port, hostname: config.host });
 

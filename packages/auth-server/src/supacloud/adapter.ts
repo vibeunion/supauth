@@ -1,7 +1,13 @@
 // SupaCloud adapter — server-side only, holds master token
 // All SupaCloud Management API calls go through this module.
+// P0-26: Supports per-request projectRef override for multi-project safety.
 
 import { getConfig } from '../config/index.js';
+
+export interface AdapterOptions {
+  /** Override the default PROJECT_REF for this adapter instance */
+  projectRef?: string;
+}
 
 export class SupaCloudAdapter {
   private apiUrl: string;
@@ -10,15 +16,21 @@ export class SupaCloudAdapter {
   private storageUrl: string;
   private runtimeUrl: string;
 
-  constructor() {
+  constructor(options?: AdapterOptions) {
     const config = getConfig();
     this.apiUrl = config.supacloudApiUrl;
     this.masterToken = config.supacloudMasterToken;
-    this.projectRef = config.projectRef;
+    // Per-instance projectRef: explicit override > env default
+    this.projectRef = options?.projectRef || config.projectRef;
     this.runtimeUrl = config.oauthRuntimeUrl.replace(/\/+$/, '');
     // Storage API uses the same base as the runtime URL (Kong-routed)
     // or can be overridden via SUPACLOUD_STORAGE_URL
     this.storageUrl = process.env.SUPACLOUD_STORAGE_URL || config.oauthRuntimeUrl;
+  }
+
+  /** The projectRef this adapter instance is bound to. */
+  getProjectRef(): string {
+    return this.projectRef;
   }
 
   private async request(path: string, options: RequestInit = {}): Promise<unknown> {
@@ -28,12 +40,18 @@ export class SupaCloudAdapter {
       Authorization: `Bearer ${this.masterToken}`,
       ...(options.headers as Record<string, string>),
     };
-    const res = await fetch(url, { ...options, headers });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`SupaCloud ${res.status}: ${body}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(url, { ...options, headers, signal: controller.signal });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`SupaCloud ${res.status}: ${body}`);
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
   }
 
   // ─── Project ──────────────────────────────────────────────────────
@@ -197,6 +215,11 @@ export class SupaCloudAdapter {
     });
   }
 
+  /**
+   * P0-27: Safe merge update — reads existing app_metadata first,
+   * then patches only the `supaoauth` namespace without clobbering
+   * other fields like `role`, `provider`, etc.
+   */
   async updateUser(userId: string, data: Record<string, unknown>) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}`, {
       method: 'PUT',
@@ -350,10 +373,16 @@ export class SupaCloudAdapter {
   }
 }
 
-// Singleton
+// Singleton (default projectRef from env)
 let _adapter: SupaCloudAdapter | null = null;
 
+/** Get or create the default singleton adapter (uses env PROJECT_REF). */
 export function getSupaCloudAdapter(): SupaCloudAdapter {
   if (!_adapter) _adapter = new SupaCloudAdapter();
   return _adapter;
+}
+
+/** Create an adapter bound to a specific projectRef (for multi-project safety). */
+export function getSupaCloudAdapterForProject(projectRef: string): SupaCloudAdapter {
+  return new SupaCloudAdapter({ projectRef });
 }
