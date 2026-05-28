@@ -36,6 +36,18 @@
         background: rgba(255, 255, 255, 0.96);
         box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
       }
+      .language-select {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        height: 30px;
+        padding: 0 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 7px;
+        background: #fff;
+        color: #374151;
+        font-size: 12px;
+      }
       .logo {
         display: none;
         max-width: 180px;
@@ -107,24 +119,113 @@
   </head>
   <body>
     <main class="card">
+      <select id="language" class="language-select" aria-label="Language">
+        <option value="en">English</option>
+        <option value="zh-CN">中文</option>
+      </select>
       <img id="logo" class="logo" alt="">
       <h1 id="title">SupaOAuth</h1>
-      <p class="subtitle">Sign in to continue</p>
+      <p id="subtitle" class="subtitle">Sign in to continue</p>
       <div id="message" class="message"></div>
       <form id="login-form">
-        <label for="email">Email</label>
+        <label id="email-label" for="email">Email</label>
         <input id="email" name="email" type="email" autocomplete="email" required>
-        <label for="password">Password</label>
+        <label id="password-label" for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <button id="submit" type="submit">Sign In</button>
       </form>
-      <div class="footer">SupaOAuth Identity Provider</div>
+      <div id="footer" class="footer">SupaOAuth Identity Provider</div>
     </main>
 
     <script>
       const params = new URLSearchParams(window.location.search);
       const authorizationId = params.get('authorization_id') || '';
       let authorizationRedirectUrl = params.get('redirect_to') || '';
+      let hasCustomPageTitle = false;
+      let hasCustomButtonLabel = false;
+
+      const LOCALE_STORAGE_KEY = 'supaoauth.locale';
+      const messages = {
+        en: {
+          documentTitle: 'SupaOAuth Sign In',
+          title: 'SupaOAuth',
+          subtitle: 'Sign in to continue',
+          email: 'Email',
+          password: 'Password',
+          submit: 'Sign In',
+          signingIn: 'Signing in...',
+          footer: 'SupaOAuth Identity Provider',
+          loginFailed: 'Login failed',
+          loginSuccess: 'Login successful.',
+          redirecting: 'Login successful. Redirecting...',
+          networkError: 'Network error',
+          authorizationFailed: 'Authorization approval failed',
+        },
+        'zh-CN': {
+          documentTitle: 'SupaOAuth 登录',
+          title: 'SupaOAuth',
+          subtitle: '登录后继续',
+          email: '邮箱',
+          password: '密码',
+          submit: '登录',
+          signingIn: '正在登录...',
+          footer: 'SupaOAuth 身份提供方',
+          loginFailed: '登录失败',
+          loginSuccess: '登录成功。',
+          redirecting: '登录成功，正在跳转...',
+          networkError: '网络错误',
+          authorizationFailed: '授权确认失败',
+        },
+      };
+
+      function normalizeLocale(locale) {
+        if (!locale) return null;
+        const normalized = locale.replace('_', '-').toLowerCase();
+        if (normalized === 'zh' || normalized.startsWith('zh-')) return 'zh-CN';
+        if (normalized === 'en' || normalized.startsWith('en-')) return 'en';
+        return null;
+      }
+
+      function localeCandidates() {
+        const uiLocales = (params.get('ui_locales') || '').split(/\s+/).filter(Boolean);
+        const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+        const browserLocales = navigator.languages && navigator.languages.length
+          ? navigator.languages
+          : [navigator.language];
+        return [...uiLocales, stored, ...browserLocales, 'en'];
+      }
+
+      function detectLocale() {
+        for (const candidate of localeCandidates()) {
+          const locale = normalizeLocale(candidate);
+          if (locale && messages[locale]) return locale;
+        }
+        return 'en';
+      }
+
+      let currentLocale = detectLocale();
+
+      function t(key) {
+        return (messages[currentLocale] && messages[currentLocale][key]) || messages.en[key] || key;
+      }
+
+      function applyLocale(locale, persist = false) {
+        currentLocale = messages[locale] ? locale : 'en';
+        document.documentElement.lang = currentLocale;
+        document.getElementById('language').value = currentLocale;
+        document.getElementById('subtitle').textContent = t('subtitle');
+        document.getElementById('email-label').textContent = t('email');
+        document.getElementById('password-label').textContent = t('password');
+        document.getElementById('footer').textContent = t('footer');
+        if (!hasCustomPageTitle) {
+          document.title = t('documentTitle');
+          document.getElementById('title').textContent = t('title');
+        }
+        if (!hasCustomButtonLabel) {
+          document.getElementById('submit').textContent = t('submit');
+        }
+        if (persist) localStorage.setItem(LOCALE_STORAGE_KEY, currentLocale);
+      }
 
       function publicApiBase() {
         const { protocol, hostname, port, origin } = window.location;
@@ -170,7 +271,7 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(data.msg || data.error_description || data.error || 'Authorization approval failed');
+          throw new Error(data.msg || data.error_description || data.error || t('authorizationFailed'));
         }
         return data.redirect_url || null;
       }
@@ -187,6 +288,7 @@
           }
           const branding = experience.branding || {};
           if (branding.page_title) {
+            hasCustomPageTitle = true;
             document.title = branding.page_title;
             document.getElementById('title').textContent = branding.page_title;
           }
@@ -209,6 +311,7 @@
             document.body.style.backgroundImage = `url("${branding.background_url}")`;
           }
           if (branding.button_label) {
+            hasCustomButtonLabel = true;
             document.getElementById('submit').textContent = branding.button_label;
           }
           if (branding.custom_css) {
@@ -224,7 +327,7 @@
         const button = document.getElementById('submit');
         button.disabled = true;
         const originalText = button.textContent;
-        button.textContent = 'Signing in...';
+        button.textContent = t('signingIn');
         try {
           const res = await fetch('/auth/v1/token?grant_type=password', {
             method: 'POST',
@@ -237,25 +340,30 @@
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            setMessage('error', data.msg || data.error_description || 'Login failed');
+            setMessage('error', data.msg || data.error_description || t('loginFailed'));
             return;
           }
           const approvedRedirectUrl = await approveAuthorization(data.access_token);
           const redirectUrl = approvedRedirectUrl || authorizationRedirectUrl;
           if (redirectUrl) {
-            setMessage('ok', 'Login successful. Redirecting...');
+            setMessage('ok', t('redirecting'));
             window.location.href = redirectUrl;
           } else {
-            setMessage('ok', 'Login successful.');
+            setMessage('ok', t('loginSuccess'));
           }
         } catch {
-          setMessage('error', 'Network error');
+          setMessage('error', t('networkError'));
         } finally {
           button.disabled = false;
           button.textContent = originalText;
         }
       });
 
+      document.getElementById('language').addEventListener('change', (event) => {
+        applyLocale(event.target.value, true);
+      });
+
+      applyLocale(currentLocale);
       loadExperience();
     </script>
   </body>

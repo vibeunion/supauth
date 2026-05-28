@@ -2,14 +2,11 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { SupaCloudAdapter } from '../supacloud/adapter.js';
 import { loadConfig } from '../config/index.js';
 
-// P0-13: Contract tests for SupaCloud adapter
+// P0-13/P0-25/P0-26: Contract tests for SupaCloud adapter
 // These test the adapter's method signatures and response shape expectations
 // against mock SupaCloud API responses.
 
 describe('SupaCloudAdapter contract', () => {
-  // We test method shapes without hitting real SupaCloud
-  // by verifying the adapter constructs correct requests
-
   beforeEach(() => {
     process.env.SUPACLOUD_API_URL = 'http://test-api:9090';
     process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
@@ -29,7 +26,7 @@ describe('SupaCloudAdapter contract', () => {
       'updateProvider', 'listUsers', 'getUser', 'deleteUser', 'updateUser',
       'listStorageBuckets', 'getStorageBucket', 'createStorageBucket',
       'uploadFile', 'deleteFile', 'createSignedUrl', 'getPublicUrl',
-      'verifyGatewayRoutes',
+      'verifyGatewayRoutes', 'getProjectRef',
     ];
     for (const method of requiredMethods) {
       expect(typeof (adapter as any)[method]).toBe('function');
@@ -44,7 +41,6 @@ describe('SupaCloudAdapter contract', () => {
 
   it('SupaCloud API URL is constructed correctly', () => {
     const adapter = new SupaCloudAdapter();
-    // The constructor should not throw
     expect(adapter).toBeDefined();
   });
 
@@ -66,12 +62,26 @@ describe('SupaCloudAdapter contract', () => {
 
     globalThis.fetch = originalFetch;
   });
+
+  // P0-26: projectRef override tests
+  it('uses env PROJECT_REF by default', () => {
+    const adapter = new SupaCloudAdapter();
+    expect(adapter.getProjectRef()).toBe('test-ref');
+  });
+
+  it('uses explicit projectRef override when provided', () => {
+    const adapter = new SupaCloudAdapter({ projectRef: 'other-project-12345' });
+    expect(adapter.getProjectRef()).toBe('other-project-12345');
+  });
+
+  it('getSupaCloudAdapterForProject creates scoped adapter', async () => {
+    const { getSupaCloudAdapterForProject } = await import('../supacloud/adapter.js');
+    const scoped = getSupaCloudAdapterForProject('scoped-ref-abcde12345');
+    expect(scoped.getProjectRef()).toBe('scoped-ref-abcde12345');
+  });
 });
 
 describe('SupaCloud API response shape expectations', () => {
-  // Document the expected response shapes from SupaCloud/Supabase APIs
-  // These are not live tests but serve as contract documentation
-
   it('OAuth client response shape', () => {
     const expectedShape = {
       client_id: 'string',
@@ -81,7 +91,6 @@ describe('SupaCloud API response shape expectations', () => {
       redirect_uris: 'string[]',
       grant_types: 'string[]',
     };
-    // This test documents the expected shape
     expect(expectedShape).toBeDefined();
   });
 
