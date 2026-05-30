@@ -18,7 +18,7 @@ let _config: ServerConfig | null = null;
 
 export function loadConfig(): ServerConfig {
   _config = {
-    port: parseInt(process.env.PORT || '4000', 10),
+    port: parseInt(process.env.PORT || '4010', 10),
     host: process.env.HOST || '0.0.0.0',
     supacloudApiUrl: process.env.SUPACLOUD_API_URL || 'http://localhost:9090',
     supacloudMasterToken: process.env.SUPACLOUD_MASTER_TOKEN || '',

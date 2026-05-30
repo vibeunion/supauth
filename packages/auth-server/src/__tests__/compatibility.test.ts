@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, mock, afterEach } from 'bun:test';
+import { loadConfig } from '../config/index.js';
 
 function setupConfig() {
   process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
@@ -7,6 +8,7 @@ function setupConfig() {
   process.env.PROJECT_REF = 'test-ref';
   process.env.DATABASE_URL = 'postgres://test';
   process.env.RUNTIME_MODE = 'gotrue';
+  loadConfig();
 }
 
 function createMockFetch(discoveryOverrides?: Record<string, unknown>) {

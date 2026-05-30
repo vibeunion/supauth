@@ -20,7 +20,7 @@ import { describe, it, expect } from 'bun:test';
 import { createClient } from '@supabase/supabase-js';
 
 const RUNTIME_URL = trimTrailingSlash(process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999');
-const MANAGEMENT_PORT = parseInt(process.env.PORT || '4000', 10);
+const MANAGEMENT_PORT = parseInt(process.env.PORT || '4010', 10);
 const MANAGEMENT_URL = trimTrailingSlash(process.env.MANAGEMENT_URL || `http://localhost:${MANAGEMENT_PORT}`);
 const RUN_LIVE = process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1' || process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';

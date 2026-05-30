@@ -18,7 +18,7 @@
 │ Admin   │ │ Auth    │ │ GoTrue  │ │ Storage │ │ PostgREST│
 │ Console │ │ Server  │ │ (OIDC) │ │ API     │ │          │
 │ (static)│ │ (BFF)   │ │         │ │         │ │          │
-│ :5173   │ │ :4000   │ │ :9999   │ │ :5000   │ │ :3000   │
+│ :5173   │ │ :4010   │ │ :9999   │ │ :5000   │ │ :3000   │
 └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘
      │          │                       │          │
      │          └───────┬───────────────┘          │
@@ -46,7 +46,7 @@
 ## SupaOAuth Auth Server (BFF)
 
 - **技术栈**：Elysia + Bun + drizzle-orm + postgres.js
-- **端口**：4000
+- **端口**：4010
 - **环境变量**：见 `.env.example`
 - **数据库**：共享 SupaCloud 的 Postgres 实例，使用 `supaoauth` schema
 - **认证**：开发模式用 ADMIN_TOKEN，生产模式用 @svadmin/sso session
@@ -63,7 +63,7 @@
 - **技术栈**：SvelteKit + @svadmin/core + Tailwind v4
 - **部署方式**：静态文件（adapter-static）
 - **路径前缀**：`/admin`
-- **API 代理**：Vite dev 代理 `/api → localhost:4000`，生产环境由 Kong 路由
+- **API 代理**：Vite dev 代理 `/api → localhost:4010`，生产环境由 Kong 路由
 
 ### 构建步骤
 

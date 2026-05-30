@@ -8,7 +8,7 @@ function mockFetch(fn: (input: string | Request, init?: RequestInit) => Promise<
 }
 
 describe('SupaOAuthClient — all public methods exist', () => {
-  const client = new SupaOAuthClient({ baseUrl: 'http://localhost:4000' });
+  const client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
 
   const expectedMethods = [
     'health', 'getProject',
@@ -74,7 +74,7 @@ describe('SupaOAuthClient — request serialization', () => {
   let client: SupaOAuthClient;
 
   beforeEach(() => {
-    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4000', accessToken: 'tk' });
+    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' });
   });
 
   it('sends JSON body in POST requests', async () => {
@@ -119,7 +119,7 @@ describe('SupaOAuthClient — request serialization', () => {
 
     try {
       await (client as any)['request']('/v1/health');
-      expect(capturedUrl).toBe('http://localhost:4000/v1/health');
+      expect(capturedUrl).toBe('http://localhost:4010/v1/health');
     } finally {
       restore();
     }
@@ -130,7 +130,7 @@ describe('SupaOAuthClient — query string construction', () => {
   let client: SupaOAuthClient;
 
   beforeEach(() => {
-    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4000', accessToken: 'tk' });
+    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' });
   });
 
   it('listAuditLogs builds query string from params', async () => {
@@ -159,7 +159,7 @@ describe('SupaOAuthClient — query string construction', () => {
 
     try {
       await client.listAuditLogs();
-      expect(capturedUrl).toBe('http://localhost:4000/v1/audit');
+      expect(capturedUrl).toBe('http://localhost:4010/v1/audit');
     } finally {
       restore();
     }
@@ -204,7 +204,7 @@ describe('SupaOAuthClient — query string construction', () => {
 
     try {
       await client.listConnectorFactories();
-      expect(capturedUrl).toBe('http://localhost:4000/v1/connectors/factories');
+      expect(capturedUrl).toBe('http://localhost:4010/v1/connectors/factories');
     } finally {
       restore();
     }
@@ -266,7 +266,7 @@ describe('SupaOAuthClient — error handling edge cases', () => {
   let client: SupaOAuthClient;
 
   beforeEach(() => {
-    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4000' });
+    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
   });
 
   it('handles 500 server error', async () => {
@@ -309,22 +309,22 @@ describe('SupaOAuthClient — error handling edge cases', () => {
 
 describe('SupaOAuthClient — constructor edge cases', () => {
   it('trims trailing slashes from baseUrl', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4000////' });
-    expect((c as any).baseUrl).toBe('http://localhost:4000');
+    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010////' });
+    expect((c as any).baseUrl).toBe('http://localhost:4010');
   });
 
   it('handles baseUrl with no trailing slashes', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4000' });
-    expect((c as any).baseUrl).toBe('http://localhost:4000');
+    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
+    expect((c as any).baseUrl).toBe('http://localhost:4010');
   });
 
   it('stores undefined accessToken as null', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4000' });
+    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
     expect((c as any).accessToken).toBeNull();
   });
 
   it('stores provided accessToken', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4000', accessToken: 'my-token' });
+    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'my-token' });
     expect((c as any).accessToken).toBe('my-token');
   });
 });

@@ -9,7 +9,7 @@
 export {};
 
 const runtimeUrl = (process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999').replace(/\/+$/, '');
-const managementUrl = (process.env.MANAGEMENT_URL || 'http://localhost:4000').replace(/\/+$/, '');
+const managementUrl = (process.env.MANAGEMENT_URL || 'http://localhost:4010').replace(/\/+$/, '');
 const concurrency = parseInt(process.env.CAPACITY_CONCURRENCY || '10', 10);
 const iterations = parseInt(process.env.CAPACITY_ITERATIONS || '50', 10);
 

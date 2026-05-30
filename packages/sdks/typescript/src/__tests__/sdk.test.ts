@@ -12,12 +12,12 @@ describe('SupaOAuthClient', () => {
   let client: SupaOAuthClient;
 
   beforeEach(() => {
-    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4000', accessToken: 'test-token' });
+    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'test-token' });
   });
 
   it('constructs with base URL trimmed', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4000///' });
-    expect((c as any).baseUrl).toBe('http://localhost:4000');
+    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010///' });
+    expect((c as any).baseUrl).toBe('http://localhost:4010');
   });
 
   it('stores access token', () => {

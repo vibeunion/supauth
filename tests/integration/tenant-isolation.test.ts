@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 const RUN_LIVE = process.env.RUN_TENANT_ISOLATION === '1';
-const MANAGEMENT_URL = (process.env.MANAGEMENT_URL || 'http://localhost:4000').replace(/\/+$/, '');
+const MANAGEMENT_URL = (process.env.MANAGEMENT_URL || 'http://localhost:4010').replace(/\/+$/, '');
 const ADMIN_TOKEN_A = process.env.TENANT_A_ADMIN_TOKEN || '';
 const TENANT_B_PROJECT_REF = process.env.TENANT_B_PROJECT_REF || '';
 const liveIt = RUN_LIVE && ADMIN_TOKEN_A && TENANT_B_PROJECT_REF ? it : it.skip;
