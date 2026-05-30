@@ -19,6 +19,21 @@ function runtimeInternalUrl(path: string) {
   return `${base}${normalizedPath}`;
 }
 
+async function getSupaCloudSignInSource(applicationId?: string) {
+  const [projectResult, applicationResult] = await Promise.allSettled([
+    adapter.getProject(),
+    applicationId ? adapter.getOAuthClient(applicationId) : Promise.resolve(null),
+  ]);
+  return {
+    project: projectResult.status === 'fulfilled' && projectResult.value && typeof projectResult.value === 'object'
+      ? projectResult.value as Record<string, unknown>
+      : null,
+    application: applicationResult.status === 'fulfilled' && applicationResult.value && typeof applicationResult.value === 'object'
+      ? applicationResult.value as Record<string, unknown>
+      : null,
+  };
+}
+
 export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
   .get('/', async () => sieRepo.getSignInExperience(), {
     detail: { summary: 'Get sign-in experience configuration', tags: ['Sign-in Experience'] },
@@ -26,7 +41,8 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
 
   .get('/resolve', async ({ query }) => {
     const applicationId = (query as Record<string, unknown>).application_id;
-    return sieRepo.resolveSignInExperience(typeof applicationId === 'string' ? applicationId : undefined);
+    const appId = typeof applicationId === 'string' ? applicationId : undefined;
+    return sieRepo.resolveSignInExperience(appId, await getSupaCloudSignInSource(appId));
   }, {
     detail: { summary: 'Resolve effective sign-in experience for an application', tags: ['Sign-in Experience', 'Applications'] },
   })
@@ -48,7 +64,10 @@ export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sig
       authorization = await sieRepo.getOAuthAuthorizationContext(q.authorization_id);
       applicationId = authorization?.client_id || undefined;
     }
-    const experience = await sieRepo.resolveSignInExperience(applicationId);
+    const experience = await sieRepo.resolveSignInExperience(
+      applicationId,
+      await getSupaCloudSignInSource(applicationId),
+    );
     return authorization ? { ...experience, authorization } : experience;
   }, {
     detail: { summary: 'Resolve public effective sign-in experience for hosted login pages', tags: ['Sign-in Experience', 'Public'] },

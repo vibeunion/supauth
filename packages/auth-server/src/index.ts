@@ -30,6 +30,7 @@ import { passkeyRoutes } from './routes/passkeys.js';
 import { apiVersionRoutes } from './routes/api-versions.js';
 import { tenantConfigRoutes } from './routes/tenant-config.js';
 import { myAccountRoutes } from './routes/my-account.js';
+import { authHookRoutes } from './routes/auth-hooks.js';
 
 const config = getConfig();
 const configErrors = validateConfig(config);
@@ -45,6 +46,7 @@ const app = new Elysia()
   .use(storageRoutes)
   .use(publicSignInExperienceRoutes)
   .use(publicOAuthRoutes)
+  .use(authHookRoutes)
   .use(swagger({
     path: '/swagger',
     documentation: {
@@ -87,6 +89,7 @@ const app = new Elysia()
         { name: 'Invitations', description: 'Organization invitations' },
         { name: 'JIT', description: 'Organization just-in-time provisioning settings' },
         { name: 'Account Center', description: 'User profile, sessions, identities, MFA, and suspension operations' },
+        { name: 'Auth Hooks', description: 'Supabase Auth Hooks bridge for signup policy, token shaping, and MFA risk checks' },
       ],
     },
   }))

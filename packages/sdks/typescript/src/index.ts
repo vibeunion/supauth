@@ -224,6 +224,14 @@ interface TenantConfig {
   enabled: boolean;
 }
 
+interface AuthHookRegistrationGuide {
+  before_user_created: string;
+  custom_access_token: string;
+  mfa_verification_attempt: string;
+  secret_header: string;
+  required_env: string;
+}
+
 // ─── RLS Migration Assistant types ──────────────────────
 export interface ExistingPolicy {
   schemaname: string;
@@ -256,6 +264,59 @@ export interface MigrationResult {
   wrappers: WrapperPolicy[];
   migration_sql: string;
   warnings: string[];
+}
+
+export type AuthorizationOperation = 'read' | 'create' | 'update' | 'delete' | 'manage';
+
+export interface AuthorizationCompileRequest {
+  tables?: Array<{
+    schema?: string;
+    table: string;
+    permission_prefix?: string;
+    operations?: AuthorizationOperation[];
+    owner_column?: string;
+    organization_column?: string;
+  }>;
+  storage_buckets?: Array<{
+    bucket_id: string;
+    permission_prefix?: string;
+    owner_path_prefix?: string;
+    organization_path_prefix?: string;
+    operations?: AuthorizationOperation[];
+  }>;
+  realtime_channels?: Array<{
+    topic: string;
+    permission: string;
+    organization_claim?: string;
+  }>;
+  edge_functions?: Array<{
+    name: string;
+    permission: string;
+    require_organization?: boolean;
+  }>;
+  include_helper_sql?: boolean;
+}
+
+export interface AuthorizationCompileResult {
+  generated_at: string;
+  assumptions: string[];
+  warnings: string[];
+  permissions: string[];
+  sql: {
+    helpers: string;
+    tables: string;
+    storage: string;
+    realtime: string;
+    rollback: string;
+  };
+  edge_functions: Array<{
+    name: string;
+    permission: string;
+    middleware: string;
+    negative_tests: string[];
+  }>;
+  negative_tests: string[];
+  deploy_checklist: string[];
 }
 
 // ─── Error class ─────────────────────────────────────────
@@ -829,6 +890,13 @@ export class SupaOAuthClient {
     return this.request<unknown>(`/v1/tenant-config/domain/${encodeURIComponent(domain)}/check`, { method: 'POST' });
   }
 
+  // ─── Auth Hooks ───────────────────────────────────────
+  getAuthHookRegistrationGuide(hookSecret: string) {
+    return this.request<AuthHookRegistrationGuide>('/v1/auth-hooks/registration-guide', {
+      headers: { 'x-supaoauth-hook-secret': hookSecret },
+    });
+  }
+
   // ─── Webhooks ─────────────────────────────────────────
   listWebhooks() {
     return this.request<ListResponse<Webhook>>('/v1/webhooks');
@@ -923,6 +991,17 @@ export class SupaOAuthClient {
   }
 
   // ─── RLS Migration Assistant ──────────────────────────
+  compileAuthorizationPlan(data: AuthorizationCompileRequest) {
+    return this.request<AuthorizationCompileResult>('/v1/admin-tools/authorization-compiler', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  getAuthorizationCompilerDemo() {
+    return this.request<AuthorizationCompileResult>('/v1/admin-tools/authorization-compiler/demo');
+  }
+
   generateRLSMigration(policies: ExistingPolicy[]) {
     return this.request<MigrationResult>('/v1/admin-tools/rls-migration', {
       method: 'POST',

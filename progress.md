@@ -1,6 +1,6 @@
 # SupaOAuth — 独立用户中心执行看板
 
-更新时间： 2026-05-26
+更新时间： 2026-05-29
 
 ## 结论
 
@@ -193,6 +193,10 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - `packages/shared/src/index.ts` — Added claims.ts re-export
 
 ## 验证记录
+- [x] 2026-05-30 SupaCloud 应用/项目元数据登录页兜底 — `/v1/sign-in-experience/resolve` 与 public resolve 会从 SupaCloud `getProject()` / `getOAuthClient(client_id)` 读取项目名、项目 branding、OAuth client `client_name` / `logo_uri` / 颜色等作为默认登录页品牌数据；SupaOAuth app-level sign-in experience 仍保持最高优先级，SupaCloud 查询失败不会阻断登录。
+- [x] 2026-05-29 默认 hosted 登录页 Stripe 风格优化 — `packages/admin-console/static/authorize.html` 改为斜切几何背景、深色登录面板、响应式双栏/单栏布局、默认内联 favicon，并保留 per-application branding 覆盖、背景图、按钮文案和 custom CSS 注入；Playwright 桌面/移动端渲染快照通过。
+- [x] 2026-05-29 服务器部署巡检 — `139.155.145.208` / `10.6.0.6` 可登录，Rocky Linux 9.4，主要部署目录为 `/opt/volt`，运行 `volt-gateway.service`、`volt-studio-server`、`volt-librechat`、`volt-rag`、`volt-meilisearch`；本机健康检查 `127.0.0.1:3090/health=200`，LibreChat `127.0.0.1:3080=200`，未发现 SupaOAuth auth-server/admin-console 正式部署。
+- [x] 2026-05-29 服务器部署巡检 — `162.14.75.191` / `10.6.0.2` 首次 SSH 曾读取到 Rocky Linux 9.4、内网地址 `10.6.0.2`、启动时间 2026-05-28、24h 内大量 SSH failed login；后续公网和内网 SSH 均在 banner exchange 阶段超时，80/443 TCP 可连但 HTTP/HTTPS 无响应，暂不适合作为自动部署目标，需先修复 sshd 可用性和登录暴露面。
 - [x] `bunx tsc --noEmit` — root TS check pass (0 errors)
 - [x] `bun test` — 46 pass, 20 skip, 0 fail (live runtime checks gated by env flags)
 - [x] 2026-05-26 `bunx tsc --noEmit` — P0-24 / P1-12~P1-16 / P2-7 implementation pass (0 errors)
@@ -364,3 +368,18 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ### 已完成的 P2 部署与运维
 - [x] **P2-4** UI 完整性（Applications detail/edit form 已存在, 列表页导航链接已添加, connectors empty state 已补全, 所有页面状态一致）
+
+## 2026-05-30 Codex 执行记录 — Logto/Supabase 差距闭环实施
+
+- [x] **Supabase-native authorization compiler**
+  - 新增 `packages/auth-server/src/compatibility/authorization-compiler.ts`，支持从 table/storage/realtime/edge-function 目标生成 review-only RLS、Storage policy、Realtime 模板、Edge Function gate、rollback SQL、负向测试矩阵和部署清单。
+  - 新增 `/v1/admin-tools/authorization-compiler` 与 `/v1/admin-tools/authorization-compiler/demo`，保持与 RLS migration assistant 一样的“只生成、不直接改租户库”边界。
+  - SDK 新增 `compileAuthorizationPlan`、`getAuthorizationCompilerDemo`。
+  - 验证：`bunx tsc --noEmit` 通过；新增 `authorization-compiler.test.ts` 通过。
+
+- [x] **Supabase Auth Hooks bridge**
+  - 新增 `packages/auth-server/src/auth/hooks-bridge.ts` 与 `/v1/auth-hooks/*` 公共 hook 路由，注册在 admin guard 前，但通过独立 `SUPAOAUTH_AUTH_HOOK_SECRET` 防护。
+  - 支持 `before-user-created` 注册策略（域名 allow/block、provider allow/block、invite-only）、`custom-access-token` 小型 `app_metadata.supaoauth` hook marker、`mfa-verification-attempt` 风险拒绝。
+  - `tenant-config` 允许 `auth_hook` 类型，便于通过管理 API 配置 `auth_hook/signup_policy`。
+  - SDK 新增 `getAuthHookRegistrationGuide`。
+  - 验证：`bunx tsc --noEmit` 通过；新增 `auth-hooks.test.ts` 与 SDK 方法测试通过。

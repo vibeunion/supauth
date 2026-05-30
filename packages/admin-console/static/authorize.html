@@ -4,18 +4,21 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SupaOAuth Sign In</title>
+    <link rel="icon" href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E%3Crect width="32" height="32" rx="7" fill="%230a2540"/%3E%3Cpath d="M9 18c2.5-5.4 5.4-8 8.8-8 2.8 0 4.8 1.5 5.2 4 .3 2.2-1 4.1-3.3 4.6l-4.1.9c-1.3.3-2 .9-2.2 1.9h9.3v2.8H9.1c.1-3.7 2-6.1 5.7-6.9l4.2-.9c.9-.2 1.3-.8 1.2-1.6-.2-1.1-1.1-1.8-2.5-1.8-2 0-4 2-6.1 6L9 18z" fill="%23635bff"/%3E%3C/svg%3E'>
     <style>
       * { box-sizing: border-box; }
-      :root { --primary: #2563eb; }
+      :root {
+        --primary: #635bff;
+        --ink: #0a2540;
+      }
       body {
         margin: 0;
         min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #f6f7f9;
-        color: #111827;
+        background:
+          linear-gradient(180deg, #ffffff 0%, #f6f9fc 58%, #eef3f9 100%);
+        color: var(--ink);
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        overflow-x: hidden;
       }
       body.has-bg {
         background-position: center;
@@ -25,100 +28,276 @@
         content: "";
         position: fixed;
         inset: 0;
-        background: rgba(255, 255, 255, 0.72);
+        z-index: 0;
+        background: rgba(246, 249, 252, 0.78);
+        backdrop-filter: blur(8px);
+      }
+      .page {
+        position: relative;
+        z-index: 1;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(360px, 480px);
+        align-items: center;
+        gap: clamp(32px, 6vw, 96px);
+        width: min(1180px, calc(100vw - 48px));
+        margin: 0 auto;
+        padding: 64px 0;
+      }
+      .geometry {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .geometry::before,
+      .geometry::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        width: 120vw;
+        height: 260px;
+        transform: translateX(-50%) rotate(-7deg);
+        transform-origin: center;
+      }
+      .geometry::before {
+        top: -86px;
+        background:
+          linear-gradient(90deg, #7a73ff 0%, #00d4ff 34%, #00c48c 68%, #ffd166 100%);
+        box-shadow: 0 22px 60px rgba(99, 91, 255, 0.16);
+      }
+      .geometry::after {
+        top: 84px;
+        left: 62%;
+        width: 82vw;
+        height: 146px;
+        background:
+          linear-gradient(90deg, rgba(10, 37, 64, 0.08), rgba(99, 91, 255, 0.18), rgba(0, 212, 255, 0.06));
+      }
+      .brand {
+        max-width: 600px;
+        padding-top: 44px;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 18px;
+        color: #425466;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+      .eyebrow::before {
+        content: "";
+        width: 28px;
+        height: 3px;
+        border-radius: 999px;
+        background: var(--primary);
+      }
+      .brand h2 {
+        margin: 0 0 18px;
+        max-width: 580px;
+        color: #0a2540;
+        font-size: 68px;
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+      .brand p {
+        margin: 0;
+        max-width: 520px;
+        color: #425466;
+        font-size: 18px;
+        line-height: 1.65;
       }
       .card {
         position: relative;
-        width: min(420px, calc(100vw - 32px));
-        padding: 36px;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.96);
-        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+        width: 100%;
+        padding: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+        background: rgba(10, 37, 64, 0.96);
+        box-shadow:
+          0 36px 90px rgba(10, 37, 64, 0.28),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+      }
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(145deg, rgba(99, 91, 255, 0.18), transparent 38%);
+        pointer-events: none;
       }
       .logo {
         display: none;
         max-width: 180px;
-        max-height: 72px;
-        margin: 0 auto 18px;
+        max-height: 64px;
+        margin: 0 0 22px;
+        object-fit: contain;
       }
       h1 {
+        position: relative;
         margin: 0 0 8px;
-        text-align: center;
-        font-size: 24px;
-        font-weight: 700;
+        color: #ffffff;
+        font-size: 28px;
+        font-weight: 750;
+        letter-spacing: 0;
+        overflow-wrap: anywhere;
       }
       .subtitle {
         margin: 0 0 24px;
-        text-align: center;
-        color: #6b7280;
+        color: #adbdcc;
         font-size: 14px;
+        line-height: 1.5;
+      }
+      form {
+        position: relative;
       }
       label {
         display: block;
-        margin: 0 0 6px;
-        color: #374151;
+        margin: 0 0 7px;
+        color: #d6e0eb;
         font-size: 13px;
         font-weight: 600;
       }
       input {
         width: 100%;
-        height: 42px;
-        margin: 0 0 14px;
-        padding: 0 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
+        height: 46px;
+        margin: 0 0 16px;
+        padding: 0 14px;
+        border: 1px solid rgba(173, 189, 204, 0.32);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
         font-size: 14px;
         outline: none;
+        transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+      }
+      input::placeholder {
+        color: rgba(214, 224, 235, 0.54);
       }
       input:focus {
-        border-color: var(--primary);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+        border-color: color-mix(in srgb, var(--primary) 80%, #ffffff);
+        background: rgba(255, 255, 255, 0.12);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
       }
       button {
         width: 100%;
-        height: 44px;
+        height: 46px;
         border: 0;
-        border-radius: 8px;
-        background: var(--primary);
+        border-radius: 6px;
+        background: linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 76%, #00d4ff));
         color: #fff;
         cursor: pointer;
         font-size: 15px;
-        font-weight: 700;
+        font-weight: 760;
+        box-shadow: 0 16px 34px color-mix(in srgb, var(--primary) 34%, transparent);
+        transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+      }
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        filter: saturate(1.04);
+      }
+      button:focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent);
+        outline-offset: 3px;
       }
       button:disabled { opacity: 0.65; cursor: wait; }
       .message {
+        position: relative;
         display: none;
-        margin: 0 0 14px;
-        padding: 10px 12px;
-        border-radius: 8px;
+        margin: 0 0 16px;
+        padding: 11px 12px;
+        border-radius: 6px;
         font-size: 13px;
       }
-      .message.error { display: block; background: #fef2f2; color: #991b1b; }
-      .message.ok { display: block; background: #ecfdf5; color: #065f46; }
+      .message.error { display: block; background: rgba(255, 90, 95, 0.14); color: #ffd4d6; }
+      .message.ok { display: block; background: rgba(0, 212, 146, 0.14); color: #b5f4df; }
       .footer {
-        margin-top: 18px;
-        text-align: center;
-        color: #9ca3af;
+        position: relative;
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        margin-top: 20px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(173, 189, 204, 0.18);
+        color: #adbdcc;
         font-size: 12px;
+      }
+      .footer span:last-child {
+        color: #d6e0eb;
+        font-weight: 650;
+      }
+      @media (max-width: 860px) {
+        .page {
+          grid-template-columns: 1fr;
+          width: min(520px, calc(100vw - 32px));
+          gap: 28px;
+          padding: 92px 0 36px;
+        }
+        .brand {
+          padding-top: 0;
+        }
+        .brand h2 {
+          font-size: 42px;
+        }
+        .brand p {
+          font-size: 16px;
+        }
+      }
+      @media (max-width: 520px) {
+        .page {
+          width: min(100vw - 24px, 460px);
+          padding-top: 82px;
+        }
+        .card {
+          padding: 24px;
+        }
+        .brand h2 {
+          font-size: 36px;
+        }
+        .footer {
+          display: block;
+        }
+        .footer span {
+          display: block;
+        }
+        .footer span + span {
+          margin-top: 4px;
+        }
       }
     </style>
     <style id="custom-style"></style>
   </head>
   <body>
-    <main class="card">
-      <img id="logo" class="logo" alt="">
-      <h1 id="title">SupaOAuth</h1>
-      <p class="subtitle">Sign in to continue</p>
-      <div id="message" class="message"></div>
-      <form id="login-form">
-        <label for="email">Email</label>
-        <input id="email" name="email" type="email" autocomplete="email" required>
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
-        <button id="submit" type="submit">Sign In</button>
-      </form>
-      <div class="footer">SupaOAuth Identity Provider</div>
+    <div class="geometry" aria-hidden="true"></div>
+    <main class="page">
+      <section class="brand" aria-labelledby="brand-title">
+        <p class="eyebrow">SupaOAuth Identity</p>
+        <h2 id="brand-title">Access for modern product teams</h2>
+        <p>Secure access to your workspace.</p>
+      </section>
+
+      <section class="card" aria-labelledby="title">
+        <img id="logo" class="logo" alt="">
+        <h1 id="title">SupaOAuth</h1>
+        <p class="subtitle">Sign in to continue to your application.</p>
+        <div id="message" class="message"></div>
+        <form id="login-form">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+          <button id="submit" type="submit">Sign In</button>
+        </form>
+        <div class="footer">
+          <span>Protected by SupaOAuth</span>
+          <span>Secure session</span>
+        </div>
+      </section>
     </main>
 
     <script>

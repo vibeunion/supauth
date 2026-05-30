@@ -2,8 +2,57 @@
 
 import { Elysia, t } from 'elysia';
 import { generateWrapperPolicies, type ExistingPolicy } from '../compatibility/rls-migration.js';
+import { compileAuthorizationPlan, type AuthorizationCompileRequest } from '../compatibility/authorization-compiler.js';
 
 export const adminToolRoutes = new Elysia({ prefix: '/v1/admin-tools' })
+  // ─── Supabase-native authorization compiler ───
+  .post('/authorization-compiler', async ({ body }) => {
+    return compileAuthorizationPlan(body as AuthorizationCompileRequest);
+  }, {
+    detail: {
+      summary: 'Compile Supabase-native authorization artifacts',
+      description: 'Generates reviewable RLS, Storage, Realtime, Edge Function, rollback, and negative-test artifacts from SupaOAuth resources. Does NOT apply changes.',
+      tags: ['Admin Tools'],
+    },
+  })
+
+  .get('/authorization-compiler/demo', async () => {
+    return compileAuthorizationPlan({
+      tables: [
+        {
+          schema: 'public',
+          table: 'projects',
+          permission_prefix: 'project',
+          owner_column: 'owner_id',
+          organization_column: 'org_id',
+          operations: ['read', 'update', 'delete'],
+        },
+        {
+          schema: 'public',
+          table: 'documents',
+          permission_prefix: 'document',
+          organization_column: 'organization_id',
+          operations: ['read', 'create', 'update'],
+        },
+      ],
+      storage_buckets: [
+        { bucket_id: 'project-assets', permission_prefix: 'project.asset', organization_path_prefix: 'org', operations: ['read', 'create', 'delete'] },
+      ],
+      realtime_channels: [
+        { topic: 'project-updates', permission: 'project.read', organization_claim: 'current_org_id' },
+      ],
+      edge_functions: [
+        { name: 'billing-portal', permission: 'billing.manage', require_organization: true },
+      ],
+    });
+  }, {
+    detail: {
+      summary: 'Authorization compiler demo',
+      description: 'Shows generated Supabase-native authorization artifacts for tables, Storage, Realtime, and Edge Functions.',
+      tags: ['Admin Tools'],
+    },
+  })
+
   // ─── RLS Migration Assistant ───
   .post('/rls-migration', async ({ body }) => {
     // Accept an array of existing policies and generate wrapper policies

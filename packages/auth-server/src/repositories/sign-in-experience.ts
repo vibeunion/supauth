@@ -33,6 +33,13 @@ export interface ApplicationSignInExperienceInput {
   branding?: SignInExperienceInput['branding'];
 }
 
+type Branding = NonNullable<SignInExperienceInput['branding']>;
+
+export interface SupaCloudSignInExperienceSource {
+  project?: Record<string, unknown> | null;
+  application?: Record<string, unknown> | null;
+}
+
 export interface OAuthAuthorizationContext {
   authorization_id: string;
   client_id: string;
@@ -86,8 +93,8 @@ function appToResponse(row: typeof applicationSignInExperience.$inferSelect) {
 }
 
 function mergeBranding(
-  globalBranding: ReturnType<typeof globalToResponse>['branding'],
-  appBranding?: ReturnType<typeof appToResponse>['branding'],
+  globalBranding: Branding,
+  appBranding?: Branding,
 ) {
   if (!appBranding) return globalBranding;
   return {
@@ -96,6 +103,100 @@ function mergeBranding(
       Object.entries(appBranding).filter(([, value]) => value !== null && value !== undefined && value !== ''),
     ),
   };
+}
+
+const STOCK_PAGE_TITLES = new Set(['SupaOAuth', 'SupaOAuth Sign In']);
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readPath(source: Record<string, unknown> | null | undefined, path: string[]) {
+  let current: unknown = source;
+  for (const key of path) {
+    if (!current || typeof current !== 'object') return null;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return stringValue(current);
+}
+
+function firstString(source: Record<string, unknown> | null | undefined, paths: string[][]) {
+  for (const path of paths) {
+    const value = readPath(source, path);
+    if (value) return value;
+  }
+  return null;
+}
+
+function projectBrandingDefaults(project?: Record<string, unknown> | null): Branding {
+  return {
+    page_title: firstString(project, [['name'], ['project_name'], ['display_name']]),
+    logo_url: firstString(project, [
+      ['logo_url'],
+      ['logo_uri'],
+      ['icon_url'],
+      ['avatar_url'],
+      ['config', 'branding', 'logo_url'],
+      ['config', 'branding', 'logo_uri'],
+      ['config', 'logo_url'],
+      ['config', 'project_logo_url'],
+    ]),
+    favicon_url: firstString(project, [
+      ['favicon_url'],
+      ['favicon_uri'],
+      ['config', 'branding', 'favicon_url'],
+      ['config', 'favicon_url'],
+    ]),
+    primary_color: firstString(project, [
+      ['primary_color'],
+      ['brand_color'],
+      ['theme_color'],
+      ['config', 'branding', 'primary_color'],
+      ['config', 'primary_color'],
+    ]),
+  };
+}
+
+function applicationBrandingDefaults(application?: Record<string, unknown> | null): Branding {
+  return {
+    page_title: firstString(application, [['client_name'], ['name'], ['display_name'], ['app_name']]),
+    logo_url: firstString(application, [['logo_uri'], ['logo_url'], ['icon_url'], ['avatar_url']]),
+    favicon_url: firstString(application, [['favicon_uri'], ['favicon_url']]),
+    primary_color: firstString(application, [['primary_color'], ['brand_color'], ['theme_color']]),
+  };
+}
+
+function applyProjectFallback(branding: Branding, fallback: Branding) {
+  const next = { ...branding };
+  for (const [key, value] of Object.entries(fallback) as Array<[keyof Branding, string | null | undefined]>) {
+    if (!value) continue;
+    if (key === 'page_title') {
+      if (!next.page_title || STOCK_PAGE_TITLES.has(next.page_title)) next.page_title = value;
+    } else if (!next[key]) {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
+function applyApplicationFallback(branding: Branding, fallback: Branding) {
+  const next = { ...branding };
+  for (const [key, value] of Object.entries(fallback) as Array<[keyof Branding, string | null | undefined]>) {
+    if (!value) continue;
+    if (key === 'custom_css' || key === 'background_url' || key === 'button_label') continue;
+    next[key] = value;
+  }
+  return next;
+}
+
+export function mergeSupaCloudBrandingDefaults(
+  globalBranding: Branding,
+  source: SupaCloudSignInExperienceSource = {},
+) {
+  return applyApplicationFallback(
+    applyProjectFallback(globalBranding, projectBrandingDefaults(source.project)),
+    applicationBrandingDefaults(source.application),
+  );
 }
 
 export async function getSignInExperience() {
@@ -192,14 +293,21 @@ export async function deleteApplicationSignInExperience(applicationId: string) {
     .where(eq(applicationSignInExperience.applicationId, applicationId));
 }
 
-export async function resolveSignInExperience(applicationId?: string) {
+export async function resolveSignInExperience(
+  applicationId?: string,
+  supacloudSource?: SupaCloudSignInExperienceSource,
+) {
   const global = await getSignInExperience();
-  if (!global || !applicationId) return global;
+  if (!global) return global;
+  const brandingWithSupaCloudDefaults = mergeSupaCloudBrandingDefaults(global.branding, supacloudSource);
+  if (!applicationId) return { ...global, branding: brandingWithSupaCloudDefaults };
   const app = await getApplicationSignInExperience(applicationId);
-  if (!app || !app.enabled) return { ...global, application: app };
+  if (!app || !app.enabled) {
+    return { ...global, branding: brandingWithSupaCloudDefaults, application: app };
+  }
   return {
     ...global,
-    branding: mergeBranding(global.branding, app.branding),
+    branding: mergeBranding(brandingWithSupaCloudDefaults, app.branding),
     application: app,
   };
 }

@@ -10,10 +10,55 @@ describe('Sign-in experience repository — module structure', () => {
       'upsertApplicationSignInExperience',
       'deleteApplicationSignInExperience',
       'resolveSignInExperience',
+      'mergeSupaCloudBrandingDefaults',
     ];
 
     for (const fn of expectedFns) {
       expect(typeof (repo as Record<string, unknown>)[fn]).toBe('function');
     }
+  });
+
+  it('uses SupaCloud project fields as tenant-level branding defaults', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({
+      page_title: 'SupaOAuth',
+      logo_url: null,
+      favicon_url: null,
+      primary_color: null,
+    }, {
+      project: {
+        name: 'Volt',
+        config: {
+          branding: {
+            logo_url: 'https://assets.example.com/volt-logo.png',
+            primary_color: '#635bff',
+          },
+        },
+      },
+    });
+
+    expect(branding.page_title).toBe('Volt');
+    expect(branding.logo_url).toBe('https://assets.example.com/volt-logo.png');
+    expect(branding.primary_color).toBe('#635bff');
+  });
+
+  it('uses SupaCloud OAuth client metadata as application branding defaults', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({
+      page_title: 'Tenant Name',
+      logo_url: 'https://assets.example.com/tenant-logo.png',
+      favicon_url: null,
+      primary_color: '#0a2540',
+    }, {
+      application: {
+        client_name: 'Volt Studio',
+        logo_uri: 'https://assets.example.com/volt-studio-logo.png',
+        primary_color: '#00d4ff',
+      },
+    });
+
+    expect(branding.page_title).toBe('Volt Studio');
+    expect(branding.logo_url).toBe('https://assets.example.com/volt-studio-logo.png');
+    expect(branding.primary_color).toBe('#00d4ff');
   });
 });
