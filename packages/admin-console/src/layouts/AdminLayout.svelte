@@ -24,9 +24,7 @@
 </script>
 
 <div class="flex h-screen bg-surface-50 font-sans">
-  <!-- Sidebar (Stripe light elegant style) -->
   <nav class="w-64 shrink-0 bg-white border-r border-surface-200/80 flex flex-col shadow-xs">
-    <!-- Brand Logo Area -->
     <div class="px-6 py-5 border-b border-surface-100 flex flex-col justify-center">
       <div class="flex items-center gap-2">
         <span class="text-xl text-brand-600 font-bold leading-none select-none">✦</span>
@@ -37,7 +35,6 @@
       </p>
     </div>
 
-    <!-- Navigation List -->
     <div class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
       {#each navItems as item (item.path)}
         {@const isActive = page.url.pathname === `${resolve('')}${item.path}` || page.url.pathname === `${resolve('')}${item.path}/`}
@@ -50,7 +47,6 @@
               : 'text-surface-600 hover:bg-surface-50 hover:text-surface-900',
           ].join(' ')}
         >
-          <!-- Left accent indicator border for active state -->
           {#if isActive}
             <div class="absolute left-0 top-2 bottom-2 w-[3px] bg-brand-600 rounded-r-md"></div>
           {/if}
@@ -66,17 +62,11 @@
       {/each}
     </div>
 
-    <!-- Tenant Footer Info -->
-    <div class="px-6 py-4 border-t border-surface-100 flex items-center justify-between text-xs text-surface-400 font-medium bg-surface-50/50">
-      <span>Console v1.0.0</span>
-      <span class="flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-        <span class="text-surface-600 text-[11px]">Healthy</span>
-      </span>
+    <div class="px-6 py-4 border-t border-surface-100 text-xs text-surface-400 font-medium bg-surface-50/50">
+      SupaOAuth
     </div>
   </nav>
 
-  <!-- Main content area with Stripe layout margins -->
   <main class="flex-1 overflow-auto bg-surface-50">
     <div class="max-w-5xl mx-auto px-8 py-8 md:py-10">
       {@render children()}
