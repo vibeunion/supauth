@@ -2,7 +2,7 @@
 // Extended with RBAC-specific checks (P1-8)
 
 import { checkRuntimeHealth, getDiscovery } from '../runtime/index.js';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import { SupaCloudAdapter } from '../supacloud/adapter.js';
 import { getConfig } from '../config/index.js';
 import { runRBACCompatibilityChecks } from './rbac.js';
 
@@ -70,7 +70,7 @@ export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult
 
   // SC-6: SupaCloud adapter can reach management API
   try {
-    const adapter = getSupaCloudAdapter();
+    const adapter = new SupaCloudAdapter();
     await adapter.getAuthConfig();
     results.push({
       check_id: 'sc-6-supacloud-reachable',
