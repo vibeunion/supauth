@@ -4,10 +4,13 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
+  optimizeDeps: {
+    exclude: ['@svadmin/core'],
+  },
   server: {
     proxy: {
       '/api': {
-        target: process.env.AUTH_SERVER_PROXY_TARGET || 'http://localhost:4000',
+        target: process.env.AUTH_SERVER_PROXY_TARGET || 'http://localhost:4010',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

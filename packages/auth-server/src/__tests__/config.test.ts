@@ -19,7 +19,7 @@ describe('ServerConfig', () => {
 
   it('returns defaults when env vars are not set', () => {
     const config = loadConfig();
-    expect(config.port).toBe(4000);
+    expect(config.port).toBe(4010);
     expect(config.host).toBe('0.0.0.0');
     expect(config.runtimeMode).toBe('gotrue');
     expect(config.logLevel).toBe('info');

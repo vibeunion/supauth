@@ -65,7 +65,7 @@ Start auth-server and admin console together:
 bun run dev
 ```
 
-The admin console runs on `http://localhost:5173/admin`. During development, Vite proxies `/api/*` to `http://localhost:4000/*`, so browser code still uses `VITE_AUTH_SERVER_URL=/api`.
+The admin console runs on `http://localhost:5173/admin`. During development, Vite proxies `/api/*` to `http://localhost:4010/*`, so browser code still uses `VITE_AUTH_SERVER_URL=/api`.
 
 Useful commands:
 
@@ -81,7 +81,7 @@ bun run check        # typecheck + tests + admin-console build
 Auth server (server-side only, no `VITE_` prefix):
 
 ```sh
-PORT=4000
+PORT=4010
 HOST=0.0.0.0
 SUPACLOUD_API_URL=http://localhost:9090
 SUPACLOUD_MASTER_TOKEN=<never-expose-to-browser>
@@ -119,7 +119,7 @@ Optional:
 
 ```sh
 SUPACLOUD_STORAGE_URL=http://localhost:8000
-AUTH_SERVER_PROXY_TARGET=http://localhost:4000
+AUTH_SERVER_PROXY_TARGET=http://localhost:4010
 ```
 
 ## 中文
@@ -185,7 +185,7 @@ bun run migrate
 bun run dev
 ```
 
-Admin console 运行在 `http://localhost:5173/admin`。开发时 Vite 会把 `/api/*` 代理到 `http://localhost:4000/*`，所以浏览器代码仍使用 `VITE_AUTH_SERVER_URL=/api`。
+Admin console 运行在 `http://localhost:5173/admin`。开发时 Vite 会把 `/api/*` 代理到 `http://localhost:4010/*`，所以浏览器代码仍使用 `VITE_AUTH_SERVER_URL=/api`。
 
 常用命令：
 
@@ -201,7 +201,7 @@ bun run check        # typecheck + tests + admin-console build
 Auth server（仅服务端使用，不加 `VITE_` 前缀）：
 
 ```sh
-PORT=4000
+PORT=4010
 HOST=0.0.0.0
 SUPACLOUD_API_URL=http://localhost:9090
 SUPACLOUD_MASTER_TOKEN=<never-expose-to-browser>
@@ -239,5 +239,5 @@ VITE_AUTH_SERVER_URL=/api
 
 ```sh
 SUPACLOUD_STORAGE_URL=http://localhost:8000
-AUTH_SERVER_PROXY_TARGET=http://localhost:4000
+AUTH_SERVER_PROXY_TARGET=http://localhost:4010
 ```

@@ -193,6 +193,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - `packages/shared/src/index.ts` — Added claims.ts re-export
 
 ## 验证记录
+- [x] 2026-05-31 `fix/port-conflict-4010` 审查补齐 — 默认 auth-server 端口、根/包内 Vite dev proxy、env 示例、README/部署文档、默认管理 API 测试与容量脚本均同步到 `4010`；移除后台页脚硬编码 `Healthy` 状态；auth-server package 测试启用文件隔离，compatibility inspector 改为按当前配置创建 SupaCloud adapter，避免全局 `fetch` / env / config cache 在 CI 下串扰；`npx @sveltejs/mcp svelte-autofixer packages/admin-console/src/layouts/AdminLayout.svelte --svelte-version 5`、`bunx tsc --noEmit`、`bun test`、`bun run --filter '@supaoauth/admin-console' build`、`bun run check` 均通过。
 - [x] 2026-05-30 SupaCloud 应用/项目元数据登录页兜底 — `/v1/sign-in-experience/resolve` 与 public resolve 会从 SupaCloud `getProject()` / `getOAuthClient(client_id)` 读取项目名、项目 branding、OAuth client `client_name` / `logo_uri` / 颜色等作为默认登录页品牌数据；SupaOAuth app-level sign-in experience 仍保持最高优先级，SupaCloud 查询失败不会阻断登录。
 - [x] 2026-05-29 默认 hosted 登录页 Stripe 风格优化 — `packages/admin-console/static/authorize.html` 改为斜切几何背景、深色登录面板、响应式双栏/单栏布局、默认内联 favicon，并保留 per-application branding 覆盖、背景图、按钮文案和 custom CSS 注入；Playwright 桌面/移动端渲染快照通过。
 - [x] 2026-05-29 服务器部署巡检 — `139.155.145.208` / `10.6.0.6` 可登录，Rocky Linux 9.4，主要部署目录为 `/opt/volt`，运行 `volt-gateway.service`、`volt-studio-server`、`volt-librechat`、`volt-rag`、`volt-meilisearch`；本机健康检查 `127.0.0.1:3090/health=200`，LibreChat `127.0.0.1:3080=200`，未发现 SupaOAuth auth-server/admin-console 正式部署。
