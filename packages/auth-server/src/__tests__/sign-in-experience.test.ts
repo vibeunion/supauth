@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
+import path from 'node:path';
 import { hostedOAuthPageRoutes } from '../routes/sign-in-experience.js';
 
 describe('Sign-in experience repository — module structure', () => {
@@ -75,5 +76,13 @@ describe('Sign-in experience repository — module structure', () => {
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
     expect(body).toContain('authorization_id');
+  });
+
+  it('uses /v1/public on auth.* hosted authorize domains', async () => {
+    const file = Bun.file(path.resolve(import.meta.dir, '../../../admin-console/static/authorize.html'));
+    const body = await file.text();
+
+    expect(body).toContain("hostname.startsWith('auth.')");
+    expect(body).toContain("return `${origin}/v1/public`");
   });
 });

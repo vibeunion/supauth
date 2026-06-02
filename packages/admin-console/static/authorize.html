@@ -310,6 +310,9 @@
         if (hostname === '127.0.0.1' || hostname === 'localhost') {
           return `${protocol}//${hostname}:4010/v1/public`;
         }
+        if (hostname.startsWith('auth.')) {
+          return `${origin}/v1/public`;
+        }
         if (hostname.startsWith('api.')) {
           return `${protocol}//${hostname.replace(/^api\./, 'auth.')}${port ? `:${port}` : ''}/api/v1/public`;
         }
