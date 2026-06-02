@@ -12,8 +12,7 @@ export interface SyncResult {
   success: boolean;
   userId: string;
   appMetadataPatch: Record<string, unknown>;
-  /** Full app_metadata after merge (for verification) */
-  mergedAppMetadata?: Record<string, unknown>;
+  preservedFields?: string[];
   error?: string;
 }
 
@@ -82,20 +81,21 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
     await adapter.updateUser(userId, {
       app_metadata: mergedAppMetadata,
     });
+    const preservedFieldsPresent = preservedFields.filter(f => f in existingAppMetadata);
 
     await auditRepo.logAudit({
       eventType: 'sync.user_metadata',
       resourceType: 'user',
       resourceId: userId,
       actorType: 'system',
-      details: { orgId, roles: newSupaoauth.roles, preserved_fields: preservedFields.filter(f => f in existingAppMetadata) },
+      details: { orgId, roles: newSupaoauth.roles, preserved_fields: preservedFieldsPresent },
     });
 
     return {
       success: true,
       userId,
       appMetadataPatch: { supaoauth: newSupaoauth },
-      mergedAppMetadata,
+      preservedFields: preservedFieldsPresent,
     };
   } catch (e) {
     const error = (e as Error).message;

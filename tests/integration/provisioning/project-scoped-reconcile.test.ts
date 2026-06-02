@@ -78,6 +78,8 @@ describe('P0-26: Project-scoped provisioning (unit)', () => {
     process.env.PROJECT_REF = 'default-test-ref';
     process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
     process.env.DATABASE_URL = 'postgres://test';
+    delete process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE;
+    delete process.env.SUPACLOUD_STORAGE_URL_TEMPLATE;
     loadConfig();
   });
 
@@ -88,5 +90,28 @@ describe('P0-26: Project-scoped provisioning (unit)', () => {
     expect(pattern.test('vwsvexjelurvczfivgiz')).toBe(true);
     expect(pattern.test('has-dashes-12345')).toBe(false);
     expect(pattern.test('HAS_UPPERCASE_12345')).toBe(false);
+  });
+
+  it('fails closed for cross-project runtime/storage when no URL template exists', () => {
+    const adapter = getSupaCloudAdapterForProject('vwsvexjelurvczfivgiz');
+    const target = adapter.getTargetInfo();
+
+    expect(target.projectRef).toBe('vwsvexjelurvczfivgiz');
+    expect(target.runtimeProjectScoped).toBe(false);
+    expect(target.storageProjectScoped).toBe(false);
+  });
+
+  it('derives cross-project runtime/storage URLs from templates', () => {
+    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'http://{projectRef}.api.192.168.1.48.sslip.io';
+    process.env.SUPACLOUD_STORAGE_URL_TEMPLATE = 'http://{projectRef}.api.192.168.1.48.sslip.io';
+    loadConfig();
+
+    const adapter = getSupaCloudAdapterForProject('vwsvexjelurvczfivgiz');
+    const target = adapter.getTargetInfo();
+
+    expect(target.runtimeUrl).toBe('http://vwsvexjelurvczfivgiz.api.192.168.1.48.sslip.io');
+    expect(target.storageUrl).toBe('http://vwsvexjelurvczfivgiz.api.192.168.1.48.sslip.io');
+    expect(target.runtimeProjectScoped).toBe(true);
+    expect(target.storageProjectScoped).toBe(true);
   });
 });

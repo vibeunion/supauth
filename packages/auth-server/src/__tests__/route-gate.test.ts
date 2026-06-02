@@ -45,6 +45,7 @@ describe('P0-29: Route Gate', () => {
       'test-project-12345',
       'http://admin.test',
       'http://runtime.test',
+      ['https://business.test'],
     );
 
     expect(result).toHaveProperty('timestamp');
@@ -58,6 +59,10 @@ describe('P0-29: Route Gate', () => {
     expect(Array.isArray(result.routes)).toBe(true);
     expect(Array.isArray(result.domainAudit)).toBe(true);
     expect(Array.isArray(result.conflicts)).toBe(true);
+    expect(result.envAudit.adminUrl).toBe('http://admin.test');
+    expect(result.envAudit.runtimeUrl).toBe('http://runtime.test');
+    expect(result.envAudit.extraDomains).toEqual(['https://business.test']);
+    expect(result.domainAudit.some(domain => domain.domain === 'business.test')).toBe(true);
 
     globalThis.fetch = originalFetch;
   });
@@ -92,6 +97,31 @@ describe('P0-29: Route Gate', () => {
     expect(result.allPassed).toBe(false);
     expect(result.conflicts.length).toBeGreaterThan(0);
     expect(result.conflicts.some(c => c.includes('upstream error') || c.includes('502'))).toBe(true);
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('normalizes trailing slashes in target URLs', async () => {
+    const originalFetch = globalThis.fetch;
+    const seenUrls: string[] = [];
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      seenUrls.push(url);
+      return Promise.resolve(new Response('ok', { status: url.includes('/api/v1/applications') ? 401 : 200 }));
+    }) as unknown as typeof fetch;
+
+    const { runIntegrationGate } = await import('../routes/route-gate.js');
+    const result = await runIntegrationGate(
+      'test-project-normalized',
+      'http://admin.test/',
+      'http://runtime.test/',
+    );
+
+    expect(result.envAudit.adminUrl).toBe('http://admin.test');
+    expect(result.envAudit.runtimeUrl).toBe('http://runtime.test');
+    expect(seenUrls.every(url => !url.includes('test//'))).toBe(true);
+    expect(seenUrls.some(url => url.includes('/oauth/authorize'))).toBe(true);
+    expect(seenUrls.some(url => url.includes('/v1/oauth/authorize'))).toBe(false);
 
     globalThis.fetch = originalFetch;
   });

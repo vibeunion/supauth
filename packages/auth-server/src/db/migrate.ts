@@ -221,8 +221,8 @@ SELECT 'SupaOAuth', true, false
 WHERE NOT EXISTS (SELECT 1 FROM supaoauth.sign_in_experience);
 `;
 
-export async function runMigration() {
-  const url = process.env.DATABASE_URL || '';
+export async function runMigration(databaseUrl?: string) {
+  const url = databaseUrl || process.env.DATABASE_URL || '';
   if (!url) throw new Error('DATABASE_URL is required for migration');
   const sql = postgres(url, { max: 1 });
 

@@ -3,10 +3,11 @@
 // P0-26: Each reconcile uses path projectRef, NOT process-level PROJECT_REF
 
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapterForProject, getSupaCloudAdapter } from '../supacloud/adapter.js';
+import { getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
 import * as provRepo from '../repositories/provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
 import { runMigration } from '../db/migrate.js';
+import { getConfig } from '../config/index.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
@@ -15,6 +16,15 @@ async function audit(eventType: string, resourceType: string, resourceId: string
 /** Validate that a projectRef looks like a valid SupaCloud project ref. */
 function isValidProjectRef(ref: string): boolean {
   return /^[a-z0-9]{20,}$/.test(ref);
+}
+
+function databaseUrlForProject(projectRef: string): { databaseUrl: string; projectScoped: boolean } {
+  const config = getConfig();
+  const template = process.env.SUPACLOUD_DATABASE_URL_TEMPLATE || process.env.DATABASE_URL_TEMPLATE;
+  if (template) {
+    return { databaseUrl: template.replaceAll('{projectRef}', projectRef), projectScoped: true };
+  }
+  return { databaseUrl: config.databaseUrl, projectScoped: !projectRef || projectRef === config.projectRef };
 }
 
 export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
@@ -39,6 +49,7 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
     // P0-26: Create adapter explicitly bound to the requested projectRef
     const adapter = getSupaCloudAdapterForProject(projectRef);
     const adapterRef = adapter.getProjectRef();
+    const targetInfo = adapter.getTargetInfo();
 
     // Safety assertion: adapter must be bound to the same ref as the request
     if (adapterRef !== projectRef) {
@@ -56,7 +67,11 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
 
     // Step 1: DB migration
     try {
-      await runMigration();
+      const { databaseUrl, projectScoped } = databaseUrlForProject(projectRef);
+      if (!projectScoped) {
+        throw new Error('Project-scoped DATABASE_URL is not configured. Set SUPACLOUD_DATABASE_URL_TEMPLATE with {projectRef}.');
+      }
+      await runMigration(databaseUrl);
       await provRepo.recordStep(projectRef, { step: 'db_migration', status: 'completed' });
       results.push({ step: 'db_migration', status: 'completed' });
     } catch (e) {
@@ -76,6 +91,9 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
 
     // Step 3: Kong routes verification (scoped to projectRef)
     try {
+      if (!targetInfo.runtimeProjectScoped) {
+        throw new Error('Project-scoped runtime URL is not configured. Set SUPACLOUD_RUNTIME_URL_TEMPLATE with {projectRef} or use a default OAUTH_RUNTIME_URL containing PROJECT_REF.');
+      }
       const verification = await adapter.verifyGatewayRoutes();
       if (!verification.ok) {
         throw new Error(`Gateway route verification failed: ${JSON.stringify(verification.probes)}`);
@@ -89,6 +107,9 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
 
     // Step 4: Storage buckets creation (scoped to projectRef)
     try {
+      if (!targetInfo.storageProjectScoped) {
+        throw new Error('Project-scoped storage URL is not configured. Set SUPACLOUD_STORAGE_URL_TEMPLATE with {projectRef} or use a default storage URL containing PROJECT_REF.');
+      }
       try { await adapter.createStorageBucket('avatars', { public: false }); } catch { /* already exists */ }
       try { await adapter.createStorageBucket('branding', { public: true }); } catch { /* already exists */ }
       await provRepo.recordStep(projectRef, { step: 'storage_buckets', status: 'completed' });
@@ -98,7 +119,7 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       results.push({ step: 'storage_buckets', status: 'failed', details: { error: (e as Error).message } });
     }
 
-    await audit('provisioning.reconcile', 'project', projectRef, { results, adapter_ref: adapterRef });
+    await audit('provisioning.reconcile', 'project', projectRef, { results, adapter_ref: adapterRef, target: targetInfo });
 
     const fullyProvisioned = await provRepo.isProjectFullyProvisioned(projectRef);
     return { project_ref: projectRef, results, fully_provisioned: fullyProvisioned };
