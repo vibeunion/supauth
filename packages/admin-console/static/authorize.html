@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="supaoauth-api-base" content="">
     <title>SupaOAuth Sign In</title>
     <style>
       * { box-sizing: border-box; }
@@ -228,6 +229,9 @@
       }
 
       function publicApiBase() {
+        // Allow server-side override via meta tag; falls back to hostname heuristics
+        const metaBase = document.querySelector('meta[name="supaoauth-api-base"]');
+        if (metaBase && metaBase.content) return metaBase.content;
         const { protocol, hostname, port, origin } = window.location;
         if (hostname === '127.0.0.1' || hostname === 'localhost') {
           return `${protocol}//${hostname}:4010/v1/public`;
