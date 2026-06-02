@@ -192,6 +192,21 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - `packages/admin-console/src/layouts/AdminLayout.svelte` — Added Security Policy navigation and a11y label fixes
 - `packages/shared/src/index.ts` — Added claims.ts re-export
 
+### P0-25 ~ P0-29 新增文件
+- `packages/auth-server/src/supacloud/adapter.ts` — P0-26: `AdapterOptions.projectRef/runtimeUrl/storageUrl` override + `getSupaCloudAdapterForProject()` + target URL scoping + 30s request timeout
+- `packages/auth-server/src/routes/provisioning.ts` — P0-26: project-scoped reconcile, `isValidProjectRef()`, safety mismatch guard
+- `packages/auth-server/src/sync/index.ts` — P0-27: read-modify-write app_metadata merge, preserved field verification
+- `packages/auth-server/src/repositories/rbac-bridge.ts` — P0-28: legacy role mapping policy, dry-run/import, compatibility SQL helper
+- `packages/auth-server/src/routes/rbac-bridge.ts` — P0-28: RBAC bridge routes (policy/dry-run/import/helper)
+- `packages/auth-server/src/routes/route-gate.ts` — P0-29: route/domain integration gate, runtime probe, conflict detection
+- `packages/auth-server/src/routes/rbac-bridge.ts` — P0-28 route endpoints
+- `packages/auth-server/src/__tests__/sync-merge-safety.test.ts` — P0-27 merge safety tests
+- `packages/auth-server/src/__tests__/rbac-bridge.test.ts` — P0-28 RBAC bridge unit tests
+- `packages/auth-server/src/__tests__/route-gate.test.ts` — P0-29 route gate tests
+- `packages/auth-server/src/__tests__/adapter-contract.test.ts` — Updated with P0-26 projectRef override tests
+- `tests/integration/supacloud-live/adapter-live-contract.test.ts` — P0-25 env-gated live contract tests
+- `tests/integration/provisioning/project-scoped-reconcile.test.ts` — P0-26 cross-project isolation tests
+
 ## 验证记录
 - [x] 2026-05-31 `fix/port-conflict-4010` 审查补齐 — 默认 auth-server 端口、根/包内 Vite dev proxy、env 示例、README/部署文档、默认管理 API 测试与容量脚本均同步到 `4010`；移除后台页脚硬编码 `Healthy` 状态；auth-server package 测试启用文件隔离，compatibility inspector 改为按当前配置创建 SupaCloud adapter，避免全局 `fetch` / env / config cache 在 CI 下串扰；`npx @sveltejs/mcp svelte-autofixer packages/admin-console/src/layouts/AdminLayout.svelte --svelte-version 5`、`bunx tsc --noEmit`、`bun test`、`bun run --filter '@supaoauth/admin-console' build`、`bun run check` 均通过。
 - [x] 2026-05-30 SupaCloud 应用/项目元数据登录页兜底 — `/v1/sign-in-experience/resolve` 与 public resolve 会从 SupaCloud `getProject()` / `getOAuthClient(client_id)` 读取项目名、项目 branding、OAuth client `client_name` / `logo_uri` / 颜色等作为默认登录页品牌数据；SupaOAuth app-level sign-in experience 仍保持最高优先级，SupaCloud 查询失败不会阻断登录。
@@ -280,6 +295,41 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
   - 兼容要求：GoTrue 仍负责 OAuth client runtime；SupaOAuth 通过 SupaCloud adapter 编排 secret，不把 client secret 暴露给浏览器。
   - 验收：可新增 secret 后灰度切换并删除旧 secret；第三方应用只请求被授权的 user/org scopes；live OAuth fixture 覆盖 consent scope/org 场景。
 
+- [x] **P0-25 SupaCloud adapter live contract and response-shape gate**
+  - 来源：兼容性复核发现 `adapter-contract.test.ts` 与 `tests/integration/supabase-compat/supacloud-contract.test.ts` 主要是 mock/shape 文档，不能证明真实 SupaCloud Management API 的所有 adapter 路径可用。
+  - 目标：把 `SupaCloudAdapter` 对 `/v1/projects/:ref/config/auth`、`/auth/oauth-clients`、`/auth/providers`、`/auth/users`、secret/session/MFA/domain/storage 等路径的假设变成 live contract。
+  - 范围：新增 env-gated live test；覆盖 list/get/create/update/delete 类关键路径；校验 response envelope、错误码、幂等语义、脱敏字段、超时与重试策略；把不支持的路径降级为 capability flag。
+  - 兼容要求：不得把 SupaCloud master token 暴露到浏览器或日志；测试数据必须可清理，不能污染生产 tenant。
+  - 验收：在 B 机真实 SupaCloud project 上通过 adapter live suite；不支持的 Management API 明确出现在 compatibility/capability report 中，Admin UI 对应操作禁用或显示可解释错误。
+
+- [x] **P0-26 Project-scoped provisioning reconcile**
+  - 来源：`/v1/provisioning/:projectRef/reconcile` 接收 path projectRef，但内部 `getSupaCloudAdapter()` 仍使用进程级 `PROJECT_REF`，存在记录 A 项目、实际检查/修改 B 项目的风险。
+  - 目标：让 provisioning/reconcile 真正按请求项目执行，而不是依赖单一环境变量。
+  - 范围：支持 `SupaCloudAdapter` projectRef override；reconcile 每一步显式使用 path projectRef；验证 DB migration 目标 tenant、GoTrue config、Kong route、Storage bucket 都属于同一 project；补充跨 project 防漂移测试。
+  - 兼容要求：单 project 部署继续兼容现有 `PROJECT_REF` 默认值；多 project 场景必须 fail-closed，不能误操作其他 tenant。
+  - 验收：两个测试 project 并行 reconcile 时互不污染；日志/audit/provisioning_records 中的 project_ref 与实际 SupaCloud API target 一致。
+
+- [x] **P0-27 GoTrue app_metadata merge safety**
+  - 来源：`syncUserMetadata()` 直接调用 `updateUser(userId, { app_metadata: { supaoauth: ... } })`，未证明 SupaCloud/GoTrue 会深度 merge；若是 replace 语义，可能覆盖业务现有 `app_metadata.role` 等字段。
+  - 目标：保证 SupaOAuth 写入 `app_metadata.supaoauth` 时不破坏既有 Supabase/SupaCloud 业务 claims。
+  - 范围：先读取用户现有 app_metadata；只 patch/merge `supaoauth` namespace；保留 `role`、provider、tenant、业务自定义字段；新增 replace 语义回归测试和 live verification。
+  - 兼容要求：`role` 继续保留 Supabase runtime 的 `anon/authenticated` 语义；业务权限不得被塞进 JWT `role` claim。
+  - 验收：带有 `app_metadata.role=admin` 与其他业务字段的真实用户执行 sync 后字段不丢失，只新增或更新 `app_metadata.supaoauth`。
+
+- [x] **P0-28 Business app RBAC compatibility bridge for existing SupaCloud apps**
+  - 来源：seagoo-ai 当前业务代码读取 `app_metadata.role` / `user_metadata.role`，而 SupaOAuth canonical hint 写入 `app_metadata.supaoauth.roles`；两套 RBAC 不冲突但未互通。
+  - 目标：为既有 SupaCloud 业务应用提供可迁移的 RBAC 兼容路径。
+  - 范围：定义 legacy role mapping policy；提供 `app_metadata.role` 到 SupaOAuth role/permission 的导入工具；可选输出兼容 view/helper 或业务 SDK helper；给 seagoo-ai 增加读取 `app_metadata.supaoauth` 的示例/PR 任务；覆盖前后端鉴权 smoke。
+  - 兼容要求：默认不覆盖业务现有 role；迁移必须显式启用，并保留回滚路径。
+  - 验收：seagoo-ai 现有 `admin/fa_expert/operator/inspector` 角色能映射到 SupaOAuth roles/permissions；迁移后旧页面权限与 API guard 行为不回退。
+
+- [x] **P0-29 SupaOAuth route/domain integration gate on target SupaCloud stack**
+  - 来源：B 机已有 SupaOAuth admin/API 与 Supabase runtime 验证，但需要把目标业务域名/Kong route/env 作为上线门禁，避免只验证 isolated supauth fixture。
+  - 目标：证明 SupaOAuth 在目标 SupaCloud stack 中与业务域名、Kong、GoTrue、PostgREST、Storage、Realtime、Functions 同时可用。
+  - 范围：生成 route inventory；校验 `/admin`、`/api/v1/*`、`/auth/v1/*`、`/rest/v1/*`、`/storage/v1/*`、`/realtime/v1/*`、`/functions/v1/*`；审计 tenant `.env` 与 Kong host/path；输出冲突报告。
+  - 兼容要求：不得抢占 Supabase 标准路径；新增 SupaOAuth route 必须与旧业务域名共存。
+  - 验收：目标业务域名和 supauth fixture 都通过同一套 route/env gate；任何 route miss、502/503/504、Host 不匹配都会阻断发布。
+
 ### P1 — 生产增强
 - [x] **P1-9 Enterprise SSO / JIT / Passkey completion** (`enterprise_sso_config` 与 `passkeys` schema/repository/API/Admin page 完成；支持 domain discovery、JIT/org/role mapping、passkey list/register/revoke 基线)
   - 目标：补齐 Logto-like 企业身份入口。
@@ -331,12 +381,12 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
   - 兼容要求：域名和证书必须通过 SupaCloud/Kong 编排；profile fields 不破坏 Supabase `auth.users` 基础字段，扩展字段进入 SupaOAuth metadata。
   - 验收：新增域名后可完成 HTTPS health check；登录/账号中心可加载品牌资源和 phrases；自定义 profile fields 可参与注册资料收集。
 
-- [x] **P1-17 Per-application sign-in experience** (`application_sign_in_experience` schema+migration/repository/API/Admin page/SDK/hosted authorize page 完成；支持按 OAuth client 覆盖 logo、favicon、primary color、title、background、button label、custom CSS，并提供 public/effective resolve 接口)
+- [x] **P1-17 Per-application sign-in experience** (`application_sign_in_experience` schema+migration/repository/API/Admin page/SDK/hosted authorize page 完成；支持按 OAuth client 覆盖 logo、favicon、primary color、title、background、button label、custom CSS、hosted page i18n，并提供 public/effective resolve 接口)
   - 来源：Logto per-app branding / sign-in experience 能力缺口。
   - 目标：让 Volt 等不同业务应用可以使用独立登录页品牌，而不是只能使用租户级统一模板。
-  - 范围：应用级登录体验覆盖表、应用详情页配置、管理 API、SDK、全局配置兜底、hosted `authorize.html` 和运行时 resolve。
+  - 范围：应用级登录体验覆盖表、应用详情页配置、管理 API、SDK、全局配置兜底、hosted `authorize.html`、基础 i18n 和运行时 resolve。
   - 兼容要求：GoTrue 继续负责 OAuth/OIDC runtime；SupaOAuth 只提供登录体验配置和授权页渲染数据，不改写 token 签发语义。
-  - 验收：未配置应用覆盖时返回全局登录体验；启用应用覆盖时按 `application_id/client_id` 或 GoTrue `authorization_id` 返回合并后的登录体验；Admin 可保存或清除应用覆盖；授权页加载应用品牌后继续回到 GoTrue OAuth authorize。
+  - 验收：未配置应用覆盖时返回全局登录体验；启用应用覆盖时按 `application_id/client_id` 或 GoTrue `authorization_id` 返回合并后的登录体验；Admin 可保存或清除应用覆盖；授权页加载应用品牌后继续回到 GoTrue OAuth authorize；登录页根据 `ui_locales`、用户选择或浏览器语言显示中英文文案；Hosted authorize / OIDC issuer 正式入口为 `auth.x.aizhuliren.cn`。
 
 ### P2 — 产品体验与运营
 - [x] **P2-5 Product UX parity pass** (Dashboard onboarding checklist、Consent/Org Templates/Enterprise SSO/Operations 管理页、资源/组织/security 最短配置路径完成)
@@ -369,6 +419,11 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ### 已完成的 P2 部署与运维
 - [x] **P2-4** UI 完整性（Applications detail/edit form 已存在, 列表页导航链接已添加, connectors empty state 已补全, 所有页面状态一致）
+- [x] `bunx tsc --noEmit` — P0-25~P0-29 implementation pass (0 errors)
+- [x] `bun test` — 161 pass, 39 skip, 0 fail (env-gated live tests skipped as expected)
+- [x] `bunx tsc --noEmit` — P0 review fix pass (0 errors)
+- [x] `bun test` — 166 pass, 42 skip, 0 fail (project-scoped URL tests and expanded route gate coverage)
+- [x] [2026-06-02T00:02:40+0800] vm1 SupaOAuth 离线升级并接入 `dglewlzugrtygzysqrce` 项目：通过 TrueNAS 内网传包部署到 `/opt/supauth`，保留回滚目录 `/opt/supauth.prev-20260602000052`；修复 runtime 探针以支持 `OAUTH_RUNTIME_INTERNAL_URL` 直连 GoTrue 无 `/auth/v1` 前缀、公开 issuer 仍为 `http://oauth.ai.xigu.org/auth/v1` 的拓扑。登录体验品牌已配置为 `西谷 OAuth 用户中心`，主色 `#2563eb`。验证：`/v1/health` 返回 `project_ref=dglewlzugrtygzysqrce`；`/v1/runtime/health` 返回 discovery/jwks/authorize/token/userinfo 全 true；`/v1/public/sign-in-experience/resolve` 返回品牌名；本地 `bunx tsc --noEmit` 与 `bun test` 通过（167 pass, 42 skip, 0 fail）。vm2 未发现 SupAuth 服务或 SupAuth 反代配置。
 
 ## 2026-05-30 Codex 执行记录 — Logto/Supabase 差距闭环实施
 
