@@ -301,19 +301,25 @@
     </main>
 
     <script>
+      window.__SUPAOAUTH_PUBLIC_API_BASE__ = null;
+
       const params = new URLSearchParams(window.location.search);
       const authorizationId = params.get('authorization_id') || '';
       let authorizationRedirectUrl = params.get('redirect_to') || '';
 
       function publicApiBase() {
+        if (window.__SUPAOAUTH_PUBLIC_API_BASE__) {
+          return window.__SUPAOAUTH_PUBLIC_API_BASE__;
+        }
+
         const { protocol, hostname, port, origin } = window.location;
         if (hostname === '127.0.0.1' || hostname === 'localhost') {
           return `${protocol}//${hostname}:4010/v1/public`;
         }
         if (hostname.startsWith('api.')) {
-          return `${protocol}//${hostname.replace(/^api\./, 'auth.')}${port ? `:${port}` : ''}/api/v1/public`;
+          return `${protocol}//${hostname.replace(/^api\./, 'auth.')}${port ? `:${port}` : ''}/v1/public`;
         }
-        return `${origin}/api/v1/public`;
+        return `${origin}/v1/public`;
       }
 
       function setMessage(type, text) {
