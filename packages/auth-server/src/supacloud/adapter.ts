@@ -474,6 +474,7 @@ function resolveProjectUrl(input: {
   try {
     const url = new URL(baseUrl);
     if (url.hostname === input.defaultProjectRef || url.hostname.startsWith(`${input.defaultProjectRef}.`)) {
+      // hostname is {defaultRef} or {defaultRef}.*.host — replace only the leading segment
       url.hostname = url.hostname.replace(input.defaultProjectRef, input.targetProjectRef);
       return { url: trimTrailingSlash(url.toString()), projectScoped: true };
     }

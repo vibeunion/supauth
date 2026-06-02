@@ -23,7 +23,7 @@ describe('P0-29: Route Gate', () => {
       if (url.includes('/functions/v1/')) {
         return Promise.resolve(new Response('not found', { status: 404 }));
       }
-      if (url.includes('/api/v1/health')) {
+      if (url.includes('/v1/health')) {
         return Promise.resolve(new Response('{"status":"ok"}', { status: 200 }));
       }
       if (url.includes('/swagger')) {
@@ -32,7 +32,7 @@ describe('P0-29: Route Gate', () => {
       if (url.includes('/admin')) {
         return Promise.resolve(new Response('ok', { status: 200 }));
       }
-      if (url.includes('/api/v1/applications')) {
+      if (url.includes('/v1/applications')) {
         return Promise.resolve(new Response('{"error":"unauthorized"}', { status: 401 }));
       }
       return Promise.resolve(new Response('ok', { status: 200 }));
@@ -80,7 +80,7 @@ describe('P0-29: Route Gate', () => {
       if (url.includes('/storage/v1/bucket')) {
         return Promise.resolve(new Response('[]', { status: 200 }));
       }
-      if (url.includes('/api/v1/health')) {
+      if (url.includes('/v1/health')) {
         return Promise.resolve(new Response('ok', { status: 200 }));
       }
       return Promise.resolve(new Response('ok', { status: 200 }));
@@ -107,7 +107,7 @@ describe('P0-29: Route Gate', () => {
     globalThis.fetch = mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       seenUrls.push(url);
-      return Promise.resolve(new Response('ok', { status: url.includes('/api/v1/applications') ? 401 : 200 }));
+      return Promise.resolve(new Response('ok', { status: url.includes('/v1/applications') ? 401 : 200 }));
     }) as unknown as typeof fetch;
 
     const { runIntegrationGate } = await import('../routes/route-gate.js');
