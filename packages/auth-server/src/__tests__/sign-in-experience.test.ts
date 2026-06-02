@@ -85,4 +85,12 @@ describe('Sign-in experience repository — module structure', () => {
     expect(body).toContain("hostname.startsWith('auth.')");
     expect(body).toContain("return `${origin}/v1/public`");
   });
+
+  it('guards hosted login token responses before reading access_token', async () => {
+    const file = Bun.file(path.resolve(import.meta.dir, '../../../admin-console/static/authorize.html'));
+    const body = await file.text();
+
+    expect(body).toContain("const data = await res.json().catch(() => null)");
+    expect(body).toContain("!data || typeof data !== 'object' || !data.access_token");
+  });
 });

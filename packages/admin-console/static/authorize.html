@@ -325,6 +325,11 @@
         el.textContent = text;
       }
 
+      function responseMessage(data, fallback) {
+        if (!data || typeof data !== 'object') return fallback;
+        return data.msg || data.error_description || data.error || fallback;
+      }
+
       function buildAuthorizeUrl(authorization) {
         const next = new URL('/auth/v1/oauth/authorize', window.location.origin);
         const fields = {
@@ -350,11 +355,11 @@
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => null);
         if (!res.ok) {
-          throw new Error(data.msg || data.error_description || data.error || 'Authorization approval failed');
+          throw new Error(responseMessage(data, 'Authorization approval failed'));
         }
-        return data.redirect_url || null;
+        return data && typeof data === 'object' ? data.redirect_url || null : null;
       }
 
       async function loadExperience() {
@@ -417,9 +422,13 @@
               password: document.getElementById('password').value,
             }),
           });
-          const data = await res.json().catch(() => ({}));
+          const data = await res.json().catch(() => null);
           if (!res.ok) {
-            setMessage('error', data.msg || data.error_description || 'Login failed');
+            setMessage('error', responseMessage(data, 'Login failed'));
+            return;
+          }
+          if (!data || typeof data !== 'object' || !data.access_token) {
+            setMessage('error', 'Login failed');
             return;
           }
           const approvedRedirectUrl = await approveAuthorization(data.access_token);
