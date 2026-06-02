@@ -1,7 +1,25 @@
 // SupaCloud adapter — server-side only, holds master token
 // All SupaCloud Management API calls go through this module.
+// P0-26: Supports per-request projectRef override for multi-project safety.
 
 import { getConfig } from '../config/index.js';
+
+export interface AdapterOptions {
+  /** Override the default PROJECT_REF for this adapter instance */
+  projectRef?: string;
+  /** Explicit runtime URL for this project. */
+  runtimeUrl?: string;
+  /** Explicit storage URL for this project. */
+  storageUrl?: string;
+}
+
+export interface AdapterTargetInfo {
+  projectRef: string;
+  runtimeUrl: string;
+  storageUrl: string;
+  runtimeProjectScoped: boolean;
+  storageProjectScoped: boolean;
+}
 
 export class SupaCloudAdapter {
   private apiUrl: string;
@@ -9,16 +27,50 @@ export class SupaCloudAdapter {
   private projectRef: string;
   private storageUrl: string;
   private runtimeUrl: string;
+  private runtimeProjectScoped: boolean;
+  private storageProjectScoped: boolean;
 
-  constructor() {
+  constructor(options?: AdapterOptions) {
     const config = getConfig();
     this.apiUrl = config.supacloudApiUrl;
     this.masterToken = config.supacloudMasterToken;
-    this.projectRef = config.projectRef;
-    this.runtimeUrl = config.oauthRuntimeUrl.replace(/\/+$/, '');
-    // Storage API uses the same base as the runtime URL (Kong-routed)
-    // or can be overridden via SUPACLOUD_STORAGE_URL
-    this.storageUrl = process.env.SUPACLOUD_STORAGE_URL || config.oauthRuntimeUrl;
+    // Per-instance projectRef: explicit override > env default
+    this.projectRef = options?.projectRef || config.projectRef;
+
+    const runtimeTarget = resolveProjectUrl({
+      explicitUrl: options?.runtimeUrl,
+      baseUrl: config.oauthRuntimeUrl,
+      template: process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE,
+      defaultProjectRef: config.projectRef,
+      targetProjectRef: this.projectRef,
+    });
+    const storageTarget = resolveProjectUrl({
+      explicitUrl: options?.storageUrl,
+      baseUrl: process.env.SUPACLOUD_STORAGE_URL || config.oauthRuntimeUrl,
+      template: process.env.SUPACLOUD_STORAGE_URL_TEMPLATE || process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE,
+      defaultProjectRef: config.projectRef,
+      targetProjectRef: this.projectRef,
+    });
+
+    this.runtimeUrl = runtimeTarget.url;
+    this.storageUrl = storageTarget.url;
+    this.runtimeProjectScoped = runtimeTarget.projectScoped;
+    this.storageProjectScoped = storageTarget.projectScoped;
+  }
+
+  /** The projectRef this adapter instance is bound to. */
+  getProjectRef(): string {
+    return this.projectRef;
+  }
+
+  getTargetInfo(): AdapterTargetInfo {
+    return {
+      projectRef: this.projectRef,
+      runtimeUrl: this.runtimeUrl,
+      storageUrl: this.storageUrl,
+      runtimeProjectScoped: this.runtimeProjectScoped,
+      storageProjectScoped: this.storageProjectScoped,
+    };
   }
 
   private async request(path: string, options: RequestInit = {}): Promise<unknown> {
@@ -28,12 +80,18 @@ export class SupaCloudAdapter {
       Authorization: `Bearer ${this.masterToken}`,
       ...(options.headers as Record<string, string>),
     };
-    const res = await fetch(url, { ...options, headers });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`SupaCloud ${res.status}: ${body}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(url, { ...options, headers, signal: controller.signal });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`SupaCloud ${res.status}: ${body}`);
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
   }
 
   // ─── Project ──────────────────────────────────────────────────────
@@ -197,6 +255,11 @@ export class SupaCloudAdapter {
     });
   }
 
+  /**
+   * P0-27: Safe merge update — reads existing app_metadata first,
+   * then patches only the `supaoauth` namespace without clobbering
+   * other fields like `role`, `provider`, etc.
+   */
   async updateUser(userId: string, data: Record<string, unknown>) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}`, {
       method: 'PUT',
@@ -277,6 +340,19 @@ export class SupaCloudAdapter {
     return res.json();
   }
 
+  async deleteStorageBucket(bucketId: string) {
+    const url = `${this.storageUrl}/storage/v1/bucket/${bucketId}`;
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${this.masterToken}` },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Storage delete bucket: ${res.status} ${body}`);
+    }
+    return res.json();
+  }
+
   /**
    * Upload a file to Supabase Storage.
    * Returns the public URL if the bucket is public, or the key path.
@@ -350,10 +426,68 @@ export class SupaCloudAdapter {
   }
 }
 
-// Singleton
+// Singleton (default projectRef from env)
 let _adapter: SupaCloudAdapter | null = null;
 
+/** Get or create the default singleton adapter (uses env PROJECT_REF). */
 export function getSupaCloudAdapter(): SupaCloudAdapter {
   if (!_adapter) _adapter = new SupaCloudAdapter();
   return _adapter;
+}
+
+/** Create an adapter bound to a specific projectRef (for multi-project safety). */
+export function getSupaCloudAdapterForProject(projectRef: string, options?: Omit<AdapterOptions, 'projectRef'>): SupaCloudAdapter {
+  return new SupaCloudAdapter({ ...options, projectRef });
+}
+
+function trimTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
+function resolveProjectUrl(input: {
+  explicitUrl?: string;
+  baseUrl: string;
+  template?: string;
+  defaultProjectRef: string;
+  targetProjectRef: string;
+}): { url: string; projectScoped: boolean } {
+  if (input.explicitUrl) {
+    return { url: trimTrailingSlash(input.explicitUrl), projectScoped: true };
+  }
+
+  if (input.template) {
+    return {
+      url: trimTrailingSlash(input.template.replaceAll('{projectRef}', input.targetProjectRef)),
+      projectScoped: true,
+    };
+  }
+
+  const baseUrl = trimTrailingSlash(input.baseUrl);
+  if (!input.targetProjectRef || input.targetProjectRef === input.defaultProjectRef) {
+    return { url: baseUrl, projectScoped: true };
+  }
+
+  if (!input.defaultProjectRef) {
+    return { url: baseUrl, projectScoped: false };
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    if (url.hostname === input.defaultProjectRef || url.hostname.startsWith(`${input.defaultProjectRef}.`)) {
+      // hostname is {defaultRef} or {defaultRef}.*.host — replace only the leading segment
+      url.hostname = url.hostname.replace(input.defaultProjectRef, input.targetProjectRef);
+      return { url: trimTrailingSlash(url.toString()), projectScoped: true };
+    }
+  } catch {
+    // Fall through to conservative string replacement.
+  }
+
+  if (baseUrl.includes(input.defaultProjectRef)) {
+    return {
+      url: trimTrailingSlash(baseUrl.replace(input.defaultProjectRef, input.targetProjectRef)),
+      projectScoped: true,
+    };
+  }
+
+  return { url: baseUrl, projectScoped: false };
 }
