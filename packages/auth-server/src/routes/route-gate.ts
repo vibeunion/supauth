@@ -137,14 +137,15 @@ function resolveRouteGateInput(query?: Record<string, unknown>): {
 async function auditDomain(baseUrl: string): Promise<DomainAudit> {
   try {
     const url = new URL(baseUrl);
-    const [adminRes, runtimeRes] = await Promise.all([
+    const [adminRes, apiRes, runtimeRes] = await Promise.all([
       fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
+      fetch(`${baseUrl}/rest/v1/`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
       fetch(`${baseUrl}/auth/v1/health`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
     ]);
     return {
       domain: url.hostname,
       adminReachable: adminRes?.ok ?? false,
-      apiReachable: adminRes?.ok ?? false,
+      apiReachable: apiRes?.ok ?? false,
       authReachable: runtimeRes?.ok ?? false,
       tlsValid: url.protocol === 'https:',
     };
