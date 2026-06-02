@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { hostedOAuthPageRoutes } from '../routes/sign-in-experience.js';
 
 describe('Sign-in experience repository — module structure', () => {
   it('exports global and application-level experience functions', async () => {
@@ -60,5 +62,18 @@ describe('Sign-in experience repository — module structure', () => {
     expect(branding.page_title).toBe('Volt Studio');
     expect(branding.logo_url).toBe('https://assets.example.com/volt-studio-logo.png');
     expect(branding.primary_color).toBe('#00d4ff');
+  });
+
+  it('serves the hosted OAuth authorize page at /oauth/authorize', async () => {
+    const app = new Elysia().use(hostedOAuthPageRoutes);
+    const response = await app.handle(
+      new Request('http://localhost/oauth/authorize?authorization_id=test-authz'),
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+    expect(body).toContain('authorization_id');
   });
 });

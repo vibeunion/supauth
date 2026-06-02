@@ -1,6 +1,7 @@
 // Sign-in Experience and Auth Config routes with OpenAPI annotations
 
 import { Elysia } from 'elysia';
+import path from 'node:path';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 import * as auditRepo from '../repositories/audit.js';
@@ -17,6 +18,21 @@ function runtimeInternalUrl(path: string) {
   const base = config.oauthRuntimeInternalUrl.replace(/\/$/, '');
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return `${base}${normalizedPath}`;
+}
+
+const AUTHORIZE_HTML_PATHS = [
+  path.resolve(import.meta.dir, '../../../admin-console/build/authorize.html'),
+  path.resolve(import.meta.dir, '../../../admin-console/static/authorize.html'),
+];
+
+async function loadAuthorizeHtml(): Promise<string | null> {
+  for (const candidate of AUTHORIZE_HTML_PATHS) {
+    const file = Bun.file(candidate);
+    if (await file.exists()) {
+      return file.text();
+    }
+  }
+  return null;
 }
 
 async function getSupaCloudSignInSource(applicationId?: string) {
@@ -71,6 +87,19 @@ export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sig
     return authorization ? { ...experience, authorization } : experience;
   }, {
     detail: { summary: 'Resolve public effective sign-in experience for hosted login pages', tags: ['Sign-in Experience', 'Public'] },
+  });
+
+export const hostedOAuthPageRoutes = new Elysia()
+  .get('/oauth/authorize', async ({ set }) => {
+    const html = await loadAuthorizeHtml();
+    if (!html) {
+      set.status = 404;
+      return { error: 'authorize_page_missing' };
+    }
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+    return html;
+  }, {
+    detail: { summary: 'Serve hosted OAuth authorize page', tags: ['Public', 'Consent'] },
   });
 
 export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
