@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 
 function setupConfig() {
   process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
+  process.env.OAUTH_RUNTIME_INTERNAL_URL = 'http://runtime-internal.test';
   process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
   process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
   process.env.PROJECT_REF = 'test-ref';
@@ -51,6 +52,34 @@ describe('Runtime health check', () => {
     expect(health.userinfo).toBe(true);
     expect(health.issuer).toBe('http://runtime.test/auth/v1');
     expect(health.signing_alg).toBe('ES256');
+  });
+
+  it('supports direct GoTrue internal runtime without /auth/v1 prefix', async () => {
+    globalThis.fetch = mock((_input: string | URL | Request) => {
+      const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
+      if (!url.includes('/auth/v1/') && url.endsWith('/.well-known/openid-configuration')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          issuer: 'http://runtime.test/auth/v1',
+          authorization_endpoint: 'http://runtime.test/auth/v1/oauth/authorize',
+          token_endpoint: 'http://runtime.test/auth/v1/oauth/token',
+          userinfo_endpoint: 'http://runtime.test/auth/v1/oauth/userinfo',
+          jwks_uri: 'http://runtime.test/auth/v1/.well-known/jwks.json',
+          id_token_signing_alg_values_supported: ['RS256'],
+        }), { status: 200 }));
+      }
+      if (!url.includes('/auth/v1/') && url.endsWith('/.well-known/jwks.json')) {
+        return Promise.resolve(new Response(JSON.stringify({ keys: [{ kty: 'RSA' }] }), { status: 200 }));
+      }
+      return Promise.resolve(new Response('', { status: 200 }));
+    }) as unknown as typeof fetch;
+
+    const { checkRuntimeHealth } = await import('../runtime/index.js');
+    const health = await checkRuntimeHealth();
+
+    expect(health.discovery).toBe(true);
+    expect(health.jwks).toBe(true);
+    expect(health.issuer).toBe('http://runtime.test/auth/v1');
+    expect(health.signing_alg).toBe('RS256');
   });
 
   it('returns all false when fetch throws', async () => {

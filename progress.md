@@ -193,7 +193,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - `packages/shared/src/index.ts` — Added claims.ts re-export
 
 ### P0-25 ~ P0-29 新增文件
-- `packages/auth-server/src/supacloud/adapter.ts` — P0-26: `AdapterOptions.projectRef` override + `getSupaCloudAdapterForProject()` + 30s request timeout
+- `packages/auth-server/src/supacloud/adapter.ts` — P0-26: `AdapterOptions.projectRef/runtimeUrl/storageUrl` override + `getSupaCloudAdapterForProject()` + target URL scoping + 30s request timeout
 - `packages/auth-server/src/routes/provisioning.ts` — P0-26: project-scoped reconcile, `isValidProjectRef()`, safety mismatch guard
 - `packages/auth-server/src/sync/index.ts` — P0-27: read-modify-write app_metadata merge, preserved field verification
 - `packages/auth-server/src/repositories/rbac-bridge.ts` — P0-28: legacy role mapping policy, dry-run/import, compatibility SQL helper
@@ -421,6 +421,9 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - [x] **P2-4** UI 完整性（Applications detail/edit form 已存在, 列表页导航链接已添加, connectors empty state 已补全, 所有页面状态一致）
 - [x] `bunx tsc --noEmit` — P0-25~P0-29 implementation pass (0 errors)
 - [x] `bun test` — 161 pass, 39 skip, 0 fail (env-gated live tests skipped as expected)
+- [x] `bunx tsc --noEmit` — P0 review fix pass (0 errors)
+- [x] `bun test` — 166 pass, 42 skip, 0 fail (project-scoped URL tests and expanded route gate coverage)
+- [x] [2026-06-02T00:02:40+0800] vm1 SupaOAuth 离线升级并接入 `dglewlzugrtygzysqrce` 项目：通过 TrueNAS 内网传包部署到 `/opt/supauth`，保留回滚目录 `/opt/supauth.prev-20260602000052`；修复 runtime 探针以支持 `OAUTH_RUNTIME_INTERNAL_URL` 直连 GoTrue 无 `/auth/v1` 前缀、公开 issuer 仍为 `http://oauth.ai.xigu.org/auth/v1` 的拓扑。登录体验品牌已配置为 `西谷 OAuth 用户中心`，主色 `#2563eb`。验证：`/v1/health` 返回 `project_ref=dglewlzugrtygzysqrce`；`/v1/runtime/health` 返回 discovery/jwks/authorize/token/userinfo 全 true；`/v1/public/sign-in-experience/resolve` 返回品牌名；本地 `bunx tsc --noEmit` 与 `bun test` 通过（167 pass, 42 skip, 0 fail）。vm2 未发现 SupAuth 服务或 SupAuth 反代配置。
 
 ## 2026-05-30 Codex 执行记录 — Logto/Supabase 差距闭环实施
 

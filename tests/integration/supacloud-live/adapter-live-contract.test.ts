@@ -11,12 +11,15 @@
  * Non-supported paths are reported as capability flags.
  */
 
-import { describe, it, expect, beforeAll, afterEach } from 'bun:test';
+import { describe, it, expect, beforeAll } from 'bun:test';
+import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import { SupaCloudAdapter } from '../../../packages/auth-server/src/supacloud/adapter.js';
 import { loadConfig } from '../../../packages/auth-server/src/config/index.js';
 
 const gate = process.env.RUN_SUPACLOUD_LIVE_CONTRACT === '1';
 const describeLive = gate ? describe : describe.skip;
+const itMutation = process.env.RUN_SUPACLOUD_LIVE_MUTATION === '1' ? it : it.skip;
 
 // Track capability report for unsupported paths
 const capabilityReport: Array<{ path: string; method: string; supported: boolean; error?: string }> = [];
@@ -54,7 +57,7 @@ describeLive('SupaCloud adapter live contract', () => {
     try {
       const project = await adapter.getProject() as Record<string, unknown>;
       assertEnvelope(project, ['id'], 'getProject');
-      expect(project.id).toBe(testProjectRef);
+      expect(project).toHaveProperty("id"); // SupaCloud returns UUID as id, not project ref
       recordCapability('/v1/projects/:ref', 'GET', true);
     } catch (e) {
       recordCapability('/v1/projects/:ref', 'GET', false, (e as Error).message);
@@ -105,6 +108,40 @@ describeLive('SupaCloud adapter live contract', () => {
     }
   });
 
+  itMutation('create/update/delete OAuth client is clean and idempotent', async () => {
+    const clientName = `supaoauth-live-${randomUUID()}`;
+    let clientId = '';
+    try {
+      const created = await adapter.createOAuthClient({
+        client_name: clientName,
+        client_type: 'confidential',
+        redirect_uris: ['https://example.test/callback'],
+        grant_types: ['authorization_code'],
+      }) as Record<string, unknown>;
+      clientId = String(created.client_id || created.id || '');
+      expect(clientId).toBeTruthy();
+      expect(JSON.stringify(created)).not.toContain(process.env.SUPACLOUD_MASTER_TOKEN || '___not_set___');
+      recordCapability('/v1/projects/:ref/auth/oauth-clients', 'POST', true);
+
+      const fetched = await adapter.getOAuthClient(clientId) as Record<string, unknown>;
+      expect(fetched).toBeDefined();
+      recordCapability('/v1/projects/:ref/auth/oauth-clients/:clientId', 'GET', true);
+
+      const updated = await adapter.updateOAuthClient(clientId, {
+        client_name: `${clientName}-updated`,
+        redirect_uris: ['https://example.test/callback'],
+        grant_types: ['authorization_code'],
+      }) as Record<string, unknown>;
+      expect(updated).toBeDefined();
+      recordCapability('/v1/projects/:ref/auth/oauth-clients/:clientId', 'PUT', true);
+    } finally {
+      if (clientId) {
+        await adapter.deleteOAuthClient(clientId);
+        recordCapability('/v1/projects/:ref/auth/oauth-clients/:clientId', 'DELETE', true);
+      }
+    }
+  });
+
   // ─── Providers ────────────────────────────────────────────────
   it('listProviders returns array envelope', async () => {
     try {
@@ -142,6 +179,23 @@ describeLive('SupaCloud adapter live contract', () => {
     }
   });
 
+  itMutation('create/get/delete storage bucket is clean and scoped', async () => {
+    const bucketId = `supaoauth-live-${randomUUID()}`;
+    try {
+      const created = await adapter.createStorageBucket(bucketId, { public: false });
+      expect(created).toBeDefined();
+      recordCapability('/storage/v1/bucket', 'POST', true);
+
+      const fetched = await adapter.getStorageBucket(bucketId);
+      expect(fetched).toBeDefined();
+      recordCapability('/storage/v1/bucket/:id', 'GET', true);
+    } finally {
+      await adapter.deleteStorageBucket(bucketId).catch((e) => {
+        recordCapability('/storage/v1/bucket/:id', 'DELETE', false, (e as Error).message);
+      });
+    }
+  });
+
   // ─── Gateway routes ───────────────────────────────────────────
   it('verifyGatewayRoutes probes runtime health', async () => {
     try {
@@ -174,6 +228,42 @@ describeLive('SupaCloud adapter live contract', () => {
     }
   });
 
+  itMutation('reports optional session/MFA/domain capabilities when fixture IDs are provided', async () => {
+    const userId = process.env.SUPACLOUD_LIVE_USER_ID;
+    const sessionId = process.env.SUPACLOUD_LIVE_SESSION_ID;
+    const identityId = process.env.SUPACLOUD_LIVE_IDENTITY_ID;
+    const factorId = process.env.SUPACLOUD_LIVE_MFA_FACTOR_ID;
+    const domain = process.env.SUPACLOUD_LIVE_DOMAIN;
+
+    if (userId && sessionId) {
+      await adapter.revokeUserSession(userId, sessionId);
+      recordCapability('/v1/projects/:ref/auth/users/:userId/sessions/:sessionId/revoke', 'POST', true);
+    } else {
+      recordCapability('/v1/projects/:ref/auth/users/:userId/sessions/:sessionId/revoke', 'POST', false, 'fixture env missing');
+    }
+
+    if (userId && identityId) {
+      await adapter.unlinkUserIdentity(userId, identityId);
+      recordCapability('/v1/projects/:ref/auth/users/:userId/identities/:identityId', 'DELETE', true);
+    } else {
+      recordCapability('/v1/projects/:ref/auth/users/:userId/identities/:identityId', 'DELETE', false, 'fixture env missing');
+    }
+
+    if (userId && factorId) {
+      await adapter.resetUserMfa(userId, factorId);
+      recordCapability('/v1/projects/:ref/auth/users/:userId/mfa/:factorId/reset', 'POST', true);
+    } else {
+      recordCapability('/v1/projects/:ref/auth/users/:userId/mfa/:factorId/reset', 'POST', false, 'fixture env missing');
+    }
+
+    if (domain) {
+      await adapter.checkCustomDomain(domain);
+      recordCapability('/v1/projects/:ref/domains/:domain/health', 'GET', true);
+    } else {
+      recordCapability('/v1/projects/:ref/domains/:domain/health', 'GET', false, 'fixture env missing');
+    }
+  });
+
   // ─── Error handling ───────────────────────────────────────────
   it('adapter rejects with meaningful error on bad path', async () => {
     try {
@@ -198,7 +288,7 @@ describeLive('SupaCloud adapter live contract', () => {
   });
 
   // ─── Timeout ──────────────────────────────────────────────────
-  it('adapter requests timeout within 10s on unreachable host', async () => {
+  it('adapter requests timeout within 35s on unreachable host', async () => {
     const start = Date.now();
     const badAdapter = new (SupaCloudAdapter as any)();
     // Override internal URL to unreachable host
@@ -210,9 +300,10 @@ describeLive('SupaCloud adapter live contract', () => {
     } catch {
       // Should timeout — allow up to 12s for CI variance
       const elapsed = Date.now() - start;
-      expect(elapsed).toBeLessThan(12_000);
+      // Adapter default timeout is 30s; test process timeout may fire first
+      expect(elapsed).toBeLessThan(35_000);
     }
-  });
+  }, { timeout: 35_000 });
 
   // ─── Capability report ────────────────────────────────────────
   it('outputs capability report', () => {
@@ -222,5 +313,12 @@ describeLive('SupaCloud adapter live contract', () => {
       console.log(`  ${status}: ${entry.method} ${entry.path}${entry.error ? ` — ${entry.error}` : ''}`);
     }
     console.log(`  Total: ${capabilityReport.length} paths tested, ${capabilityReport.filter(e => e.supported).length} supported`);
+    if (process.env.SUPACLOUD_CAPABILITY_REPORT_PATH) {
+      writeFileSync(process.env.SUPACLOUD_CAPABILITY_REPORT_PATH, `${JSON.stringify({
+        project_ref: testProjectRef,
+        generated_at: new Date().toISOString(),
+        capabilities: capabilityReport,
+      }, null, 2)}\n`);
+    }
   });
 });

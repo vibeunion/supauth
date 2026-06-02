@@ -3,7 +3,6 @@
 // SupaCloud stack and no Supabase standard paths are broken.
 
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { getConfig } from '../config/index.js';
 
 export interface RouteProbe {
@@ -36,6 +35,9 @@ export interface IntegrationGateResult {
     oauthRuntimeUrl: string;
     runtimeMode: string;
     corsOrigins: string[];
+    adminUrl: string;
+    runtimeUrl: string;
+    extraDomains: string[];
   };
   allPassed: boolean;
   conflicts: string[];
@@ -87,6 +89,77 @@ async function probeRoute(
   }
 }
 
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
+function localAdminUrl(): string {
+  const config = getConfig();
+  const host = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
+  return `http://${host}:${config.port}`;
+}
+
+function parseCsv(value?: string): string[] {
+  return (value || '').split(',').map(item => item.trim()).filter(Boolean);
+}
+
+function resolveRouteGateInput(query?: Record<string, unknown>): {
+  projectRef: string;
+  adminUrl: string;
+  runtimeUrl: string;
+  extraDomains: string[];
+} {
+  const config = getConfig();
+  const adminUrl = String(
+    query?.admin_url ||
+    process.env.SUPAOAUTH_ROUTE_GATE_ADMIN_URL ||
+    process.env.SUPAOAUTH_ADMIN_URL ||
+    localAdminUrl(),
+  );
+  const runtimeUrl = String(
+    query?.runtime_url ||
+    process.env.SUPAOAUTH_ROUTE_GATE_RUNTIME_URL ||
+    config.oauthRuntimeUrl,
+  );
+  const extraDomains = [
+    ...parseCsv(process.env.SUPAOAUTH_ROUTE_GATE_DOMAINS),
+    ...parseCsv(query?.domains as string | undefined),
+  ];
+
+  return {
+    projectRef: String(query?.project_ref || config.projectRef),
+    adminUrl: normalizeBaseUrl(adminUrl),
+    runtimeUrl: normalizeBaseUrl(runtimeUrl),
+    extraDomains: extraDomains.map(normalizeBaseUrl),
+  };
+}
+
+async function auditDomain(baseUrl: string): Promise<DomainAudit> {
+  try {
+    const url = new URL(baseUrl);
+    const [adminRes, runtimeRes] = await Promise.all([
+      fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
+      fetch(`${baseUrl}/auth/v1/health`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
+    ]);
+    return {
+      domain: url.hostname,
+      adminReachable: adminRes?.ok ?? false,
+      apiReachable: adminRes?.ok ?? false,
+      authReachable: runtimeRes?.ok ?? false,
+      tlsValid: url.protocol === 'https:',
+    };
+  } catch {
+    return {
+      domain: baseUrl,
+      adminReachable: false,
+      apiReachable: false,
+      authReachable: false,
+      tlsValid: false,
+      error: 'Failed to resolve or connect',
+    };
+  }
+}
+
 /**
  * Run the full integration gate against a SupaCloud stack.
  * Tests all standard Supabase routes plus SupaOAuth-specific routes.
@@ -95,28 +168,32 @@ export async function runIntegrationGate(
   projectRef: string,
   adminUrl: string,
   runtimeUrl: string,
+  extraDomains: string[] = [],
 ): Promise<IntegrationGateResult> {
   const config = getConfig();
   const conflicts: string[] = [];
+  const normalizedAdminUrl = normalizeBaseUrl(adminUrl);
+  const normalizedRuntimeUrl = normalizeBaseUrl(runtimeUrl);
+  const normalizedExtraDomains = extraDomains.map(normalizeBaseUrl);
 
   // 1. Probe SupaOAuth admin routes
   const adminRoutes: RouteProbe[] = await Promise.all([
-    probeRoute(adminUrl, 'admin_root', '/admin', 'GET', [200, 301, 302]),
-    probeRoute(adminUrl, 'health', '/api/v1/health', 'GET', [200]),
-    probeRoute(adminUrl, 'swagger', '/swagger', 'GET', [200]),
-    probeRoute(adminUrl, 'applications_unauth', '/api/v1/applications', 'GET', [401]),
-    probeRoute(adminUrl, 'public_sie', '/api/v1/sign-in-experience/public', 'GET', [200, 404]),
-    probeRoute(adminUrl, 'public_oauth', '/api/v1/oauth/authorize', 'GET', [200, 302, 400, 404]),
+    probeRoute(normalizedAdminUrl, 'admin_root', '/admin', 'GET', [200, 301, 302]),
+    probeRoute(normalizedAdminUrl, 'health', '/v1/health', 'GET', [200]),
+    probeRoute(normalizedAdminUrl, 'swagger', '/swagger', 'GET', [200]),
+    probeRoute(normalizedAdminUrl, 'applications_unauth', '/v1/applications', 'GET', [401]),
+    probeRoute(normalizedAdminUrl, 'public_sie', '/v1/sign-in-experience/public', 'GET', [200, 404]),
+    probeRoute(normalizedAdminUrl, 'public_oauth', '/oauth/authorize', 'GET', [200, 302, 400, 404]),
   ]);
 
   // 2. Probe Supabase runtime routes (must not be broken)
   const runtimeRoutes: RouteProbe[] = await Promise.all([
-    probeRoute(runtimeUrl, 'gotrue_health', '/auth/v1/health', 'GET', [200]),
-    probeRoute(runtimeUrl, 'postgrest_root', '/rest/v1/', 'GET', [200, 401, 406]),
-    probeRoute(runtimeUrl, 'storage_buckets', '/storage/v1/bucket', 'GET', [200, 401]),
-    probeRoute(runtimeUrl, 'realtime_ws', '/realtime/v1/websocket', 'GET', [200, 400, 403, 426]),
-    probeRoute(runtimeUrl, 'functions_root', '/functions/v1/', 'GET', [200, 401, 404]),
-    probeRoute(runtimeUrl, 'auth_v1_signup', '/auth/v1/signup', 'POST', [200, 400, 401, 422]),
+    probeRoute(normalizedRuntimeUrl, 'gotrue_health', '/auth/v1/health', 'GET', [200]),
+    probeRoute(normalizedRuntimeUrl, 'postgrest_root', '/rest/v1/', 'GET', [200, 401, 406]),
+    probeRoute(normalizedRuntimeUrl, 'storage_buckets', '/storage/v1/bucket', 'GET', [200, 401]),
+    probeRoute(normalizedRuntimeUrl, 'realtime_ws', '/realtime/v1/websocket', 'GET', [200, 400, 403, 426]),
+    probeRoute(normalizedRuntimeUrl, 'functions_root', '/functions/v1/', 'GET', [200, 401, 404]),
+    probeRoute(normalizedRuntimeUrl, 'auth_v1_signup', '/auth/v1/signup', 'POST', [200, 400, 401, 422]),
   ]);
 
   // 3. Check for route conflicts
@@ -130,41 +207,9 @@ export async function runIntegrationGate(
   }
 
   // 4. Domain audit
-  const domainAudit: DomainAudit[] = [];
-  const domains = [adminUrl, runtimeUrl];
-  for (const domain of domains) {
-    try {
-      const url = new URL(domain);
-      const baseDomain = url.hostname;
-
-      // Test admin reachability
-      const adminRes = await fetch(`${adminUrl}/api/v1/health`, {
-        signal: AbortSignal.timeout(5000),
-      }).catch(() => null);
-
-      // Test runtime reachability
-      const runtimeRes = await fetch(`${runtimeUrl}/auth/v1/health`, {
-        signal: AbortSignal.timeout(5000),
-      }).catch(() => null);
-
-      domainAudit.push({
-        domain: baseDomain,
-        adminReachable: adminRes?.ok ?? false,
-        apiReachable: adminRes?.ok ?? false,
-        authReachable: runtimeRes?.ok ?? false,
-        tlsValid: url.protocol === 'https:',
-      });
-    } catch {
-      domainAudit.push({
-        domain,
-        adminReachable: false,
-        apiReachable: false,
-        authReachable: false,
-        tlsValid: false,
-        error: 'Failed to resolve or connect',
-      });
-    }
-  }
+  const domainAudit = await Promise.all(
+    [...new Set([normalizedAdminUrl, normalizedRuntimeUrl, ...normalizedExtraDomains])].map(auditDomain),
+  );
 
   const allRoutes = [...adminRoutes, ...runtimeRoutes];
   const allPassed = allRoutes.every(r => r.ok) && conflicts.length === 0;
@@ -179,6 +224,9 @@ export async function runIntegrationGate(
       oauthRuntimeUrl: config.oauthRuntimeUrl,
       runtimeMode: config.runtimeMode,
       corsOrigins: config.corsOrigins,
+      adminUrl: normalizedAdminUrl,
+      runtimeUrl: normalizedRuntimeUrl,
+      extraDomains: normalizedExtraDomains,
     },
     allPassed,
     conflicts,
@@ -186,11 +234,9 @@ export async function runIntegrationGate(
 }
 
 export const routeGateRoutes = new Elysia({ prefix: '/v1/route-gate' })
-  .get('/', async () => {
-    const config = getConfig();
-    const adminUrl = `http://${config.host}:${config.port}`;
-    const runtimeUrl = config.oauthRuntimeUrl;
-    return runIntegrationGate(config.projectRef, adminUrl, runtimeUrl);
+  .get('/', async ({ query }) => {
+    const input = resolveRouteGateInput(query as Record<string, unknown>);
+    return runIntegrationGate(input.projectRef, input.adminUrl, input.runtimeUrl, input.extraDomains);
   }, {
     detail: {
       summary: 'Run route/domain integration gate',
@@ -199,12 +245,9 @@ export const routeGateRoutes = new Elysia({ prefix: '/v1/route-gate' })
     },
   })
 
-  .get('/routes', async () => {
-    const config = getConfig();
-    const adminUrl = `http://${config.host}:${config.port}`;
-    const runtimeUrl = config.oauthRuntimeUrl;
-
-    const result = await runIntegrationGate(config.projectRef, adminUrl, runtimeUrl);
+  .get('/routes', async ({ query }) => {
+    const input = resolveRouteGateInput(query as Record<string, unknown>);
+    const result = await runIntegrationGate(input.projectRef, input.adminUrl, input.runtimeUrl, input.extraDomains);
     return {
       total: result.routes.length,
       passed: result.routes.filter(r => r.ok).length,

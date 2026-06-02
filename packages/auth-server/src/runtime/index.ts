@@ -12,10 +12,62 @@ export interface RuntimeHealth {
   signing_alg: string | null;
 }
 
-export async function checkRuntimeHealth(): Promise<RuntimeHealth> {
-  const config = getConfig();
-  const base = config.oauthRuntimeUrl;
+interface RuntimeCandidate {
+  base: string;
+  prefix: string;
+}
 
+interface RuntimeFetchResult {
+  json: Record<string, unknown>;
+  candidate: RuntimeCandidate;
+}
+
+function normalizeBase(base: string) {
+  return base.replace(/\/$/, '');
+}
+
+function runtimeCandidates(): RuntimeCandidate[] {
+  const config = getConfig();
+  const candidates: RuntimeCandidate[] = [
+    { base: config.oauthRuntimeInternalUrl, prefix: '' },
+    { base: config.oauthRuntimeUrl, prefix: '/auth/v1' },
+    { base: config.oauthRuntimeInternalUrl, prefix: '/auth/v1' },
+  ];
+
+  const seen = new Set<string>();
+  return candidates
+    .map((candidate) => ({ base: normalizeBase(candidate.base), prefix: candidate.prefix }))
+    .filter((candidate) => {
+      const key = `${candidate.base}${candidate.prefix}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function runtimeUrl(candidate: RuntimeCandidate, path: string) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${candidate.base}${candidate.prefix}${normalizedPath}`;
+}
+
+async function fetchJson(url: string) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+  if (!res.ok) throw new Error(`Runtime fetch failed: ${res.status}`);
+  return res.json() as Promise<Record<string, unknown>>;
+}
+
+async function fetchFirstRuntimeJson(path: string): Promise<RuntimeFetchResult> {
+  for (const candidate of runtimeCandidates()) {
+    try {
+      return { json: await fetchJson(runtimeUrl(candidate, path)), candidate };
+    } catch {
+      // Try the next runtime shape: direct GoTrue or routed /auth/v1.
+    }
+  }
+  throw new Error('Runtime fetch failed');
+}
+
+export async function checkRuntimeHealth(): Promise<RuntimeHealth> {
   const health: RuntimeHealth = {
     discovery: false,
     jwks: false,
@@ -27,24 +79,31 @@ export async function checkRuntimeHealth(): Promise<RuntimeHealth> {
   };
 
   try {
-    const discRes = await fetch(`${base}/auth/v1/.well-known/openid-configuration`);
-    if (discRes.ok) {
-      health.discovery = true;
-      const disc = await discRes.json() as Record<string, unknown>;
-      health.issuer = (disc.issuer as string) || null;
-      const signingAlgs = disc.id_token_signing_alg_values_supported;
-      health.signing_alg = Array.isArray(signingAlgs) && signingAlgs.length > 0
-        ? String(signingAlgs[0])
-        : null;
+    const { json: disc, candidate } = await fetchFirstRuntimeJson('/.well-known/openid-configuration');
+    health.discovery = true;
+    health.issuer = (disc.issuer as string) || null;
+    const signingAlgs = disc.id_token_signing_alg_values_supported;
+    health.signing_alg = Array.isArray(signingAlgs) && signingAlgs.length > 0
+      ? String(signingAlgs[0])
+      : null;
 
+    try {
+      await fetchJson(runtimeUrl(candidate, '/.well-known/jwks.json'));
+      health.jwks = true;
+    } catch {
       if (disc.jwks_uri) {
-        const jwksRes = await fetch(disc.jwks_uri as string);
-        health.jwks = jwksRes.ok;
+        try {
+          await fetchJson(disc.jwks_uri as string);
+          health.jwks = true;
+        } catch {
+          health.jwks = false;
+        }
       }
-      health.authorize = !!disc.authorization_endpoint;
-      health.token = !!disc.token_endpoint;
-      health.userinfo = !!disc.userinfo_endpoint;
     }
+
+    health.authorize = !!disc.authorization_endpoint;
+    health.token = !!disc.token_endpoint;
+    health.userinfo = !!disc.userinfo_endpoint;
   } catch {
     // runtime unreachable
   }
@@ -53,15 +112,17 @@ export async function checkRuntimeHealth(): Promise<RuntimeHealth> {
 }
 
 export async function getDiscovery(): Promise<Record<string, unknown>> {
-  const config = getConfig();
-  const res = await fetch(`${config.oauthRuntimeUrl}/auth/v1/.well-known/openid-configuration`);
-  if (!res.ok) throw new Error(`Discovery fetch failed: ${res.status}`);
-  return res.json() as Promise<Record<string, unknown>>;
+  try {
+    return (await fetchFirstRuntimeJson('/.well-known/openid-configuration')).json;
+  } catch {
+    throw new Error('Discovery fetch failed');
+  }
 }
 
 export async function getJWKS(): Promise<Record<string, unknown>> {
-  const config = getConfig();
-  const res = await fetch(`${config.oauthRuntimeUrl}/auth/v1/.well-known/jwks.json`);
-  if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
-  return res.json() as Promise<Record<string, unknown>>;
+  try {
+    return (await fetchFirstRuntimeJson('/.well-known/jwks.json')).json;
+  } catch {
+    throw new Error('JWKS fetch failed');
+  }
 }

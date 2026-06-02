@@ -13,6 +13,9 @@ describe('SupaCloudAdapter contract', () => {
     process.env.PROJECT_REF = 'test-ref';
     process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
     process.env.DATABASE_URL = 'postgres://test';
+    delete process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE;
+    delete process.env.SUPACLOUD_STORAGE_URL_TEMPLATE;
+    delete process.env.SUPACLOUD_STORAGE_URL;
     loadConfig();
   });
 
@@ -25,8 +28,8 @@ describe('SupaCloudAdapter contract', () => {
       'regenerateClientSecret', 'listProviders', 'getProvider',
       'updateProvider', 'listUsers', 'getUser', 'deleteUser', 'updateUser',
       'listStorageBuckets', 'getStorageBucket', 'createStorageBucket',
-      'uploadFile', 'deleteFile', 'createSignedUrl', 'getPublicUrl',
-      'verifyGatewayRoutes', 'getProjectRef',
+      'deleteStorageBucket', 'uploadFile', 'deleteFile', 'createSignedUrl', 'getPublicUrl',
+      'verifyGatewayRoutes', 'getProjectRef', 'getTargetInfo',
     ];
     for (const method of requiredMethods) {
       expect(typeof (adapter as any)[method]).toBe('function');
@@ -78,6 +81,34 @@ describe('SupaCloudAdapter contract', () => {
     const { getSupaCloudAdapterForProject } = await import('../supacloud/adapter.js');
     const scoped = getSupaCloudAdapterForProject('scoped-ref-abcde12345');
     expect(scoped.getProjectRef()).toBe('scoped-ref-abcde12345');
+  });
+
+  it('derives project-scoped runtime and storage URLs from templates', () => {
+    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test';
+    process.env.SUPACLOUD_STORAGE_URL_TEMPLATE = 'https://{projectRef}.storage.example.test';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
+    const target = adapter.getTargetInfo();
+
+    expect(target.runtimeUrl).toBe('https://projecttarget1234567890.api.example.test');
+    expect(target.storageUrl).toBe('https://projecttarget1234567890.storage.example.test');
+    expect(target.runtimeProjectScoped).toBe(true);
+    expect(target.storageProjectScoped).toBe(true);
+  });
+
+  it('marks cross-project runtime/storage as unscoped when URLs cannot be derived', () => {
+    process.env.PROJECT_REF = 'defaultproject1234567890';
+    process.env.OAUTH_RUNTIME_URL = 'https://api.shared.example.test';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter({ projectRef: 'targetproject1234567890' });
+    const target = adapter.getTargetInfo();
+
+    expect(target.runtimeUrl).toBe('https://api.shared.example.test');
+    expect(target.storageUrl).toBe('https://api.shared.example.test');
+    expect(target.runtimeProjectScoped).toBe(false);
+    expect(target.storageProjectScoped).toBe(false);
   });
 });
 
