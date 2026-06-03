@@ -1,5 +1,5 @@
 {
-  "name": "@supaoauth/sdk-typescript",
+  "name": "@supauth/sdk-typescript",
   "version": "0.0.1",
   "description": "TypeScript SDK for the SupaOAuth Management API and public sign-in experience APIs",
   "type": "module",
@@ -37,6 +37,6 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
-    "@supaoauth/shared": "workspace:*"
+    "@supauth/shared": "workspace:*"
   }
 }
