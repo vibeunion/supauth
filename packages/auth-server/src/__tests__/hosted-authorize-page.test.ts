@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import { hostedPageRoutes } from '../routes/hosted-pages.js';
+import { hostedPageRoutes, resolveHostedPagePaths } from '../routes/hosted-pages.js';
 
 function request(url: string, init?: RequestInit) {
   const app = new Elysia().use(hostedPageRoutes);
@@ -8,6 +8,16 @@ function request(url: string, init?: RequestInit) {
 }
 
 describe('hostedPageRoutes', () => {
+  test('resolveHostedPagePaths covers src and dist execution layouts', () => {
+    const fromSrc = resolveHostedPagePaths('/opt/supauth/packages/auth-server/src/routes', '/opt/supauth/packages/auth-server');
+    expect(fromSrc.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
+    expect(fromSrc.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
+
+    const fromDist = resolveHostedPagePaths('/opt/supauth/packages/auth-server/dist', '/opt/supauth');
+    expect(fromDist.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
+    expect(fromDist.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
+  });
+
   test('GET /oauth/authorize serves hosted authorize html', async () => {
     const response = await request('http://localhost/oauth/authorize?authorization_id=test-authz');
     const body = await response.text();

@@ -5,36 +5,65 @@
 import { Elysia } from 'elysia';
 import path from 'node:path';
 
-// Resolve project root: import.meta.dir works in dev, but in a Bun bundle it points to dist/.
-// Fall back to process.cwd() when the relative path doesn't yield a valid directory.
-function resolveProjectRoot(): string {
-  const fromMeta = path.resolve(import.meta.dir, '../../..');
-  if (Bun.file(path.join(fromMeta, 'packages/admin-console/build/authorize.html')).size) {
-    return fromMeta;
-  }
-  return process.cwd();
+function uniquePaths(paths: string[]) {
+  return [...new Set(paths.map(candidate => path.normalize(candidate)))];
 }
-const PROJECT_ROOT = resolveProjectRoot();
-const ADMIN_CONSOLE_BUILD = path.join(PROJECT_ROOT, 'packages/admin-console/build');
-const CUSTOM_UI_DIR = path.join(PROJECT_ROOT, 'packages/auth-server/custom-ui');
+
+export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = process.cwd()) {
+  const adminConsoleBuildDirs = uniquePaths([
+    path.resolve(importMetaDir, '../../../admin-console/build'),
+    path.resolve(importMetaDir, '../../admin-console/build'),
+    path.resolve(cwd, '../admin-console/build'),
+    path.resolve(cwd, 'packages/admin-console/build'),
+  ]);
+
+  const authorizeHtmlCandidates = uniquePaths([
+    ...adminConsoleBuildDirs.map(dir => path.join(dir, 'authorize.html')),
+    path.resolve(importMetaDir, '../../../admin-console/static/authorize.html'),
+    path.resolve(importMetaDir, '../../admin-console/static/authorize.html'),
+    path.resolve(cwd, '../admin-console/static/authorize.html'),
+    path.resolve(cwd, 'packages/admin-console/static/authorize.html'),
+  ]);
+
+  const customUiDirs = uniquePaths([
+    path.resolve(importMetaDir, '../../custom-ui'),
+    path.resolve(importMetaDir, '../custom-ui'),
+    path.resolve(cwd, 'custom-ui'),
+    path.resolve(cwd, 'packages/auth-server/custom-ui'),
+  ]);
+
+  return {
+    adminConsoleBuildDirs,
+    authorizeHtmlCandidates,
+    customUiDirs,
+  };
+}
+
+const hostedPagePaths = resolveHostedPagePaths();
 const PUBLIC_API_BASE_PLACEHOLDER = 'window.__SUPAOAUTH_PUBLIC_API_BASE__ = null;';
+
+async function findFirstExistingFile(candidates: string[]) {
+  for (const candidate of candidates) {
+    const file = Bun.file(candidate);
+    if (await file.exists()) {
+      return file;
+    }
+  }
+  return null;
+}
 
 async function loadAuthorizeHtml(): Promise<string | null> {
   // Custom UI takes priority
-  const customIndex = path.join(CUSTOM_UI_DIR, 'index.html');
-  const customFile = Bun.file(customIndex);
-  if (await customFile.exists()) {
-    const html = await customFile.text();
-    return html;
+  const customFile = await findFirstExistingFile(
+    hostedPagePaths.customUiDirs.map(dir => path.join(dir, 'index.html')),
+  );
+  if (customFile) {
+    return customFile.text();
   }
 
-  const candidates = [
-    path.join(ADMIN_CONSOLE_BUILD, 'authorize.html'),
-    path.join(PROJECT_ROOT, 'packages/admin-console/static/authorize.html'),
-  ];
-  for (const p of candidates) {
-    const f = Bun.file(p);
-    if (await f.exists()) return f.text();
+  const htmlFile = await findFirstExistingFile(hostedPagePaths.authorizeHtmlCandidates);
+  if (htmlFile) {
+    return htmlFile.text();
   }
   return null;
 }
@@ -53,9 +82,10 @@ const CACHE_TTL = 60_000; // 60 seconds
 
 async function getAuthorizeHtml() {
   // Check custom UI first (always fresh)
-  const customIndex = path.join(CUSTOM_UI_DIR, 'index.html');
-  const customFile = Bun.file(customIndex);
-  if (await customFile.exists()) {
+  const customFile = await findFirstExistingFile(
+    hostedPagePaths.customUiDirs.map(dir => path.join(dir, 'index.html')),
+  );
+  if (customFile) {
     return customFile.text();
   }
 
@@ -69,10 +99,14 @@ async function getAuthorizeHtml() {
   return defaultHtmlCache.html;
 }
 
-function serveStaticFile(filePath: string) {
-  const f = Bun.file(filePath);
-  if (!f.size) return null;
-  return new Response(f);
+function serveFirstStaticFile(fileCandidates: string[]) {
+  for (const candidate of fileCandidates) {
+    const file = Bun.file(candidate);
+    if (file.size) {
+      return new Response(file);
+    }
+  }
+  return null;
 }
 
 export const hostedPageRoutes = new Elysia()
@@ -118,8 +152,9 @@ export const hostedPageRoutes = new Elysia()
   .get('/custom-ui/*', async ({ params }) => {
     const sub = (params as Record<string, string>)['*'] || '';
     if (sub.includes('..')) return new Response('Forbidden', { status: 403 });
-    const filePath = path.join(CUSTOM_UI_DIR, sub);
-    const resp = serveStaticFile(filePath);
+    const resp = serveFirstStaticFile(
+      hostedPagePaths.customUiDirs.map(dir => path.join(dir, sub)),
+    );
     if (!resp) return new Response('Not Found', { status: 404 });
     return resp;
   })
@@ -127,8 +162,9 @@ export const hostedPageRoutes = new Elysia()
   // Admin console SPA static assets: /_app/*
   .get('/_app/*', ({ params }) => {
     const sub = (params as Record<string, string>)['*'] || '';
-    const filePath = path.join(ADMIN_CONSOLE_BUILD, '_app', sub);
-    const resp = serveStaticFile(filePath);
+    const resp = serveFirstStaticFile(
+      hostedPagePaths.adminConsoleBuildDirs.map(dir => path.join(dir, '_app', sub)),
+    );
     if (!resp) return new Response('Not Found', { status: 404 });
     return resp;
   })
@@ -136,15 +172,20 @@ export const hostedPageRoutes = new Elysia()
   // Admin console SPA pages: /admin/*
   .get('/admin/*', ({ params }) => {
     const sub = (params as Record<string, string>)['*'] || '';
-    const filePath = path.join(ADMIN_CONSOLE_BUILD, sub || 'index.html');
-    const resp = serveStaticFile(filePath);
+    const resp = serveFirstStaticFile(
+      hostedPagePaths.adminConsoleBuildDirs.map(dir => path.join(dir, sub || 'index.html')),
+    );
     if (!resp) return new Response('Not Found', { status: 404 });
     return resp;
   })
 
   // robots.txt
   .get('/robots.txt', () => {
-    const f = Bun.file(path.join(ADMIN_CONSOLE_BUILD, 'robots.txt'));
-    if (!f.size) return new Response('User-agent: *\nDisallow: /\n', { headers: { 'content-type': 'text/plain' } });
-    return new Response(f);
+    const resp = serveFirstStaticFile(
+      hostedPagePaths.adminConsoleBuildDirs.map(dir => path.join(dir, 'robots.txt')),
+    );
+    if (!resp) {
+      return new Response('User-agent: *\nDisallow: /\n', { headers: { 'content-type': 'text/plain' } });
+    }
+    return resp;
   });
