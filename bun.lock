@@ -50,6 +50,18 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/sdks/auth-ui": {
+      "name": "@supaoauth/sdk-auth-ui",
+      "version": "0.0.1",
+      "dependencies": {
+        "@supaoauth/sdk-typescript": "workspace:*",
+        "@supaoauth/shared": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.2.0",
+        "typescript": "^5.8.0",
+      },
+    },
     "packages/sdks/typescript": {
       "name": "@supaoauth/sdk-typescript",
       "version": "0.0.1",
@@ -216,6 +228,8 @@
     "@supaoauth/admin-console": ["@supaoauth/admin-console@workspace:packages/admin-console"],
 
     "@supaoauth/auth-server": ["@supaoauth/auth-server@workspace:packages/auth-server"],
+
+    "@supaoauth/sdk-auth-ui": ["@supaoauth/sdk-auth-ui@workspace:packages/sdks/auth-ui"],
 
     "@supaoauth/sdk-typescript": ["@supaoauth/sdk-typescript@workspace:packages/sdks/typescript"],
 
