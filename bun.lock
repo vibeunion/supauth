@@ -11,10 +11,10 @@
       },
     },
     "packages/admin-console": {
-      "name": "@supaoauth/admin-console",
+      "name": "@supauth/admin-console",
       "version": "0.0.1",
       "dependencies": {
-        "@supaoauth/shared": "workspace:*",
+        "@supauth/shared": "workspace:*",
         "@svadmin/core": "^0.25.4",
         "@svadmin/sso": "^0.9.0",
         "@tailwindcss/vite": "^4.3.0",
@@ -33,12 +33,12 @@
       },
     },
     "packages/auth-server": {
-      "name": "@supaoauth/auth-server",
+      "name": "@supauth/auth-server",
       "version": "0.0.1",
       "dependencies": {
         "@elysiajs/cors": "^1.3.1",
         "@elysiajs/swagger": "^1.3.0",
-        "@supaoauth/shared": "workspace:*",
+        "@supauth/shared": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "elysia": "^1.3.2",
         "jose": "^6.2.3",
@@ -51,11 +51,11 @@
       },
     },
     "packages/sdks/auth-ui": {
-      "name": "@supaoauth/sdk-auth-ui",
+      "name": "@supauth/sdk-auth-ui",
       "version": "0.0.1",
       "dependencies": {
-        "@supaoauth/sdk-typescript": "workspace:*",
-        "@supaoauth/shared": "workspace:*",
+        "@supauth/sdk-typescript": "workspace:*",
+        "@supauth/shared": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "^1.2.0",
@@ -63,10 +63,10 @@
       },
     },
     "packages/sdks/typescript": {
-      "name": "@supaoauth/sdk-typescript",
+      "name": "@supauth/sdk-typescript",
       "version": "0.0.1",
       "dependencies": {
-        "@supaoauth/shared": "workspace:*",
+        "@supauth/shared": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "^1.2.0",
@@ -74,7 +74,7 @@
       },
     },
     "packages/shared": {
-      "name": "@supaoauth/shared",
+      "name": "@supauth/shared",
       "version": "0.0.1",
       "devDependencies": {
         "@types/bun": "^1.3.14",
@@ -225,15 +225,15 @@
 
     "@supabase/supabase-js": ["@supabase/supabase-js@2.106.1", "https://registry.npmmirror.com/@supabase/supabase-js/-/supabase-js-2.106.1.tgz", { "dependencies": { "@supabase/auth-js": "2.106.1", "@supabase/functions-js": "2.106.1", "@supabase/postgrest-js": "2.106.1", "@supabase/realtime-js": "2.106.1", "@supabase/storage-js": "2.106.1" } }, "sha512-gP4HurGkGu7Z3xoOCjtAI17BKKp7jpsmwY0Ssbsks9XQRzJ7ZhK7LxfLdBSYgUdgZCQgjRK+Mr7+cl4Gxrk0Rw=="],
 
-    "@supaoauth/admin-console": ["@supaoauth/admin-console@workspace:packages/admin-console"],
+    "@supauth/admin-console": ["@supauth/admin-console@workspace:packages/admin-console"],
 
-    "@supaoauth/auth-server": ["@supaoauth/auth-server@workspace:packages/auth-server"],
+    "@supauth/auth-server": ["@supauth/auth-server@workspace:packages/auth-server"],
 
-    "@supaoauth/sdk-auth-ui": ["@supaoauth/sdk-auth-ui@workspace:packages/sdks/auth-ui"],
+    "@supauth/sdk-auth-ui": ["@supauth/sdk-auth-ui@workspace:packages/sdks/auth-ui"],
 
-    "@supaoauth/sdk-typescript": ["@supaoauth/sdk-typescript@workspace:packages/sdks/typescript"],
+    "@supauth/sdk-typescript": ["@supauth/sdk-typescript@workspace:packages/sdks/typescript"],
 
-    "@supaoauth/shared": ["@supaoauth/shared@workspace:packages/shared"],
+    "@supauth/shared": ["@supauth/shared@workspace:packages/shared"],
 
     "@svadmin/core": ["@svadmin/core@0.25.4", "https://registry.npmmirror.com/@svadmin/core/-/core-0.25.4.tgz", { "peerDependencies": { "@tanstack/svelte-query": "^6.1.29", "svelte": "^5.0.0" }, "optionalPeers": ["@tanstack/svelte-query", "svelte"] }, "sha512-03qBomsjrWNjS72J742SMFmxGIO6X/2KEeirA6cbERUt968r4+ClsbL7iDN/sPeW8zLUAJAbbp5wIfAJyBuHhg=="],
 
@@ -479,7 +479,7 @@
 
     "@scalar/themes/@scalar/types": ["@scalar/types@0.1.7", "https://registry.npmmirror.com/@scalar/types/-/types-0.1.7.tgz", { "dependencies": { "@scalar/openapi-types": "0.2.0", "@unhead/schema": "^1.11.11", "nanoid": "^5.1.5", "type-fest": "^4.20.0", "zod": "^3.23.8" } }, "sha512-irIDYzTQG2KLvFbuTI8k2Pz/R4JR+zUUSykVTbEMatkzMmVFnn1VzNSMlODbadycwZunbnL2tA27AXed9URVjw=="],
 
-    "@supaoauth/auth-server/typescript": ["typescript@6.0.3", "https://registry.npmmirror.com/typescript/-/typescript-6.0.3.tgz", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@supauth/auth-server/typescript": ["typescript@6.0.3", "https://registry.npmmirror.com/typescript/-/typescript-6.0.3.tgz", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@tailwindcss/oxide-wasm32-wasi/@emnapi/core": ["@emnapi/core@1.10.0", "https://registry.npmmirror.com/@emnapi/core/-/core-1.10.0.tgz", { "dependencies": { "@emnapi/wasi-threads": "1.2.1", "tslib": "^2.4.0" }, "bundled": true }, "sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw=="],
 

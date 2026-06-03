@@ -1,9 +1,9 @@
-import { SupaOAuthClient } from '@supaoauth/sdk-typescript';
+import { SupaOAuthClient } from '@supauth/sdk-typescript';
 import type {
   PublicEffectiveSignInExperience,
   PublicPhraseBundle,
   PublicSignInConnector,
-} from '@supaoauth/shared';
+} from '@supauth/shared';
 
 const SUPABASE_PROVIDER_IDS = [
   'apple',

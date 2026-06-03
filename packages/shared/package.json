@@ -1,5 +1,5 @@
 {
-  "name": "@supaoauth/shared",
+  "name": "@supauth/shared",
   "version": "0.0.1",
   "description": "Shared schemas and public types for SupaOAuth SDK packages",
   "type": "module",
@@ -29,7 +29,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zuohuadong/supauth.git",
+    "url": "git+https://github.com/zuohuadong/supauth.git",
     "directory": "packages/shared"
   },
   "devDependencies": {

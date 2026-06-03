@@ -53,9 +53,9 @@ jobs:
 
       - name: Build SDK packages
         run: |
-          bun run --filter '@supaoauth/shared' build
-          bun run --filter '@supaoauth/sdk-typescript' build
-          bun run --filter '@supaoauth/sdk-auth-ui' build
+          bun run --filter '@supauth/shared' build
+          bun run --filter '@supauth/sdk-typescript' build
+          bun run --filter '@supauth/sdk-auth-ui' build
 
       - name: Prepare npm package metadata
         run: node .github/scripts/prepare-auth-ui-npm-package.mjs --write

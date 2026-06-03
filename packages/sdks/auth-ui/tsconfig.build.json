@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@supauth/shared": ["../../shared/dist/index.d.ts"],
+      "@supauth/sdk-typescript": ["../typescript/dist/index.d.ts"]
+    }
+  }
+}

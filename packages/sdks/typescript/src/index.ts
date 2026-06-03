@@ -1,4 +1,4 @@
-// @supaoauth/sdk-typescript — TypeScript SDK for SupaOAuth Management API
+// @supauth/sdk-typescript — TypeScript SDK for SupaOAuth Management API
 import type {
   Application,
   CreateApplicationInput,
@@ -19,7 +19,7 @@ import type {
   Webhook,
   RuntimeMode,
   CompatibilityCheckResult,
-} from '@supaoauth/shared';
+} from '@supauth/shared';
 
 // ─── Response wrappers ──────────────────────────────────
 interface ListResponse<T> {
