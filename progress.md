@@ -425,6 +425,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 - [x] `bunx tsc --noEmit` — P0 review fix pass (0 errors)
 - [x] `bun test` — 166 pass, 42 skip, 0 fail (project-scoped URL tests and expanded route gate coverage)
 - [x] [2026-06-02T00:02:40+0800] vm1 SupaOAuth 离线升级并接入 `dglewlzugrtygzysqrce` 项目：通过 TrueNAS 内网传包部署到 `/opt/supauth`，保留回滚目录 `/opt/supauth.prev-20260602000052`；修复 runtime 探针以支持 `OAUTH_RUNTIME_INTERNAL_URL` 直连 GoTrue 无 `/auth/v1` 前缀、公开 issuer 仍为 `http://oauth.ai.xigu.org/auth/v1` 的拓扑。登录体验品牌已配置为 `西谷 OAuth 用户中心`，主色 `#2563eb`。验证：`/v1/health` 返回 `project_ref=dglewlzugrtygzysqrce`；`/v1/runtime/health` 返回 discovery/jwks/authorize/token/userinfo 全 true；`/v1/public/sign-in-experience/resolve` 返回品牌名；本地 `bunx tsc --noEmit` 与 `bun test` 通过（167 pass, 42 skip, 0 fail）。vm2 未发现 SupAuth 服务或 SupAuth 反代配置。
+- [x] 2026-06-03 嵌入式 Auth UI 适配层 — 新增 `@supaoauth/sdk-auth-ui`，直接桥接官方 `@supabase/auth-ui-react` / `@supabase/auth-ui-svelte`；通过 `resolvePublicSignInExperience` + `getPublicPhrases` 生成 `providers`、`appearance`、`localization`、`redirectTo` 配置，并输出 `unsupportedConnectors` 供业务侧单独渲染企业 SSO 入口。新增文档 `docs/embedded-auth-ui.md`。
 
 ## 2026-05-30 Codex 执行记录 — Logto/Supabase 差距闭环实施
 

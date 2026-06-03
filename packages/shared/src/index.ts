@@ -150,6 +150,21 @@ export interface EffectiveSignInExperience extends SignInExperience {
   } | null;
 }
 
+export interface PublicSignInConnector {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface PublicEffectiveSignInExperience extends EffectiveSignInExperience {
+  connectors?: PublicSignInConnector[];
+}
+
+export interface PublicPhraseBundle {
+  language_tag: string;
+  phrases: Record<string, unknown>;
+}
+
 // Audit log
 export interface AuditLogEntry {
   id: string;
