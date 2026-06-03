@@ -41,6 +41,7 @@ packages/
   admin-console/   # SvelteKit + @svadmin/core management UI
   shared/          # Shared schemas and types
   sdks/typescript/ # Management API client SDK
+  sdks/auth-ui/    # Supabase Auth UI adapter (React/Svelte)
 ```
 
 Root `src/` is a thin sync of `packages/admin-console/src/` for backward compatibility.
@@ -73,6 +74,63 @@ Useful commands:
 bun run dev:server   # auth-server only
 bun run dev:admin    # admin-console only
 bun run build        # all packages
+
+### SDK
+
+Published npm packages for client-side integration:
+
+```sh
+# Management API client
+npm install @supauth/sdk-typescript
+
+# Supabase Auth UI adapter (React/Svelte)
+npm install @supauth/sdk-auth-ui
+
+# Shared types and claims mapping
+npm install @supauth/shared
+```
+
+Management API usage:
+
+```typescript
+import { SupaOAuthClient } from "@supauth/sdk-typescript";
+
+const client = new SupaOAuthClient({
+  baseUrl: "https://auth.your-domain.com",
+  accessToken: "<admin-token>",
+});
+
+// Applications
+const app = await client.createApplication({
+  name: "My Web App",
+  type: "web",
+  redirect_uris: ["https://your-app.com/callback"],
+});
+
+// Resolve per-app sign-in experience
+const experience = await client.resolvePublicSignInExperience({
+  application_id: app.client_id,
+});
+
+// i18n phrases
+const phrases = await client.getPublicPhrases("zh-CN");
+```
+
+Auth UI bridge (React example):
+
+```typescript
+import { resolveSupabaseAuthUiConfig } from "@supauth/sdk-auth-ui";
+import { Auth } from "@supabase/auth-ui-react";
+
+const config = await resolveSupabaseAuthUiConfig({
+  baseUrl: "https://auth.your-domain.com",
+  applicationId: "your-app-client-id",
+  locale: "zh-CN",
+});
+
+<Auth supabaseClient={supabase} {...config.auth} />
+```
+
 bun run check        # typecheck + tests + admin-console build
 ```
 
@@ -161,6 +219,7 @@ packages/
   admin-console/   # SvelteKit + @svadmin/core management UI
   shared/          # Shared schemas and types
   sdks/typescript/ # Management API client SDK
+  sdks/auth-ui/    # Supabase Auth UI adapter (React/Svelte)
 ```
 
 根目录 `src/` 是 `packages/admin-console/src/` 的轻量同步，用于保留向后兼容。
@@ -194,6 +253,63 @@ bun run dev:server   # 只启动 auth-server
 bun run dev:admin    # 只启动 admin-console
 bun run build        # 构建所有 packages
 bun run check        # typecheck + tests + admin-console build
+
+### SDK
+
+已发布到 npm 的客户端集成包：
+
+```sh
+# Management API 客户端
+npm install @supauth/sdk-typescript
+
+# Supabase Auth UI 适配层（React/Svelte）
+npm install @supauth/sdk-auth-ui
+
+# 共享类型和 Claims 映射
+npm install @supauth/shared
+```
+
+Management API 用法：
+
+```typescript
+import { SupaOAuthClient } from "@supauth/sdk-typescript";
+
+const client = new SupaOAuthClient({
+  baseUrl: "https://auth.your-domain.com",
+  accessToken: "<admin-token>",
+});
+
+// 应用管理
+const app = await client.createApplication({
+  name: "My Web App",
+  type: "web",
+  redirect_uris: ["https://your-app.com/callback"],
+});
+
+// 按应用解析登录体验
+const experience = await client.resolvePublicSignInExperience({
+  application_id: app.client_id,
+});
+
+// 国际化短语
+const phrases = await client.getPublicPhrases("zh-CN");
+```
+
+Auth UI 桥接（React 示例）：
+
+```typescript
+import { resolveSupabaseAuthUiConfig } from "@supauth/sdk-auth-ui";
+import { Auth } from "@supabase/auth-ui-react";
+
+const config = await resolveSupabaseAuthUiConfig({
+  baseUrl: "https://auth.your-domain.com",
+  applicationId: "your-app-client-id",
+  locale: "zh-CN",
+});
+
+<Auth supabaseClient={supabase} {...config.auth} />
+```
+
 ```
 
 ### 环境变量
