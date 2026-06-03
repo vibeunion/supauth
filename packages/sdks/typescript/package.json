@@ -1,13 +1,36 @@
 {
   "name": "@supaoauth/sdk-typescript",
   "version": "0.0.1",
-  "private": true,
+  "description": "TypeScript SDK for the SupaOAuth Management API and public sign-in experience APIs",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "clean": "bun -e \"const fs = await import('node:fs/promises'); await fs.rm('dist', { recursive: true, force: true });\"",
+    "build": "bun run clean && bunx tsc -p tsconfig.json",
+    "prepack": "bun run build",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zuohuadong/supauth.git",
+    "directory": "packages/sdks/typescript"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

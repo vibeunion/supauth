@@ -11,7 +11,8 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "paths": {
-      "@supaoauth/shared": ["./packages/shared/src/index.ts"]
+      "@supaoauth/shared": ["./packages/shared/src/index.ts"],
+      "@supaoauth/sdk-typescript": ["./packages/sdks/typescript/src/index.ts"]
     }
   },
   "include": [
