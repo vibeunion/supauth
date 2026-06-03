@@ -419,6 +419,7 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
 
 ### 已完成的 P2 部署与运维
 - [x] **P2-4** UI 完整性（Applications detail/edit form 已存在, 列表页导航链接已添加, connectors empty state 已补全, 所有页面状态一致）
+- [x] [2026-06-03T15:32:17+0800] 修复 vm1 `hosted-pages` 在不同启动方式下的静态页路径解析：`packages/auth-server/src/routes/hosted-pages.ts` 改为同时覆盖 `src` / `dist` / repo-root / package-root 候选路径，不再依赖单一 `PROJECT_ROOT` 推断；补充 `resolveHostedPagePaths` 测试覆盖 `bun run src/index.ts` 与 `bun run dist/index.js` 两种布局。2201 重新 build 并 `systemctl restart supauth` 后，清理残留手工 `nohup bun run packages/auth-server/dist/index.js` 进程，最终仅保留 systemd 进程监听 4010。验证：本地 `bunx tsc --noEmit --project packages/auth-server/tsconfig.json`、`bun test packages/auth-server/src/__tests__/hosted-authorize-page.test.ts`、`bun run --filter '@supaoauth/auth-server' build` 通过；2201 `http://localhost:4010/oauth/authorize`、`/login.html`、`/` 全部 200；公网 `https://auth.ai.example.team/oauth/authorize`、`/login.html`、`/` 全部 200。
 - [x] `bunx tsc --noEmit` — P0-25~P0-29 implementation pass (0 errors)
 - [x] `bun test` — 161 pass, 39 skip, 0 fail (env-gated live tests skipped as expected)
 - [x] `bunx tsc --noEmit` — P0 review fix pass (0 errors)
