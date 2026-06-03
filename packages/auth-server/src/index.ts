@@ -15,7 +15,8 @@ import { resourceRoutes } from './routes/resources.js';
 import { userRoutes } from './routes/users.js';
 import { organizationRoutes } from './routes/organizations.js';
 import { roleRoutes } from './routes/roles.js';
-import { sieRoutes, authConfigRoutes, publicSignInExperienceRoutes, publicOAuthRoutes, hostedOAuthPageRoutes } from './routes/sign-in-experience.js';
+import { sieRoutes, authConfigRoutes, publicSignInExperienceRoutes, publicOAuthRoutes } from './routes/sign-in-experience.js';
+import { hostedPageRoutes } from './routes/hosted-pages.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { auditRoutes } from './routes/audit.js';
 import { compatibilityRoutes } from './routes/compatibility.js';
@@ -46,7 +47,7 @@ const app = new Elysia()
   .use(cors({ origin: config.corsOrigins, credentials: true }))
   .use(authRoutes)
   .use(storageRoutes)
-  .use(hostedOAuthPageRoutes)
+  .use(hostedPageRoutes)
   .use(publicSignInExperienceRoutes)
   .use(publicOAuthRoutes)
   .use(authHookRoutes)
