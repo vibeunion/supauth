@@ -25,18 +25,18 @@ bun add @supabase/supabase-js @supabase/auth-ui-svelte
 桥接包：
 
 ```bash
-bun add @supaoauth/sdk-auth-ui
+bun add @supauth/sdk-auth-ui
 ```
 
 ## 首次 npm 发布
 
-首次创建 `@supaoauth/*` 包时，需要维护者在本地 npm 会话中手动发布一次，顺序是：
+首次创建 `@supauth/*` 包时，需要维护者在本地 npm 会话中手动发布一次，顺序是：
 
 ```bash
 bun install
-bun run --filter '@supaoauth/shared' build
-bun run --filter '@supaoauth/sdk-typescript' build
-bun run --filter '@supaoauth/sdk-auth-ui' build
+bun run --filter '@supauth/shared' build
+bun run --filter '@supauth/sdk-typescript' build
+bun run --filter '@supauth/sdk-auth-ui' build
 node .github/scripts/prepare-auth-ui-npm-package.mjs --write
 
 (cd packages/shared && npm publish --access public)
@@ -52,7 +52,7 @@ node .github/scripts/prepare-auth-ui-npm-package.mjs --write
 import { useEffect, useState } from 'react';
 import { Auth } from '@supabase/auth-ui-react';
 import { createClient } from '@supabase/supabase-js';
-import { resolveSupabaseAuthUiConfig } from '@supaoauth/sdk-auth-ui';
+import { resolveSupabaseAuthUiConfig } from '@supauth/sdk-auth-ui';
 
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
 
@@ -88,7 +88,7 @@ export function SignInScreen() {
   import { onMount } from 'svelte';
   import { Auth } from '@supabase/auth-ui-svelte';
   import { createClient } from '@supabase/supabase-js';
-  import { resolveSupabaseAuthUiConfig } from '@supaoauth/sdk-auth-ui';
+  import { resolveSupabaseAuthUiConfig } from '@supauth/sdk-auth-ui';
 
   const supabase = createClient(
     import.meta.env.VITE_SUPABASE_URL,

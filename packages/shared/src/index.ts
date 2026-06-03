@@ -1,4 +1,4 @@
-// @supaoauth/shared — shared schemas and types
+// @supauth/shared — shared schemas and types
 
 // Re-export claims module
 export * from './claims.js';

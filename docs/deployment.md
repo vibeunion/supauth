@@ -67,7 +67,7 @@
 
 ### 构建步骤
 
-1. `bun run --filter '@supaoauth/admin-console' build`
+1. `bun run --filter '@supauth/admin-console' build`
 2. 输出到 `packages/admin-console/build/`
 3. Nginx/Kong 配置 `/admin/*` 指向静态文件
 
