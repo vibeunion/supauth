@@ -15,7 +15,7 @@ import { resourceRoutes } from './routes/resources.js';
 import { userRoutes } from './routes/users.js';
 import { organizationRoutes } from './routes/organizations.js';
 import { roleRoutes } from './routes/roles.js';
-import { sieRoutes, authConfigRoutes, publicSignInExperienceRoutes, publicOAuthRoutes } from './routes/sign-in-experience.js';
+import { sieRoutes, authConfigRoutes, publicSignInExperienceRoutes, publicOAuthRoutes, publicConnectorRoutes, publicPhrasesRoutes, publicCustomUiRoutes } from './routes/sign-in-experience.js';
 import { hostedPageRoutes } from './routes/hosted-pages.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { auditRoutes } from './routes/audit.js';
@@ -50,6 +50,9 @@ const app = new Elysia()
   .use(hostedPageRoutes)
   .use(publicSignInExperienceRoutes)
   .use(publicOAuthRoutes)
+  .use(publicConnectorRoutes)
+  .use(publicPhrasesRoutes)
+  .use(publicCustomUiRoutes)
   .use(authHookRoutes)
   .use(swagger({
     path: '/swagger',
