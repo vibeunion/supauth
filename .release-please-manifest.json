@@ -1,0 +1,5 @@
+{
+  "packages/shared": "0.0.1",
+  "packages/sdks/typescript": "0.0.1",
+  "packages/sdks/auth-ui": "0.0.1"
+}

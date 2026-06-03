@@ -25,8 +25,26 @@ bun add @supabase/supabase-js @supabase/auth-ui-svelte
 桥接包：
 
 ```bash
-bun add @supaoauth/sdk-auth-ui @supaoauth/sdk-typescript
+bun add @supaoauth/sdk-auth-ui
 ```
+
+## 首次 npm 发布
+
+首次创建 `@supaoauth/*` 包时，需要维护者在本地 npm 会话中手动发布一次，顺序是：
+
+```bash
+bun install
+bun run --filter '@supaoauth/shared' build
+bun run --filter '@supaoauth/sdk-typescript' build
+bun run --filter '@supaoauth/sdk-auth-ui' build
+node .github/scripts/prepare-auth-ui-npm-package.mjs --write
+
+(cd packages/shared && npm publish --access public)
+(cd packages/sdks/typescript && npm publish --access public)
+(cd packages/sdks/auth-ui && npm publish --access public)
+```
+
+首次发布完成后，再在 npmjs 为这三个包配置 GitHub Trusted Publisher。之后 GitHub release workflow 会使用 npm OIDC provenance 自动发布新版本；如果包名尚未 bootstrap，workflow 只做打包验证并跳过自动 publish。
 
 ## React 示例
 

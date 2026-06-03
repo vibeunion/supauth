@@ -215,7 +215,7 @@
 
       <!-- Sign In panel -->
       <div id="panel-signin" class="tab-panel active">
-        <form id="login-form">
+        <form id="login-form" novalidate>
           <label id="email-label" for="email">Email</label>
           <input id="email" name="email" type="email" autocomplete="email" required>
           <a id="forgot-password-link" class="forgot-link" style="display:none">Forgot password?</a>
@@ -272,6 +272,10 @@
           loginSuccess: 'Login successful.',
           redirecting: 'Login successful. Redirecting...',
           networkError: 'Network error',
+          emailRequired: 'Enter your email address.',
+          emailInvalid: 'Enter a valid email address.',
+          passwordRequired: 'Enter your password.',
+          invalidLoginCredentials: 'Account or password does not match. Please check and try again.',
           authorizationFailed: 'Authorization approval failed',
           signIn: 'Sign In',
           signUp: 'Sign Up',
@@ -302,6 +306,10 @@
           loginSuccess: '登录成功。',
           redirecting: '登录成功，正在跳转...',
           networkError: '网络错误',
+          emailRequired: '请输入邮箱。',
+          emailInvalid: '请输入正确的邮箱格式。',
+          passwordRequired: '请输入密码。',
+          invalidLoginCredentials: '账号或密码不匹配，请检查后重试。',
           authorizationFailed: '授权确认失败',
           signIn: '登录',
           signUp: '注册',
@@ -419,6 +427,41 @@
       function responseMessage(data, fallback) {
         if (!data || typeof data !== 'object') return fallback;
         return data.msg || data.error_description || data.error || fallback;
+      }
+
+      function normalizeEmailInput(value) {
+        return String(value || '')
+          .normalize('NFKC')
+          .replace(/[\u200B-\u200D\uFEFF]/g, '')
+          .trim();
+      }
+
+      function isValidEmail(value) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      }
+
+      function isInvalidCredentials(data) {
+        const fields = [
+          data && data.error,
+          data && data.error_code,
+          data && data.error_description,
+          data && data.msg,
+          data && data.message,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+        return fields.some((value) => (
+          value.includes('invalid login credentials') ||
+          value.includes('invalid_credentials') ||
+          value.includes('invalid credentials')
+        ));
+      }
+
+      function loginResponseMessage(data) {
+        if (data && typeof data === 'object' && isInvalidCredentials(data)) {
+          return t('invalidLoginCredentials');
+        }
+        return responseMessage(data, t('loginFailed'));
       }
 
       function buildAuthorizeUrl(authorization) {
@@ -581,6 +624,26 @@
       // ─── Sign In ──────────────────────────────────────────────────────
       document.getElementById('login-form').addEventListener('submit', async (event) => {
         event.preventDefault();
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const email = normalizeEmailInput(emailInput.value);
+        const password = passwordInput.value;
+        emailInput.value = email;
+        if (!email) {
+          setMessage('error', t('emailRequired'));
+          emailInput.focus();
+          return;
+        }
+        if (!isValidEmail(email)) {
+          setMessage('error', t('emailInvalid'));
+          emailInput.focus();
+          return;
+        }
+        if (!password) {
+          setMessage('error', t('passwordRequired'));
+          passwordInput.focus();
+          return;
+        }
         const button = document.getElementById('submit');
         button.disabled = true;
         const originalText = button.textContent;
@@ -591,13 +654,13 @@
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
-              email: document.getElementById('email').value,
-              password: document.getElementById('password').value,
+              email,
+              password,
             }),
           });
           const data = await res.json().catch(() => null);
           if (!res.ok) {
-            setMessage('error', responseMessage(data, t('loginFailed')));
+            setMessage('error', loginResponseMessage(data));
             return;
           }
           if (!data || typeof data !== 'object' || !data.access_token) {

@@ -36,6 +36,23 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
+  test('hosted login page normalizes credentials and maps GoTrue login errors', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('<form id="login-form" novalidate>');
+    expect(body).toContain('function normalizeEmailInput(value)');
+    expect(body).toContain("invalidLoginCredentials: 'Account or password does not match. Please check and try again.'");
+    expect(body).toContain("invalidLoginCredentials: '账号或密码不匹配，请检查后重试。'");
+    expect(body).toContain("value.includes('invalid login credentials')");
+    expect(body).toContain("value.includes('invalid_credentials')");
+    expect(body).toContain("setMessage('error', loginResponseMessage(data))");
+    expect(body).toContain('const email = normalizeEmailInput(emailInput.value);');
+    expect(body).toContain("setMessage('error', t('emailInvalid'))");
+    expect(body).toContain("setMessage('error', t('passwordRequired'))");
+  });
+
   test('GET / serves the same authorize page', async () => {
     const response = await request('http://localhost/');
     const body = await response.text();
