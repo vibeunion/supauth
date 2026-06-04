@@ -410,6 +410,10 @@ export function getAuthConfig() {
   return request('/v1/auth-config');
 }
 
+export function getAuthConfigRuntimeConsistency() {
+  return request('/v1/auth-config/runtime-consistency');
+}
+
 export function updateAuthConfig(data) {
   return request('/v1/auth-config', {
     method: 'PATCH',
