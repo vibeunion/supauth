@@ -70,6 +70,20 @@ describe('hostedPageRoutes', () => {
     expect(footerIndex).toBeGreaterThan(socialSectionIndex);
   });
 
+  test('hosted login page blocks expired OAuth authorization requests', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('let authorizationAvailable = !authorizationId;');
+    expect(body).toContain("authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.'");
+    expect(body).toContain("authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。'");
+    expect(body).toContain('function disableExpiredAuthorization()');
+    expect(body).toContain('if (!authorizationAvailable) throw new Error(t(\'authorizationExpired\'));');
+    expect(body).toContain('authorizationAvailable = !!experience.authorization;');
+    expect(body).toContain("setMessage('error', t('authorizationExpired'))");
+  });
+
   test('GET / serves the same authorize page', async () => {
     const response = await request('http://localhost/');
     const body = await response.text();
