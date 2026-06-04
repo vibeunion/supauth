@@ -256,6 +256,7 @@
       const params = new URLSearchParams(window.location.search);
       const authorizationId = params.get('authorization_id') || '';
       let authorizationRedirectUrl = params.get('redirect_to') || '';
+      let authorizationAvailable = !authorizationId;
       let hasCustomPageTitle = false;
       let hasCustomButtonLabel = false;
       let signUpEnabled = false;
@@ -281,6 +282,7 @@
           passwordRequired: 'Enter your password.',
           invalidLoginCredentials: 'Account or password does not match. Please check and try again.',
           authorizationFailed: 'Authorization approval failed',
+          authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.',
           signIn: 'Sign In',
           signUp: 'Sign Up',
           forgotPassword: 'Forgot Password',
@@ -315,6 +317,7 @@
           passwordRequired: '请输入密码。',
           invalidLoginCredentials: '账号或密码不匹配，请检查后重试。',
           authorizationFailed: '授权确认失败',
+          authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。',
           signIn: '登录',
           signUp: '注册',
           forgotPassword: '忘记密码',
@@ -489,6 +492,7 @@
 
       async function approveAuthorization(accessToken) {
         if (!authorizationId) return null;
+        if (!authorizationAvailable) throw new Error(t('authorizationExpired'));
         const res = await fetch(`${publicApiBase()}/oauth/authorizations/${encodeURIComponent(authorizationId)}/approve`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -498,6 +502,15 @@
           throw new Error(responseMessage(data, t('authorizationFailed')));
         }
         return data && typeof data === 'object' ? data.redirect_url || null : null;
+      }
+
+      function disableExpiredAuthorization() {
+        authorizationAvailable = false;
+        setMessage('error', t('authorizationExpired'));
+        ['email', 'password', 'submit'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.disabled = true;
+        });
       }
 
       // ─── Tab switching ────────────────────────────────────────────────
@@ -569,8 +582,14 @@
           const res = await fetch(url, { credentials: 'include' });
           if (!res.ok) return;
           const experience = await res.json();
-          if (!authorizationRedirectUrl && experience.authorization) {
-            authorizationRedirectUrl = buildAuthorizeUrl(experience.authorization);
+          if (authorizationId) {
+            authorizationAvailable = !!experience.authorization;
+            if (!authorizationAvailable) {
+              disableExpiredAuthorization();
+            }
+          }
+          if (experience.authorization) {
+            if (!authorizationRedirectUrl) authorizationRedirectUrl = buildAuthorizeUrl(experience.authorization);
           }
           const branding = experience.branding || {};
 
@@ -633,6 +652,10 @@
         const email = normalizeEmailInput(emailInput.value);
         const password = passwordInput.value;
         emailInput.value = email;
+        if (!authorizationAvailable) {
+          setMessage('error', t('authorizationExpired'));
+          return;
+        }
         if (!email) {
           setMessage('error', t('emailRequired'));
           emailInput.focus();
