@@ -58,7 +58,7 @@ jobs:
           bun run --filter '@supauth/sdk-auth-ui' build
 
       - name: Prepare npm package metadata
-        run: node .github/scripts/prepare-auth-ui-npm-package.mjs --write
+        run: bun run scripts/prepare-npm-packages.ts --write
 
       - name: Verify npm package contents
         run: |
