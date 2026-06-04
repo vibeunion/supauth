@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.1.0...auth-server-v0.1.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* **auth-server:** export connector provider type ([0a1151d](https://github.com/zuohuadong/supauth/commit/0a1151d5765abd918413163dd5dbf08ddc028fdd))
+* **auth-server:** export connector provider type ([21b61f7](https://github.com/zuohuadong/supauth/commit/21b61f7e3ab919d4277554739c0c31db25a702b4))
+
 ## [0.1.0](https://github.com/zuohuadong/supauth/compare/auth-server-v0.0.1...auth-server-v0.1.0) (2026-06-04)
 
 

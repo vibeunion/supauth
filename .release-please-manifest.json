@@ -1,5 +1,5 @@
 {
-  "packages/auth-server": "0.1.0",
+  "packages/auth-server": "0.1.1",
   "packages/admin-console": "0.1.0",
   "packages/shared": "0.1.0",
   "packages/sdks/typescript": "0.1.0",
