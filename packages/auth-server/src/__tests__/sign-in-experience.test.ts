@@ -61,4 +61,29 @@ describe('Sign-in experience repository — module structure', () => {
     expect(branding.logo_url).toBe('https://assets.example.com/volt-studio-logo.png');
     expect(branding.primary_color).toBe('#00d4ff');
   });
+
+  it('keeps third-party connectors closed by default for public sign-in', async () => {
+    const { resolvePublicConnectors } = await import('../routes/sign-in-experience.js');
+    const connectors = resolvePublicConnectors([
+      { id: 'github', name: 'GitHub', type: 'social', enabled: true },
+      { id: 'google', name: 'Google', type: 'social', enabled: true },
+    ], []);
+
+    expect(connectors).toEqual([]);
+  });
+
+  it('only exposes explicitly enabled third-party connectors for public sign-in', async () => {
+    const { resolvePublicConnectors } = await import('../routes/sign-in-experience.js');
+    const connectors = resolvePublicConnectors([
+      { id: 'github', name: 'GitHub', type: 'social', enabled: true },
+      { id: 'google', name: 'Google', type: 'social', enabled: false },
+      { id: 'email', name: 'Email', type: 'credential', enabled: true },
+    ], [
+      { id: 'github', provider_id: 'github', name: 'GitHub Login', category: 'social', enabled: true },
+      { id: 'google', provider_id: 'google', name: 'Google Login', category: 'social', enabled: true },
+      { id: 'email', provider_id: 'email', name: 'Email', category: 'credential', enabled: true },
+    ]);
+
+    expect(connectors).toEqual([{ id: 'github', name: 'GitHub Login', type: 'social' }]);
+  });
 });
