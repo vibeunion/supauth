@@ -12,6 +12,13 @@ export interface ServerConfig {
   databaseUrl: string;
   corsOrigins: string[];
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  // OIDC Provider (external_oidc mode only)
+  oidcIssuer: string;
+  oidcSigningKeyPath: string;
+  oidcRsaSigningKeyPath: string;
+  oidcSessionTtlSec: number;
+  oidcCodeTtlSec: number;
+  oidcRefreshTokenTtlSec: number;
 }
 
 let _config: ServerConfig | null = null;
@@ -29,6 +36,12 @@ export function loadConfig(): ServerConfig {
     databaseUrl: process.env.DATABASE_URL || '',
     corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173').split(','),
     logLevel: (process.env.LOG_LEVEL as ServerConfig['logLevel']) || 'info',
+    oidcIssuer: process.env.OAUTH_ISSUER || '',
+    oidcSigningKeyPath: process.env.OIDC_SIGNING_KEY_PATH || '',
+    oidcRsaSigningKeyPath: process.env.OIDC_RSA_SIGNING_KEY_PATH || '',
+    oidcSessionTtlSec: parseInt(process.env.OIDC_SESSION_TTL_SEC || '1209600', 10), // 14 days
+    oidcCodeTtlSec: parseInt(process.env.OIDC_CODE_TTL_SEC || '300', 10), // 5 min
+    oidcRefreshTokenTtlSec: parseInt(process.env.OIDC_REFRESH_TOKEN_TTL_SEC || '2592000', 10), // 30 days
   };
   return _config;
 }
@@ -45,6 +58,12 @@ export function validateConfig(config: ServerConfig): string[] {
   if (!config.databaseUrl) errors.push('DATABASE_URL is required');
   if (!['gotrue', 'external_oidc'].includes(config.runtimeMode)) {
     errors.push('RUNTIME_MODE must be "gotrue" or "external_oidc"');
+  }
+  if (config.runtimeMode === 'external_oidc') {
+    if (!config.oidcIssuer) errors.push('OAUTH_ISSUER is required in external_oidc mode');
+    if (!config.oidcSigningKeyPath && !config.oidcRsaSigningKeyPath) {
+      errors.push('OIDC_SIGNING_KEY_PATH or OIDC_RSA_SIGNING_KEY_PATH is required in external_oidc mode');
+    }
   }
   return errors;
 }
