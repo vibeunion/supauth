@@ -60,7 +60,7 @@ async function getEnabledConnectors(): Promise<Array<{ id: string; name: string;
   try {
     const providers = await adapter.listProviders() as ProviderInfo[];
     if (!Array.isArray(providers)) return [];
-    return providers.filter(p => p.id && p.id !== 'email' && p.id !== 'phone' && p.id !== 'password')
+    return providers.filter(p => p.id && p.id !== 'email' && p.id !== 'phone' && p.id !== 'password' && p.enabled === true)
       .map(sanitizeConnector);
   } catch {
     return [];
