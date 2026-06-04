@@ -2,6 +2,8 @@
 
 更新时间： 2026-05-29
 
+[2026-06-04 19:49:35 CST] [supaoauth] [DONE] fix(hosted-auth): 修复 hosted auth 页面 `/favicon.ico` 404 导致浏览器登录 smoke 出现 console error 的遗留问题。`packages/auth-server/src/routes/hosted-pages.ts` 新增 `/favicon.ico` 与 `/favicon.svg` 公共路由，返回内联 SupaOAuth SVG favicon 并设置 `image/svg+xml` 与 1 天缓存；`packages/auth-server/src/__tests__/hosted-authorize-page.test.ts` 增加 favicon 200 回归。验证：`bun test packages/auth-server/src/__tests__/hosted-authorize-page.test.ts` 6 pass、`bun run --cwd packages/auth-server typecheck` 通过、`git diff --check` 通过。已部署到 vm1 `/opt/supauth/packages/auth-server/src/routes/hosted-pages.ts`，备份 `/opt/supauth/packages/auth-server/src/routes/hosted-pages.ts.bak-favicon-20260604-194848`，`supauth.service` active；公网 `https://auth.ai.xigu.team/favicon.ico` 返回 200 `image/svg+xml`，Playwright 从 `https://www.ai.xigu.team/#/login` 点击统一登录后进入 `https://auth.ai.xigu.team/oauth/authorize?...`，console 0 errors。
+
 ## 结论
 
 SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考 Logto。协议 runtime 依赖 GoTrue，产品控制面由 SupaOAuth 自持。

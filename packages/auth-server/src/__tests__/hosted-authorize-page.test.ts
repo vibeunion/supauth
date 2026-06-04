@@ -61,4 +61,15 @@ describe('hostedPageRoutes', () => {
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
   });
+
+  test('GET /favicon.ico and /favicon.svg serve the hosted favicon', async () => {
+    for (const path of ['/favicon.ico', '/favicon.svg']) {
+      const response = await request(`http://localhost${path}`);
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('image/svg+xml');
+      expect(body).toContain('<svg');
+    }
+  });
 });
