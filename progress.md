@@ -444,3 +444,76 @@ SupaOAuth 是面向业务应用的独立用户中心 / IdP 产品，形态参考
   - `tenant-config` 允许 `auth_hook` 类型，便于通过管理 API 配置 `auth_hook/signup_policy`。
   - SDK 新增 `getAuthHookRegistrationGuide`。
   - 验证：`bunx tsc --noEmit` 通过；新增 `auth-hooks.test.ts` 与 SDK 方法测试通过。
+
+## 2026-06-04 Codex 执行记录 — 跨应用 SSO 方案与实现
+
+### 问题背景
+
+用户问：应用 1 通过 SupaOAuth 登录后，进入应用 2 能否自动登录？
+
+### 当前约束
+
+默认 `runtime_mode=gotrue` 下，跨应用 SSO 必须以 GoTrue session / OAuth server 为 runtime 边界。原因：
+- GoTrue 是 project-scoped session，每个 Supabase project 有独立的 `auth.users`、JWT signing key、session cookie
+- SupaOAuth 当前不持有 IdP session，也不应在 gotrue 模式伪造 GoTrue 登录或签发 token
+- 为保持 `supabase-js` / Storage / Realtime / Functions 兼容，默认方案不能替换 GoTrue token 语义
+
+### 方案对比
+
+#### 方案 A：SSO Broker 层（不推荐）
+
+在 GoTrue 之上加 session broker：
+- SupaOAuth 维护 IdP session cookie
+- 应用 2 发起 `/authorize` 时，检测到 IdP session → back-channel 替用户完成 GoTrue 登录
+
+**核心缺陷**：
+- 需要 service role key 造 token（破坏 OIDC 语义）
+- 或用 GoTrue admin `generateLink` API 造 magic link（需要用户点击，不是透明 SSO）
+- 或用 resource owner password grant（需要用户密码，不安全）
+
+#### 方案 B：统一 GoTrue Project（最简单，但牺牲隔离）
+
+所有应用共享同一个 Supabase project：
+- 同一 `auth.users` 表
+- 同一 session cookie
+- GoTrue 自带 session 共享
+
+**限制**：
+- 所有应用共享同一数据库（`rest/v1/*`）
+- 无法做 project 级隔离
+- 不适合多租户场景
+
+#### 方案 C：External OIDC Mode + SupaOAuth as IdP（高级模式，暂缓）
+
+让 SupaOAuth 成为真正的 OIDC Provider：
+- SupaOAuth 自持 session（`supaoauth.idp_sessions` 表 + 认证域名 cookie）
+- SupaOAuth 签发 JWT（RS256/ES256，通过 JWKS）
+- GoTrue 配置 third-party auth，信任 SupaOAuth 签发的 JWT
+- 应用 2 发起 `/authorize?prompt=none` → SupaOAuth 检测到 IdP session → 直接签发授权码
+
+**风险**：
+- `external_oidc` 会把 token refresh、session、password reset / email confirmation 等能力迁移到外部 IdP 语义
+- 业务应用可能需要从 `supabase-js` auth session 模式迁移到 SupaOAuth 自持 SDK
+- 不适合作为当前跨应用 SSO 的默认落地路径
+
+### 决策与实现
+
+采用 **GoTrue-compatible SSO entrypoint** 作为 P1-18 当前实现：
+
+- 新增 `packages/auth-server/src/routes/sso-authorize.ts`
+- 新增公开入口：
+  - `GET /oauth/sso/authorize`
+  - `GET /v1/public/oauth/sso/authorize`
+- 行为：
+  - 校验 `client_id` 存在于 SupaCloud / GoTrue OAuth clients
+  - 对 `redirect_uri` 做精确白名单匹配，禁止 fragment
+  - 仅支持 authorization code flow；其他 `response_type` 返回标准 OAuth callback error
+  - 保留 `prompt=none` / PKCE / state / nonce / scope / resource 等参数并 302 到 GoTrue `/auth/v1/oauth/authorize`
+  - 不签发 token，不创建 SupaOAuth IdP session，不破坏现有 gotrue runtime
+
+### 验收
+
+- [x] 应用 1 / 应用 2 使用同一 GoTrue project 与同一认证域名时，可复用 GoTrue 原生 session，避免重复输入账号密码
+- [x] SupaOAuth 提供统一 SSO authorize 入口，先做 application / redirect URI 安全校验，再交给 GoTrue runtime
+- [x] `prompt=none` 被保留并转交给 GoTrue；SupaOAuth 不伪造登录状态
+- [x] 本地新增 `sso-authorize.test.ts` 覆盖 redirect、redirect_uri 校验、unsupported response_type OAuth error

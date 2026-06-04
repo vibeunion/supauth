@@ -34,6 +34,7 @@ import { myAccountRoutes } from './routes/my-account.js';
 import { authHookRoutes } from './routes/auth-hooks.js';
 import { rbacBridgeRoutes } from './routes/rbac-bridge.js';
 import { routeGateRoutes } from './routes/route-gate.js';
+import { ssoAuthorizeRoutes } from './routes/sso-authorize.js';
 
 const config = getConfig();
 const configErrors = validateConfig(config);
@@ -54,6 +55,7 @@ const app = new Elysia()
   .use(publicPhrasesRoutes)
   .use(publicCustomUiRoutes)
   .use(authHookRoutes)
+  .use(ssoAuthorizeRoutes)
   .use(swagger({
     path: '/swagger',
     documentation: {
@@ -99,6 +101,7 @@ const app = new Elysia()
         { name: 'Auth Hooks', description: 'Supabase Auth Hooks bridge for signup policy, token shaping, and MFA risk checks' },
         { name: 'RBAC Bridge', description: 'Legacy role migration and compatibility bridge (P0-28)' },
         { name: 'Route Gate', description: 'Route/domain integration gate for deployment verification (P0-29)' },
+        { name: 'SSO', description: 'GoTrue-compatible SSO authorization entrypoints' },
       ],
     },
   }))
