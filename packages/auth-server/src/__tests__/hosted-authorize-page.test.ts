@@ -53,6 +53,23 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain("setMessage('error', t('passwordRequired'))");
   });
 
+  test('hosted login page places social sign-in below the credential panels', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    const credentialPanelIndex = body.indexOf('<div id="panel-signin" class="tab-panel active">');
+    const forgotPanelIndex = body.indexOf('<div id="panel-forgot" class="tab-panel">');
+    const socialDividerIndex = body.indexOf('<div id="social-divider" class="divider" style="display:none">');
+    const socialSectionIndex = body.indexOf('<div id="social-section" class="social-buttons" style="display:none">');
+    const footerIndex = body.indexOf('<div id="footer" class="footer">');
+
+    expect(credentialPanelIndex).toBeGreaterThan(-1);
+    expect(forgotPanelIndex).toBeGreaterThan(credentialPanelIndex);
+    expect(socialDividerIndex).toBeGreaterThan(forgotPanelIndex);
+    expect(socialSectionIndex).toBeGreaterThan(socialDividerIndex);
+    expect(footerIndex).toBeGreaterThan(socialSectionIndex);
+  });
+
   test('GET / serves the same authorize page', async () => {
     const response = await request('http://localhost/');
     const body = await response.text();
@@ -60,5 +77,16 @@ describe('hostedPageRoutes', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
+  });
+
+  test('GET /favicon.ico and /favicon.svg serve the hosted favicon', async () => {
+    for (const path of ['/favicon.ico', '/favicon.svg']) {
+      const response = await request(`http://localhost${path}`);
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('image/svg+xml');
+      expect(body).toContain('<svg');
+    }
   });
 });

@@ -10,6 +10,16 @@
     { "type": "ci", "section": "CI", "hidden": false }
   ],
   "packages": {
+    "packages/auth-server": {
+      "release-type": "node",
+      "component": "auth-server",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "packages/admin-console": {
+      "release-type": "node",
+      "component": "admin-console",
+      "changelog-path": "CHANGELOG.md"
+    },
     "packages/shared": {
       "release-type": "node",
       "component": "shared",
