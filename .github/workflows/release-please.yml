@@ -21,6 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
+      auth_server_released: ${{ steps.release.outputs['packages/auth-server--release_created'] }}
+      auth_server_tag_name: ${{ steps.release.outputs['packages/auth-server--tag_name'] }}
+      admin_console_released: ${{ steps.release.outputs['packages/admin-console--release_created'] }}
+      admin_console_tag_name: ${{ steps.release.outputs['packages/admin-console--tag_name'] }}
       shared_released: ${{ steps.release.outputs['packages/shared--release_created'] }}
       sdk_typescript_released: ${{ steps.release.outputs['packages/sdks/typescript--release_created'] }}
       sdk_auth_ui_released: ${{ steps.release.outputs['packages/sdks/auth-ui--release_created'] }}
@@ -31,6 +35,81 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish-auth-server:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.auth_server_released == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.auth_server_tag_name }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build shared dependency
+        run: bun run --filter '@supauth/shared' build
+
+      - name: Build auth-server
+        working-directory: packages/auth-server
+        run: bun run build
+
+      - name: Generate SHA256SUMS
+        working-directory: packages/auth-server/dist
+        run: sha256sum * > SHA256SUMS
+
+      - name: Upload auth-server artifact to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.auth_server_tag_name }}
+        run: gh release upload "$RELEASE_TAG" packages/auth-server/dist/* --clobber
+
+  publish-admin-console:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.admin_console_released == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.admin_console_tag_name }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build shared dependency
+        run: bun run --filter '@supauth/shared' build
+
+      - name: Build admin-console static site
+        working-directory: packages/admin-console
+        run: bun run build
+
+      - name: Package admin-console build artifact
+        run: |
+          mkdir -p release-assets
+          tar -czf release-assets/admin-console-build.tar.gz -C packages/admin-console/build .
+
+      - name: Upload admin-console artifact to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.admin_console_tag_name }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
 
   publish-npm:
     needs: release-please
@@ -66,7 +145,7 @@ jobs:
           bun run --filter '@supauth/sdk-auth-ui' build
 
       - name: Prepare npm package metadata
-        run: node .github/scripts/prepare-auth-ui-npm-package.mjs --write
+        run: bun run scripts/prepare-npm-packages.ts --write
 
       - name: Verify npm package contents
         run: |

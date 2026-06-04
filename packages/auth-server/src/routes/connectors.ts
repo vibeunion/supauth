@@ -5,6 +5,7 @@ import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
+import * as connectorRepo from '../repositories/connectors.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -16,8 +17,56 @@ async function fireWebhook(eventType: string, data: Record<string, unknown>) {
   try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
 }
 
+interface ProviderInfo {
+  id: string;
+  name?: string;
+  type?: string;
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+function providerId(provider: ProviderInfo) {
+  return String(provider.id || '');
+}
+
+function providerName(provider: ProviderInfo, fallbackId: string) {
+  return String(provider.name || provider.id || fallbackId);
+}
+
+function providerCategory(provider: ProviderInfo) {
+  return String(provider.type || 'social');
+}
+
+export function mergeProvidersWithConnectorConfigs(
+  providers: ProviderInfo[],
+  connectorConfigs: Array<{ id: string; provider_id?: string; enabled?: boolean; name?: string; category?: string }>,
+) {
+  const configByProviderId = new Map(
+    connectorConfigs.map(config => [String(config.provider_id || config.id), config]),
+  );
+
+  return providers.map(provider => {
+    const id = providerId(provider);
+    const config = configByProviderId.get(id);
+    return {
+      ...provider,
+      id,
+      name: config?.name || provider.name || id,
+      type: config?.category || provider.type || 'social',
+      provider_enabled: provider.enabled === true,
+      enabled: config?.enabled === true,
+    };
+  });
+}
+
 export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
-  .get('/', async () => adapter.listProviders(), {
+  .get('/', async () => {
+    const [providers, connectorConfigs] = await Promise.all([
+      adapter.listProviders() as Promise<ProviderInfo[]>,
+      connectorRepo.listConnectorConfigs(),
+    ]);
+    return mergeProvidersWithConnectorConfigs(Array.isArray(providers) ? providers : [], connectorConfigs);
+  }, {
     detail: { summary: 'List connectors (identity providers)', tags: ['Connectors'] },
   })
   .get('/factories', async ({ query }) => {
@@ -45,7 +94,15 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
     detail: { summary: 'Create or update connector factory definition', tags: ['Connectors', 'Connector Factory'] },
   })
   .post('/from-factory/:factoryId', async ({ params, body }) => {
-    const created = await adapter.updateProvider(params.factoryId, body as Record<string, unknown>);
+    const data = body as Record<string, unknown>;
+    const created = await adapter.updateProvider(params.factoryId, data) as ProviderInfo;
+    await connectorRepo.upsertConnectorConfig({
+      providerId: providerId(created) || params.factoryId,
+      name: providerName(created, params.factoryId),
+      category: providerCategory(created),
+      enabled: data.enabled === true,
+      config: data,
+    });
     await audit('connector.factory.instantiate', 'connector_factory', params.factoryId);
     return created;
   }, {
@@ -77,10 +134,21 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
     detail: { summary: 'Build connector authorization URI preflight', tags: ['Connectors', 'Connector Factory'] },
   })
   .patch('/:connectorId', async ({ params, body }) => {
-    const updated = await adapter.updateProvider(params.connectorId, body as Record<string, unknown>);
+    const data = body as Record<string, unknown>;
+    const updated = await adapter.updateProvider(params.connectorId, data) as ProviderInfo;
+    if (data.enabled !== undefined) {
+      await connectorRepo.upsertConnectorConfig({
+        providerId: params.connectorId,
+        name: providerName(updated, params.connectorId),
+        category: providerCategory(updated),
+        enabled: data.enabled === true,
+        config: data,
+      });
+    }
     await audit('connector.update', 'connector', params.connectorId);
     await fireWebhook('connector.updated', { connector_id: params.connectorId });
-    return updated;
+    const config = await connectorRepo.getConnectorConfig(params.connectorId);
+    return mergeProvidersWithConnectorConfigs([updated], config ? [config] : [])[0];
   }, {
     detail: { summary: 'Update connector configuration', tags: ['Connectors'] },
   })
