@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import {
     getAuthConfig,
+    getAuthConfigRuntimeConsistency,
     getSignInExperience,
     updateAuthConfig,
     updateSignInExperience,
@@ -18,6 +19,7 @@
   let saving = $state(false);
   let error = $state(null);
   let success = $state(null);
+  let runtimeConsistency = $state(null);
 
   let securityForm = $state({
     sign_in_methods: ['password'],
@@ -49,11 +51,13 @@
     success = null;
 
     try {
-      const [authConfig, signInExperience] = await Promise.all([
+      const [authConfig, signInExperience, consistency] = await Promise.all([
         getAuthConfig().catch(() => null),
         getSignInExperience().catch(() => null),
+        getAuthConfigRuntimeConsistency().catch(() => null),
       ]);
 
+      runtimeConsistency = consistency;
       securityForm = {
         sign_in_methods: signInExperience?.sign_in_methods?.length
           ? signInExperience.sign_in_methods
@@ -102,6 +106,7 @@
         }),
         updateAuthConfig({
           enable_signup: securityForm.sign_up_enabled,
+          disable_signup: !securityForm.sign_up_enabled,
           enable_confirmations: securityForm.enable_confirmations,
           external_anonymous_users_enabled: securityForm.external_anonymous_users_enabled,
           password_min_length: passwordMinLength,
@@ -113,6 +118,7 @@
       securityForm.password_min_length = passwordMinLength;
       securityForm.jwt_expiry = jwtExpiry;
       securityForm.mfa_max_enrolled_factors = mfaMaxFactors;
+      runtimeConsistency = await getAuthConfigRuntimeConsistency().catch(() => null);
       success = 'Security policy saved';
     } catch (e) {
       error = e.message;
@@ -143,6 +149,15 @@
   <p class="text-surface-400">Loading...</p>
 {:else}
   <div class="space-y-6">
+    {#if runtimeConsistency && !runtimeConsistency.consistent}
+      <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+        Sign-up control-plane setting and GoTrue runtime state are out of sync. Desired state is
+        <span class="font-semibold">{runtimeConsistency.desired.signups_enabled ? 'open' : 'closed'}</span>,
+        but runtime is currently
+        <span class="font-semibold">{runtimeConsistency.runtime.signups_enabled ? 'open' : 'closed'}</span>.
+      </div>
+    {/if}
+
     <section class="bg-white rounded-xl border border-surface-200 p-6">
       <h3 class="text-lg font-semibold text-surface-800 mb-4">Sign-in Methods</h3>
       <div class="grid grid-cols-2 gap-4">
