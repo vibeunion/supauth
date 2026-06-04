@@ -47,6 +47,28 @@ describe('SupaCloudAdapter contract', () => {
     expect(adapter).toBeDefined();
   });
 
+  it('encodes OAuth client and secret path segments', async () => {
+    const originalFetch = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      urls.push(url);
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.getOAuthClient('../../config/auth');
+      await adapter.disableClientSecret('client/one', 'secret/two');
+
+      expect(urls[0]).toContain('/auth/oauth-clients/..%2F..%2Fconfig%2Fauth');
+      expect(urls[0]).not.toContain('/projects/test-ref/config/auth');
+      expect(urls[1]).toContain('/auth/oauth-clients/client%2Fone/secrets/secret%2Ftwo/disable');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('verifyGatewayRoutes fails when Kong returns an upstream error', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mock((input: string | URL | Request) => {
