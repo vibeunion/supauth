@@ -1,5 +1,7 @@
 # SupaOAuth — 独立用户中心执行看板
 
+[2026-06-04 19:45:00 CST] [supaoauth] [DONE] fix(signup-consistency): 为 Security Policy 增加 signup 运行时一致性护栏。`auth-server` 新增 `/v1/auth-config/runtime-consistency`，对比 SupaCloud 管理配置与 GoTrue `/auth/v1/settings` 的 `disable_signup` 实际值；判断逻辑将 `enable_signup=false` 也视作“目标关闭”，覆盖历史上 `disable_signup` 未同步设置但控制面已关闭注册的情况。`admin-console` 的 Security Policy 页面现在加载并展示不一致告警，保存时同时写入 `enable_signup` 与 `disable_signup`，减少控制面状态歧义。验证：`bun test packages/auth-server/src/__tests__/auth-config-runtime-consistency.test.ts packages/auth-server/src/__tests__/route-gate.test.ts` 5 pass；`bun run --filter '@supauth/auth-server' typecheck` 通过；`bun run --filter '@supauth/admin-console' build` 通过；`bun run --filter '@supauth/admin-console' check` 仍被既有依赖 `@svadmin/core/src/routing-hooks.svelte.ts` 的类型错误阻断，非本次改动引入。
+
 更新时间： 2026-05-29
 
 ## 结论
