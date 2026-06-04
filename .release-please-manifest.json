@@ -1,5 +1,5 @@
 {
-  "packages/shared": "0.0.1",
-  "packages/sdks/typescript": "0.0.1",
-  "packages/sdks/auth-ui": "0.0.1"
+  "packages/shared": "0.1.0",
+  "packages/sdks/typescript": "0.1.0",
+  "packages/sdks/auth-ui": "0.1.0"
 }
