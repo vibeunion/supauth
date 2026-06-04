@@ -21,6 +21,10 @@ export interface AdapterTargetInfo {
   storageProjectScoped: boolean;
 }
 
+function pathSegment(value: string) {
+  return encodeURIComponent(value);
+}
+
 export class SupaCloudAdapter {
   private apiUrl: string;
   private masterToken: string;
@@ -177,47 +181,47 @@ export class SupaCloudAdapter {
   }
 
   async getOAuthClient(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}`);
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}`);
   }
 
   async updateOAuthClient(clientId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   async deleteOAuthClient(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}`, {
       method: 'DELETE',
     });
   }
 
   async regenerateClientSecret(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/regenerate-secret`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/regenerate-secret`, {
       method: 'POST',
     });
   }
 
   async listClientSecrets(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets`);
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets`);
   }
 
   async createClientSecret(clientId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   async disableClientSecret(clientId: string, secretId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets/${secretId}/disable`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets/${pathSegment(secretId)}/disable`, {
       method: 'POST',
     });
   }
 
   async deleteClientSecret(clientId: string, secretId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets/${secretId}`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets/${pathSegment(secretId)}`, {
       method: 'DELETE',
     });
   }
