@@ -67,6 +67,46 @@ async function getEnabledConnectors(): Promise<Array<{ id: string; name: string;
   }
 }
 
+export function resolveDesiredSignupEnabled(authConfig: Record<string, unknown>): boolean {
+  if (authConfig.disable_signup === true) return false;
+  if (authConfig.enable_signup === false) return false;
+  if (typeof authConfig.disable_signup === 'boolean') return authConfig.disable_signup === false;
+  if (typeof authConfig.enable_signup === 'boolean') return authConfig.enable_signup;
+  return true;
+}
+
+export function resolveRuntimeSignupEnabled(runtimeSettings: Record<string, unknown>): boolean {
+  if (typeof runtimeSettings.disable_signup === 'boolean') return runtimeSettings.disable_signup === false;
+  return true;
+}
+
+export async function getAuthConfigRuntimeConsistency(fetchImpl: typeof fetch = fetch) {
+  const authConfig = await adapter.getAuthConfig() as Record<string, unknown>;
+  const runtimeRes = await fetchImpl(`${config.oauthRuntimeUrl.replace(/\/$/, '')}/auth/v1/settings`);
+  const runtimeSettings = await runtimeRes.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!runtimeRes.ok) {
+    throw new Error(`Runtime settings probe failed with HTTP ${runtimeRes.status}`);
+  }
+
+  const desiredSignupEnabled = resolveDesiredSignupEnabled(authConfig);
+  const runtimeSignupEnabled = resolveRuntimeSignupEnabled(runtimeSettings);
+
+  return {
+    checked_at: new Date().toISOString(),
+    consistent: desiredSignupEnabled === runtimeSignupEnabled,
+    desired: {
+      signups_enabled: desiredSignupEnabled,
+      enable_signup: authConfig.enable_signup ?? null,
+      disable_signup: authConfig.disable_signup ?? null,
+    },
+    runtime: {
+      signups_enabled: runtimeSignupEnabled,
+      disable_signup: runtimeSettings.disable_signup ?? null,
+    },
+  };
+}
+
 export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
   .get('/', async () => sieRepo.getSignInExperience(), {
     detail: { summary: 'Get sign-in experience configuration', tags: ['Sign-in Experience'] },
@@ -334,6 +374,9 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
 export const authConfigRoutes = new Elysia({ prefix: '/v1/auth-config' })
   .get('/', async () => adapter.getAuthConfig(), {
     detail: { summary: 'Get auth configuration (GoTrue)', tags: ['Auth Config'] },
+  })
+  .get('/runtime-consistency', async () => getAuthConfigRuntimeConsistency(), {
+    detail: { summary: 'Compare desired auth config with GoTrue runtime settings', tags: ['Auth Config'] },
   })
   .patch('/', async ({ body }) => {
     const updated = await adapter.updateAuthConfig(body as Record<string, unknown>);
