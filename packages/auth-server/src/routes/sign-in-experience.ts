@@ -3,6 +3,7 @@
 import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
+import * as connectorRepo from '../repositories/connectors.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import { getConfig } from '../config/index.js';
@@ -48,22 +49,65 @@ interface ProviderInfo {
   [key: string]: unknown;
 }
 
-function sanitizeConnector(provider: ProviderInfo) {
+interface ConnectorConfigInfo {
+  id: string;
+  provider_id?: string;
+  name?: string;
+  category?: string;
+  enabled?: boolean;
+}
+
+const CREDENTIAL_PROVIDER_IDS = new Set(['email', 'phone', 'password']);
+
+function sanitizeConnector(provider: ProviderInfo, config?: ConnectorConfigInfo) {
   return {
     id: String(provider.id),
-    name: provider.name || provider.id,
-    type: provider.type || 'social',
+    name: config?.name || provider.name || provider.id,
+    type: config?.category || provider.type || 'social',
   };
+}
+
+export function resolvePublicConnectors(
+  providers: ProviderInfo[],
+  connectorConfigs: ConnectorConfigInfo[],
+) {
+  const enabledByProviderId = new Map(
+    connectorConfigs
+      .filter(config => config.enabled === true)
+      .map(config => [String(config.provider_id || config.id), config]),
+  );
+
+  return providers
+    .filter(provider => {
+      if (!provider.id || CREDENTIAL_PROVIDER_IDS.has(provider.id)) return false;
+      return provider.enabled === true && enabledByProviderId.has(provider.id);
+    })
+    .map(provider => sanitizeConnector(provider, enabledByProviderId.get(provider.id)));
 }
 
 async function getEnabledConnectors(): Promise<Array<{ id: string; name: string; type: string }>> {
   try {
-    const providers = await adapter.listProviders() as ProviderInfo[];
+    const [providers, connectorConfigs] = await Promise.all([
+      adapter.listProviders() as Promise<ProviderInfo[]>,
+      connectorRepo.listEnabledConnectorConfigs(),
+    ]);
     if (!Array.isArray(providers)) return [];
-    return providers.filter(p => p.id && p.id !== 'email' && p.id !== 'phone' && p.id !== 'password' && p.enabled === true)
-      .map(sanitizeConnector);
+    return resolvePublicConnectors(providers, connectorConfigs);
   } catch {
     return [];
+  }
+}
+
+async function getEnabledConnector(connectorId: string) {
+  try {
+    const [provider, connectorConfig] = await Promise.all([
+      adapter.getProvider(connectorId) as Promise<ProviderInfo | null>,
+      connectorRepo.getConnectorConfig(connectorId),
+    ]);
+    if (!provider || !connectorConfig) return null;
+    return resolvePublicConnectors([provider], [connectorConfig])[0] || null;
+  } catch {
+    return null;
   }
 }
 
@@ -233,6 +277,12 @@ export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sig
 
 export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors' })
   .get('/:connectorId/authorize', async ({ params, query, set }) => {
+    const connector = await getEnabledConnector(params.connectorId);
+    if (!connector) {
+      set.status = 404;
+      return { error: 'connector_not_enabled' };
+    }
+
     const q = query as Record<string, unknown>;
     const redirectUri = typeof q.redirect_uri === 'string' ? q.redirect_uri : '';
     const state = typeof q.state === 'string' ? q.state : '';

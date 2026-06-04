@@ -147,7 +147,7 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
-        margin: 0 0 16px;
+        margin: 14px 0 0;
       }
       .social-btn {
         display: flex;
@@ -159,17 +159,21 @@
         border: 1px solid #d1d5db;
         border-radius: 8px;
         background: #fff;
-        color: #374151;
+        color: #1f2937;
         font-size: 14px;
         font-weight: 600;
         cursor: pointer;
-        transition: background .15s;
+        transition: background .15s, border-color .15s, box-shadow .15s;
       }
-      .social-btn:hover { background: #f9fafb; }
+      .social-btn:hover {
+        background: #f9fafb;
+        border-color: #c7ccd4;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+      }
       .divider {
         display: flex;
         align-items: center;
-        margin: 0 0 16px;
+        margin: 22px 0 0;
         color: #9ca3af;
         font-size: 12px;
       }
@@ -201,10 +205,6 @@
       <h1 id="title">SupaOAuth</h1>
       <p id="subtitle" class="subtitle">Sign in to continue</p>
       <div id="message" class="message"></div>
-
-      <!-- Social login buttons -->
-      <div id="social-section" class="social-buttons" style="display:none"></div>
-      <div id="social-divider" class="divider" style="display:none"><span id="or-text">or</span></div>
 
       <!-- Tabs: sign-in / sign-up / forgot-password -->
       <div id="tabs-nav" class="tabs">
@@ -244,6 +244,10 @@
           <button id="forgot-submit" type="submit">Send Reset Link</button>
         </form>
       </div>
+
+      <!-- Social login buttons -->
+      <div id="social-divider" class="divider" style="display:none"><span id="or-text">or</span></div>
+      <div id="social-section" class="social-buttons" style="display:none"></div>
 
       <div id="footer" class="footer">SupaOAuth Identity Provider</div>
     </main>

@@ -53,6 +53,23 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain("setMessage('error', t('passwordRequired'))");
   });
 
+  test('hosted login page places social sign-in below the credential panels', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    const credentialPanelIndex = body.indexOf('<div id="panel-signin" class="tab-panel active">');
+    const forgotPanelIndex = body.indexOf('<div id="panel-forgot" class="tab-panel">');
+    const socialDividerIndex = body.indexOf('<div id="social-divider" class="divider" style="display:none">');
+    const socialSectionIndex = body.indexOf('<div id="social-section" class="social-buttons" style="display:none">');
+    const footerIndex = body.indexOf('<div id="footer" class="footer">');
+
+    expect(credentialPanelIndex).toBeGreaterThan(-1);
+    expect(forgotPanelIndex).toBeGreaterThan(credentialPanelIndex);
+    expect(socialDividerIndex).toBeGreaterThan(forgotPanelIndex);
+    expect(socialSectionIndex).toBeGreaterThan(socialDividerIndex);
+    expect(footerIndex).toBeGreaterThan(socialSectionIndex);
+  });
+
   test('GET / serves the same authorize page', async () => {
     const response = await request('http://localhost/');
     const body = await response.text();
