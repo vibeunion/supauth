@@ -3,6 +3,7 @@ import {
   buildGoTrueOAuthAuthorizeUrl,
   createSsoAuthorizeRoutes,
   isRedirectUriAllowed,
+  isSafeOAuthClientId,
 } from '../routes/sso-authorize.js';
 
 const oauthClient = {
@@ -31,6 +32,37 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
     expect(isRedirectUriAllowed(oauthClient, 'https://app.example.test/callback/')).toBe(false);
     expect(isRedirectUriAllowed(oauthClient, 'https://evil.example.test/callback')).toBe(false);
     expect(isRedirectUriAllowed(oauthClient, 'https://app.example.test/callback#fragment')).toBe(false);
+  });
+
+  it('rejects unsafe client_id before calling SupaCloud', async () => {
+    let calls = 0;
+    const app = createSsoAuthorizeRoutes('/oauth/sso', {
+      async getOAuthClient() {
+        calls += 1;
+        return oauthClient;
+      },
+    }, {
+      oauthRuntimeUrl: 'https://auth-runtime.example.test',
+    });
+
+    const response = await app.handle(new Request(
+      'http://localhost/oauth/sso/authorize?response_type=code&client_id=..%2F..%2Fconfig%2Fauth&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback',
+    ));
+
+    expect(response.status).toBe(400);
+    expect(calls).toBe(0);
+    const payload = await response.json() as { error: string; error_description: string };
+    expect(payload.error).toBe('invalid_request');
+    expect(payload.error_description).toContain('client_id');
+  });
+
+  it('validates OAuth client IDs used by public SSO entrypoints', () => {
+    expect(isSafeOAuthClientId('app_123')).toBe(true);
+    expect(isSafeOAuthClientId('client-abc.123')).toBe(true);
+    expect(isSafeOAuthClientId('../../config/auth')).toBe(false);
+    expect(isSafeOAuthClientId('client/secret')).toBe(false);
+    expect(isSafeOAuthClientId('client?x=y')).toBe(false);
+    expect(isSafeOAuthClientId('client#fragment')).toBe(false);
   });
 
   it('builds GoTrue OAuth authorize URL and preserves prompt=none', () => {

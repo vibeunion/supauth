@@ -37,6 +37,11 @@ function stringParam(query: AuthorizeQuery, key: string) {
   return typeof value === 'string' ? value : '';
 }
 
+export function isSafeOAuthClientId(clientId: string) {
+  if (!clientId || clientId.length > 256) return false;
+  return !/[/?#\\\u0000-\u001f\u007f]/.test(clientId);
+}
+
 function normalizeRedirectUris(client: OAuthClient) {
   const values = [
     ...(Array.isArray(client.redirect_uris) ? client.redirect_uris : []),
@@ -88,6 +93,11 @@ export function createSsoAuthorizeRoutes(
       if (!clientId || !redirectUri) {
         set.status = 400;
         return { error: 'invalid_request', error_description: 'client_id and redirect_uri are required' };
+      }
+
+      if (!isSafeOAuthClientId(clientId)) {
+        set.status = 400;
+        return { error: 'invalid_request', error_description: 'client_id contains unsupported characters' };
       }
 
       let client: OAuthClient;
