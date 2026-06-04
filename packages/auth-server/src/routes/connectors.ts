@@ -17,7 +17,7 @@ async function fireWebhook(eventType: string, data: Record<string, unknown>) {
   try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
 }
 
-interface ProviderInfo {
+export interface ProviderInfo {
   id: string;
   name?: string;
   type?: string;
