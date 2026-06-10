@@ -45,7 +45,7 @@ export async function updateStepStatus(recordId: string, status: string, details
 /** Check if all required provisioning steps are completed for a project */
 export async function isProjectFullyProvisioned(projectRef: string): Promise<boolean> {
   const steps = await getProjectProvisioning(projectRef);
-  const requiredSteps = ['db_migration', 'gotrue_config', 'kong_routes', 'storage_buckets'];
+  const requiredSteps = ['db_migration', 'gotrue_config', 'supacloud_gateway_routes', 'storage_buckets'];
   const completed = steps.filter(s => s.status === 'completed').map(s => s.step);
   return requiredSteps.every(step => completed.includes(step));
 }

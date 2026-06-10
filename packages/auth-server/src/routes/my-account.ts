@@ -1,9 +1,8 @@
 // User self-service account center routes. The runtime user/session source is
-// still GoTrue via SupaCloud; SupaOAuth records account-center audit state.
+// GoTrue via SupaCloud; SupaOAuth keeps consent overlay and audit state.
 
 import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
-import * as accountRepo from '../repositories/account-control.js';
 import * as consentRepo from '../repositories/consents.js';
 import * as auditRepo from '../repositories/audit.js';
 
@@ -17,6 +16,15 @@ async function audit(eventType: string, userId: string, details?: Record<string,
   try {
     await auditRepo.logAudit({ eventType, actorId: userId, actorType: 'user', resourceType: 'user', resourceId: userId, details });
   } catch {}
+}
+
+function toListResponse(value: unknown) {
+  if (Array.isArray(value)) return { items: value, total: value.length };
+  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
+    const items = (value as { items: unknown[]; total?: unknown }).items;
+    return { items, total: typeof (value as { total?: unknown }).total === 'number' ? (value as { total: number }).total : items.length };
+  }
+  return { items: [], total: 0 };
 }
 
 export const myAccountRoutes = new Elysia({ prefix: '/v1/my-account' })
@@ -40,17 +48,13 @@ export const myAccountRoutes = new Elysia({ prefix: '/v1/my-account' })
   })
   .get('/sessions', async ({ currentUserId }) => {
     if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    const items = await accountRepo.listAccountSessions(currentUserId);
-    return { items, total: items.length };
+    return toListResponse(await adapter.listUserSessions(currentUserId));
   }, {
     detail: { summary: 'List current account sessions', tags: ['Account Center'] },
   })
   .post('/sessions/:sessionId/revoke', async ({ currentUserId, params }) => {
     if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    try {
-      await adapter.revokeUserSession(currentUserId, params.sessionId);
-    } catch {}
-    return accountRepo.revokeAccountSession(currentUserId, params.sessionId);
+    return adapter.revokeUserSession(currentUserId, params.sessionId);
   }, {
     detail: { summary: 'Revoke current account session', tags: ['Account Center'] },
   })

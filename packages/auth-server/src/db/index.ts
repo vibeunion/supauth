@@ -10,9 +10,9 @@ export interface DbConfig {
 }
 
 function getConnectionConfig(): DbConfig {
-  const url = process.env.DATABASE_URL || '';
+  const url = process.env.SUPACLOUD_DATABASE_URL || process.env.DATABASE_URL || '';
   if (!url) {
-    throw new Error('DATABASE_URL is required for SupaOAuth metadata DB');
+    throw new Error('DATABASE_URL or SUPACLOUD_DATABASE_URL is required for SupaOAuth metadata DB');
   }
   return { url };
 }

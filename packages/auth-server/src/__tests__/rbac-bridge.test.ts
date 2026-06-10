@@ -40,8 +40,10 @@ describe('P0-28: RBAC Bridge', () => {
 
     expect(sql).toContain('supaoauth.legacy_role_for_user');
     expect(sql).toContain('test-project-12345');
-    expect(sql).toContain('role_assignments');
-    expect(sql).toContain('supaoauth.roles');
+    expect(sql).toContain('raw_app_meta_data');
+    expect(sql).toContain("'supaoauth' -> 'roles'");
+    expect(sql).not.toContain('role_assignments');
+    expect(sql).not.toContain('supaoauth.roles');
     expect(sql).toContain('admin');
     expect(sql).toContain('fa_expert');
     expect(sql).toContain('operator');

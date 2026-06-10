@@ -5,10 +5,17 @@
 SupaOAuth is organized as three explicit layers:
 
 1. Supabase-compatible runtime
-2. Logto-like product control plane
+2. Logto-like product surface
 3. SupaCloud orchestration
 
 This split is the architecture baseline. It keeps SupaOAuth product-facing like Logto while preserving Supabase compatibility and avoiding direct infrastructure coupling in the admin console.
+
+## SupaCloud-Native Direction
+
+The target deployment model is SupAuth running inside SupaCloud, not beside it as
+an extra production service. SupaCloud owns the identity management source of
+truth; SupAuth provides the UI, hosted auth experience, function handlers, and
+small product overlays. See `docs/supacloud-native-refactor.md`.
 
 ## Layer 1: Supabase-Compatible Runtime
 
@@ -48,9 +55,10 @@ Non-goals:
 - Do not rewrite Supabase client semantics.
 - Do not break `supabase-js`, RLS, Storage, Realtime, or Functions authentication.
 
-## Layer 2: Logto-Like Product Control Plane
+## Layer 2: Logto-Like Product Surface
 
-Purpose: provide the standalone user-center product experience.
+Purpose: provide the SupaCloud-hosted user-center product experience without
+becoming a second identity-management source of truth.
 
 Owned by:
 
@@ -61,26 +69,27 @@ Owned by:
 
 Responsibilities:
 
-- Applications
-- API resources
-- Scopes
-- Roles and permissions
-- Organizations and members
-- Social and enterprise connectors
-- Sign-in experience configuration
-- User management views and metadata extensions
-- Audit logs
-- Webhooks
-- Management API and SDKs
+- SupaCloud Function BFF and Management API facade
+- Admin Console and SDKs
+- API resources, scopes, and application/resource bindings
+- Hosted auth pages, account claim pages, and sign-in experience overlays
+- Connector visibility/display overlays on top of SupaCloud providers
+- User management views and safe metadata extension workflows
+- Consent, tenant branding/phrases, custom UI, and compatibility helpers
 - Runtime health and compatibility inspection
+- SupaCloud-owned management domains are proxied through server-side adapter calls:
+  Applications, Users/sessions/MFA/passkeys, Organizations, RBAC, Audit,
+  Webhooks, and Providers.
 
-This layer stores SupaOAuth metadata. It should not become an alternate GoTrue database or token issuer in the default mode.
+This layer stores only SupaOAuth overlay metadata. It must not become an
+alternate GoTrue database, RBAC database, webhook store, audit store, or token
+issuer in the default mode.
 
 Default runtime mode:
 
 - `runtime_mode=gotrue`
 - GoTrue is the issuer.
-- SupaOAuth is the control plane, BFF, metadata owner, and runtime verifier.
+- SupaOAuth is the SupaCloud Function BFF, overlay owner, API facade, and runtime verifier.
 
 Advanced runtime mode:
 
@@ -114,6 +123,8 @@ Responsibilities:
 - User CRUD proxy
 - MFA proxy
 - Provider/connector secret delivery
+- Applications, Organizations, RBAC, Audit, Webhooks, and user-session source of truth
+- Managed webhook delivery and background jobs
 
 Non-goals:
 
@@ -128,8 +139,8 @@ flowchart TB
   App["Business App<br/>supabase-js / OIDC client"]
   Runtime["Layer 1<br/>Supabase-compatible runtime<br/>GoTrue + Kong + Supabase APIs"]
   Console["Admin Console<br/>@svadmin/core + @svadmin/ui"]
-  Control["Layer 2<br/>SupaOAuth control plane<br/>Management API / BFF"]
-  Metadata["SupaOAuth metadata<br/>apps/resources/scopes/roles/orgs/audit"]
+  Control["Layer 2<br/>SupaOAuth product surface<br/>Management API facade / BFF"]
+  Metadata["SupaOAuth overlays<br/>resources/scopes/consent/branding/templates"]
   Adapter["SupaCloud adapter<br/>server-side only"]
   Orchestration["Layer 3<br/>SupaCloud orchestration"]
 
@@ -153,8 +164,9 @@ Runtime APIs:
 Management APIs:
 
 - Public only to authenticated admin console and SDK clients.
-- Backed by SupaOAuth `auth-server`.
-- Use server-side credentials to call SupaCloud.
+- Exposed by the SupAuth Function BFF.
+- SupaCloud-owned domains are backed by SupaCloud Management API.
+- SupaAuth overlay domains use the project database through the `supaoauth` schema.
 
 Orchestration APIs:
 
@@ -164,10 +176,10 @@ Orchestration APIs:
 
 ## Design Rules
 
-- Product objects live in SupaOAuth metadata first, then compile/sync into GoTrue/SupaCloud configuration as needed.
+- SupaCloud-owned product objects live in SupaCloud Management API; SupaAuth stores only overlay fields that SupaCloud does not own.
 - Runtime compatibility is a release blocker, not an optional feature.
 - SupaOAuth should present a Logto-like product model but emit Supabase-compatible runtime behavior.
 - Any feature that requires replacing GoTrue token semantics must be isolated behind `runtime_mode=external_oidc`.
 - Claims added by SupaOAuth should use stable namespacing and must not break existing RLS policies.
-- In `runtime_mode=gotrue`, RBAC should be exposed to Supabase through `supaoauth` schema projection tables and RLS helper functions, not by changing the JWT `role` claim.
+- In `runtime_mode=gotrue`, RBAC should be read from SupaCloud and projected into `app_metadata.supaoauth` / RLS helper functions, not by changing the JWT `role` claim or writing local RBAC source tables.
 - See `docs/rbac-supabase-compatibility.md` for the RBAC migration baseline.

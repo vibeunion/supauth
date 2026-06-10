@@ -6,8 +6,7 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
 import * as provRepo from '../repositories/provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
-import { runMigration } from '../db/migrate.js';
-import { getConfig } from '../config/index.js';
+import { MIGRATION_SQL, PROJECT_ROLE_GRANTS_SQL } from '../db/migrate.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
@@ -16,15 +15,6 @@ async function audit(eventType: string, resourceType: string, resourceId: string
 /** Validate that a projectRef looks like a valid SupaCloud project ref. */
 function isValidProjectRef(ref: string): boolean {
   return /^[a-z0-9]{20,}$/.test(ref);
-}
-
-function databaseUrlForProject(projectRef: string): { databaseUrl: string; projectScoped: boolean } {
-  const config = getConfig();
-  const template = process.env.SUPACLOUD_DATABASE_URL_TEMPLATE || process.env.DATABASE_URL_TEMPLATE;
-  if (template) {
-    return { databaseUrl: template.replaceAll('{projectRef}', projectRef), projectScoped: true };
-  }
-  return { databaseUrl: config.databaseUrl, projectScoped: !projectRef || projectRef === config.projectRef };
 }
 
 export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
@@ -67,13 +57,10 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
 
     // Step 1: DB migration
     try {
-      const { databaseUrl, projectScoped } = databaseUrlForProject(projectRef);
-      if (!projectScoped) {
-        throw new Error('Project-scoped DATABASE_URL is not configured. Set SUPACLOUD_DATABASE_URL_TEMPLATE with {projectRef}.');
-      }
-      await runMigration(databaseUrl);
+      await adapter.runDatabaseMigration('supauth-overlay-schema', MIGRATION_SQL);
+      await adapter.runDatabaseMigration('supauth-overlay-project-role-grants', PROJECT_ROLE_GRANTS_SQL);
       await provRepo.recordStep(projectRef, { step: 'db_migration', status: 'completed' });
-      results.push({ step: 'db_migration', status: 'completed' });
+      results.push({ step: 'db_migration', status: 'completed', details: { mode: 'supacloud-management-api' } });
     } catch (e) {
       await provRepo.recordStep(projectRef, { step: 'db_migration', status: 'failed', details: { error: (e as Error).message } });
       results.push({ step: 'db_migration', status: 'failed', details: { error: (e as Error).message } });
@@ -89,7 +76,7 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       results.push({ step: 'gotrue_config', status: 'failed', details: { error: (e as Error).message } });
     }
 
-    // Step 3: Kong routes verification (scoped to projectRef)
+    // Step 3: SupaCloud gateway routes verification (scoped to projectRef)
     try {
       if (!targetInfo.runtimeProjectScoped) {
         throw new Error('Project-scoped runtime URL is not configured. Set SUPACLOUD_RUNTIME_URL_TEMPLATE with {projectRef} or use a default OAUTH_RUNTIME_URL containing PROJECT_REF.');
@@ -98,11 +85,11 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       if (!verification.ok) {
         throw new Error(`Gateway route verification failed: ${JSON.stringify(verification.probes)}`);
       }
-      await provRepo.recordStep(projectRef, { step: 'kong_routes', status: 'completed' });
-      results.push({ step: 'kong_routes', status: 'completed', details: { probes: verification.probes } });
+      await provRepo.recordStep(projectRef, { step: 'supacloud_gateway_routes', status: 'completed' });
+      results.push({ step: 'supacloud_gateway_routes', status: 'completed', details: { probes: verification.probes } });
     } catch (e) {
-      await provRepo.recordStep(projectRef, { step: 'kong_routes', status: 'failed', details: { error: (e as Error).message } });
-      results.push({ step: 'kong_routes', status: 'failed', details: { error: (e as Error).message } });
+      await provRepo.recordStep(projectRef, { step: 'supacloud_gateway_routes', status: 'failed', details: { error: (e as Error).message } });
+      results.push({ step: 'supacloud_gateway_routes', status: 'failed', details: { error: (e as Error).message } });
     }
 
     // Step 4: Storage buckets creation (scoped to projectRef)
@@ -126,7 +113,7 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
   }, {
     detail: {
       summary: 'Idempotent provision/reconcile for a project (scoped to path projectRef)',
-      description: 'Runs DB migration, verifies GoTrue config, Kong routes, and storage buckets — all scoped to the requested projectRef. Repeated execution does not drift. P0-26: adapter is project-scoped, not process-scoped.',
+      description: 'Runs SupaCloud-hosted DB migrations, verifies GoTrue config, SupaCloud gateway routes, and storage buckets — all scoped to the requested projectRef. Repeated execution does not drift. P0-26: adapter is project-scoped, not process-scoped.',
       tags: ['Provisioning'],
     },
   })

@@ -6,15 +6,26 @@ describe('ServerConfig', () => {
     delete process.env.PORT;
     delete process.env.HOST;
     delete process.env.SUPACLOUD_API_URL;
+    delete process.env.SUPACLOUD_INTERNAL_API_URL;
+    delete process.env.SUPACLOUD_MANAGEMENT_API_URL;
     delete process.env.SUPACLOUD_MASTER_TOKEN;
+    delete process.env.SUPACLOUD_INTERNAL_TOKEN;
+    delete process.env.SUPACLOUD_SERVICE_TOKEN;
     delete process.env.PROJECT_REF;
+    delete process.env.SUPACLOUD_PROJECT_REF;
+    delete process.env.SUPABASE_PROJECT_REF;
     delete process.env.OAUTH_RUNTIME_URL;
+    delete process.env.SUPACLOUD_RUNTIME_URL;
+    delete process.env.SUPABASE_URL;
     delete process.env.OAUTH_RUNTIME_INTERNAL_URL;
     delete process.env.GOTRUE_INTERNAL_URL;
+    delete process.env.SUPACLOUD_RUNTIME_INTERNAL_URL;
     delete process.env.RUNTIME_MODE;
     delete process.env.CORS_ORIGINS;
     delete process.env.LOG_LEVEL;
     delete process.env.DATABASE_URL;
+    delete process.env.SUPACLOUD_DATABASE_URL;
+    delete process.env.SUPABASE_DB_URL;
   });
 
   it('returns defaults when env vars are not set', () => {
@@ -29,19 +40,44 @@ describe('ServerConfig', () => {
     const config = loadConfig();
     const errors = validateConfig(config);
     expect(errors.length).toBeGreaterThan(0);
-    expect(errors).toContain('SUPACLOUD_MASTER_TOKEN is required');
-    expect(errors).toContain('PROJECT_REF is required');
-    expect(errors).toContain('DATABASE_URL is required');
+    expect(errors).toContain('SUPACLOUD_API_URL or SUPACLOUD_INTERNAL_API_URL is required');
+    expect(errors).toContain('SUPACLOUD_MASTER_TOKEN or SUPACLOUD_INTERNAL_TOKEN is required');
+    expect(errors).toContain('PROJECT_REF or SUPACLOUD_PROJECT_REF is required');
+    expect(errors).toContain('OAUTH_RUNTIME_URL, SUPACLOUD_RUNTIME_URL, or SUPABASE_URL is required');
+    expect(errors).toContain('DATABASE_URL or SUPACLOUD_DATABASE_URL is required');
   });
 
   it('passes validation with all required fields', () => {
     process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
     process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
     process.env.PROJECT_REF = 'test-ref';
+    process.env.OAUTH_RUNTIME_URL = 'http://localhost:9999';
     process.env.DATABASE_URL = 'postgres://localhost/supaoauth';
     const config = loadConfig();
     const errors = validateConfig(config);
     expect(errors).toHaveLength(0);
+  });
+
+  it('uses SupaCloud project injected env aliases', () => {
+    process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
+    process.env.SUPACLOUD_INTERNAL_TOKEN = 'internal-token';
+    process.env.SUPACLOUD_PROJECT_REF = 'project-from-supacloud';
+    process.env.SUPACLOUD_RUNTIME_URL = 'https://runtime.example.test';
+    process.env.SUPACLOUD_DATABASE_URL = 'postgres://supacloud/project';
+    const config = loadConfig();
+    expect(config.supacloudApiUrl).toBe('http://supacloud.internal');
+    expect(config.supacloudMasterToken).toBe('internal-token');
+    expect(config.projectRef).toBe('project-from-supacloud');
+    expect(config.oauthRuntimeUrl).toBe('https://runtime.example.test');
+    expect(config.databaseUrl).toBe('postgres://supacloud/project');
+    expect(validateConfig(config)).toHaveLength(0);
+  });
+
+  it('prefers the SupaCloud project database URL over a platform DATABASE_URL', () => {
+    process.env.SUPACLOUD_DATABASE_URL = 'postgres://supacloud/project';
+    process.env.DATABASE_URL = 'postgres://platform/meta';
+    const config = loadConfig();
+    expect(config.databaseUrl).toBe('postgres://supacloud/project');
   });
 
   it('rejects invalid runtime mode', () => {

@@ -15,13 +15,12 @@ async function main() {
   process.env.DATABASE_URL = 'postgres://placeholder';
   process.env.HOST = '127.0.0.1';
 
-  // Import the app. It listens on port 0 with the export env above; app.handle lets us
-  // read the generated Swagger JSON without depending on an external HTTP client.
+  // Import the app without binding a port; app.handle lets us read the generated
+  // Swagger JSON without depending on an external HTTP client.
   const { app } = await import('../packages/auth-server/src/index.js');
 
   const res = await app.handle(new Request('http://localhost/swagger/json'));
   if (!res.ok) {
-    app.server?.stop();
     console.error(`Could not access swagger spec: ${res.status} ${res.statusText}`);
     process.exit(1);
   }
@@ -31,8 +30,6 @@ async function main() {
   console.log(`OpenAPI spec exported to ${outputPath}`);
   console.log(`Paths: ${Object.keys(spec.paths || {}).length}`);
   console.log(`Tags: ${(spec.tags || []).map(t => t.name).join(', ')}`);
-  app.server?.stop();
-
   process.exit(0);
 }
 

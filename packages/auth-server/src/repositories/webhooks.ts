@@ -1,79 +1,34 @@
-// Webhooks repository — backed by SupaCloud Postgres
+// Webhooks repository compatibility facade.
+//
+// SupaCloud owns webhook definitions, signing keys, delivery logs, retry, and
+// disable policy. Keep these exports but do not touch the legacy webhooks table.
 
-import { eq } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { webhooks } from '../db/schema.js';
-
-function generateSecret(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-}
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 
 export async function listWebhooks() {
-  const db = getDb();
-  return db.select({
-    id: webhooks.id,
-    url: webhooks.url,
-    events: webhooks.events,
-    signingKeyId: webhooks.signingKeyId,
-    enabled: webhooks.enabled,
-    createdAt: webhooks.createdAt,
-    updatedAt: webhooks.updatedAt,
-    // Exclude secret from list
-  }).from(webhooks).orderBy(webhooks.createdAt);
+  return getSupaCloudAdapter().listWebhooks();
 }
 
 export async function createWebhook(data: { url: string; events: string[]; enabled?: boolean; signingKeyId?: string }) {
-  const db = getDb();
-  const secret = generateSecret();
-  const [webhook] = await db.insert(webhooks).values({
-    url: data.url,
-    events: data.events,
-    secret,
-    signingKeyId: data.signingKeyId || `whsec_${Date.now()}`,
-    enabled: data.enabled ?? true,
-  }).returning();
-  return webhook; // includes secret — only returned on create
+  return getSupaCloudAdapter().createWebhook(data);
 }
 
 export async function getWebhook(id: string) {
-  const db = getDb();
-  const rows = await db.select({
-    id: webhooks.id,
-    url: webhooks.url,
-    events: webhooks.events,
-    signingKeyId: webhooks.signingKeyId,
-    enabled: webhooks.enabled,
-    createdAt: webhooks.createdAt,
-    updatedAt: webhooks.updatedAt,
-  }).from(webhooks).where(eq(webhooks.id, id)).limit(1);
-  return rows[0] || null;
+  return getSupaCloudAdapter().getWebhook(id);
 }
 
 export async function updateWebhook(id: string, data: { url?: string; events?: string[]; enabled?: boolean; signingKeyId?: string }) {
-  const db = getDb();
-  const [updated] = await db.update(webhooks).set({
-    ...data,
-    updatedAt: new Date(),
-  }).where(eq(webhooks.id, id)).returning();
-  return updated;
+  return getSupaCloudAdapter().updateWebhook(id, data);
 }
 
 export async function deleteWebhook(id: string) {
-  const db = getDb();
-  await db.delete(webhooks).where(eq(webhooks.id, id));
+  return getSupaCloudAdapter().deleteWebhook(id);
 }
 
 export async function rotateWebhookSecret(id: string) {
-  const db = getDb();
-  const secret = generateSecret();
-  const [updated] = await db.update(webhooks).set({ secret, signingKeyId: `whsec_${Date.now()}`, updatedAt: new Date() })
-    .where(eq(webhooks.id, id)).returning();
-  return updated; // includes new secret
+  return getSupaCloudAdapter().rotateWebhookSecret(id);
 }
 
 export async function getWebhookWithSecret(id: string) {
-  const db = getDb();
-  const rows = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
-  return rows[0] || null;
+  return getSupaCloudAdapter().getWebhook(id);
 }

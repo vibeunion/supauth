@@ -1,42 +1,30 @@
-// Account center support repository. SupaCloud remains the runtime user source;
-// local rows track account-center session operations initiated by SupaOAuth.
+// Account center compatibility facade.
+//
+// SupaCloud owns user sessions. SupAuth keeps this repository API for older
+// internal callers, but session list/record/revoke operations go through
+// SupaCloud Management API.
 
-import { and, desc, eq } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { accountSessions } from '../db/schema.js';
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { logAudit } from './audit.js';
 
 export async function listAccountSessions(userId: string) {
-  const db = getDb();
-  return db.select().from(accountSessions)
-    .where(eq(accountSessions.userId, userId))
-    .orderBy(desc(accountSessions.createdAt));
+  return getSupaCloudAdapter().listUserSessions(userId);
 }
 
 export async function recordAccountSession(userId: string, sessionId: string, metadata?: Record<string, unknown>) {
-  const db = getDb();
-  const [session] = await db.insert(accountSessions).values({
-    userId,
-    sessionId,
+  return getSupaCloudAdapter().recordUserSession(userId, {
+    session_id: sessionId,
     metadata: metadata || {},
-  }).returning();
-  return session;
+  });
 }
 
 export async function revokeAccountSession(userId: string, sessionId: string) {
-  const db = getDb();
-  const [session] = await db.update(accountSessions).set({
-    status: 'revoked',
-    revokedAt: new Date(),
-  }).where(and(
-    eq(accountSessions.userId, userId),
-    eq(accountSessions.sessionId, sessionId),
-  )).returning();
+  const session = await getSupaCloudAdapter().revokeUserSession(userId, sessionId);
   await logAudit({
     eventType: 'account.session.revoked',
     resourceType: 'user',
     resourceId: userId,
-    details: { session_id: sessionId, local_session_found: Boolean(session) },
+    details: { session_id: sessionId },
   });
-  return session || null;
+  return session;
 }

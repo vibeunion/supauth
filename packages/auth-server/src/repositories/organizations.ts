@@ -1,71 +1,41 @@
-// Organizations repository — backed by SupaCloud Postgres
+// Organizations repository compatibility facade.
+//
+// SupaCloud owns organization source-of-truth. Keep these exports for older
+// internal callers/tests, but never write legacy supaoauth organization tables.
 
-import { eq, and } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { organizations, organizationMembers } from '../db/schema.js';
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 
 export async function listOrganizations() {
-  const db = getDb();
-  const orgs = await db.select().from(organizations).orderBy(organizations.createdAt);
-  const members = await db.select().from(organizationMembers);
-  return orgs.map(o => ({
-    ...o,
-    members: members.filter(m => m.organizationId === o.id),
-  }));
+  return getSupaCloudAdapter().listOrganizations();
 }
 
 export async function getOrganization(id: string) {
-  const db = getDb();
-  const org = await db.select().from(organizations).where(eq(organizations.id, id)).limit(1);
-  if (!org[0]) return null;
-  const members = await db.select().from(organizationMembers).where(eq(organizationMembers.organizationId, id));
-  return { ...org[0], members };
+  return getSupaCloudAdapter().getOrganization(id);
 }
 
 export async function createOrganization(data: { name: string; description?: string }) {
-  const db = getDb();
-  const [org] = await db.insert(organizations).values({
-    name: data.name,
-    description: data.description || null,
-  }).returning();
-  return { ...org, members: [] };
+  return getSupaCloudAdapter().createOrganization(data);
 }
 
 export async function updateOrganization(id: string, data: { name?: string; description?: string }) {
-  const db = getDb();
-  const [updated] = await db.update(organizations).set({
-    ...data,
-    updatedAt: new Date(),
-  }).where(eq(organizations.id, id)).returning();
-  return updated;
+  return getSupaCloudAdapter().updateOrganization(id, data);
 }
 
 export async function deleteOrganization(id: string) {
-  const db = getDb();
-  await db.delete(organizations).where(eq(organizations.id, id));
+  return getSupaCloudAdapter().deleteOrganization(id);
 }
 
 export async function addMember(orgId: string, userId: string, role: string = 'member') {
-  const db = getDb();
-  const [member] = await db.insert(organizationMembers).values({
-    organizationId: orgId,
+  return getSupaCloudAdapter().addOrganizationMember(orgId, {
     userId,
     role,
-  }).returning();
-  return member;
+  });
 }
 
 export async function removeMember(orgId: string, userId: string) {
-  const db = getDb();
-  await db.delete(organizationMembers).where(
-    and(eq(organizationMembers.organizationId, orgId), eq(organizationMembers.userId, userId))
-  );
+  return getSupaCloudAdapter().removeOrganizationMember(orgId, userId);
 }
 
 export async function updateMemberRole(orgId: string, userId: string, role: string) {
-  const db = getDb();
-  const [updated] = await db.update(organizationMembers).set({ role }).where(
-    and(eq(organizationMembers.organizationId, orgId), eq(organizationMembers.userId, userId))
-  ).returning();
-  return updated;
+  return getSupaCloudAdapter().updateOrganizationMember(orgId, userId, { role });
 }

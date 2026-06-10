@@ -64,12 +64,20 @@ VALUES (
 );
 ```
 
-### Kong Routes
+### SupaCloud Routes
 
-In external_oidc mode, Kong must route:
-- `/.well-known/openid-configuration` → SupaOAuth auth-server (or the external IdP)
-- `/.well-known/jwks.json` → SupaOAuth auth-server (or the external IdP)
-- `/auth/v1/*` → GoTrue (still handles session management)
+This document describes the historical external OIDC design. The current
+SupaCloud-native target keeps `/auth/v1/*` on GoTrue and installs SupAuth only
+as SupaCloud Functions/Pages from `supacloud-app-manifest.json`.
+
+For the current target, SupaCloud route bindings must preserve:
+- `/auth/v1/*` → SupaCloud managed GoTrue runtime
+- `/rest/v1/*`, `/storage/v1/*`, `/realtime/v1/*`, `/functions/v1/*` → SupaCloud managed runtime
+- `/api/*`, `/v1/public/*`, `/oauth/*`, `/login.html`, `/claim`, `/claim.html` → SupAuth Function
+- `/admin/*` → SupAuth Pages
+
+SupAuth does not require a standalone auth server or a separately managed
+gateway route layer.
 
 ## Token Flow
 

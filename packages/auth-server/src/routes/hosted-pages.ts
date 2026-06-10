@@ -1,9 +1,10 @@
 // Hosted static pages: authorize UI, login redirect, admin console SPA.
-// The auth-server owns these routes so Caddy only needs to reverse-proxy to :4010.
+// The SupaOAuth HTTP app owns these hosted-page routes.
 // Supports Custom UI Assets: if custom-ui/index.html exists, it replaces the default page.
 
 import { Elysia } from 'elysia';
 import path from 'node:path';
+import { EMBEDDED_AUTHORIZE_HTML, EMBEDDED_CLAIM_HTML } from '../generated/hosted-pages.js';
 
 function uniquePaths(paths: string[]) {
   return [...new Set(paths.map(candidate => path.normalize(candidate)))];
@@ -25,6 +26,14 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
     path.resolve(cwd, 'packages/admin-console/static/authorize.html'),
   ]);
 
+  const claimHtmlCandidates = uniquePaths([
+    path.resolve(importMetaDir, '../../../admin-console/static/claim.html'),
+    path.resolve(importMetaDir, '../../admin-console/static/claim.html'),
+    path.resolve(cwd, '../admin-console/static/claim.html'),
+    path.resolve(cwd, 'packages/admin-console/static/claim.html'),
+    ...adminConsoleBuildDirs.map(dir => path.join(dir, 'claim.html')),
+  ]);
+
   const customUiDirs = uniquePaths([
     path.resolve(importMetaDir, '../../custom-ui'),
     path.resolve(importMetaDir, '../custom-ui'),
@@ -35,6 +44,7 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
   return {
     adminConsoleBuildDirs,
     authorizeHtmlCandidates,
+    claimHtmlCandidates,
     customUiDirs,
   };
 }
@@ -69,10 +79,26 @@ async function loadAuthorizeHtml(): Promise<string | null> {
   if (htmlFile) {
     return htmlFile.text();
   }
-  return null;
+  return EMBEDDED_AUTHORIZE_HTML;
+}
+
+async function loadClaimHtml(): Promise<string | null> {
+  const htmlFile = await findFirstExistingFile(hostedPagePaths.claimHtmlCandidates);
+  if (htmlFile) {
+    return htmlFile.text();
+  }
+  return EMBEDDED_CLAIM_HTML;
 }
 
 function renderAuthorizeHtml(html: string, requestUrl: string) {
+  const publicApiBase = new URL('/v1/public', requestUrl).toString().replace(/\/$/, '');
+  return html.replace(
+    PUBLIC_API_BASE_PLACEHOLDER,
+    `window.__SUPAOAUTH_PUBLIC_API_BASE__ = ${JSON.stringify(publicApiBase)};`,
+  );
+}
+
+function renderPublicHtml(html: string, requestUrl: string) {
   const publicApiBase = new URL('/v1/public', requestUrl).toString().replace(/\/$/, '');
   return html.replace(
     PUBLIC_API_BASE_PLACEHOLDER,
@@ -155,6 +181,30 @@ export const hostedPageRoutes = new Elysia()
     return renderAuthorizeHtml(html, request.url);
   }, {
     detail: { summary: 'Serve hosted login page (alias for authorize)', tags: ['Public'] },
+  })
+
+  .get('/claim', async ({ request, set }) => {
+    const html = await loadClaimHtml();
+    if (!html) {
+      set.status = 404;
+      return { error: 'claim_page_missing' };
+    }
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+    return renderPublicHtml(html, request.url);
+  }, {
+    detail: { summary: 'Serve account claim page', tags: ['Public', 'Account Provisioning'] },
+  })
+
+  .get('/claim.html', async ({ request, set }) => {
+    const html = await loadClaimHtml();
+    if (!html) {
+      set.status = 404;
+      return { error: 'claim_page_missing' };
+    }
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+    return renderPublicHtml(html, request.url);
+  }, {
+    detail: { summary: 'Serve account claim page', tags: ['Public', 'Account Provisioning'] },
   })
 
   .get('/', async ({ request, set }) => {

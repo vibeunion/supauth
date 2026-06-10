@@ -1,21 +1,8 @@
-// Webhook delivery worker — event dispatch, HMAC signing, retry with backoff
+// Webhook event facade. SupaCloud owns webhook storage, signing, delivery,
+// retry, and diagnostics; SupAuth only submits product events from Function
+// handlers so no extra worker/service is required.
 
-import * as auditRepo from './audit.js';
-import { getDb } from '../db/index.js';
-import { webhooks } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
-
-const MAX_RETRIES = 3;
-const RETRY_DELAYS_MS = [5_000, 30_000, 120_000]; // 5s, 30s, 2min
-
-async function computeSignature(payload: string, secret: string): Promise<string> {
-  const key = new TextEncoder().encode(secret);
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(payload));
-  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 
 export interface WebhookEvent {
   type: string;
@@ -32,135 +19,9 @@ export function buildEvent(eventType: string, data: Record<string, unknown>): We
   };
 }
 
-/** Dispatch a webhook event to all matching enabled webhooks */
+/** Submit a webhook event to SupaCloud's managed delivery pipeline. */
 export async function dispatchEvent(event: WebhookEvent): Promise<void> {
-  const db = getDb();
-  const allWebhooks = await db.select().from(webhooks).where(eq(webhooks.enabled, true));
-  const matching = allWebhooks.filter(wh => {
-    const events = wh.events as string[];
-    return events.includes(event.type) || events.includes('*');
-  });
-
-  for (const wh of matching) {
-    // Fire-and-forget delivery with retry
-    deliverWithRetry(wh.id, wh.url, wh.secret, event).catch(() => {
-      // Errors are logged inside deliverWithRetry
-    });
-  }
-}
-
-/** Deliver one webhook synchronously for diagnostics and manual replay. */
-export async function deliverWebhookOnce(
-  webhookId: string,
-  url: string,
-  secret: string,
-  event: WebhookEvent,
-): Promise<{ ok: boolean; status?: number; error?: string }> {
-  const payload = JSON.stringify(event);
-  const signature = await computeSignature(payload, secret);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-SupaOAuth-Signature': `sha256=${signature}`,
-        'X-SupaOAuth-Event': event.type,
-        'X-SupaOAuth-Delivery-Id': `${webhookId}-${Date.now()}`,
-      },
-      body: payload,
-      signal: AbortSignal.timeout(10_000),
-    });
-    await auditRepo.logAudit({
-      eventType: res.ok ? 'webhook.diagnostic_delivered' : 'webhook.diagnostic_failed',
-      resourceType: 'webhook',
-      resourceId: webhookId,
-      actorType: 'system',
-      details: { url, event: event.type, status: res.status },
-    });
-    return { ok: res.ok, status: res.status };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await auditRepo.logAudit({
-      eventType: 'webhook.diagnostic_failed',
-      resourceType: 'webhook',
-      resourceId: webhookId,
-      actorType: 'system',
-      details: { url, event: event.type, error: message },
-    });
-    return { ok: false, error: message };
-  }
-}
-
-async function deliverWithRetry(
-  webhookId: string,
-  url: string,
-  secret: string,
-  event: WebhookEvent,
-  attempt: number = 0,
-): Promise<void> {
-  const payload = JSON.stringify(event);
-  const signature = await computeSignature(payload, secret);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-SupaOAuth-Signature': `sha256=${signature}`,
-        'X-SupaOAuth-Event': event.type,
-        'X-SupaOAuth-Delivery-Id': `${webhookId}-${Date.now()}`,
-      },
-      body: payload,
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (res.ok) {
-      await auditRepo.logAudit({
-        eventType: 'webhook.delivered',
-        resourceType: 'webhook',
-        resourceId: webhookId,
-        actorType: 'system',
-        details: { url, event: event.type, attempt, status: res.status },
-      });
-      return;
-    }
-
-    throw new Error(`Webhook delivery failed: HTTP ${res.status}`);
-  } catch (err) {
-    const errorMsg = (err as Error).message;
-
-    if (attempt < MAX_RETRIES - 1) {
-      const delay = RETRY_DELAYS_MS[attempt];
-      setTimeout(() => {
-        deliverWithRetry(webhookId, url, secret, event, attempt + 1).catch(() => {});
-      }, delay);
-
-      await auditRepo.logAudit({
-        eventType: 'webhook.retry_scheduled',
-        resourceType: 'webhook',
-        resourceId: webhookId,
-        actorType: 'system',
-        details: { url, event: event.type, attempt, nextAttempt: attempt + 1, delay, error: errorMsg },
-      });
-    } else {
-      await auditRepo.logAudit({
-        eventType: 'webhook.delivery_failed',
-        resourceType: 'webhook',
-        resourceId: webhookId,
-        actorType: 'system',
-        details: { url, event: event.type, attempts: attempt + 1, error: errorMsg },
-      });
-
-      // Disable webhook after max retries
-      try {
-        const db = getDb();
-        await db.update(webhooks).set({ enabled: false, updatedAt: new Date() })
-          .where(eq(webhooks.id, webhookId));
-      } catch {
-        // Don't fail if disable fails
-      }
-    }
-  }
+  await getSupaCloudAdapter().enqueueWebhookEvent(event as unknown as Record<string, unknown>);
 }
 
 export const SUPPORTED_WEBHOOK_EVENTS = [

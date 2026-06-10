@@ -5,9 +5,6 @@
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as roleRepo from './roles.js';
 import * as auditRepo from './audit.js';
-import { getDb } from '../db/index.js';
-import { roles, roleAssignments } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
 
 export interface LegacyRoleMapping {
   /** The legacy role value from app_metadata.role */
@@ -46,6 +43,26 @@ export interface MigrationResult {
   dryRun: boolean;
 }
 
+function listItems(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record.items)) return record.items as Array<Record<string, unknown>>;
+    if (Array.isArray(record.users)) return record.users as Array<Record<string, unknown>>;
+    if (Array.isArray(record.roles)) return record.roles as Array<Record<string, unknown>>;
+    if (Array.isArray(record.assignments)) return record.assignments as Array<Record<string, unknown>>;
+  }
+  return [];
+}
+
+function getStringField(record: Record<string, unknown>, fields: string[]) {
+  for (const field of fields) {
+    const value = record[field];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return '';
+}
+
 /**
  * Build a default migration policy based on known SupaCloud business roles.
  * These defaults map seagoo-ai style roles to SupaOAuth equivalents.
@@ -67,21 +84,22 @@ export function buildDefaultPolicy(): MigrationPolicy {
 }
 
 /**
- * Ensure all mapped SupaOAuth roles exist in the database.
+ * Ensure all mapped SupaOAuth roles exist in SupaCloud RBAC.
  * Returns list of created role names.
  */
 export async function ensureRolesExist(policy: MigrationPolicy): Promise<string[]> {
-  const db = getDb();
+  const existingRoles = listItems(await roleRepo.listRoles());
+  const existingNames = new Set(existingRoles.map(role => getStringField(role, ['name', 'role_name'])).filter(Boolean));
   const created: string[] = [];
 
   for (const mapping of policy.mappings) {
-    const existing = await db.select().from(roles).where(eq(roles.name, mapping.supaoauthRole)).limit(1);
-    if (existing.length === 0 && policy.autoCreateRoles) {
-      await db.insert(roles).values({
+    if (!existingNames.has(mapping.supaoauthRole) && policy.autoCreateRoles) {
+      await roleRepo.createRole({
         name: mapping.supaoauthRole,
         description: mapping.description || `Migrated from legacy role: ${mapping.legacyRole}`,
       });
       created.push(mapping.supaoauthRole);
+      existingNames.add(mapping.supaoauthRole);
     }
   }
 
@@ -95,7 +113,6 @@ export async function ensureRolesExist(policy: MigrationPolicy): Promise<string[
  */
 export async function importLegacyRoles(policy: MigrationPolicy): Promise<MigrationResult> {
   const adapter = getSupaCloudAdapter();
-  const db = getDb();
   const result: MigrationResult = {
     total: 0,
     migrated: 0,
@@ -109,8 +126,12 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
   const mappingLookup = new Map(policy.mappings.map(m => [m.legacyRole, m.supaoauthRole]));
 
   // Fetch all users from GoTrue
-  const usersResponse = await adapter.listUsers() as Record<string, unknown>;
-  const users = Array.isArray(usersResponse) ? usersResponse : (usersResponse.users as unknown[]) || [];
+  const users = listItems(await adapter.listUsers());
+  const rolesByName = new Map<string, Record<string, unknown>>();
+  for (const role of listItems(await roleRepo.listRoles())) {
+    const name = getStringField(role, ['name', 'role_name']);
+    if (name) rolesByName.set(name, role);
+  }
 
   result.total = Math.min(users.length, policy.batchSize);
 
@@ -145,26 +166,26 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
     }
 
     try {
-      // Find the SupaOAuth role
-      const roleRows = await db.select().from(roles).where(eq(roles.name, targetRoleName)).limit(1);
-      if (roleRows.length === 0) {
+      const targetRole = rolesByName.get(targetRoleName);
+      const targetRoleId = targetRole ? getStringField(targetRole, ['id', 'role_id']) : '';
+      if (!targetRoleId) {
         result.details.push({
           userId,
           legacyRole,
           targetRole: targetRoleName,
           status: 'error',
-          error: `SupaOAuth role "${targetRoleName}" not found`,
+          error: `SupaCloud RBAC role "${targetRoleName}" not found`,
         });
         result.errors++;
         continue;
       }
 
-      // Check if assignment already exists
-      const existing = await db.select().from(roleAssignments)
-        .where(eq(roleAssignments.userId, userId))
-        .limit(100);
-
-      const alreadyAssigned = existing.some(a => a.roleId === roleRows[0].id && !a.organizationId);
+      const existing = listItems(await roleRepo.getUserRoleAssignments(userId));
+      const alreadyAssigned = existing.some((assignment) => {
+        const roleId = getStringField(assignment, ['roleId', 'role_id']);
+        const organizationId = getStringField(assignment, ['organizationId', 'organization_id']);
+        return roleId === targetRoleId && !organizationId;
+      });
       if (alreadyAssigned) {
         result.details.push({
           userId,
@@ -176,12 +197,9 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
         continue;
       }
 
-      // Create role assignment at user level (no org)
-      await db.insert(roleAssignments).values({
-        roleId: roleRows[0].id,
+      await roleRepo.assignRole({
+        roleId: targetRoleId,
         userId,
-        organizationId: null,
-        applicationId: null,
       });
 
       result.details.push({
@@ -232,18 +250,17 @@ export function generateCompatibilityHelper(projectRef: string): string {
 -- This function bridges SupaOAuth roles to legacy app_metadata.role
 -- for backward compatibility with existing SupaCloud business apps.
 
-CREATE OR REPLACE FUNCTION supaoauth.legacy_role_for_user(user_id UUID)
-RETURNS TEXT AS $$
-DECLARE
-  legacy_role TEXT;
-  supaoauth_roles TEXT[];
-BEGIN
-  -- Read supaoauth roles from the most recent role assignment
-  SELECT array_agg(r.name) INTO supaoauth_roles
-  FROM supaoauth.role_assignments ra
-  JOIN supaoauth.roles r ON r.id = ra.role_id
-  WHERE ra.user_id = legacy_role_for_user.user_id
-    AND ra.organization_id IS NULL;
+	CREATE OR REPLACE FUNCTION supaoauth.legacy_role_for_user(user_id UUID)
+	RETURNS TEXT AS $$
+	DECLARE
+	  legacy_role TEXT;
+	  supaoauth_roles TEXT[];
+	BEGIN
+	  -- Read the SupaCloud-owned RBAC projection synced into GoTrue metadata.
+	  SELECT COALESCE(array_agg(value), ARRAY[]::TEXT[]) INTO supaoauth_roles
+	  FROM auth.users u,
+	       jsonb_array_elements_text(COALESCE(u.raw_app_meta_data -> 'supaoauth' -> 'roles', '[]'::jsonb)) AS value
+	  WHERE u.id = legacy_role_for_user.user_id;
 
   -- Map supaoauth roles to legacy role priority
   IF supaoauth_roles @> ARRAY['admin'] THEN
