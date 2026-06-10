@@ -115,7 +115,13 @@ export async function checkRuntimeHealth(): Promise<RuntimeHealth> {
 
 export async function getDiscovery(): Promise<Record<string, unknown>> {
   try {
-    return (await fetchFirstRuntimeJson('/.well-known/openid-configuration')).json;
+    const { json: disc, candidate } = await fetchFirstRuntimeJson('/.well-known/openid-configuration');
+    // GoTrue 不提供 end_session_endpoint，SupaOAuth 在 discovery 层补上。
+    // 让 @svadmin/sso 等标准 OIDC RP 可以通过 RP-initiated logout 清除 GoTrue session。
+    if (!disc.end_session_endpoint) {
+      disc.end_session_endpoint = runtimeUrl(candidate, '/logout');
+    }
+    return disc;
   } catch {
     throw new Error('Discovery fetch failed');
   }

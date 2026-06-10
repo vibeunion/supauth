@@ -24,6 +24,10 @@ const ENV_LOGIN_LOCKOUT_SEC = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '9
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const SECURITY_CONFIG_CACHE_MS = 10_000;
+// GoTrue session logout URL — used by /v1/auth/logout to also clear the GoTrue session cookie.
+// GoTrue does not advertise end_session_endpoint in OIDC discovery, but POST /auth/v1/logout
+// revokes the session and clears the httpOnly cookie on the auth domain.
+const GOTRUE_LOGOUT_URL = trimTrailingSlash(process.env.GOTRUE_LOGOUT_URL || process.env.OAUTH_RUNTIME_URL || '');
 
 interface AdminSession {
   id: string;
@@ -251,10 +255,36 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
     await recordLoginFailure(ip);
     return { success: false, error: { message: await ssoMessage() || 'Invalid credentials' } };
   })
-  .post('/logout', async ({ headers }) => {
+  .post('/logout', async ({ headers, request }) => {
     const token = bearerToken(headers as Record<string, string | undefined>);
+    // 清除 in-memory admin session（dev 模式 ADMIN_TOKEN 登录的 token）
     if (token) sessions.delete(token);
-    return { success: true };
+
+    // SSO 模式下还需要清除 GoTrue 的 session cookie。
+    // GoTrue 的 bearer token 是 JWT，不在 sessions Map 里，
+    // 但 GoTrue 域的 httpOnly session cookie 仍有效，不清除的话
+    // 下次 authorize GoTrue 会直接发 code，用户感觉"没退出"。
+    if (GOTRUE_LOGOUT_URL) {
+      try {
+        const cookie = (headers as Record<string, string | undefined>).cookie || '';
+        await fetch(`${GOTRUE_LOGOUT_URL}/auth/v1/logout`, {
+          method: 'POST',
+          headers: { cookie },
+        });
+      } catch {
+        // GoTrue 不可达时仍返回成功，前端也会直接清本地 token
+      }
+    }
+
+    // 设置 Set-Cookie 头清除浏览器侧可能残留的 SupaOAuth session cookie
+    const setCookieHeaders: string[] = [];
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: {
+        'content-type': 'application/json',
+        ...(setCookieHeaders.length ? { 'set-cookie': setCookieHeaders.join(', ') } : {}),
+      },
+    });
   })
   .get('/identity', async ({ headers }) => {
     const session = await verifyAdminBearer(headers as Record<string, string | undefined>);

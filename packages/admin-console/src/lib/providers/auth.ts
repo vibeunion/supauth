@@ -16,6 +16,10 @@ const SSO_CLIENT_ID = import.meta.env.VITE_ADMIN_SSO_CLIENT_ID || import.meta.en
 const SSO_REDIRECT_URI = import.meta.env.VITE_ADMIN_SSO_REDIRECT_URI || defaultRedirectUri();
 const SSO_LOGOUT_REDIRECT_URI = import.meta.env.VITE_ADMIN_SSO_POST_LOGOUT_REDIRECT_URI || defaultLoginUri();
 const USE_SSO = Boolean(SSO_ISSUER && SSO_CLIENT_ID);
+// GoTrue session logout endpoint — clears httpOnly session cookie on the auth domain.
+// GoTrue does not advertise this in OIDC discovery (no end_session_endpoint),
+// but it does expose POST /auth/v1/logout which revokes the session and clears the cookie.
+const GOTRUE_LOGOUT_URL = import.meta.env.VITE_GOTRUE_LOGOUT_URL || '';
 
 async function request(path: string, options: RequestInit = {}): Promise<unknown> {
   const url = `${API_BASE}${path}`;
@@ -119,11 +123,29 @@ function createSupaOAuthSSOProvider(): AuthProvider {
     login: () => ssoProvider.login({}),
 
     logout: async (): Promise<AuthActionResult> => {
+      // 1. 清除 GoTrue session cookie（GoTrue 不在 OIDC discovery 暴露 end_session_endpoint，
+      //    但 POST /auth/v1/logout 会吊销 session 并清除 httpOnly cookie）。
+      //    这是退出不彻底的根因：不清这个 cookie，GoTrue 下次 authorize 直接发 code。
+      if (GOTRUE_LOGOUT_URL) {
+        try {
+          await fetch(GOTRUE_LOGOUT_URL, { method: 'POST', credentials: 'include' });
+        } catch {
+          // GoTrue 不可达时仍继续清本地 token
+        }
+      }
+
+      // 2. 通知 SupaOAuth BFF 吊销 admin session
       try {
         await request('/v1/auth/logout', { method: 'POST' });
       } catch {
-        // Browser-side SSO logout still clears tokens even if the BFF is unreachable.
+        // BFF 不可达时仍继续清本地 token
       }
+
+      // 3. 清除 localStorage 里的 admin token
+      clearStoredAdminToken();
+
+      // 4. SSO provider logout — 清除 localStorage SSO tokens，
+      //    如 IdP 有 end_session_endpoint 则还会跳转 IdP 做 RP-initiated logout
       return ssoProvider.logout({});
     },
 

@@ -146,6 +146,50 @@ describe('getDiscovery', () => {
     expect(result.issuer).toBe('http://test');
   });
 
+  it('injects end_session_endpoint when GoTrue discovery does not provide one', async () => {
+    // GoTrue 不提供 end_session_endpoint，SupaOAuth 需要补上
+    const doc = {
+      issuer: 'http://runtime.test/auth/v1',
+      authorization_endpoint: 'http://runtime.test/auth/v1/authorize',
+      token_endpoint: 'http://runtime.test/auth/v1/token',
+    };
+    globalThis.fetch = mock((_input: string | URL | Request) => {
+      const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
+      if (url.includes('/.well-known/openid-configuration')) {
+        return Promise.resolve(new Response(JSON.stringify(doc), { status: 200 }));
+      }
+      return Promise.resolve(new Response('not found', { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    const { getDiscovery } = await import('../runtime/index.js');
+    const result = await getDiscovery();
+    expect(result.end_session_endpoint).toBeTruthy();
+    expect(typeof result.end_session_endpoint).toBe('string');
+    // 应该指向 GoTrue 的 /logout 端点
+    expect((result.end_session_endpoint as string)).toContain('/logout');
+  });
+
+  it('preserves existing end_session_endpoint if GoTrue provides one', async () => {
+    const originalEndpoint = 'http://runtime.test/auth/v1/session/end';
+    const doc = {
+      issuer: 'http://runtime.test/auth/v1',
+      authorization_endpoint: 'http://runtime.test/auth/v1/authorize',
+      token_endpoint: 'http://runtime.test/auth/v1/token',
+      end_session_endpoint: originalEndpoint,
+    };
+    globalThis.fetch = mock((_input: string | URL | Request) => {
+      const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
+      if (url.includes('/.well-known/openid-configuration')) {
+        return Promise.resolve(new Response(JSON.stringify(doc), { status: 200 }));
+      }
+      return Promise.resolve(new Response('not found', { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    const { getDiscovery } = await import('../runtime/index.js');
+    const result = await getDiscovery();
+    expect(result.end_session_endpoint).toBe(originalEndpoint);
+  });
+
   it('throws on non-2xx response', async () => {
     globalThis.fetch = mock(() =>
       Promise.resolve(new Response('error', { status: 500 }))
