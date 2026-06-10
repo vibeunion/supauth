@@ -78,15 +78,11 @@ describe('SupaCloud app installer', () => {
           return new Response('ok', { status: 200 });
         }
 
-        if (url.pathname === '/v1/projects/project_123/database/migrations') {
+        if (url.pathname === '/v1/projects/project_123/database/sql') {
           const body = JSON.parse(String(init?.body));
-          if (body.name === 'supauth-overlay-schema') {
-            expect(body.sql).toContain('CREATE SCHEMA IF NOT EXISTS supaoauth');
-          } else {
-            expect(body.name).toBe('supauth-overlay-project-role-grants');
-            expect(body.sql).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA supaoauth');
-          }
-          return new Response(JSON.stringify({ version: 123, name: body.name }), { status: 200 });
+          expect(body.mode).toBe('admin');
+          expect(body.admin).toBe(true);
+          return new Response(JSON.stringify({ command: 'OK' }), { status: 200 });
         }
 
         if (url.pathname === '/v1/projects/project_123/secrets') {
@@ -102,14 +98,23 @@ describe('SupaCloud app installer', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(calls).toEqual([
-      'POST /v1/projects/project_123/database/migrations',
-      'POST /v1/projects/project_123/database/migrations',
-      'POST /v1/projects/project_123/secrets',
+    expect(calls[0]).toBe('POST /v1/projects/project_123/database/sql');
+    expect(calls).toContain('POST /v1/projects/project_123/secrets');
+    expect(calls.slice(-3)).toEqual([
       'POST /v1/projects/project_123/functions/supauth/bundle',
       'PATCH /v1/projects/project_123/functions/supauth/config',
       'GET /functions/v1/supauth/api/v1/health',
     ]);
+    expect(calls.indexOf('POST /v1/projects/project_123/database/sql')).toBeLessThan(
+      calls.indexOf('POST /v1/projects/project_123/secrets'),
+    );
+    expect(calls).toEqual(expect.arrayContaining([
+      'POST /v1/projects/project_123/database/sql',
+      'POST /v1/projects/project_123/secrets',
+      'POST /v1/projects/project_123/functions/supauth/bundle',
+      'PATCH /v1/projects/project_123/functions/supauth/config',
+      'GET /functions/v1/supauth/api/v1/health',
+    ]));
   });
 
   it('prefers SupaCloud env-file values and refuses stale generic DATABASE_URL for function DB', async () => {

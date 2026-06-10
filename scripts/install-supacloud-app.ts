@@ -296,16 +296,113 @@ async function configureGatewayRoutes(input: {
   });
 }
 
+function splitSqlStatements(sql: string) {
+  const statements: string[] = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let dollarQuoteTag = '';
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1] || '';
+
+    if (inLineComment) {
+      current += char;
+      if (char === '\n') inLineComment = false;
+      continue;
+    }
+
+    if (inBlockComment) {
+      current += char;
+      if (char === '*' && next === '/') {
+        current += next;
+        index += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && !dollarQuoteTag && char === '-' && next === '-') {
+      current += char + next;
+      index += 1;
+      inLineComment = true;
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && !dollarQuoteTag && char === '/' && next === '*') {
+      current += char + next;
+      index += 1;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (!inDoubleQuote && !dollarQuoteTag && char === "'") {
+      current += char;
+      if (inSingleQuote && next === "'") {
+        current += next;
+        index += 1;
+        continue;
+      }
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (!inSingleQuote && !dollarQuoteTag && char === '"') {
+      current += char;
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && char === '$') {
+      const match = sql.slice(index).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/);
+      if (match) {
+        const tag = match[0];
+        if (!dollarQuoteTag) {
+          dollarQuoteTag = tag;
+          current += tag;
+          index += tag.length - 1;
+          continue;
+        }
+        if (dollarQuoteTag === tag) {
+          dollarQuoteTag = '';
+          current += tag;
+          index += tag.length - 1;
+          continue;
+        }
+      }
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && !dollarQuoteTag && char === ';') {
+      const statement = current.trim();
+      if (statement) statements.push(statement);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements.filter((statement) => statement.replace(/--.*$/gm, '').trim().length > 0);
+}
+
 async function runSupacloudMigration(client: SupacloudClient, projectRef: string, name: string, sql: string) {
-  const response = await client.request(`/v1/projects/${projectRef}/database/migrations`, {
-    method: 'POST',
-    okStatuses: [409],
-    body: JSON.stringify({
-      name,
-      sql,
-    }),
-  });
-  return response.status;
+  const statements = splitSqlStatements(sql);
+  for (const statement of statements) {
+    await client.request(`/v1/projects/${projectRef}/database/sql`, {
+      method: 'POST',
+      body: JSON.stringify({
+        sql: statement,
+        mode: 'admin',
+        admin: true,
+      }),
+    });
+  }
+  return { name, statements: statements.length };
 }
 
 async function directFunctionProbe(runtimeUrl: string, fetchImpl: FetchImpl) {
