@@ -4,7 +4,7 @@
 
 ## English
 
-SupaOAuth is an independent Identity Provider (IdP) — a standalone user center comparable to Logto. It orchestrates authentication, authorization, and user management for business applications while remaining compatible with the Supabase ecosystem.
+SupaOAuth is a SupaCloud-hosted Identity Provider (IdP) surface comparable to Logto. It orchestrates authentication, authorization, and user management for business applications while remaining compatible with the Supabase ecosystem.
 
 It is not a thin admin panel for GoTrue environment variables.
 
@@ -13,10 +13,10 @@ It is not a thin admin panel for GoTrue environment variables.
 Three explicit layers:
 
 1. **Supabase-compatible runtime** — GoTrue, Kong, and Supabase API paths handle OIDC/OAuth protocol, JWT signing, `auth.users`, and RLS-compatible claims.
-2. **Logto-like product control plane** — SupaOAuth owns Applications, API Resources, Scopes, Roles, Organizations, Connectors, Sign-in Experience, Audit, Webhooks, and Management API/SDKs.
-3. **SupaCloud orchestration** — Applies product intent to GoTrue env injection, Kong routes, instance lifecycle, user/MFA proxy.
+2. **Logto-like product surface** — SupaOAuth provides the Admin Console, hosted pages, SDKs, and overlay APIs while calling SupaCloud Management API for Applications, Users, Organizations, RBAC, Audit, Webhooks, and Providers.
+3. **SupaCloud orchestration** — Owns the Management API source of truth and applies GoTrue env injection, Kong routes, instance lifecycle, user/MFA proxy, webhook delivery, and managed background jobs.
 
-SupaOAuth does not reimplement OIDC token signing or authorization-code issuance. GoTrue handles the protocol runtime. SupaOAuth is the control plane, BFF, metadata owner, and runtime verifier.
+SupaOAuth does not reimplement OIDC token signing or authorization-code issuance. GoTrue handles the protocol runtime. SupaOAuth is the SupaCloud Function BFF, product overlay owner, SDK/API facade, and runtime verifier.
 
 See [docs/architecture.md](docs/architecture.md) for full details.
 
@@ -54,26 +54,29 @@ Install dependencies and create `.env` from `.env.example`:
 bun run setup
 ```
 
-Edit `.env` with your SupaCloud values, then initialize the metadata schema in SupaCloud Postgres:
+Edit `.env` with your SupaCloud values, then install into the target SupaCloud project. SupaCloud Management API applies the hosted migrations:
 
 ```sh
-bun run migrate
+bun run build
+bun run install:supacloud
 ```
 
-Start auth-server and admin console together:
+Start the local development function shim and admin console together:
 
 ```sh
 bun run dev
 ```
 
-The admin console runs on `http://localhost:5173/admin`. During development, Vite proxies `/api/*` to `http://localhost:4010/*`, so browser code still uses `VITE_AUTH_SERVER_URL=/api`.
+The admin console runs on `http://localhost:5173/admin`. During development, Vite proxies `/api/*` to the local SupaCloud Function emulator on `http://localhost:4010/*`, so browser code still uses `VITE_AUTH_SERVER_URL=/api`. All SupAuth HTTP execution must use `packages/auth-server/src/supacloud-function.ts`; there is no standalone auth-server service.
 
 Useful commands:
 
 ```sh
-bun run dev:server   # auth-server only
+bun run dev:function # local SupaCloud Function emulator only
 bun run dev:admin    # admin-console only
-bun run build        # all packages
+bun run build        # SupaCloud app manifest + Function + Pages artifacts
+bun run check        # typecheck + tests + admin-console build
+```
 
 ### SDK
 
@@ -131,9 +134,6 @@ const config = await resolveSupabaseAuthUiConfig({
 <Auth supabaseClient={supabase} {...config.auth} />
 ```
 
-bun run check        # typecheck + tests + admin-console build
-```
-
 ### Environment
 
 Auth server (server-side only, no `VITE_` prefix):
@@ -141,12 +141,12 @@ Auth server (server-side only, no `VITE_` prefix):
 ```sh
 PORT=4010
 HOST=0.0.0.0
-SUPACLOUD_API_URL=http://localhost:9090
-SUPACLOUD_MASTER_TOKEN=<never-expose-to-browser>
-PROJECT_REF=<your-project>
-OAUTH_RUNTIME_URL=http://localhost:9999
+SUPACLOUD_INTERNAL_API_URL=<injected-by-supacloud>
+SUPACLOUD_INTERNAL_TOKEN=<injected-by-supacloud-never-expose-to-browser>
+SUPACLOUD_PROJECT_REF=<injected-by-supacloud>
+SUPACLOUD_RUNTIME_URL=<injected-by-supacloud>
 RUNTIME_MODE=gotrue
-DATABASE_URL=postgres://supaoauth:password@localhost:5432/supabase
+SUPACLOUD_DATABASE_URL=<injected-by-supacloud>
 CORS_ORIGINS=http://localhost:5173
 ADMIN_TOKEN=<development-admin-token>
 LOG_LEVEL=info
@@ -176,7 +176,7 @@ No management tokens or service-role keys in `VITE_*` variables.
 Optional:
 
 ```sh
-SUPACLOUD_STORAGE_URL=http://localhost:8000
+SUPACLOUD_STORAGE_URL=https://project-ref.supacloud.example.com
 AUTH_SERVER_PROXY_TARGET=http://localhost:4010
 ```
 
@@ -191,10 +191,10 @@ SupaOAuth 是一个独立身份提供方（IdP），定位是类似 Logto 的独
 系统分为三层：
 
 1. **Supabase 兼容 runtime** — GoTrue、Kong 和 Supabase API 路径负责 OIDC/OAuth 协议、JWT 签名、`auth.users` 和 RLS 兼容 claims。
-2. **类似 Logto 的产品控制面** — SupaOAuth 自持 Applications、API Resources、Scopes、Roles、Organizations、Connectors、Sign-in Experience、Audit、Webhooks，以及 Management API/SDKs。
-3. **SupaCloud 编排层** — 将产品意图落到 GoTrue env 注入、Kong 路由、实例生命周期、用户/MFA 代理等能力上。
+2. **类似 Logto 的产品表面** — SupaOAuth 提供 Admin Console、hosted pages、SDK 和 overlay API；Applications、Users、Organizations、RBAC、Audit、Webhooks、Providers 等主数据通过 SupaCloud Management API 管理。
+3. **SupaCloud 编排层** — 拥有 Management API source of truth，并负责 GoTrue env 注入、Kong 路由、实例生命周期、用户/MFA 代理、Webhook 投递和托管后台任务。
 
-SupaOAuth 不重新实现 OIDC token 签名或 authorization code 签发。协议 runtime 由 GoTrue 负责；SupaOAuth 是控制面、BFF、metadata owner 和 runtime verifier。
+SupaOAuth 不重新实现 OIDC token 签名或 authorization code 签发。协议 runtime 由 GoTrue 负责；SupaOAuth 是 SupaCloud Function BFF、产品 overlay owner、SDK/API facade 和 runtime verifier。
 
 完整说明见 [docs/architecture.md](docs/architecture.md)。
 
@@ -232,27 +232,29 @@ packages/
 bun run setup
 ```
 
-填写 `.env` 中的 SupaCloud 配置，然后初始化 SupaCloud Postgres 中的 metadata schema：
+填写 `.env` 中的 SupaCloud 配置，然后安装到目标 SupaCloud 项目。迁移由 SupaCloud Management API 托管执行：
 
 ```sh
-bun run migrate
+bun run build
+bun run install:supacloud
 ```
 
-同时启动 auth-server 和 admin console：
+同时启动本地开发 function shim 和 admin console：
 
 ```sh
 bun run dev
 ```
 
-Admin console 运行在 `http://localhost:5173/admin`。开发时 Vite 会把 `/api/*` 代理到 `http://localhost:4010/*`，所以浏览器代码仍使用 `VITE_AUTH_SERVER_URL=/api`。
+Admin console 运行在 `http://localhost:5173/admin`。开发时 Vite 会把 `/api/*` 代理到本地 SupaCloud Function emulator `http://localhost:4010/*`，所以浏览器代码仍使用 `VITE_AUTH_SERVER_URL=/api`。所有 SupAuth HTTP 执行都必须使用 `packages/auth-server/src/supacloud-function.ts`，不再存在独立 auth-server service。
 
 常用命令：
 
 ```sh
-bun run dev:server   # 只启动 auth-server
+bun run dev:function # 只启动本地 SupaCloud Function emulator
 bun run dev:admin    # 只启动 admin-console
-bun run build        # 构建所有 packages
+bun run build        # 构建 SupaCloud app manifest + Function + Pages 产物
 bun run check        # typecheck + tests + admin-console build
+```
 
 ### SDK
 
@@ -319,12 +321,12 @@ Auth server（仅服务端使用，不加 `VITE_` 前缀）：
 ```sh
 PORT=4010
 HOST=0.0.0.0
-SUPACLOUD_API_URL=http://localhost:9090
-SUPACLOUD_MASTER_TOKEN=<never-expose-to-browser>
-PROJECT_REF=<your-project>
-OAUTH_RUNTIME_URL=http://localhost:9999
+SUPACLOUD_INTERNAL_API_URL=<由-supacloud-注入>
+SUPACLOUD_INTERNAL_TOKEN=<由-supacloud-注入-绝不暴露到浏览器>
+SUPACLOUD_PROJECT_REF=<由-supacloud-注入>
+SUPACLOUD_RUNTIME_URL=<由-supacloud-注入>
 RUNTIME_MODE=gotrue
-DATABASE_URL=postgres://supaoauth:password@localhost:5432/supabase
+SUPACLOUD_DATABASE_URL=<由-supacloud-注入>
 CORS_ORIGINS=http://localhost:5173
 ADMIN_TOKEN=<development-admin-token>
 LOG_LEVEL=info
@@ -354,6 +356,6 @@ VITE_AUTH_SERVER_URL=/api
 可选项：
 
 ```sh
-SUPACLOUD_STORAGE_URL=http://localhost:8000
+SUPACLOUD_STORAGE_URL=https://project-ref.supacloud.example.com
 AUTH_SERVER_PROXY_TARGET=http://localhost:4010
 ```

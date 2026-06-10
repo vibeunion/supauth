@@ -18,7 +18,7 @@ export interface RouteProbe {
 
 export interface DomainAudit {
   domain: string;
-  adminReachable: boolean;
+  functionReachable: boolean;
   apiReachable: boolean;
   authReachable: boolean;
   tlsValid: boolean;
@@ -35,7 +35,7 @@ export interface IntegrationGateResult {
     oauthRuntimeUrl: string;
     runtimeMode: string;
     corsOrigins: string[];
-    adminUrl: string;
+    supauthUrl: string;
     runtimeUrl: string;
     extraDomains: string[];
   };
@@ -105,13 +105,15 @@ function parseCsv(value?: string): string[] {
 
 function resolveRouteGateInput(query?: Record<string, unknown>): {
   projectRef: string;
-  adminUrl: string;
+  supauthUrl: string;
   runtimeUrl: string;
   extraDomains: string[];
 } {
   const config = getConfig();
-  const adminUrl = String(
+  const supauthUrl = String(
+    query?.supauth_url ||
     query?.admin_url ||
+    process.env.SUPAUTH_INSTALLED_BASE_URL ||
     process.env.SUPAOAUTH_ROUTE_GATE_ADMIN_URL ||
     process.env.SUPAOAUTH_ADMIN_URL ||
     localAdminUrl(),
@@ -128,7 +130,7 @@ function resolveRouteGateInput(query?: Record<string, unknown>): {
 
   return {
     projectRef: String(query?.project_ref || config.projectRef),
-    adminUrl: normalizeBaseUrl(adminUrl),
+    supauthUrl: normalizeBaseUrl(supauthUrl),
     runtimeUrl: normalizeBaseUrl(runtimeUrl),
     extraDomains: extraDomains.map(normalizeBaseUrl),
   };
@@ -138,13 +140,13 @@ async function auditDomain(baseUrl: string): Promise<DomainAudit> {
   try {
     const url = new URL(baseUrl);
     const [adminRes, apiRes, runtimeRes] = await Promise.all([
-      fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
+      fetch(`${baseUrl}/api/v1/health`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
       fetch(`${baseUrl}/rest/v1/`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
       fetch(`${baseUrl}/auth/v1/health`, { signal: AbortSignal.timeout(5000) }).catch(() => null),
     ]);
     return {
       domain: url.hostname,
-      adminReachable: adminRes?.ok ?? false,
+      functionReachable: adminRes?.ok ?? false,
       apiReachable: apiRes?.ok ?? false,
       authReachable: runtimeRes?.ok ?? false,
       tlsValid: url.protocol === 'https:',
@@ -152,7 +154,7 @@ async function auditDomain(baseUrl: string): Promise<DomainAudit> {
   } catch {
     return {
       domain: baseUrl,
-      adminReachable: false,
+      functionReachable: false,
       apiReachable: false,
       authReachable: false,
       tlsValid: false,
@@ -167,24 +169,25 @@ async function auditDomain(baseUrl: string): Promise<DomainAudit> {
  */
 export async function runIntegrationGate(
   projectRef: string,
-  adminUrl: string,
+  supauthUrl: string,
   runtimeUrl: string,
   extraDomains: string[] = [],
 ): Promise<IntegrationGateResult> {
   const config = getConfig();
   const conflicts: string[] = [];
-  const normalizedAdminUrl = normalizeBaseUrl(adminUrl);
+  const normalizedSupauthUrl = normalizeBaseUrl(supauthUrl);
   const normalizedRuntimeUrl = normalizeBaseUrl(runtimeUrl);
   const normalizedExtraDomains = extraDomains.map(normalizeBaseUrl);
 
-  // 1. Probe SupaOAuth admin routes
-  const adminRoutes: RouteProbe[] = await Promise.all([
-    probeRoute(normalizedAdminUrl, 'admin_root', '/admin', 'GET', [200, 301, 302]),
-    probeRoute(normalizedAdminUrl, 'health', '/v1/health', 'GET', [200]),
-    probeRoute(normalizedAdminUrl, 'swagger', '/swagger', 'GET', [200]),
-    probeRoute(normalizedAdminUrl, 'applications_unauth', '/v1/applications', 'GET', [401]),
-    probeRoute(normalizedAdminUrl, 'public_sie', '/v1/sign-in-experience/public', 'GET', [200, 404]),
-    probeRoute(normalizedAdminUrl, 'public_oauth', '/oauth/authorize', 'GET', [200, 302, 400, 404]),
+  // 1. Probe SupAuth SupaCloud Function/Pages routes
+  const supauthRoutes: RouteProbe[] = await Promise.all([
+    probeRoute(normalizedSupauthUrl, 'admin_root', '/admin', 'GET', [200, 301, 302]),
+    probeRoute(normalizedSupauthUrl, 'function_health', '/api/v1/health', 'GET', [200]),
+    probeRoute(normalizedSupauthUrl, 'swagger', '/api/swagger', 'GET', [200]),
+    probeRoute(normalizedSupauthUrl, 'applications_unauth', '/api/v1/applications', 'GET', [401]),
+    probeRoute(normalizedSupauthUrl, 'public_sie', '/v1/public/sign-in-experience/resolve', 'GET', [200, 400, 401, 422]),
+    probeRoute(normalizedSupauthUrl, 'public_oauth', '/oauth/authorize', 'GET', [200, 302, 400]),
+    probeRoute(normalizedSupauthUrl, 'claim_page', '/claim', 'GET', [200]),
   ]);
 
   // 2. Probe Supabase runtime routes (must not be broken)
@@ -203,16 +206,16 @@ export async function runIntegrationGate(
       conflicts.push(`${probe.name}: upstream error ${probe.actualStatus} on ${probe.path}`);
     }
     if (probe.error?.includes('no Route matched')) {
-      conflicts.push(`${probe.name}: Kong route miss on ${probe.path}`);
+      conflicts.push(`${probe.name}: SupaCloud gateway route miss on ${probe.path}`);
     }
   }
 
   // 4. Domain audit
   const domainAudit = await Promise.all(
-    [...new Set([normalizedAdminUrl, normalizedRuntimeUrl, ...normalizedExtraDomains])].map(auditDomain),
+    [...new Set([normalizedSupauthUrl, normalizedRuntimeUrl, ...normalizedExtraDomains])].map(auditDomain),
   );
 
-  const allRoutes = [...adminRoutes, ...runtimeRoutes];
+  const allRoutes = [...supauthRoutes, ...runtimeRoutes];
   const allPassed = allRoutes.every(r => r.ok) && conflicts.length === 0;
 
   return {
@@ -225,7 +228,7 @@ export async function runIntegrationGate(
       oauthRuntimeUrl: config.oauthRuntimeUrl,
       runtimeMode: config.runtimeMode,
       corsOrigins: config.corsOrigins,
-      adminUrl: normalizedAdminUrl,
+      supauthUrl: normalizedSupauthUrl,
       runtimeUrl: normalizedRuntimeUrl,
       extraDomains: normalizedExtraDomains,
     },
@@ -237,18 +240,18 @@ export async function runIntegrationGate(
 export const routeGateRoutes = new Elysia({ prefix: '/v1/route-gate' })
   .get('/', async ({ query }) => {
     const input = resolveRouteGateInput(query as Record<string, unknown>);
-    return runIntegrationGate(input.projectRef, input.adminUrl, input.runtimeUrl, input.extraDomains);
+    return runIntegrationGate(input.projectRef, input.supauthUrl, input.runtimeUrl, input.extraDomains);
   }, {
     detail: {
       summary: 'Run route/domain integration gate',
-      description: 'Validates all SupaOAuth admin routes and Supabase runtime routes are reachable on the target stack. Reports conflicts, missing routes, and domain health.',
+      description: 'Validates installed SupAuth Function/Pages routes and preserved Supabase runtime routes on the target SupaCloud project. Reports conflicts, missing routes, and domain health.',
       tags: ['Route Gate'],
     },
   })
 
   .get('/routes', async ({ query }) => {
     const input = resolveRouteGateInput(query as Record<string, unknown>);
-    const result = await runIntegrationGate(input.projectRef, input.adminUrl, input.runtimeUrl, input.extraDomains);
+    const result = await runIntegrationGate(input.projectRef, input.supauthUrl, input.runtimeUrl, input.extraDomains);
     return {
       total: result.routes.length,
       passed: result.routes.filter(r => r.ok).length,

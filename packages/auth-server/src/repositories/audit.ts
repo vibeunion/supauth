@@ -1,10 +1,10 @@
-// Audit log repository — backed by SupaCloud Postgres
+// Audit facade. SupaCloud owns platform audit storage/querying; SupAuth
+// submits product-level events from Function handlers and does not require a
+// local audit_logs table on new installs.
 
-import { desc, eq, and, gte, lte } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { auditLogs } from '../db/schema.js';
-import { getCurrentRequestId } from '../middleware/index.js';
 import { getConfig } from '../config/index.js';
+import { getCurrentRequestId } from '../middleware/index.js';
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 
 export async function logAudit(event: {
   eventType: string;
@@ -14,27 +14,27 @@ export async function logAudit(event: {
   resourceId: string;
   details?: Record<string, unknown>;
 }) {
-  const db = getDb();
   const config = getConfig();
-  const [entry] = await db.insert(auditLogs).values({
-    eventType: event.eventType,
-    actorId: event.actorId || null,
-    actorType: event.actorType || 'system',
-    resourceType: event.resourceType,
-    resourceId: event.resourceId,
-    details: {
-      ...(event.details || {}),
-      request_id: getCurrentRequestId() || null,
-      project_ref: config.projectRef || null,
-    },
-  }).returning();
-  return entry;
+  try {
+    return await getSupaCloudAdapter().recordAuditEvent({
+      event_type: event.eventType,
+      actor_id: event.actorId || null,
+      actor_type: event.actorType || 'system',
+      resource_type: event.resourceType,
+      resource_id: event.resourceId,
+      details: {
+        ...(event.details || {}),
+        request_id: getCurrentRequestId() || null,
+        project_ref: config.projectRef || null,
+      },
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function getAuditLog(id: string) {
-  const db = getDb();
-  const rows = await db.select().from(auditLogs).where(eq(auditLogs.id, id)).limit(1);
-  return rows[0] || null;
+  return getSupaCloudAdapter().getAuditLog(id);
 }
 
 export async function queryAuditLogs(options?: {
@@ -47,20 +47,14 @@ export async function queryAuditLogs(options?: {
   from?: Date;
   to?: Date;
 }) {
-  const db = getDb();
-  const conditions = [];
-  if (options?.eventType) conditions.push(eq(auditLogs.eventType, options.eventType));
-  if (options?.resourceType) conditions.push(eq(auditLogs.resourceType, options.resourceType));
-  if (options?.resourceId) conditions.push(eq(auditLogs.resourceId, options.resourceId));
-  if (options?.actorId) conditions.push(eq(auditLogs.actorId, options.actorId));
-  if (options?.from) conditions.push(gte(auditLogs.createdAt, options.from));
-  if (options?.to) conditions.push(lte(auditLogs.createdAt, options.to));
-
-  const query = conditions.length > 0
-    ? db.select().from(auditLogs).where(and(...conditions)).orderBy(desc(auditLogs.createdAt))
-    : db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
-
-  const limit = options?.limit || 50;
-  const offset = options?.offset || 0;
-  return query.limit(limit).offset(offset);
+  return getSupaCloudAdapter().queryAuditLogs({
+    event_type: options?.eventType,
+    resource_type: options?.resourceType,
+    resource_id: options?.resourceId,
+    actor_id: options?.actorId,
+    limit: options?.limit,
+    offset: options?.offset,
+    from: options?.from,
+    to: options?.to,
+  });
 }

@@ -66,7 +66,7 @@ describe('RBAC Compatibility Inspector', () => {
     const results = await runRBACCompatibilityChecks();
     const authorizeCheck = results.find(r => r.check_id === 'rb-1-authorize-function');
     expect(authorizeCheck?.details).toBeDefined();
-    expect(authorizeCheck?.details?.required_action).toContain('migrate');
+    expect(authorizeCheck?.details?.required_action).toContain('install:supacloud');
   });
 
   it('warns about unsafe RLS patterns', async () => {

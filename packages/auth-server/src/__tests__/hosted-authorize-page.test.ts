@@ -36,6 +36,16 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
+  test('GET /claim serves the account claim page', async () => {
+    const response = await request('http://localhost/claim');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Account Claim</title>');
+    expect(body).toContain('/account-claims/claim');
+  });
+
   test('hosted login page normalizes credentials and maps GoTrue login errors', async () => {
     const response = await request('http://localhost/login.html');
     const body = await response.text();

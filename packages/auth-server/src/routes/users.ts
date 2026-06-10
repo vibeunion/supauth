@@ -2,10 +2,8 @@
 
 import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
-import * as roleRepo from '../repositories/roles.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
-import * as accountRepo from '../repositories/account-control.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -15,6 +13,15 @@ async function audit(eventType: string, resourceType: string, resourceId: string
 
 async function fireWebhook(eventType: string, data: Record<string, unknown>) {
   try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
+}
+
+function toListResponse(value: unknown) {
+  if (Array.isArray(value)) return { items: value, total: value.length };
+  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
+    const items = (value as { items: unknown[]; total?: unknown }).items;
+    return { items, total: typeof (value as { total?: unknown }).total === 'number' ? (value as { total: number }).total : items.length };
+  }
+  return { items: [], total: 0 };
 }
 
 export const userRoutes = new Elysia({ prefix: '/v1/users' })
@@ -48,25 +55,18 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
     detail: { summary: 'Delete user', tags: ['Users'] },
   })
   .get('/:userId/sessions', async ({ params }) => {
-    const items = await accountRepo.listAccountSessions(params.userId);
-    return { items, total: items.length };
+    return toListResponse(await adapter.listUserSessions(params.userId));
   }, {
     detail: { summary: 'List tracked account-center sessions for user', tags: ['Users', 'Account Center'] },
   })
   .post('/:userId/sessions', async ({ params, body }) => {
     const data = body as { session_id: string; metadata?: Record<string, unknown> };
-    return accountRepo.recordAccountSession(params.userId, data.session_id, data.metadata);
+    return adapter.recordUserSession(params.userId, data as Record<string, unknown>);
   }, {
     detail: { summary: 'Record account-center session metadata', tags: ['Users', 'Account Center'] },
   })
   .post('/:userId/sessions/:sessionId/revoke', async ({ params }) => {
-    try {
-      await adapter.revokeUserSession(params.userId, params.sessionId);
-    } catch {
-      // Keep local audit trail even when the SupaCloud runtime does not expose session revocation.
-    }
-    const session = await accountRepo.revokeAccountSession(params.userId, params.sessionId);
-    return session || { userId: params.userId, sessionId: params.sessionId, status: 'revoked' };
+    return adapter.revokeUserSession(params.userId, params.sessionId);
   }, {
     detail: { summary: 'Revoke user session', tags: ['Users', 'Account Center'] },
   })
@@ -86,13 +86,12 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
   })
   .get('/:userId/permissions', async ({ params, query }) => {
     const orgId = query.org_id as string | undefined;
-    return roleRepo.resolveUserPermissions(params.userId, orgId);
+    return adapter.resolveUserPermissions(params.userId, orgId);
   }, {
     detail: { summary: 'Resolve effective permissions for a user', tags: ['Users', 'RBAC'] },
   })
   .get('/:userId/roles', async ({ params }) => {
-    const assignments = await roleRepo.getUserRoleAssignments(params.userId);
-    return { items: assignments, total: assignments.length };
+    return toListResponse(await adapter.getUserRoleAssignments(params.userId));
   }, {
     detail: { summary: 'Get role assignments for a user', tags: ['Users', 'RBAC'] },
   });
