@@ -9,16 +9,17 @@
 export {};
 
 const runtimeUrl = (process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999').replace(/\/+$/, '');
-const managementUrl = (process.env.MANAGEMENT_URL || 'http://localhost:4010').replace(/\/+$/, '');
+const supauthUrl = (process.env.SUPAUTH_INSTALLED_BASE_URL || process.env.MANAGEMENT_URL || 'http://localhost:4010').replace(/\/+$/, '');
 const concurrency = parseInt(process.env.CAPACITY_CONCURRENCY || '10', 10);
 const iterations = parseInt(process.env.CAPACITY_ITERATIONS || '50', 10);
+const supauthHealthPath = supauthUrl.endsWith('/api') ? '/v1/health' : '/api/v1/health';
 
 const targets = [
   { name: 'gotrue_health', url: `${runtimeUrl}/auth/v1/health` },
   { name: 'oidc_discovery', url: `${runtimeUrl}/auth/v1/.well-known/openid-configuration` },
   { name: 'postgrest_root', url: `${runtimeUrl}/rest/v1/` },
   { name: 'storage_bucket', url: `${runtimeUrl}/storage/v1/bucket` },
-  { name: 'management_health', url: `${managementUrl}/v1/health` },
+  { name: 'supauth_function_health', url: `${supauthUrl}${supauthHealthPath}` },
 ];
 
 interface Sample {

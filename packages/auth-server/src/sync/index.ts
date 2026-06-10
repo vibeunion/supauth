@@ -4,7 +4,6 @@
 // `supaoauth` namespace without clobbering `role`, `provider`, or other fields.
 
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
-import * as roleRepo from '../repositories/roles.js';
 import * as auditRepo from '../repositories/audit.js';
 import { getConfig } from '../config/index.js';
 
@@ -16,23 +15,56 @@ export interface SyncResult {
   error?: string;
 }
 
+function getItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
+    return (value as { items: unknown[] }).items;
+  }
+  return [];
+}
+
+function getNamedItems(value: unknown, key: string): Array<Record<string, unknown>> {
+  if (!value || typeof value !== 'object') return [];
+  const direct = (value as Record<string, unknown>)[key];
+  if (Array.isArray(direct)) return direct.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+  return [];
+}
+
+function getNames(value: unknown, key: string): string[] {
+  if (!value || typeof value !== 'object') return [];
+  const direct = (value as Record<string, unknown>)[key];
+  if (!Array.isArray(direct)) return [];
+  return direct
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') return (item as Record<string, unknown>).name;
+      return null;
+    })
+    .filter((name): name is string => typeof name === 'string' && name.length > 0);
+}
+
 /** Build the supaoauth namespace value from resolved roles/org. */
 async function buildSupaoauthNamespace(
   userId: string,
   orgId?: string,
 ): Promise<Record<string, unknown>> {
-  const { roles, permissions } = await roleRepo.resolveUserPermissions(userId, orgId);
+  const adapter = getSupaCloudAdapter();
+  const resolved = await adapter.resolveUserPermissions(userId, orgId);
 
   const supaoauth: Record<string, unknown> = {
-    roles: roles.map(r => r.name),
+    roles: getNames(resolved, 'roles'),
+    permissions: getNames(resolved, 'permissions'),
     rbac_version: Date.now(),
   };
 
   if (orgId) {
-    const assignments = await roleRepo.getOrgRoleAssignments(orgId);
-    const userAssignment = assignments.find(a => a.userId === userId);
+    const assignments = getItems(await adapter.getOrgRoleAssignments(orgId)) as Array<Record<string, unknown>>;
+    const userAssignment = assignments.find((assignment) => assignment.userId === userId || assignment.user_id === userId);
+    const role = userAssignment?.role && typeof userAssignment.role === 'object'
+      ? userAssignment.role as Record<string, unknown>
+      : null;
     supaoauth.current_org_id = orgId;
-    supaoauth.current_org_role = userAssignment?.role?.name || 'member';
+    supaoauth.current_org_role = role?.name || userAssignment?.role_name || 'member';
   }
 
   return supaoauth;
@@ -112,8 +144,11 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
 
 /** Sync all members of an organization (batch) */
 export async function syncOrgMetadata(orgId: string): Promise<SyncResult[]> {
-  const assignments = await roleRepo.getOrgRoleAssignments(orgId);
-  const userIds = [...new Set(assignments.map(a => a.userId).filter((userId): userId is string => !!userId))];
+  const adapter = getSupaCloudAdapter();
+  const assignments = getItems(await adapter.getOrgRoleAssignments(orgId)) as Array<Record<string, unknown>>;
+  const userIds = [...new Set(assignments
+    .map((assignment) => assignment.userId || assignment.user_id)
+    .filter((userId): userId is string => typeof userId === 'string' && userId.length > 0))];
   const results: SyncResult[] = [];
 
   for (const userId of userIds) {

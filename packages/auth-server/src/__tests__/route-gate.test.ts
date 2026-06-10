@@ -23,16 +23,16 @@ describe('P0-29: Route Gate', () => {
       if (url.includes('/functions/v1/')) {
         return Promise.resolve(new Response('not found', { status: 404 }));
       }
-      if (url.includes('/v1/health')) {
+      if (url.includes('/api/v1/health')) {
         return Promise.resolve(new Response('{"status":"ok"}', { status: 200 }));
       }
-      if (url.includes('/swagger')) {
+      if (url.includes('/api/swagger')) {
         return Promise.resolve(new Response('<html></html>', { status: 200 }));
       }
       if (url.includes('/admin')) {
         return Promise.resolve(new Response('ok', { status: 200 }));
       }
-      if (url.includes('/v1/applications')) {
+      if (url.includes('/api/v1/applications')) {
         return Promise.resolve(new Response('{"error":"unauthorized"}', { status: 401 }));
       }
       return Promise.resolve(new Response('ok', { status: 200 }));
@@ -59,7 +59,7 @@ describe('P0-29: Route Gate', () => {
     expect(Array.isArray(result.routes)).toBe(true);
     expect(Array.isArray(result.domainAudit)).toBe(true);
     expect(Array.isArray(result.conflicts)).toBe(true);
-    expect(result.envAudit.adminUrl).toBe('http://admin.test');
+    expect(result.envAudit.supauthUrl).toBe('http://admin.test');
     expect(result.envAudit.runtimeUrl).toBe('http://runtime.test');
     expect(result.envAudit.extraDomains).toEqual(['https://business.test']);
     expect(result.domainAudit.some(domain => domain.domain === 'business.test')).toBe(true);
@@ -80,7 +80,7 @@ describe('P0-29: Route Gate', () => {
       if (url.includes('/storage/v1/bucket')) {
         return Promise.resolve(new Response('[]', { status: 200 }));
       }
-      if (url.includes('/v1/health')) {
+      if (url.includes('/api/v1/health')) {
         return Promise.resolve(new Response('ok', { status: 200 }));
       }
       return Promise.resolve(new Response('ok', { status: 200 }));
@@ -117,11 +117,13 @@ describe('P0-29: Route Gate', () => {
       'http://runtime.test/',
     );
 
-    expect(result.envAudit.adminUrl).toBe('http://admin.test');
+    expect(result.envAudit.supauthUrl).toBe('http://admin.test');
     expect(result.envAudit.runtimeUrl).toBe('http://runtime.test');
     expect(seenUrls.every(url => !url.includes('test//'))).toBe(true);
     expect(seenUrls.some(url => url.includes('/oauth/authorize'))).toBe(true);
     expect(seenUrls.some(url => url.includes('/v1/oauth/authorize'))).toBe(false);
+    expect(seenUrls.some(url => url.includes('/api/v1/health'))).toBe(true);
+    expect(seenUrls.some(url => url.includes('/v1/sign-in-experience/public'))).toBe(false);
 
     globalThis.fetch = originalFetch;
   });

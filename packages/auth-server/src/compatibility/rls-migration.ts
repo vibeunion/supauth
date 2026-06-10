@@ -220,7 +220,7 @@ export function generateWrapperPolicies(policies: ExistingPolicy[]): MigrationRe
 
   if (wrappers.length > 0) {
     parts.push('-- Step 1: Verify supaoauth.authorize() helper exists');
-    parts.push('-- (If not, run the main migration first: bun run migrate)');
+    parts.push('-- (If not, install SupAuth through SupaCloud hosted migrations first: bun run install:supacloud)');
     parts.push('');
   }
 
@@ -325,7 +325,7 @@ export async function runRLSMigrationAssistant(databaseUrl?: string) {
   return result;
 }
 
-// Can be run standalone: bun run src/compatibility/rls-migration.ts
+// CLI usage: bun run src/compatibility/rls-migration.ts
 if (import.meta.main) {
   runRLSMigrationAssistant().then(() => process.exit(0)).catch(e => {
     console.error(e);

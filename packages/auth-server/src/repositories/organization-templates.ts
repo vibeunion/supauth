@@ -2,9 +2,8 @@
 
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
-import { organizationTemplates, roles, permissions, organizationMembers } from '../db/schema.js';
-import * as orgRepo from './organizations.js';
-import * as roleRepo from './roles.js';
+import { organizationTemplates } from '../db/schema.js';
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 
 export interface OrgTemplate {
   id: string;
@@ -114,38 +113,46 @@ export async function instantiateFromTemplate(templateId: string, orgData: {
 }) {
   const template = await getTemplate(templateId);
   if (!template) throw new Error(`Template ${templateId} not found`);
+  const adapter = getSupaCloudAdapter();
 
-  // Create the organization
-  const org = await orgRepo.createOrganization({
+  const org = await adapter.createOrganization({
     name: orgData.name,
     description: orgData.description,
+  }) as Record<string, unknown>;
+  const orgId = String(org.id || org.organization_id || '');
+  const orgName = String(org.name || orgData.name);
+  if (!orgId) throw new Error('SupaCloud createOrganization response did not include an organization id');
+
+  await adapter.addOrganizationMember(orgId, {
+    user_id: orgData.creatorUserId,
+    role: 'owner',
   });
 
-  // Add creator as owner
-  await orgRepo.addMember(org.id, orgData.creatorUserId, 'owner');
-
-  // Create template-defined roles with permissions
   const templateRolesData = template.templateRoles as Array<{ name: string; permissions: string[] }> || [];
   for (const roleDef of templateRolesData) {
-    const role = await roleRepo.createRole({
-      name: `${org.name.toLowerCase().replace(/\s+/g, '_')}_${roleDef.name}`,
-      description: `Auto-generated from template "${template.name}" for org "${org.name}"`,
-    });
+    const role = await adapter.createRole({
+      name: `${orgName.toLowerCase().replace(/\s+/g, '_')}_${roleDef.name}`,
+      description: `Auto-generated from template "${template.name}" for org "${orgName}"`,
+      organization_id: orgId,
+    }) as Record<string, unknown>;
+    const roleId = String(role.id || role.role_id || '');
+    if (!roleId) throw new Error('SupaCloud createRole response did not include a role id');
 
     for (const permName of roleDef.permissions) {
-      await roleRepo.createPermission({
+      await adapter.createPermission(roleId, {
         name: permName,
-        roleId: role.id,
       });
     }
 
-    // Assign the role to the creator
-    await roleRepo.assignRole({
-      roleId: role.id,
-      userId: orgData.creatorUserId,
-      organizationId: org.id,
+    await adapter.assignRole(roleId, {
+      user_id: orgData.creatorUserId,
+      organization_id: orgId,
     });
   }
 
-  return { org, template, rolesCreated: templateRolesData.length };
+  return {
+    org: { ...org, id: orgId, name: orgName },
+    template,
+    rolesCreated: templateRolesData.length,
+  };
 }

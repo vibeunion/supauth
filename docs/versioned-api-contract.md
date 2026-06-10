@@ -21,9 +21,9 @@ Existing endpoints that still return plain text are compatibility debt and shoul
 ## Release Contract
 
 - `bun run scripts/export-openapi.ts <file>` exports the current OpenAPI shape.
-- `bun run release:gate` records an OpenAPI hash into the release manifest.
+- `bun run release:gate` records OpenAPI and SupaCloud app manifest hashes into the release manifest.
 - Breaking route changes must be recorded through `POST /v1/api-versions` with `change_type=breaking`.
-- SDK releases must reference the same OpenAPI hash as the release manifest.
+- SDK releases must reference the same OpenAPI hash as the release manifest; SupaCloud deployments must reference the same SupaCloud app manifest hash.
 
 ## Compatibility Policy
 

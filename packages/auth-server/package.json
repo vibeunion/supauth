@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
-    "migrate": "bun run src/db/migrate.ts",
-    "start": "bun run dist/index.js",
+    "dev": "bun run ../../scripts/dev-supauth-function.ts",
+    "build": "bun run build:function",
+    "build:function": "bun run ../../scripts/generate-hosted-pages.ts && bun build src/supacloud-function.ts --outdir dist/supacloud-function --target bun",
+    "migrate": "echo 'Direct DB migration is removed; deploy through the SupaCloud app installer so migrations are hosted by SupaCloud Management API.' && exit 1",
+    "start": "echo 'SupAuth has no standalone start command. Deploy dist/supacloud-function/supacloud-function.js to SupaCloud Functions.' && exit 1",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test --isolate"
   },

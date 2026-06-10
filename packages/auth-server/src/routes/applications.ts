@@ -18,6 +18,21 @@ async function fireWebhook(eventType: string, data: Record<string, unknown>) {
   try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
 }
 
+function toListResponse(value: unknown) {
+  if (Array.isArray(value)) return { items: value, total: value.length };
+  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
+    const items = (value as { items: unknown[]; total?: unknown }).items;
+    return { items, total: typeof (value as { total?: unknown }).total === 'number' ? (value as { total: number }).total : items.length };
+  }
+  return { items: [], total: 0 };
+}
+
+function getSecretId(secret: unknown) {
+  if (!secret || typeof secret !== 'object') return undefined;
+  const record = secret as Record<string, unknown>;
+  return String(record.secret_id || record.secretId || record.id || '');
+}
+
 export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   .get('/', async () => {
     const res = await adapter.listOAuthClients();
@@ -67,38 +82,38 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .get('/:appId/secrets', async ({ params }) => {
-    const items = await appControlRepo.listApplicationSecrets(params.appId);
-    return { items, total: items.length };
+    return toListResponse(await adapter.listClientSecrets(params.appId));
   }, {
     detail: { summary: 'List application client secrets', tags: ['Applications', 'Secrets'] },
   })
 
   .post('/:appId/secrets', async ({ params, body }) => {
     const data = body as { name?: string; expires_at?: string };
-    const secret = await appControlRepo.createApplicationSecret(params.appId, {
+    const secret = await adapter.createClientSecret(params.appId, {
       name: data.name,
-      expiresAt: data.expires_at ? new Date(data.expires_at) : null,
+      expires_at: data.expires_at,
     });
-    await fireWebhook('application.secret_created', { client_id: params.appId, secret_id: secret.secretId });
+    await audit('application.secret.create', 'application', params.appId, { secret_id: getSecretId(secret) });
+    await fireWebhook('application.secret_created', { client_id: params.appId, secret_id: getSecretId(secret) });
     return secret;
   }, {
     detail: { summary: 'Create application client secret', tags: ['Applications', 'Secrets'] },
   })
 
   .post('/:appId/secrets/:secretId/disable', async ({ params }) => {
-    const secret = await appControlRepo.disableApplicationSecret(params.appId, params.secretId);
-    if (!secret) return new Response('Not found', { status: 404 });
+    const secret = await adapter.disableClientSecret(params.appId, params.secretId);
+    await audit('application.secret.disable', 'application', params.appId, { secret_id: params.secretId });
     return secret;
   }, {
     detail: { summary: 'Disable application client secret', tags: ['Applications', 'Secrets'] },
   })
 
   .delete('/:appId/secrets/:secretId', async ({ params }) => {
-    const secret = await appControlRepo.deleteApplicationSecret(params.appId, params.secretId);
-    if (!secret) return new Response('Not found', { status: 404 });
+    const secret = await adapter.deleteClientSecret(params.appId, params.secretId);
+    await audit('application.secret.delete', 'application', params.appId, { secret_id: params.secretId });
     return secret;
   }, {
-    detail: { summary: 'Delete application client secret metadata', tags: ['Applications', 'Secrets'] },
+    detail: { summary: 'Delete application client secret', tags: ['Applications', 'Secrets'] },
   })
 
   .get('/:appId/consent', async ({ params }) => {

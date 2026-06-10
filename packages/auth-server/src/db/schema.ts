@@ -1,7 +1,7 @@
 // SupaOAuth metadata schema — lives in `supaoauth` schema on SupaCloud's Postgres
 // Does NOT touch `auth` schema (GoTrue owns that)
 
-import { pgSchema, uuid, varchar, text, boolean, integer, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgSchema, uuid, varchar, text, boolean, integer, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 const supaoauth = pgSchema('supaoauth');
 
@@ -221,7 +221,7 @@ export const organizationTemplates = supaoauth.table('organization_templates', {
 export const provisioningRecords = supaoauth.table('provisioning_records', {
   id: uuid('id').primaryKey().defaultRandom(),
   projectRef: varchar('project_ref', { length: 255 }).notNull(),
-  step: varchar('step', { length: 100 }).notNull(), // e.g. 'db_migration', 'gotrue_config', 'kong_routes', etc.
+  step: varchar('step', { length: 100 }).notNull(), // e.g. 'db_migration', 'gotrue_config', 'supacloud_gateway_routes', etc.
   status: varchar('status', { length: 50 }).notNull().default('pending'), // pending | completed | failed
   details: jsonb('details').$type<Record<string, unknown>>().default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -338,6 +338,33 @@ export const accountSessions = supaoauth.table('account_sessions', {
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
 }, (t) => [
   index('idx_account_sessions_user_id').on(t.userId),
+]);
+
+// ─── Account Provisioning / Claiming ─────────────────────────────────────
+// Keeps tenant-owned external identities separate from GoTrue auth.users UUIDs.
+export const accountProvisioningRecords = supaoauth.table('account_provisioning_records', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  externalId: varchar('external_id', { length: 100 }).notNull(),
+  externalType: varchar('external_type', { length: 100 }).notNull().default('generic'),
+  displayName: varchar('display_name', { length: 255 }).notNull(),
+  normalizedDisplayName: varchar('normalized_display_name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 320 }).notNull(),
+  userId: uuid('user_id'),
+  initialPasswordEncrypted: text('initial_password_encrypted'),
+  initialPasswordClaimed: boolean('initial_password_claimed').default(false).notNull(),
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  claimCount: integer('claim_count').default(0).notNull(),
+  sourceStatus: varchar('source_status', { length: 50 }).notNull().default('active'),
+  profile: jsonb('profile').$type<Record<string, unknown>>().default({}),
+  importBatch: varchar('import_batch', { length: 255 }),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex('uq_account_provisioning_external').on(t.externalType, t.externalId),
+  uniqueIndex('uq_account_provisioning_email').on(t.email),
+  index('idx_account_provisioning_normalized_name').on(t.normalizedDisplayName),
+  index('idx_account_provisioning_user_id').on(t.userId),
 ]);
 
 export const organizationInvitations = supaoauth.table('organization_invitations', {

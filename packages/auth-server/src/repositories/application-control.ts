@@ -1,93 +1,52 @@
-// Application runtime controls: client secret lifecycle and consent settings.
+// Application runtime controls.
+//
+// SupaCloud owns OAuth client secret lifecycle. SupAuth only stores consent
+// overlays that do not exist in GoTrue/SupaCloud management state.
 
-import { randomBytes } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
-import { applicationConsentSettings, applicationSecrets } from '../db/schema.js';
+import { applicationConsentSettings } from '../db/schema.js';
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { logAudit } from './audit.js';
 
-function generateSecret() {
-  return `so_${randomBytes(32).toString('base64url')}`;
-}
-
-function generateSecretId() {
-  return `sec_${randomBytes(12).toString('base64url')}`;
-}
-
 export async function listApplicationSecrets(applicationId: string) {
-  const db = getDb();
-  return db.select({
-    id: applicationSecrets.id,
-    applicationId: applicationSecrets.applicationId,
-    secretId: applicationSecrets.secretId,
-    name: applicationSecrets.name,
-    status: applicationSecrets.status,
-    lastUsedAt: applicationSecrets.lastUsedAt,
-    expiresAt: applicationSecrets.expiresAt,
-    createdAt: applicationSecrets.createdAt,
-    disabledAt: applicationSecrets.disabledAt,
-  }).from(applicationSecrets)
-    .where(eq(applicationSecrets.applicationId, applicationId))
-    .orderBy(desc(applicationSecrets.createdAt));
+  return getSupaCloudAdapter().listClientSecrets(applicationId);
 }
 
 export async function createApplicationSecret(applicationId: string, data: { name?: string; expiresAt?: Date | null }) {
-  const db = getDb();
-  const secretId = generateSecretId();
-  const secret = generateSecret();
-  const [entry] = await db.insert(applicationSecrets).values({
-    applicationId,
-    secretId,
-    name: data.name || 'Client secret',
-    expiresAt: data.expiresAt || null,
-  }).returning();
+  const secret = await getSupaCloudAdapter().createClientSecret(applicationId, {
+    name: data.name,
+    expires_at: data.expiresAt?.toISOString() ?? null,
+  });
   await logAudit({
     eventType: 'application.secret.created',
     resourceType: 'application',
     resourceId: applicationId,
-    details: { secret_id: secretId, name: entry.name },
+    details: { name: data.name },
   });
-  return { ...entry, secret };
+  return secret;
 }
 
 export async function disableApplicationSecret(applicationId: string, secretId: string) {
-  const db = getDb();
-  const [entry] = await db.update(applicationSecrets).set({
-    status: 'disabled',
-    disabledAt: new Date(),
-  }).where(and(
-    eq(applicationSecrets.applicationId, applicationId),
-    eq(applicationSecrets.secretId, secretId),
-  )).returning();
-  if (entry) {
-    await logAudit({
-      eventType: 'application.secret.disabled',
-      resourceType: 'application',
-      resourceId: applicationId,
-      details: { secret_id: secretId },
-    });
-  }
-  return entry || null;
+  const secret = await getSupaCloudAdapter().disableClientSecret(applicationId, secretId);
+  await logAudit({
+    eventType: 'application.secret.disabled',
+    resourceType: 'application',
+    resourceId: applicationId,
+    details: { secret_id: secretId },
+  });
+  return secret;
 }
 
 export async function deleteApplicationSecret(applicationId: string, secretId: string) {
-  const db = getDb();
-  const [entry] = await db.update(applicationSecrets).set({
-    status: 'deleted',
-    disabledAt: new Date(),
-  }).where(and(
-    eq(applicationSecrets.applicationId, applicationId),
-    eq(applicationSecrets.secretId, secretId),
-  )).returning();
-  if (entry) {
-    await logAudit({
-      eventType: 'application.secret.deleted',
-      resourceType: 'application',
-      resourceId: applicationId,
-      details: { secret_id: secretId },
-    });
-  }
-  return entry || null;
+  const secret = await getSupaCloudAdapter().deleteClientSecret(applicationId, secretId);
+  await logAudit({
+    eventType: 'application.secret.deleted',
+    resourceType: 'application',
+    resourceId: applicationId,
+    details: { secret_id: secretId },
+  });
+  return secret;
 }
 
 export async function getApplicationConsentSettings(applicationId: string) {

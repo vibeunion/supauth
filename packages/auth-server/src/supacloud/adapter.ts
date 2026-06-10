@@ -25,6 +25,16 @@ function pathSegment(value: string) {
   return encodeURIComponent(value);
 }
 
+function queryString(params: Record<string, unknown>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue;
+    query.set(key, value instanceof Date ? value.toISOString() : String(value));
+  }
+  const text = query.toString();
+  return text ? `?${text}` : '';
+}
+
 export class SupaCloudAdapter {
   private apiUrl: string;
   private masterToken: string;
@@ -92,7 +102,9 @@ export class SupaCloudAdapter {
         const body = await res.text();
         throw new Error(`SupaCloud ${res.status}: ${body}`);
       }
-      return res.json();
+      if (res.status === 204) return null;
+      const body = await res.text();
+      return body ? JSON.parse(body) : null;
     } finally {
       clearTimeout(timeout);
     }
@@ -102,6 +114,13 @@ export class SupaCloudAdapter {
 
   async getProject() {
     return this.request(`/v1/projects/${this.projectRef}`);
+  }
+
+  async runDatabaseMigration(name: string, sql: string) {
+    return this.request(`/v1/projects/${this.projectRef}/database/migrations`, {
+      method: 'POST',
+      body: JSON.stringify({ name, sql }),
+    });
   }
 
   async verifyGatewayRoutes(): Promise<{
@@ -249,6 +268,13 @@ export class SupaCloudAdapter {
     return this.request(`/v1/projects/${this.projectRef}/auth/users`);
   }
 
+  async createUser(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async getUser(userId: string) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}`);
   }
@@ -293,6 +319,286 @@ export class SupaCloudAdapter {
   async resetUserMfa(userId: string, factorId: string) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/mfa/${factorId}/reset`, {
       method: 'POST',
+    });
+  }
+
+  async listUserPasskeys(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/passkeys`);
+  }
+
+  async registerUserPasskey(userId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/passkeys`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async renamePasskey(passkeyId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/passkeys/${pathSegment(passkeyId)}/rename`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async revokePasskey(passkeyId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/passkeys/${pathSegment(passkeyId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listUserSessions(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/sessions`);
+  }
+
+  async recordUserSession(userId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/sessions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getUserRoleAssignments(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/roles`);
+  }
+
+  async resolveUserPermissions(userId: string, orgId?: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/permissions${queryString({ org_id: orgId })}`);
+  }
+
+  // ─── Organizations ────────────────────────────────────────────────
+
+  async listOrganizations() {
+    return this.request(`/v1/projects/${this.projectRef}/organizations`);
+  }
+
+  async createOrganization(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getOrganization(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`);
+  }
+
+  async updateOrganization(orgId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteOrganization(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async addOrganizationMember(orgId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeOrganizationMember(orgId: string, userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateOrganizationMember(orgId: string, userId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getOrgRoleAssignments(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/roles`);
+  }
+
+  async listOrganizationInvitations(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations`);
+  }
+
+  async createOrganizationInvitation(orgId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateOrganizationInvitationStatus(orgId: string, invitationId: string, action: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}/${pathSegment(action)}`, {
+      method: 'POST',
+    });
+  }
+
+  async getOrganizationJitSettings(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/jit`);
+  }
+
+  async updateOrganizationJitSettings(orgId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/jit`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listOrganizationApplications(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications`);
+  }
+
+  async updateOrganizationApplication(orgId: string, appId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteOrganizationApplication(orgId: string, appId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ─── RBAC ─────────────────────────────────────────────────────────
+
+  async listRoles() {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles`);
+  }
+
+  async createRole(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getRole(roleId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}`);
+  }
+
+  async updateRole(roleId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteRole(roleId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listRolePermissions(roleId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/permissions`);
+  }
+
+  async createPermission(roleId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/permissions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deletePermission(roleId: string, permissionId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/permissions/${pathSegment(permissionId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async assignRole(roleId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async revokeRole(roleId: string, assignmentId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/assign/${pathSegment(assignmentId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ─── Audit ────────────────────────────────────────────────────────
+
+  async queryAuditLogs(params: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/audit${queryString(params)}`);
+  }
+
+  async getAuditLog(logId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/audit/${pathSegment(logId)}`);
+  }
+
+  async recordAuditEvent(event: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/audit/events`, {
+      method: 'POST',
+      body: JSON.stringify(event),
+    });
+  }
+
+  // ─── Webhooks ─────────────────────────────────────────────────────
+
+  async listWebhooks() {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks`);
+  }
+
+  async createWebhook(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getWebhook(webhookId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}`);
+  }
+
+  async updateWebhook(webhookId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteWebhook(webhookId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async rotateWebhookSecret(webhookId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/rotate-secret`, {
+      method: 'POST',
+    });
+  }
+
+  async listWebhookLogs(webhookId: string, params: Record<string, unknown> = {}) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/logs${queryString(params)}`);
+  }
+
+  async testWebhook(webhookId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/test`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async replayWebhook(webhookId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/replay`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async enqueueWebhookEvent(event: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/events`, {
+      method: 'POST',
+      body: JSON.stringify(event),
     });
   }
 

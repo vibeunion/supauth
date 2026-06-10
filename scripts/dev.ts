@@ -1,7 +1,7 @@
 const root = new URL('..', import.meta.url).pathname;
 
 const commands = [
-  { name: 'auth-server', args: ['bun', 'run', 'dev:server'] },
+  { name: 'supauth-function', args: ['bun', 'run', 'dev:function'] },
   { name: 'admin-console', args: ['bun', 'run', 'dev:admin'] },
 ];
 

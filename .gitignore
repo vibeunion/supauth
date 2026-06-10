@@ -2,6 +2,7 @@ node_modules
 .svelte-kit
 build
 dist
+artifacts/
 .env
 .env.*
 !.env.example
