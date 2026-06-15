@@ -2,8 +2,9 @@
 
 import * as auditRepo from './audit.js';
 import { getDb } from '../db/index.js';
-import { webhooks } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { webhooks, webhookDeliveries } from '../db/schema.js';
+import { randomUUID } from 'node:crypto';
+import { eq, and, lte, inArray, sql } from 'drizzle-orm';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [5_000, 30_000, 120_000]; // 5s, 30s, 2min
@@ -32,7 +33,10 @@ export function buildEvent(eventType: string, data: Record<string, unknown>): We
   };
 }
 
-/** Dispatch a webhook event to all matching enabled webhooks */
+/** Dispatch a webhook event: enqueue DB-backed delivery records for durability,
+ * then process them immediately. If the process crashes, pending records
+ * survive and will be picked up by processPendingDeliveries on next run.
+ */
 export async function dispatchEvent(event: WebhookEvent): Promise<void> {
   const db = getDb();
   const allWebhooks = await db.select().from(webhooks).where(eq(webhooks.enabled, true));
@@ -41,21 +45,168 @@ export async function dispatchEvent(event: WebhookEvent): Promise<void> {
     return events.includes(event.type) || events.includes('*');
   });
 
+  // Enqueue delivery records so they survive process restarts. We store the
+  // event timestamp in its own column to avoid leaking an internal _timestamp
+  // key into the payload consumers receive (which must match buildEvent()).
   for (const wh of matching) {
-    // Fire-and-forget delivery with retry
-    deliverWithRetry(wh.id, wh.url, wh.secret, event).catch(() => {
-      // Errors are logged inside deliverWithRetry
-    });
+    try {
+      await db.insert(webhookDeliveries).values({
+        webhookId: wh.id,
+        eventType: event.type,
+        payload: event.payload,
+        status: 'pending',
+        attempts: 0,
+        maxAttempts: MAX_RETRIES,
+        nextAttemptAt: new Date(),
+        lastError: null,
+      });
+    } catch {
+      // If queue insert fails, fall back to direct fire-and-forget. Generate a
+      // stable delivery id once so all retries of this fallback share it.
+      deliverWithRetry(wh.id, wh.url, wh.secret, event, 0, randomUUID()).catch(() => {});
+    }
   }
+
+  // Process pending deliveries immediately
+  processPendingDeliveries().catch(() => {});
 }
 
-/** Deliver one webhook synchronously for diagnostics and manual replay. */
+// Rows stuck in "processing" longer than this are assumed to belong to a
+// crashed worker and are eligible for re-claim by whoever wins the SKIP LOCKED
+// race. 10 minutes comfortably exceeds the 10s fetch timeout plus retry delay.
+const PROCESSING_STUCK_MS = 10 * 60 * 1000;
+
+/**
+ * Atomically claim a batch of due deliveries for this worker.
+ *
+ * Two sources are claimed in the same transaction:
+ *  - due `pending` rows
+ *  - `processing` rows whose worker appears to have crashed (stale updatedAt)
+ *
+ * SELECT ... FOR UPDATE SKIP LOCKED ensures concurrent workers (e.g. the
+ * dispatch path racing the periodic worker) never pick the same row, which
+ * previously caused duplicate webhook deliveries. Claimed rows are flipped to
+ * `processing` so they are invisible to subsequent claims until settled.
+ */
+async function claimPendingDeliveries(limit = 50) {
+  const db = getDb();
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - PROCESSING_STUCK_MS);
+  return db.transaction(async (tx) => {
+    const claimed = await tx.select().from(webhookDeliveries)
+      .where(and(
+        sql`(${webhookDeliveries.status} = 'pending' AND ${webhookDeliveries.nextAttemptAt} <= ${now})
+            OR (${webhookDeliveries.status} = 'processing' AND ${webhookDeliveries.updatedAt} < ${staleBefore})`,
+      ))
+      .limit(limit)
+      .for('update', { skipLocked: true });
+
+    if (claimed.length === 0) return [];
+
+    const claimedIds = claimed.map(r => r.id);
+    await tx.update(webhookDeliveries).set({
+      status: 'processing',
+      updatedAt: now,
+    }).where(inArray(webhookDeliveries.id, claimedIds));
+    return claimed;
+  });
+}
+
+/** Process all pending webhook deliveries that are due.
+ * Called by dispatchEvent and can be called by a periodic worker.
+ */
+export async function processPendingDeliveries(): Promise<number> {
+  const db = getDb();
+  const pending = await claimPendingDeliveries();
+  if (pending.length === 0) return 0;
+
+  let processed = 0;
+  for (const delivery of pending) {
+    // Fetch the webhook to get URL and secret
+    const whRows = await db.select().from(webhooks)
+      .where(eq(webhooks.id, delivery.webhookId)).limit(1);
+    const wh = whRows[0];
+    if (!wh || !wh.enabled) {
+      // Webhook deleted or disabled: mark as failed
+      await db.update(webhookDeliveries).set({
+        status: 'failed',
+        lastError: 'webhook not found or disabled',
+        updatedAt: new Date(),
+      }).where(eq(webhookDeliveries.id, delivery.id));
+      processed++;
+      continue;
+    }
+
+    // Reconstruct the envelope WITHOUT mutating the stored payload, so the
+    // delivered body matches buildEvent()'s shape (no internal _timestamp).
+    const event: WebhookEvent = {
+      type: delivery.eventType,
+      payload: delivery.payload as Record<string, unknown>,
+      timestamp: delivery.createdAt.toISOString(),
+    };
+
+    // Pass delivery.id as a stable idempotency key so the consumer can
+    // dedupe retries and stale reclaim deliveries that carry the same payload.
+    const result = await deliverWebhookOnce(delivery.webhookId, wh.url, wh.secret, event, delivery.id);
+    processed++;
+
+    if (result.ok) {
+      await db.update(webhookDeliveries).set({
+        status: 'delivered',
+        attempts: delivery.attempts + 1,
+        lastResponseCode: result.status || null,
+        deliveredAt: new Date(),
+        nextAttemptAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(webhookDeliveries.id, delivery.id));
+    } else {
+      const nextAttempts = delivery.attempts + 1;
+      if (nextAttempts >= delivery.maxAttempts) {
+        await db.update(webhookDeliveries).set({
+          status: 'failed',
+          attempts: nextAttempts,
+          lastError: result.error || `HTTP ${result.status}`,
+          lastResponseCode: result.status || null,
+          updatedAt: new Date(),
+        }).where(eq(webhookDeliveries.id, delivery.id));
+
+        // Disable webhook after max retries
+        try {
+          await db.update(webhooks).set({ enabled: false, updatedAt: new Date() })
+            .where(eq(webhooks.id, delivery.webhookId));
+        } catch {}
+      } else {
+        const delay = RETRY_DELAYS_MS[Math.min(nextAttempts - 1, RETRY_DELAYS_MS.length - 1)];
+        await db.update(webhookDeliveries).set({
+          status: 'pending',
+          attempts: nextAttempts,
+          lastError: result.error || `HTTP ${result.status}`,
+          lastResponseCode: result.status || null,
+          nextAttemptAt: new Date(Date.now() + delay),
+          updatedAt: new Date(),
+        }).where(eq(webhookDeliveries.id, delivery.id));
+      }
+    }
+  }
+  return processed;
+}
+
+/** Deliver one webhook synchronously for diagnostics and manual replay.
+ *
+ * `deliveryId` is a stable idempotency key sent as X-SupaOAuth-Delivery-Id so
+ * the receiver can dedupe the same logical delivery across retries and stale
+ * reclaim by the queue worker. When omitted (diagnostic/replay endpoints),
+ * a UUID is generated for this single call; note that retries of a fallback
+ * fire-and-forget path share the id via deliverWithRetry.
+ */
 export async function deliverWebhookOnce(
   webhookId: string,
   url: string,
   secret: string,
   event: WebhookEvent,
+  deliveryId?: string,
 ): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const idempotencyKey = deliveryId || randomUUID();
   const payload = JSON.stringify(event);
   const signature = await computeSignature(payload, secret);
   try {
@@ -65,7 +216,7 @@ export async function deliverWebhookOnce(
         'Content-Type': 'application/json',
         'X-SupaOAuth-Signature': `sha256=${signature}`,
         'X-SupaOAuth-Event': event.type,
-        'X-SupaOAuth-Delivery-Id': `${webhookId}-${Date.now()}`,
+        'X-SupaOAuth-Delivery-Id': idempotencyKey,
       },
       body: payload,
       signal: AbortSignal.timeout(10_000),
@@ -97,7 +248,11 @@ async function deliverWithRetry(
   secret: string,
   event: WebhookEvent,
   attempt: number = 0,
+  deliveryId?: string,
 ): Promise<void> {
+  // Generate the idempotency key once on the first attempt so every retry of
+  // the same logical delivery carries the same X-SupaOAuth-Delivery-Id.
+  const idempotencyKey = deliveryId || randomUUID();
   const payload = JSON.stringify(event);
   const signature = await computeSignature(payload, secret);
 
@@ -108,7 +263,7 @@ async function deliverWithRetry(
         'Content-Type': 'application/json',
         'X-SupaOAuth-Signature': `sha256=${signature}`,
         'X-SupaOAuth-Event': event.type,
-        'X-SupaOAuth-Delivery-Id': `${webhookId}-${Date.now()}`,
+        'X-SupaOAuth-Delivery-Id': idempotencyKey,
       },
       body: payload,
       signal: AbortSignal.timeout(10_000),
@@ -132,7 +287,7 @@ async function deliverWithRetry(
     if (attempt < MAX_RETRIES - 1) {
       const delay = RETRY_DELAYS_MS[attempt];
       setTimeout(() => {
-        deliverWithRetry(webhookId, url, secret, event, attempt + 1).catch(() => {});
+        deliverWithRetry(webhookId, url, secret, event, attempt + 1, idempotencyKey).catch(() => {});
       }, delay);
 
       await auditRepo.logAudit({
@@ -148,17 +303,8 @@ async function deliverWithRetry(
         resourceType: 'webhook',
         resourceId: webhookId,
         actorType: 'system',
-        details: { url, event: event.type, attempts: attempt + 1, error: errorMsg },
+        details: { url, event: event.type, attempt, error: errorMsg },
       });
-
-      // Disable webhook after max retries
-      try {
-        const db = getDb();
-        await db.update(webhooks).set({ enabled: false, updatedAt: new Date() })
-          .where(eq(webhooks.id, webhookId));
-      } catch {
-        // Don't fail if disable fails
-      }
     }
   }
 }

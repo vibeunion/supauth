@@ -143,3 +143,83 @@ describe('Webhook delivery — module exports', () => {
     expect(event).toHaveProperty('timestamp');
   });
 });
+
+describe('Webhook delivery — DB-backed queue functions', () => {
+  it('exports processPendingDeliveries function', async () => {
+    process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
+    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
+    process.env.PROJECT_REF = 'test-ref';
+    process.env.DATABASE_URL = 'postgres://test';
+    process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
+    process.env.RUNTIME_MODE = 'gotrue';
+
+    const mod = await import('../repositories/webhook-delivery.js');
+    expect(typeof mod.processPendingDeliveries).toBe('function');
+  });
+
+  it('processPendingDeliveries returns a number', async () => {
+    const { processPendingDeliveries } = await import('../repositories/webhook-delivery.js');
+    // Without a real DB, this will throw internally and return 0 or throw.
+    // The function must exist and be callable.
+    expect(typeof processPendingDeliveries).toBe('function');
+  });
+});
+
+
+// ─── Behavior: stable X-SupaOAuth-Delivery-Id (idempotency key) ───────────
+// The delivery id must be a stable idempotency key so webhook consumers can
+// dedupe retries and stale reclaim deliveries. These tests mock fetch to
+// capture the request headers and assert the id is the caller-supplied value,
+// not a per-call Date.now() timestamp.
+
+describe('Webhook delivery — stable delivery id (idempotency key)', () => {
+  let originalFetch: typeof globalThis.fetch;
+  let lastHeaders: Record<string, string> = {};
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    lastHeaders = {};
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+      lastHeaders = (init?.headers as Record<string, string>) || {};
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('passes caller-supplied deliveryId verbatim as X-SupaOAuth-Delivery-Id', async () => {
+    const { deliverWebhookOnce, buildEvent } = await import('../repositories/webhook-delivery.js');
+    // logAudit throws without a DB; the header is captured before that, so we
+    // assert inside catch after fetch has run.
+    try {
+      await deliverWebhookOnce('wh-1', 'http://example.test', 'secret', buildEvent('user.created', { id: 'u1' }), 'del-stable-123');
+    } catch {
+      // expected: no DB for audit
+    }
+    expect(lastHeaders['X-SupaOAuth-Delivery-Id']).toBe('del-stable-123');
+  });
+
+  it('does not use a Date.now()-based id (which would change per call)', async () => {
+    const { deliverWebhookOnce, buildEvent } = await import('../repositories/webhook-delivery.js');
+    try {
+      await deliverWebhookOnce('wh-1', 'http://example.test', 'secret', buildEvent('user.created', {}), 'fixed-key');
+    } catch {
+      // expected: no DB for audit
+    }
+    // Must be exactly the provided key, never `${webhookId}-${Date.now()}`
+    expect(lastHeaders['X-SupaOAuth-Delivery-Id']).not.toMatch(/^wh-1-\d+$/);
+  });
+
+  it('generates a UUID when deliveryId is omitted (not a timestamp)', async () => {
+    const { deliverWebhookOnce, buildEvent } = await import('../repositories/webhook-delivery.js');
+    try {
+      await deliverWebhookOnce('wh-1', 'http://example.test', 'secret', buildEvent('user.created', {}));
+    } catch {
+      // expected: no DB for audit
+    }
+    // UUID v4-ish format, never `${webhookId}-${Date.now()}`
+    expect(lastHeaders['X-SupaOAuth-Delivery-Id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+});

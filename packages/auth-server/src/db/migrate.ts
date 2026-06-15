@@ -230,6 +230,8 @@ export async function runMigration() {
     await sql.unsafe(MIGRATION_SQL);
     await sql.unsafe(MIGRATION_V2_SQL);
     await sql.unsafe(MIGRATION_V3_SQL);
+    await sql.unsafe(MIGRATION_V4_SQL);
+    await sql.unsafe(MIGRATION_V5_SQL);
     console.log('SupaOAuth schema migration completed');
   } catch (e) {
     console.error('Migration failed:', e);
@@ -494,6 +496,95 @@ CREATE TABLE IF NOT EXISTS supaoauth.application_sign_in_experience (
 );
 CREATE INDEX IF NOT EXISTS idx_app_sie_app_id ON supaoauth.application_sign_in_experience (application_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_app_sie_app_id ON supaoauth.application_sign_in_experience (application_id);
+`;
+
+
+// ─── V4 Migration: Consent uniqueness + webhook delivery queue ───────────
+
+const MIGRATION_V4_SQL = `
+-- Partial unique index: one active consent per (user, app, scope, org).
+-- NULLs are treated as distinct by default in Postgres, so we coalesce them
+-- into sentinel values to make the index treat (scope_id, organization_id)
+-- NULL tuples as equal.
+--
+-- Phase 1: deduplicate legacy active consents before adding the constraint.
+-- Older releases allowed duplicate active rows for the same
+-- (user_id, application_id, scope_id, organization_id) tuple; creating the
+-- unique index directly would fail on those production tables. We keep the
+-- most recently granted row per group and revoke the older duplicates, so the
+-- migration is idempotent and safe on pre-existing data.
+UPDATE supaoauth.user_consents AS c
+SET revoked_at = COALESCE(c.revoked_at, now())
+WHERE c.revoked_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM supaoauth.user_consents AS keep
+    WHERE keep.revoked_at IS NULL
+      AND keep.user_id = c.user_id
+      AND keep.application_id = c.application_id
+      AND COALESCE(keep.scope_id, '00000000-0000-0000-0000-000000000000')
+        = COALESCE(c.scope_id, '00000000-0000-0000-0000-000000000000')
+      AND COALESCE(keep.organization_id, '00000000-0000-0000-0000-000000000000')
+        = COALESCE(c.organization_id, '00000000-0000-0000-0000-000000000000')
+      AND (keep.granted_at, keep.id) > (c.granted_at, c.id)
+  );
+
+-- Phase 2: now safe to enforce uniqueness on the remaining active rows.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_consents_active
+  ON supaoauth.user_consents (user_id, application_id, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'), COALESCE(organization_id, '00000000-0000-0000-0000-000000000000'))
+  WHERE revoked_at IS NULL;
+
+-- Webhook delivery queue table for durable, retryable delivery.
+CREATE TABLE IF NOT EXISTS supaoauth.webhook_deliveries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  webhook_id UUID NOT NULL REFERENCES supaoauth.webhooks(id) ON DELETE CASCADE,
+  event_type VARCHAR(255) NOT NULL,
+  payload JSONB NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'pending', -- pending | processing | delivered | failed
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_response_code INTEGER,
+  last_error TEXT,
+  delivered_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON supaoauth.webhook_deliveries (next_attempt_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id ON supaoauth.webhook_deliveries (webhook_id);
+
+-- Partial unique index: one active application_secret per secret_id.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_application_secrets_active
+  ON supaoauth.application_secrets (application_id, secret_id)
+  WHERE status = 'active';
+
+-- Add secret_hash column for secure storage of application secrets.
+ALTER TABLE supaoauth.application_secrets ADD COLUMN IF NOT EXISTS secret_hash TEXT;
+`;
+
+
+
+// ─── V5 Migration: provisioning records unique constraint ───────────────
+// recordStep() now relies on INSERT ... ON CONFLICT for idempotent upsert.
+// Without a unique constraint on (project_ref, step), concurrent reconcile
+// runs could still append duplicate step rows. This unique index closes that
+// gap and is safe to apply idempotently. Legacy duplicates, if any, are
+// collapsed to the most recently updated row before the index is created.
+
+const MIGRATION_V5_SQL = `
+-- Collapse legacy duplicate provisioning rows per (project_ref, step): keep
+-- the most recently updated row and delete older duplicates so the unique
+-- index can be created even on tables that accumulated dupes before this fix.
+DELETE FROM supaoauth.provisioning_records AS p
+WHERE EXISTS (
+  SELECT 1 FROM supaoauth.provisioning_records AS keep
+  WHERE keep.project_ref = p.project_ref
+    AND keep.step = p.step
+    AND (keep.updated_at, keep.id) > (p.updated_at, p.id)
+);
+
+-- One record per (project_ref, step). This backs recordStep()'s ON CONFLICT.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_provisioning_records_project_step
+  ON supaoauth.provisioning_records (project_ref, step);
 `;
 
 // Can be run standalone: bun run src/db/migrate.ts

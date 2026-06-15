@@ -1,0 +1,57 @@
+name: Live Compatibility Gate
+
+on:
+  schedule:
+    # Run nightly at 02:00 UTC (10:00 Beijing time)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  live-compat:
+    name: Live Supabase/OAuth 2.1 Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only run when the live runtime secrets are available
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'zuohuadong/supauth'
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run live OAuth 2.1 compatibility fixture
+        env:
+          RUN_SUPABASE_OAUTH21_COMPAT: '1'
+          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_OAUTH_RUNTIME_URL }}
+          OAUTH21_CLIENT_ID: ${{ secrets.LIVE_OAUTH21_CLIENT_ID }}
+          OAUTH21_REDIRECT_URI: ${{ secrets.LIVE_OAUTH21_REDIRECT_URI }}
+          OAUTH21_ACCESS_TOKEN: ${{ secrets.LIVE_OAUTH21_ACCESS_TOKEN }}
+          OAUTH21_REFRESH_TOKEN: ${{ secrets.LIVE_OAUTH21_REFRESH_TOKEN }}
+        run: bun test tests/integration/supabase-compat/oauth21.test.ts
+
+      - name: Run live supabase-js runtime fixture
+        env:
+          RUN_SUPABASE_RUNTIME_COMPAT: '1'
+          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_OAUTH_RUNTIME_URL }}
+          MANAGEMENT_URL: ${{ secrets.LIVE_MANAGEMENT_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.LIVE_SUPABASE_ANON_KEY }}
+          SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
+          SUPABASE_TEST_PASSWORD: ${{ secrets.LIVE_SUPABASE_TEST_PASSWORD }}
+        run: bun test tests/integration/supabase-compat/supabase-js.test.ts
+
+      - name: Run tenant isolation live fixture
+        env:
+          RUN_TENANT_ISOLATION: '1'
+          MANAGEMENT_URL: ${{ secrets.LIVE_MANAGEMENT_URL }}
+          TENANT_A_ADMIN_TOKEN: ${{ secrets.LIVE_TENANT_A_ADMIN_TOKEN }}
+          TENANT_B_PROJECT_REF: ${{ secrets.LIVE_TENANT_B_PROJECT_REF }}
+        run: bun test tests/integration/tenant-isolation.test.ts

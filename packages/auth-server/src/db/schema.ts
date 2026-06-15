@@ -1,7 +1,7 @@
 // SupaOAuth metadata schema — lives in `supaoauth` schema on SupaCloud's Postgres
 // Does NOT touch `auth` schema (GoTrue owns that)
 
-import { pgSchema, uuid, varchar, text, boolean, integer, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgSchema, uuid, varchar, text, boolean, integer, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 const supaoauth = pgSchema('supaoauth');
 
@@ -229,6 +229,8 @@ export const provisioningRecords = supaoauth.table('provisioning_records', {
 }, (t) => [
   index('idx_provisioning_project_ref').on(t.projectRef),
   index('idx_provisioning_step').on(t.step),
+  // One record per (projectRef, step). Backs recordStep()'s ON CONFLICT upsert.
+  uniqueIndex('uq_provisioning_records_project_step').on(t.projectRef, t.step),
 ]);
 
 // ─── Security Config (P0-19) ─────────────────────────────────────────────
@@ -302,6 +304,7 @@ export const applicationSecrets = supaoauth.table('application_secrets', {
   id: uuid('id').primaryKey().defaultRandom(),
   applicationId: varchar('application_id', { length: 255 }).notNull(),
   secretId: varchar('secret_id', { length: 255 }).notNull(),
+  secretHash: text('secret_hash'), // SHA-256 hash of the plaintext secret; null only for legacy rows
   name: varchar('name', { length: 255 }).notNull(),
   status: varchar('status', { length: 50 }).notNull().default('active'), // active | disabled | deleted
   lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
@@ -407,4 +410,24 @@ export const tenantConfigs = supaoauth.table('tenant_configs', {
 }, (t) => [
   index('idx_tenant_configs_type').on(t.configType),
   index('idx_tenant_configs_key').on(t.key),
+]);
+
+// ─── Webhook Delivery Queue ──────────────────────────────────────────────
+// Durable delivery records for reliable, retryable webhook dispatch.
+export const webhookDeliveries = supaoauth.table('webhook_deliveries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  webhookId: uuid('webhook_id').notNull().references(() => webhooks.id, { onDelete: 'cascade' }),
+  eventType: varchar('event_type', { length: 255 }).notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('pending'), // pending | processing | delivered | failed
+  attempts: integer('attempts').default(0).notNull(),
+  maxAttempts: integer('max_attempts').default(3).notNull(),
+  nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).defaultNow().notNull(),
+  lastResponseCode: integer('last_response_code'),
+  lastError: text('last_error'),
+  deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index('idx_webhook_deliveries_webhook_id').on(t.webhookId),
 ]);

@@ -1,22 +1,29 @@
 // Admin console authentication for SupaOAuth.
 // Development accepts ADMIN_TOKEN and issues an in-memory session token.
 // Production accepts OIDC access tokens from @svadmin/sso via issuer JWKS.
+// Runtime security policy is read from supaoauth.security_config (DB-backed)
+// with a short TTL cache so that Admin UI changes take effect without restart.
 
 import { Elysia } from 'elysia';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import * as secRepo from '../repositories/security-config.js';
+import type { SecurityConfigRow } from '../repositories/security-config.js';
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
-const ADMIN_AUTH_MODE = (process.env.ADMIN_AUTH_MODE || 'auto').toLowerCase();
-const ADMIN_SSO_ISSUER = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
-const ADMIN_SSO_CLIENT_ID = process.env.ADMIN_SSO_CLIENT_ID || '';
-const ADMIN_SSO_AUDIENCE = process.env.ADMIN_SSO_AUDIENCE || ADMIN_SSO_CLIENT_ID;
-const ADMIN_SSO_JWKS_URI = process.env.ADMIN_SSO_JWKS_URI || (ADMIN_SSO_ISSUER ? `${ADMIN_SSO_ISSUER}/.well-known/jwks.json` : '');
-const ADMIN_SSO_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS);
-const ADMIN_SSO_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((domain) => domain.toLowerCase());
-const RATE_LIMIT_RPM = parseInt(process.env.ADMIN_RATE_LIMIT_RPM || '300', 10);
+// Env-var fallbacks: used before migration has run, or when DB is unreachable.
+const ENV_ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+const ENV_ADMIN_AUTH_MODE = (process.env.ADMIN_AUTH_MODE || 'auto').toLowerCase();
+const ENV_SSO_ISSUER = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
+const ENV_SSO_CLIENT_ID = process.env.ADMIN_SSO_CLIENT_ID || '';
+const ENV_SSO_AUDIENCE = process.env.ADMIN_SSO_AUDIENCE || ENV_SSO_CLIENT_ID;
+const ENV_SSO_JWKS_URI = process.env.ADMIN_SSO_JWKS_URI || (ENV_SSO_ISSUER ? `${ENV_SSO_ISSUER}/.well-known/jwks.json` : '');
+const ENV_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS);
+const ENV_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((d) => d.toLowerCase());
+const ENV_RATE_LIMIT_RPM = parseInt(process.env.ADMIN_RATE_LIMIT_RPM || '300', 10);
+const ENV_MAX_LOGIN_ATTEMPTS = parseInt(process.env.ADMIN_MAX_LOGIN_ATTEMPTS || '10', 10);
+const ENV_LOGIN_LOCKOUT_SEC = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '900', 10);
+
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const MAX_LOGIN_ATTEMPTS = parseInt(process.env.ADMIN_MAX_LOGIN_ATTEMPTS || '10', 10);
-const LOGIN_LOCKOUT_MS = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '900', 10) * 1000;
+const SECURITY_CONFIG_CACHE_MS = 10_000;
 
 interface AdminSession {
   id: string;
@@ -27,9 +34,47 @@ interface AdminSession {
 }
 
 const sessions = new Map<string, AdminSession>();
-const jwks = ADMIN_SSO_JWKS_URI ? createRemoteJWKSet(new URL(ADMIN_SSO_JWKS_URI)) : null;
+const jwks = ENV_SSO_JWKS_URI ? createRemoteJWKSet(new URL(ENV_SSO_JWKS_URI)) : null;
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
 const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+
+// Cached DB security config with TTL so Admin UI policy changes propagate.
+let _secConfig: SecurityConfigRow | null = null;
+let _secConfigExpiresAt = 0;
+let _secConfigLoaded = false;
+
+async function getActiveSecurityConfig(): Promise<SecurityConfigRow | null> {
+  const now = Date.now();
+  if (now < _secConfigExpiresAt) return _secConfig;
+  try {
+    _secConfig = await secRepo.getSecurityConfig();
+    _secConfigExpiresAt = now + SECURITY_CONFIG_CACHE_MS;
+    _secConfigLoaded = true;
+  } catch {
+    // DB not ready or unreachable: fall back to env-based defaults.
+    _secConfigExpiresAt = now + SECURITY_CONFIG_CACHE_MS;
+  }
+  return _secConfig;
+}
+
+/** Resolve effective admin auth mode: DB overrides env when available. */
+async function effectiveAdminAuthMode(): Promise<string> {
+  const cfg = await getActiveSecurityConfig();
+  if (cfg) return cfg.adminAuthMode.toLowerCase();
+  return ENV_ADMIN_AUTH_MODE;
+}
+
+/** Resolve effective allowed emails/domains from DB, falling back to env. */
+async function effectiveAllowedAdmins(): Promise<{ emails: string[]; domains: string[] }> {
+  const cfg = await getActiveSecurityConfig();
+  if (cfg && (cfg.adminAllowedEmails.length > 0 || cfg.adminAllowedDomains.length > 0)) {
+    return {
+      emails: cfg.adminAllowedEmails.map((e) => e.toLowerCase()),
+      domains: cfg.adminAllowedDomains.map((d) => d.toLowerCase()),
+    };
+  }
+  return { emails: ENV_ALLOWED_EMAILS, domains: ENV_ALLOWED_DOMAINS };
+}
 
 function generateSessionToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -54,34 +99,45 @@ function requestIp(headers: Record<string, string | undefined>): string {
   return (headers['x-forwarded-for'] || headers['x-real-ip'] || 'unknown').split(',')[0].trim();
 }
 
-function tokenAuthAllowed(): boolean {
-  return ADMIN_AUTH_MODE !== 'sso' && process.env.NODE_ENV !== 'production';
+/** Token auth is blocked when DB or env says SSO-only, or in production. */
+async function tokenAuthAllowed(): Promise<boolean> {
+  const mode = await effectiveAdminAuthMode();
+  if (mode === 'sso') return false;
+  if (process.env.NODE_ENV === 'production') return false;
+  return true;
 }
 
-function consumeRateLimit(ip: string): boolean {
+async function consumeRateLimit(ip: string): Promise<boolean> {
+  const cfg = await getActiveSecurityConfig();
+  const rpm = cfg?.rateLimitRpm ?? ENV_RATE_LIMIT_RPM;
   const now = Date.now();
   const current = rateLimits.get(ip);
   if (!current || current.resetAt <= now) {
     rateLimits.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
     return true;
   }
-  if (current.count >= RATE_LIMIT_RPM) return false;
+  if (current.count >= rpm) return false;
   current.count += 1;
   return true;
 }
 
-function loginLocked(ip: string): boolean {
+async function loginLocked(ip: string): Promise<boolean> {
+  const cfg = await getActiveSecurityConfig();
+  if (cfg && !cfg.bruteForceProtection) return false;
   const current = loginAttempts.get(ip);
   return !!current && current.lockedUntil > Date.now();
 }
 
-function recordLoginFailure(ip: string): void {
+async function recordLoginFailure(ip: string): Promise<void> {
+  const cfg = await getActiveSecurityConfig();
+  const maxAttempts = cfg?.maxLoginAttempts ?? ENV_MAX_LOGIN_ATTEMPTS;
+  const lockoutSec = cfg?.lockoutDurationSec ?? ENV_LOGIN_LOCKOUT_SEC;
   const now = Date.now();
   const current = loginAttempts.get(ip) || { count: 0, lockedUntil: 0 };
   const nextCount = current.lockedUntil > now ? current.count : current.count + 1;
   loginAttempts.set(ip, {
     count: nextCount,
-    lockedUntil: nextCount >= MAX_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : 0,
+    lockedUntil: nextCount >= maxAttempts ? now + lockoutSec * 1000 : 0,
   });
 }
 
@@ -106,25 +162,28 @@ function sessionFromPayload(payload: JWTPayload): AdminSession {
   };
 }
 
-function isAllowedSsoAdmin(session: AdminSession): boolean {
-  if (ADMIN_SSO_ALLOWED_EMAILS.length === 0 && ADMIN_SSO_ALLOWED_DOMAINS.length === 0) return true;
+async function isAllowedSsoAdmin(session: AdminSession): Promise<boolean> {
+  const { emails, domains } = await effectiveAllowedAdmins();
+  if (emails.length === 0 && domains.length === 0) return true;
   const email = session.email.toLowerCase();
-  if (ADMIN_SSO_ALLOWED_EMAILS.map((item) => item.toLowerCase()).includes(email)) return true;
+  if (emails.includes(email)) return true;
   const domain = email.split('@')[1] || '';
-  return ADMIN_SSO_ALLOWED_DOMAINS.includes(domain);
+  return domains.includes(domain);
 }
 
 async function verifySsoToken(token: string): Promise<AdminSession | null> {
-  if (ADMIN_AUTH_MODE === 'token' || !ADMIN_SSO_ISSUER || !jwks) return null;
+  const mode = await effectiveAdminAuthMode();
+  if (mode === 'token' || !ENV_SSO_ISSUER || !jwks) return null;
 
   try {
     const result = await jwtVerify(token, jwks, {
-      issuer: ADMIN_SSO_ISSUER,
-      audience: ADMIN_SSO_AUDIENCE || undefined,
+      issuer: ENV_SSO_ISSUER,
+      audience: ENV_SSO_AUDIENCE || undefined,
       algorithms: ['ES256', 'RS256'],
     });
     const session = sessionFromPayload(result.payload);
-    return isAllowedSsoAdmin(session) ? session : null;
+    const allowed = await isAllowedSsoAdmin(session);
+    return allowed ? session : null;
   } catch {
     return null;
   }
@@ -153,7 +212,8 @@ export const adminAuthGuard = new Elysia()
   .onBeforeHandle({ as: 'global' }, async ({ request, headers }) => {
     const pathname = new URL(request.url).pathname;
     const ip = requestIp(headers as Record<string, string | undefined>);
-    if (!consumeRateLimit(ip)) {
+    const allowed = await consumeRateLimit(ip);
+    if (!allowed) {
       return new Response('Too Many Requests', { status: 429 });
     }
     if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) return;
@@ -166,15 +226,15 @@ export const adminAuthGuard = new Elysia()
 
 export const authRoutes = new Elysia({ prefix: '/v1/auth' })
   .post('/login', async ({ body, headers }) => {
-    const { token, email, password } = body as Record<string, string>;
+    const { token } = body as Record<string, string>;
     const ip = requestIp(headers as Record<string, string | undefined>);
 
-    if (loginLocked(ip)) {
+    if (await loginLocked(ip)) {
       return new Response('Too Many Requests', { status: 429 });
     }
 
-    // Development mode: accept ADMIN_TOKEN directly
-    if (tokenAuthAllowed() && ADMIN_TOKEN && token === ADMIN_TOKEN) {
+    const tokenOk = await tokenAuthAllowed();
+    if (tokenOk && ENV_ADMIN_TOKEN && token === ENV_ADMIN_TOKEN) {
       const sessionToken = generateSessionToken();
       const session: AdminSession = {
         id: 'admin',
@@ -188,8 +248,8 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
       return { success: true, token: sessionToken };
     }
 
-    recordLoginFailure(ip);
-    return { success: false, error: { message: USE_SSO_MESSAGE() || 'Invalid credentials' } };
+    await recordLoginFailure(ip);
+    return { success: false, error: { message: await ssoMessage() || 'Invalid credentials' } };
   })
   .post('/logout', async ({ headers }) => {
     const token = bearerToken(headers as Record<string, string | undefined>);
@@ -210,8 +270,9 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
   })
   .get('/health', () => ({ status: 'ok' }));
 
-function USE_SSO_MESSAGE(): string | null {
-  if (ADMIN_AUTH_MODE === 'sso') return 'Password login is disabled; use SSO';
+async function ssoMessage(): Promise<string | null> {
+  const mode = await effectiveAdminAuthMode();
+  if (mode === 'sso') return 'Password login is disabled; use SSO';
   if (process.env.NODE_ENV === 'production') return 'Token login is disabled in production; use SSO';
   return null;
 }

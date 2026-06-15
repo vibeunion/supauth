@@ -20,3 +20,6 @@ OPENCODE.md
 .roomodes
 .roo/
 .zed/CONVENTIONS.md
+
+artifacts/
+# Release gate output (release-manifest.json, openapi.json)

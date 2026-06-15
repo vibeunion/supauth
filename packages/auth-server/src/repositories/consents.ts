@@ -1,6 +1,6 @@
 // User consent repository (P0-17) — backed by SupaCloud Postgres
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, or } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { userConsents } from '../db/schema.js';
 
@@ -43,15 +43,33 @@ export async function hasConsent(params: {
     eq(userConsents.applicationId, params.applicationId),
     isNull(userConsents.revokedAt),
   ];
-  if (params.scopeId) conditions.push(eq(userConsents.scopeId, params.scopeId));
-  if (params.organizationId) conditions.push(eq(userConsents.organizationId, params.organizationId));
+  // Match exact scope: when scopeId is omitted we must require NULL,
+  // otherwise an org-scoped consent could satisfy an app-level check.
+  if (params.scopeId) {
+    conditions.push(eq(userConsents.scopeId, params.scopeId));
+  } else {
+    conditions.push(isNull(userConsents.scopeId));
+  }
+  if (params.organizationId) {
+    conditions.push(eq(userConsents.organizationId, params.organizationId));
+  } else {
+    conditions.push(isNull(userConsents.organizationId));
+  }
 
   const rows = await db.select({ id: userConsents.id }).from(userConsents)
     .where(and(...conditions)).limit(1);
   return rows.length > 0;
 }
 
-/** Grant consent — record a user's authorization decision */
+/** Grant consent — record a user's authorization decision.
+ * Idempotent: if an active consent already exists for the same
+ * user+app+scope+org, return it instead of inserting a duplicate.
+ *
+ * Concurrency: the check-then-insert is inherently racy, so we also catch the
+ * unique_violation (Postgres SQLSTATE 23505) raised by the V4 partial unique
+ * index `uq_user_consents_active` and re-select the winning row. This makes the
+ * "return existing" contract hold even when two grants race.
+ */
 export async function grantConsent(params: {
   userId: string;
   applicationId: string;
@@ -59,13 +77,42 @@ export async function grantConsent(params: {
   organizationId?: string;
 }) {
   const db = getDb();
-  const [consent] = await db.insert(userConsents).values({
-    userId: params.userId,
-    applicationId: params.applicationId,
-    scopeId: params.scopeId || null,
-    organizationId: params.organizationId || null,
-  }).returning();
-  return consent;
+  const scopeId = params.scopeId || null;
+  const organizationId = params.organizationId || null;
+
+  const matchActive = () => db.select().from(userConsents)
+    .where(and(
+      eq(userConsents.userId, params.userId),
+      eq(userConsents.applicationId, params.applicationId),
+      scopeId ? eq(userConsents.scopeId, scopeId) : isNull(userConsents.scopeId),
+      organizationId ? eq(userConsents.organizationId, organizationId) : isNull(userConsents.organizationId),
+      isNull(userConsents.revokedAt),
+    )).limit(1);
+
+  // Check for an existing active consent
+  const existing = await matchActive();
+  if (existing.length > 0) return existing[0];
+
+  try {
+    const [consent] = await db.insert(userConsents).values({
+      userId: params.userId,
+      applicationId: params.applicationId,
+      scopeId,
+      organizationId,
+    }).returning();
+    return consent;
+  } catch (err) {
+    // Two concurrent grants may both miss the select and race to insert; the
+    // V4 partial unique index lets only one win. Re-select the winner so the
+    // caller still observes idempotent "return existing" semantics.
+    // postgres.js surfaces SQLSTATE on the error object; drizzle re-throws it.
+    const code = (err as { code?: string })?.code;
+    if (code === '23505') {
+      const winner = await matchActive();
+      if (winner.length > 0) return winner[0];
+    }
+    throw err;
+  }
 }
 
 /** Revoke a specific consent */

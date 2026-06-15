@@ -31,6 +31,7 @@ import { apiVersionRoutes } from './routes/api-versions.js';
 import { tenantConfigRoutes } from './routes/tenant-config.js';
 import { myAccountRoutes } from './routes/my-account.js';
 import { authHookRoutes } from './routes/auth-hooks.js';
+import { processPendingDeliveries } from './repositories/webhook-delivery.js';
 
 const config = getConfig();
 const configErrors = validateConfig(config);
@@ -126,6 +127,14 @@ const app = new Elysia()
 console.log(`SupaOAuth Management API running at http://${config.host}:${config.port}`);
 console.log(`Swagger docs at http://${config.host}:${config.port}/swagger`);
 console.log(`Runtime mode: ${config.runtimeMode}`);
+
+// Periodic webhook delivery worker — drains pending deliveries every 30s so
+// events survive process restarts instead of relying on setTimeout alone.
+const WEBHOOK_WORKER_INTERVAL_MS = 30_000;
+const webhookWorker = setInterval(() => {
+  processPendingDeliveries().catch(() => {});
+}, WEBHOOK_WORKER_INTERVAL_MS);
+webhookWorker.unref();
 
 // Export the app for OpenAPI spec extraction (used by scripts/export-openapi.ts)
 export { app };

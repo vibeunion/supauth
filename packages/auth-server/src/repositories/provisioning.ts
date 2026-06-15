@@ -1,7 +1,7 @@
 // Provisioning records repository (P0-20) — backed by SupaCloud Postgres
 // Tracks SupaCloud project provisioning state for idempotent reconcile
 
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { provisioningRecords } from '../db/schema.js';
 
@@ -19,7 +19,12 @@ export async function getProjectProvisioning(projectRef: string) {
     .orderBy(provisioningRecords.createdAt);
 }
 
-/** Record a provisioning step */
+/** Upsert a provisioning step — idempotent per (projectRef, step).
+ *
+ * Implemented as a real Postgres INSERT ... ON CONFLICT ... DO UPDATE against
+ * the unique index `uq_provisioning_records_project_step`. This is atomic, so
+ * concurrent reconcile calls can no longer append duplicate step rows.
+ */
 export async function recordStep(projectRef: string, step: ProvisioningStep) {
   const db = getDb();
   const [record] = await db.insert(provisioningRecords).values({
@@ -27,7 +32,16 @@ export async function recordStep(projectRef: string, step: ProvisioningStep) {
     step: step.step,
     status: step.status,
     details: step.details || {},
-  }).returning();
+  })
+    .onConflictDoUpdate({
+      target: [provisioningRecords.projectRef, provisioningRecords.step],
+      set: {
+        status: step.status,
+        details: step.details || {},
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
   return record;
 }
 
@@ -42,7 +56,10 @@ export async function updateStepStatus(recordId: string, status: string, details
   return updated;
 }
 
-/** Check if all required provisioning steps are completed for a project */
+/** Check if all required provisioning steps are completed for a project.
+ * With upsert semantics, there is at most one record per (projectRef, step),
+ * so we check that every required step has a completed record.
+ */
 export async function isProjectFullyProvisioned(projectRef: string): Promise<boolean> {
   const steps = await getProjectProvisioning(projectRef);
   const requiredSteps = ['db_migration', 'gotrue_config', 'kong_routes', 'storage_buckets'];

@@ -5,7 +5,10 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
   optimizeDeps: {
-    exclude: ['@svadmin/core'],
+    exclude: ['@svadmin/core', '@svadmin/sso'],
+  },
+  ssr: {
+    noExternal: ['@svadmin/core', '@svadmin/sso'],
   },
   server: {
     proxy: {
