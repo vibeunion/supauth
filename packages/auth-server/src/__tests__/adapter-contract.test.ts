@@ -2,20 +2,20 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { SupaCloudAdapter } from '../supacloud/adapter.js';
 import { loadConfig } from '../config/index.js';
 
-// P0-13: Contract tests for SupaCloud adapter
+// P0-13/P0-25/P0-26: Contract tests for SupaCloud adapter
 // These test the adapter's method signatures and response shape expectations
 // against mock SupaCloud API responses.
 
 describe('SupaCloudAdapter contract', () => {
-  // We test method shapes without hitting real SupaCloud
-  // by verifying the adapter constructs correct requests
-
   beforeEach(() => {
     process.env.SUPACLOUD_API_URL = 'http://test-api:9090';
     process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
     process.env.PROJECT_REF = 'test-ref';
     process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
     process.env.DATABASE_URL = 'postgres://test';
+    delete process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE;
+    delete process.env.SUPACLOUD_STORAGE_URL_TEMPLATE;
+    delete process.env.SUPACLOUD_STORAGE_URL;
     loadConfig();
   });
 
@@ -27,9 +27,25 @@ describe('SupaCloudAdapter contract', () => {
       'getOAuthClient', 'updateOAuthClient', 'deleteOAuthClient',
       'regenerateClientSecret', 'listProviders', 'getProvider',
       'updateProvider', 'listUsers', 'getUser', 'deleteUser', 'updateUser',
+      'listUserSessions', 'recordUserSession', 'revokeUserSession',
+      'getUserRoleAssignments', 'resolveUserPermissions',
+      'listUserPasskeys', 'registerUserPasskey', 'renamePasskey', 'revokePasskey',
+      'listOrganizations', 'createOrganization', 'getOrganization',
+      'updateOrganization', 'deleteOrganization', 'addOrganizationMember',
+      'removeOrganizationMember', 'updateOrganizationMember',
+      'getOrgRoleAssignments', 'listOrganizationInvitations',
+      'createOrganizationInvitation', 'updateOrganizationInvitationStatus',
+      'getOrganizationJitSettings', 'updateOrganizationJitSettings',
+      'listOrganizationApplications', 'updateOrganizationApplication',
+      'deleteOrganizationApplication', 'listRoles', 'createRole', 'getRole',
+      'updateRole', 'deleteRole', 'listRolePermissions', 'createPermission',
+      'deletePermission', 'assignRole', 'revokeRole',
+      'queryAuditLogs', 'getAuditLog', 'recordAuditEvent', 'listWebhooks', 'createWebhook',
+      'getWebhook', 'updateWebhook', 'deleteWebhook', 'rotateWebhookSecret',
+      'listWebhookLogs', 'testWebhook', 'replayWebhook', 'enqueueWebhookEvent',
       'listStorageBuckets', 'getStorageBucket', 'createStorageBucket',
-      'uploadFile', 'deleteFile', 'createSignedUrl', 'getPublicUrl',
-      'verifyGatewayRoutes',
+      'deleteStorageBucket', 'uploadFile', 'deleteFile', 'createSignedUrl', 'getPublicUrl',
+      'verifyGatewayRoutes', 'getProjectRef', 'getTargetInfo',
     ];
     for (const method of requiredMethods) {
       expect(typeof (adapter as any)[method]).toBe('function');
@@ -44,8 +60,29 @@ describe('SupaCloudAdapter contract', () => {
 
   it('SupaCloud API URL is constructed correctly', () => {
     const adapter = new SupaCloudAdapter();
-    // The constructor should not throw
     expect(adapter).toBeDefined();
+  });
+
+  it('encodes OAuth client and secret path segments', async () => {
+    const originalFetch = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      urls.push(url);
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.getOAuthClient('../../config/auth');
+      await adapter.disableClientSecret('client/one', 'secret/two');
+
+      expect(urls[0]).toContain('/auth/oauth-clients/..%2F..%2Fconfig%2Fauth');
+      expect(urls[0]).not.toContain('/projects/test-ref/config/auth');
+      expect(urls[1]).toContain('/auth/oauth-clients/client%2Fone/secrets/secret%2Ftwo/disable');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('verifyGatewayRoutes fails when Kong returns an upstream error', async () => {
@@ -66,12 +103,54 @@ describe('SupaCloudAdapter contract', () => {
 
     globalThis.fetch = originalFetch;
   });
+
+  // P0-26: projectRef override tests
+  it('uses env PROJECT_REF by default', () => {
+    const adapter = new SupaCloudAdapter();
+    expect(adapter.getProjectRef()).toBe('test-ref');
+  });
+
+  it('uses explicit projectRef override when provided', () => {
+    const adapter = new SupaCloudAdapter({ projectRef: 'other-project-12345' });
+    expect(adapter.getProjectRef()).toBe('other-project-12345');
+  });
+
+  it('getSupaCloudAdapterForProject creates scoped adapter', async () => {
+    const { getSupaCloudAdapterForProject } = await import('../supacloud/adapter.js');
+    const scoped = getSupaCloudAdapterForProject('scoped-ref-abcde12345');
+    expect(scoped.getProjectRef()).toBe('scoped-ref-abcde12345');
+  });
+
+  it('derives project-scoped runtime and storage URLs from templates', () => {
+    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test';
+    process.env.SUPACLOUD_STORAGE_URL_TEMPLATE = 'https://{projectRef}.storage.example.test';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
+    const target = adapter.getTargetInfo();
+
+    expect(target.runtimeUrl).toBe('https://projecttarget1234567890.api.example.test');
+    expect(target.storageUrl).toBe('https://projecttarget1234567890.storage.example.test');
+    expect(target.runtimeProjectScoped).toBe(true);
+    expect(target.storageProjectScoped).toBe(true);
+  });
+
+  it('marks cross-project runtime/storage as unscoped when URLs cannot be derived', () => {
+    process.env.PROJECT_REF = 'defaultproject1234567890';
+    process.env.OAUTH_RUNTIME_URL = 'https://api.shared.example.test';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter({ projectRef: 'targetproject1234567890' });
+    const target = adapter.getTargetInfo();
+
+    expect(target.runtimeUrl).toBe('https://api.shared.example.test');
+    expect(target.storageUrl).toBe('https://api.shared.example.test');
+    expect(target.runtimeProjectScoped).toBe(false);
+    expect(target.storageProjectScoped).toBe(false);
+  });
 });
 
 describe('SupaCloud API response shape expectations', () => {
-  // Document the expected response shapes from SupaCloud/Supabase APIs
-  // These are not live tests but serve as contract documentation
-
   it('OAuth client response shape', () => {
     const expectedShape = {
       client_id: 'string',
@@ -81,7 +160,6 @@ describe('SupaCloud API response shape expectations', () => {
       redirect_uris: 'string[]',
       grant_types: 'string[]',
     };
-    // This test documents the expected shape
     expect(expectedShape).toBeDefined();
   });
 

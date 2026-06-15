@@ -5,6 +5,11 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
 
+  const CONFIDENTIAL_AUTH_METHODS = [
+    { value: 'client_secret_basic', label: 'client_secret_basic' },
+    { value: 'client_secret_post', label: 'client_secret_post' },
+  ];
+
   let appId = $derived(page.params.appId);
   let app = $state(null);
   let bindings = $state([]);
@@ -12,7 +17,7 @@
   let loading = $state(true);
   let error = $state(null);
   let editing = $state(false);
-  let editForm = $state({ name: '', redirect_uris: '', grant_types: '' });
+  let editForm = $state({ name: '', redirect_uris: '', grant_types: '', token_endpoint_auth_method: 'client_secret_basic' });
   let revealedSecret = $state(null);
   let applicationSecrets = $state([]);
   let newSecretName = $state('');
@@ -70,6 +75,7 @@
           name: app.client_name || '',
           redirect_uris: (app.redirect_uris || []).join(', '),
           grant_types: (app.grant_types || []).join(', '),
+          token_endpoint_auth_method: app.token_endpoint_auth_method || 'client_secret_basic',
         };
       }
     } catch (e) {
@@ -84,6 +90,7 @@
         client_name: editForm.name,
         redirect_uris: editForm.redirect_uris.split(',').map(s => s.trim()).filter(Boolean),
         grant_types: editForm.grant_types.split(',').map(s => s.trim()).filter(Boolean),
+        token_endpoint_auth_method: app.client_type === 'public' ? 'none' : editForm.token_endpoint_auth_method,
       });
       editing = false;
       await load();
@@ -266,6 +273,17 @@
           <label for="application-grant-types" class="block text-sm font-medium text-surface-700 mb-1">Grant Types (comma-separated)</label>
           <input id="application-grant-types" bind:value={editForm.grant_types} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
         </div>
+        {#if app.client_type !== 'public'}
+          <div>
+            <label for="application-auth-method" class="block text-sm font-medium text-surface-700 mb-1">Token Endpoint Auth Method</label>
+            <select id="application-auth-method" bind:value={editForm.token_endpoint_auth_method} class="px-3 py-2 border border-surface-300 rounded-lg text-sm">
+              {#each CONFIDENTIAL_AUTH_METHODS as method (method.value)}
+                <option value={method.value}>{method.label}</option>
+              {/each}
+            </select>
+            <p class="mt-2 text-xs text-surface-500">Use <code>client_secret_post</code> for clients like Better Auth that send client credentials in the token request body.</p>
+          </div>
+        {/if}
         <button onclick={handleUpdate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Save</button>
       </div>
     </div>

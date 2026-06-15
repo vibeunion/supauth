@@ -5,11 +5,10 @@
  * Runs local build/test gates, exports OpenAPI, optionally runs live fixtures,
  * and writes a release manifest with commit and artifact metadata.
  *
- * By default the gate FAILS when the worktree is dirty or live fixtures are
- * skipped, to prevent shipping unreviewed or under-verified releases.
- * Set ALLOW_DIRTY_RELEASE=1 to bypass the dirty check (e.g. local builds).
- * Set ALLOW_SKIP_LIVE_GATE=1 to allow passing without live fixtures
- * (intended only for non-cutover / CI smoke runs).
+ * By default the gate fails when the worktree is dirty or live fixtures are
+ * skipped, so release manifests are not produced from under-verified trees.
+ * Set ALLOW_DIRTY_RELEASE=1 for local builds that intentionally keep changes.
+ * Set ALLOW_SKIP_LIVE_GATE=1 for non-cutover / CI smoke runs.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -17,6 +16,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 const releaseId = process.env.RELEASE_ID || `release-${new Date().toISOString().replace(/[:.]/g, '-')}`;
 const artifactDir = process.env.ARTIFACT_DIR || `artifacts/${releaseId}`;
 const runLive = process.env.RUN_LIVE_RELEASE_GATE === '1';
+const runSupabaseRuntimeCompat = process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1';
+const runSupabaseOauth21Compat = process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
 const allowDirty = process.env.ALLOW_DIRTY_RELEASE === '1';
 const allowSkipLive = process.env.ALLOW_SKIP_LIVE_GATE === '1';
 
@@ -35,13 +36,10 @@ function output(command: string[]): string {
   return new TextDecoder().decode(result.stdout).trim();
 }
 
-// Snapshot worktree state BEFORE we create any release artifact, otherwise the
-// manifest this script writes would make the tree look dirty even on a clean run.
 const commit = output(['git', 'rev-parse', 'HEAD']);
 const status = output(['git', 'status', '--short']);
 const isDirty = status.length > 0;
 
-// Refuse to release from a dirty worktree unless explicitly bypassed.
 if (isDirty && !allowDirty) {
   console.error('Release gate FAILED: worktree is dirty.');
   console.error('Uncommitted changes:');
@@ -51,9 +49,6 @@ if (isDirty && !allowDirty) {
   process.exit(1);
 }
 
-// Refuse to release without live fixtures unless explicitly bypassed. The
-// comment at the top of this file promises this default; honor it so a
-// "passed" manifest is never produced from an under-verified tree.
 if (!runLive && !allowSkipLive) {
   console.error('Release gate FAILED: live fixture gate was not run.');
   console.error('Set RUN_LIVE_RELEASE_GATE=1 for pre-cutover verification, or');
@@ -61,21 +56,61 @@ if (!runLive && !allowSkipLive) {
   process.exit(1);
 }
 
-// Now it is safe to produce artifacts — dirty check already passed above.
 mkdirSync(artifactDir, { recursive: true });
 
 run(['bunx', 'tsc', '--noEmit']);
 run(['bun', 'test']);
 run(['bun', 'run', 'check']);
-run(['bun', 'run', 'scripts/export-openapi.ts', `${artifactDir}/openapi.json`]);
+run(['bun', 'run', 'build'], { env: { SUPAUTH_SUPACLOUD_ARTIFACT_DIR: artifactDir } });
+run(['bun', 'run', 'scripts/verify-supacloud-app-artifact.ts', '--artifact-dir', artifactDir]);
+
+const supacloudAppManifestHash = output(['shasum', '-a', '256', `${artifactDir}/supacloud-app-manifest.json`]).split(/\s+/)[0];
+let supacloudInstalledAppVerification: string | undefined;
 
 if (runLive) {
-  run(['bun', 'test', 'tests/integration/supabase-compat/'], {
-    env: {
-      RUN_SUPABASE_RUNTIME_COMPAT: '1',
-      RUN_SUPABASE_OAUTH21_COMPAT: process.env.RUN_SUPABASE_OAUTH21_COMPAT,
-    },
-  });
+  const installedBaseUrl = process.env.SUPAUTH_INSTALLED_BASE_URL?.replace(/\/+$/, '');
+  const installedRuntimeUrl = process.env.SUPAUTH_INSTALLED_RUNTIME_URL?.replace(/\/+$/, '');
+  if (!installedBaseUrl || !installedRuntimeUrl) {
+    console.error('RUN_LIVE_RELEASE_GATE=1 requires SUPAUTH_INSTALLED_BASE_URL and SUPAUTH_INSTALLED_RUNTIME_URL');
+    process.exit(1);
+  }
+
+  if (runSupabaseRuntimeCompat) {
+    run([
+      'bun',
+      'test',
+      'tests/integration/supabase-compat/supabase-js.test.ts',
+      'tests/integration/supabase-compat/supacloud-contract.test.ts',
+    ], {
+      env: {
+        RUN_SUPABASE_RUNTIME_COMPAT: '1',
+        OAUTH_RUNTIME_URL: process.env.OAUTH_RUNTIME_URL || installedRuntimeUrl,
+        MANAGEMENT_URL: process.env.MANAGEMENT_URL || `${installedBaseUrl}/api`,
+      },
+    });
+  }
+
+  if (runSupabaseOauth21Compat) {
+    run(['bun', 'test', 'tests/integration/supabase-compat/oauth21.test.ts'], {
+      env: {
+        RUN_SUPABASE_OAUTH21_COMPAT: '1',
+        OAUTH_RUNTIME_URL: process.env.OAUTH_RUNTIME_URL || installedRuntimeUrl,
+      },
+    });
+  }
+
+  supacloudInstalledAppVerification = `${artifactDir}/supacloud-installed-app-verification.json`;
+  run([
+    'bun',
+    'run',
+    'scripts/verify-supacloud-installed-app.ts',
+    '--artifact-dir',
+    artifactDir,
+    '--expected-manifest-hash',
+    supacloudAppManifestHash,
+    '--output',
+    supacloudInstalledAppVerification,
+  ]);
 }
 
 const openapiHash = output(['shasum', '-a', '256', `${artifactDir}/openapi.json`]);
@@ -84,6 +119,9 @@ writeFileSync(`${artifactDir}/release-manifest.json`, JSON.stringify({
   release_id: releaseId,
   commit,
   openapi_hash: openapiHash.split(/\s+/)[0],
+  supacloud_app_manifest: `${artifactDir}/supacloud-app-manifest.json`,
+  supacloud_app_manifest_hash: supacloudAppManifestHash,
+  supacloud_installed_app_verification: supacloudInstalledAppVerification,
   dirty: isDirty,
   live_gate: runLive,
   created_at: new Date().toISOString(),

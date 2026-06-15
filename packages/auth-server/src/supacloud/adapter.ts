@@ -1,7 +1,39 @@
 // SupaCloud adapter — server-side only, holds master token
 // All SupaCloud Management API calls go through this module.
+// P0-26: Supports per-request projectRef override for multi-project safety.
 
 import { getConfig } from '../config/index.js';
+
+export interface AdapterOptions {
+  /** Override the default PROJECT_REF for this adapter instance */
+  projectRef?: string;
+  /** Explicit runtime URL for this project. */
+  runtimeUrl?: string;
+  /** Explicit storage URL for this project. */
+  storageUrl?: string;
+}
+
+export interface AdapterTargetInfo {
+  projectRef: string;
+  runtimeUrl: string;
+  storageUrl: string;
+  runtimeProjectScoped: boolean;
+  storageProjectScoped: boolean;
+}
+
+function pathSegment(value: string) {
+  return encodeURIComponent(value);
+}
+
+function queryString(params: Record<string, unknown>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue;
+    query.set(key, value instanceof Date ? value.toISOString() : String(value));
+  }
+  const text = query.toString();
+  return text ? `?${text}` : '';
+}
 
 export class SupaCloudAdapter {
   private apiUrl: string;
@@ -9,16 +41,50 @@ export class SupaCloudAdapter {
   private projectRef: string;
   private storageUrl: string;
   private runtimeUrl: string;
+  private runtimeProjectScoped: boolean;
+  private storageProjectScoped: boolean;
 
-  constructor() {
+  constructor(options?: AdapterOptions) {
     const config = getConfig();
     this.apiUrl = config.supacloudApiUrl;
     this.masterToken = config.supacloudMasterToken;
-    this.projectRef = config.projectRef;
-    this.runtimeUrl = config.oauthRuntimeUrl.replace(/\/+$/, '');
-    // Storage API uses the same base as the runtime URL (Kong-routed)
-    // or can be overridden via SUPACLOUD_STORAGE_URL
-    this.storageUrl = process.env.SUPACLOUD_STORAGE_URL || config.oauthRuntimeUrl;
+    // Per-instance projectRef: explicit override > env default
+    this.projectRef = options?.projectRef || config.projectRef;
+
+    const runtimeTarget = resolveProjectUrl({
+      explicitUrl: options?.runtimeUrl,
+      baseUrl: config.oauthRuntimeUrl,
+      template: process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE,
+      defaultProjectRef: config.projectRef,
+      targetProjectRef: this.projectRef,
+    });
+    const storageTarget = resolveProjectUrl({
+      explicitUrl: options?.storageUrl,
+      baseUrl: process.env.SUPACLOUD_STORAGE_URL || config.oauthRuntimeUrl,
+      template: process.env.SUPACLOUD_STORAGE_URL_TEMPLATE || process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE,
+      defaultProjectRef: config.projectRef,
+      targetProjectRef: this.projectRef,
+    });
+
+    this.runtimeUrl = runtimeTarget.url;
+    this.storageUrl = storageTarget.url;
+    this.runtimeProjectScoped = runtimeTarget.projectScoped;
+    this.storageProjectScoped = storageTarget.projectScoped;
+  }
+
+  /** The projectRef this adapter instance is bound to. */
+  getProjectRef(): string {
+    return this.projectRef;
+  }
+
+  getTargetInfo(): AdapterTargetInfo {
+    return {
+      projectRef: this.projectRef,
+      runtimeUrl: this.runtimeUrl,
+      storageUrl: this.storageUrl,
+      runtimeProjectScoped: this.runtimeProjectScoped,
+      storageProjectScoped: this.storageProjectScoped,
+    };
   }
 
   private async request(path: string, options: RequestInit = {}): Promise<unknown> {
@@ -28,18 +94,33 @@ export class SupaCloudAdapter {
       Authorization: `Bearer ${this.masterToken}`,
       ...(options.headers as Record<string, string>),
     };
-    const res = await fetch(url, { ...options, headers });
-    if (!res.ok) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(url, { ...options, headers, signal: controller.signal });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`SupaCloud ${res.status}: ${body}`);
+      }
+      if (res.status === 204) return null;
       const body = await res.text();
-      throw new Error(`SupaCloud ${res.status}: ${body}`);
+      return body ? JSON.parse(body) : null;
+    } finally {
+      clearTimeout(timeout);
     }
-    return res.json();
   }
 
   // ─── Project ──────────────────────────────────────────────────────
 
   async getProject() {
     return this.request(`/v1/projects/${this.projectRef}`);
+  }
+
+  async runDatabaseMigration(name: string, sql: string) {
+    return this.request(`/v1/projects/${this.projectRef}/database/migrations`, {
+      method: 'POST',
+      body: JSON.stringify({ name, sql }),
+    });
   }
 
   async verifyGatewayRoutes(): Promise<{
@@ -119,47 +200,47 @@ export class SupaCloudAdapter {
   }
 
   async getOAuthClient(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}`);
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}`);
   }
 
   async updateOAuthClient(clientId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   async deleteOAuthClient(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}`, {
       method: 'DELETE',
     });
   }
 
   async regenerateClientSecret(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/regenerate-secret`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/regenerate-secret`, {
       method: 'POST',
     });
   }
 
   async listClientSecrets(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets`);
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets`);
   }
 
   async createClientSecret(clientId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   async disableClientSecret(clientId: string, secretId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets/${secretId}/disable`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets/${pathSegment(secretId)}/disable`, {
       method: 'POST',
     });
   }
 
   async deleteClientSecret(clientId: string, secretId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${clientId}/secrets/${secretId}`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets/${pathSegment(secretId)}`, {
       method: 'DELETE',
     });
   }
@@ -187,6 +268,13 @@ export class SupaCloudAdapter {
     return this.request(`/v1/projects/${this.projectRef}/auth/users`);
   }
 
+  async createUser(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async getUser(userId: string) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}`);
   }
@@ -197,6 +285,11 @@ export class SupaCloudAdapter {
     });
   }
 
+  /**
+   * P0-27: Safe merge update — reads existing app_metadata first,
+   * then patches only the `supaoauth` namespace without clobbering
+   * other fields like `role`, `provider`, etc.
+   */
   async updateUser(userId: string, data: Record<string, unknown>) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}`, {
       method: 'PUT',
@@ -226,6 +319,286 @@ export class SupaCloudAdapter {
   async resetUserMfa(userId: string, factorId: string) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/mfa/${factorId}/reset`, {
       method: 'POST',
+    });
+  }
+
+  async listUserPasskeys(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/passkeys`);
+  }
+
+  async registerUserPasskey(userId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/passkeys`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async renamePasskey(passkeyId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/passkeys/${pathSegment(passkeyId)}/rename`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async revokePasskey(passkeyId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/passkeys/${pathSegment(passkeyId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listUserSessions(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/sessions`);
+  }
+
+  async recordUserSession(userId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/sessions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getUserRoleAssignments(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/roles`);
+  }
+
+  async resolveUserPermissions(userId: string, orgId?: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/permissions${queryString({ org_id: orgId })}`);
+  }
+
+  // ─── Organizations ────────────────────────────────────────────────
+
+  async listOrganizations() {
+    return this.request(`/v1/projects/${this.projectRef}/organizations`);
+  }
+
+  async createOrganization(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getOrganization(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`);
+  }
+
+  async updateOrganization(orgId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteOrganization(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async addOrganizationMember(orgId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeOrganizationMember(orgId: string, userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateOrganizationMember(orgId: string, userId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getOrgRoleAssignments(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/roles`);
+  }
+
+  async listOrganizationInvitations(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations`);
+  }
+
+  async createOrganizationInvitation(orgId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateOrganizationInvitationStatus(orgId: string, invitationId: string, action: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}/${pathSegment(action)}`, {
+      method: 'POST',
+    });
+  }
+
+  async getOrganizationJitSettings(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/jit`);
+  }
+
+  async updateOrganizationJitSettings(orgId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/jit`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listOrganizationApplications(orgId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications`);
+  }
+
+  async updateOrganizationApplication(orgId: string, appId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteOrganizationApplication(orgId: string, appId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ─── RBAC ─────────────────────────────────────────────────────────
+
+  async listRoles() {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles`);
+  }
+
+  async createRole(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getRole(roleId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}`);
+  }
+
+  async updateRole(roleId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteRole(roleId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listRolePermissions(roleId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/permissions`);
+  }
+
+  async createPermission(roleId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/permissions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deletePermission(roleId: string, permissionId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/permissions/${pathSegment(permissionId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async assignRole(roleId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async revokeRole(roleId: string, assignmentId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/assign/${pathSegment(assignmentId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ─── Audit ────────────────────────────────────────────────────────
+
+  async queryAuditLogs(params: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/audit${queryString(params)}`);
+  }
+
+  async getAuditLog(logId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/audit/${pathSegment(logId)}`);
+  }
+
+  async recordAuditEvent(event: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/audit/events`, {
+      method: 'POST',
+      body: JSON.stringify(event),
+    });
+  }
+
+  // ─── Webhooks ─────────────────────────────────────────────────────
+
+  async listWebhooks() {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks`);
+  }
+
+  async createWebhook(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getWebhook(webhookId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}`);
+  }
+
+  async updateWebhook(webhookId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteWebhook(webhookId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async rotateWebhookSecret(webhookId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/rotate-secret`, {
+      method: 'POST',
+    });
+  }
+
+  async listWebhookLogs(webhookId: string, params: Record<string, unknown> = {}) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/logs${queryString(params)}`);
+  }
+
+  async testWebhook(webhookId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/test`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async replayWebhook(webhookId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/replay`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async enqueueWebhookEvent(event: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/events`, {
+      method: 'POST',
+      body: JSON.stringify(event),
     });
   }
 
@@ -273,6 +646,19 @@ export class SupaCloudAdapter {
     if (!res.ok) {
       const body = await res.text();
       throw new Error(`Storage create bucket: ${res.status} ${body}`);
+    }
+    return res.json();
+  }
+
+  async deleteStorageBucket(bucketId: string) {
+    const url = `${this.storageUrl}/storage/v1/bucket/${bucketId}`;
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${this.masterToken}` },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Storage delete bucket: ${res.status} ${body}`);
     }
     return res.json();
   }
@@ -350,10 +736,68 @@ export class SupaCloudAdapter {
   }
 }
 
-// Singleton
+// Singleton (default projectRef from env)
 let _adapter: SupaCloudAdapter | null = null;
 
+/** Get or create the default singleton adapter (uses env PROJECT_REF). */
 export function getSupaCloudAdapter(): SupaCloudAdapter {
   if (!_adapter) _adapter = new SupaCloudAdapter();
   return _adapter;
+}
+
+/** Create an adapter bound to a specific projectRef (for multi-project safety). */
+export function getSupaCloudAdapterForProject(projectRef: string, options?: Omit<AdapterOptions, 'projectRef'>): SupaCloudAdapter {
+  return new SupaCloudAdapter({ ...options, projectRef });
+}
+
+function trimTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
+function resolveProjectUrl(input: {
+  explicitUrl?: string;
+  baseUrl: string;
+  template?: string;
+  defaultProjectRef: string;
+  targetProjectRef: string;
+}): { url: string; projectScoped: boolean } {
+  if (input.explicitUrl) {
+    return { url: trimTrailingSlash(input.explicitUrl), projectScoped: true };
+  }
+
+  if (input.template) {
+    return {
+      url: trimTrailingSlash(input.template.replaceAll('{projectRef}', input.targetProjectRef)),
+      projectScoped: true,
+    };
+  }
+
+  const baseUrl = trimTrailingSlash(input.baseUrl);
+  if (!input.targetProjectRef || input.targetProjectRef === input.defaultProjectRef) {
+    return { url: baseUrl, projectScoped: true };
+  }
+
+  if (!input.defaultProjectRef) {
+    return { url: baseUrl, projectScoped: false };
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    if (url.hostname === input.defaultProjectRef || url.hostname.startsWith(`${input.defaultProjectRef}.`)) {
+      // hostname is {defaultRef} or {defaultRef}.*.host — replace only the leading segment
+      url.hostname = url.hostname.replace(input.defaultProjectRef, input.targetProjectRef);
+      return { url: trimTrailingSlash(url.toString()), projectScoped: true };
+    }
+  } catch {
+    // Fall through to conservative string replacement.
+  }
+
+  if (baseUrl.includes(input.defaultProjectRef)) {
+    return {
+      url: trimTrailingSlash(baseUrl.replace(input.defaultProjectRef, input.targetProjectRef)),
+      projectScoped: true,
+    };
+  }
+
+  return { url: baseUrl, projectScoped: false };
 }

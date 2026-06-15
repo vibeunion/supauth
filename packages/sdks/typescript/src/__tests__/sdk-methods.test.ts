@@ -39,7 +39,7 @@ describe('SupaOAuthClient — all public methods exist', () => {
     'listRoles', 'createRole', 'getRole', 'updateRole', 'deleteRole',
     'listRolePermissions', 'createRolePermission', 'deleteRolePermission',
     'assignRole', 'revokeRole', 'getOrgRoleAssignments',
-    'getSignInExperience', 'resolveSignInExperience', 'resolvePublicSignInExperience', 'updateSignInExperience',
+    'getSignInExperience', 'resolveSignInExperience', 'resolvePublicSignInExperience', 'getPublicPhrases', 'updateSignInExperience',
     'getAuthConfig', 'updateAuthConfig',
     'getCompatibilityReport',
     'listTenantConfigs', 'getTenantConfig', 'upsertTenantConfig', 'deleteTenantConfig',
@@ -256,6 +256,21 @@ describe('SupaOAuthClient — query string construction', () => {
     try {
       await client.syncUserMetadata('user-1', 'org-1');
       expect(capturedUrl).toContain('org_id=org-1');
+    } finally {
+      restore();
+    }
+  });
+
+  it('getPublicPhrases encodes the language tag in the path', async () => {
+    let capturedUrl: string = '';
+    const restore = mockFetch((input) => {
+      capturedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      return Promise.resolve(new Response(JSON.stringify({ language_tag: 'zh-CN', phrases: {} }), { status: 200 }));
+    });
+
+    try {
+      await client.getPublicPhrases('zh-CN');
+      expect(capturedUrl).toBe('http://localhost:4010/v1/public/phrases/zh-CN');
     } finally {
       restore();
     }

@@ -1,8 +1,9 @@
 // Metadata sync — pushes SupaOAuth role/org/permission data into GoTrue app_metadata
 // Uses SupaCloud adapter to update user records; failures are logged to audit
+// P0-27: Safe merge — reads existing app_metadata first, only patches the
+// `supaoauth` namespace without clobbering `role`, `provider`, or other fields.
 
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
-import * as roleRepo from '../repositories/roles.js';
 import * as auditRepo from '../repositories/audit.js';
 import { getConfig } from '../config/index.js';
 
@@ -10,18 +11,71 @@ export interface SyncResult {
   success: boolean;
   userId: string;
   appMetadataPatch: Record<string, unknown>;
+  preservedFields?: string[];
   error?: string;
 }
 
-/** Sync a user's SupaOAuth roles/org to GoTrue app_metadata.
- *  In gotrue mode, writes canonical data to:
- *    - app_metadata.supaoauth.roles: string[]
- *    - app_metadata.supaoauth.current_org_id: string
- *    - app_metadata.supaoauth.current_org_role: string
- *
- *  The full permission decision stays in the Supabase DB projection through
- *  supaoauth.authorize(...), so JWTs remain small and revocation is immediate
- *  once projection tables are updated.
+function getItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
+    return (value as { items: unknown[] }).items;
+  }
+  return [];
+}
+
+function getNamedItems(value: unknown, key: string): Array<Record<string, unknown>> {
+  if (!value || typeof value !== 'object') return [];
+  const direct = (value as Record<string, unknown>)[key];
+  if (Array.isArray(direct)) return direct.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+  return [];
+}
+
+function getNames(value: unknown, key: string): string[] {
+  if (!value || typeof value !== 'object') return [];
+  const direct = (value as Record<string, unknown>)[key];
+  if (!Array.isArray(direct)) return [];
+  return direct
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') return (item as Record<string, unknown>).name;
+      return null;
+    })
+    .filter((name): name is string => typeof name === 'string' && name.length > 0);
+}
+
+/** Build the supaoauth namespace value from resolved roles/org. */
+async function buildSupaoauthNamespace(
+  userId: string,
+  orgId?: string,
+): Promise<Record<string, unknown>> {
+  const adapter = getSupaCloudAdapter();
+  const resolved = await adapter.resolveUserPermissions(userId, orgId);
+
+  const supaoauth: Record<string, unknown> = {
+    roles: getNames(resolved, 'roles'),
+    permissions: getNames(resolved, 'permissions'),
+    rbac_version: Date.now(),
+  };
+
+  if (orgId) {
+    const assignments = getItems(await adapter.getOrgRoleAssignments(orgId)) as Array<Record<string, unknown>>;
+    const userAssignment = assignments.find((assignment) => assignment.userId === userId || assignment.user_id === userId);
+    const role = userAssignment?.role && typeof userAssignment.role === 'object'
+      ? userAssignment.role as Record<string, unknown>
+      : null;
+    supaoauth.current_org_id = orgId;
+    supaoauth.current_org_role = role?.name || userAssignment?.role_name || 'member';
+  }
+
+  return supaoauth;
+}
+
+/**
+ * P0-27: Read-modify-write for app_metadata.
+ * 1. Read the user's current app_metadata from GoTrue.
+ * 2. Merge only the `supaoauth` namespace.
+ * 3. Write back the full merged app_metadata.
+ * 4. Verify that non-supaoauth fields are preserved.
  */
 export async function syncUserMetadata(userId: string, orgId?: string): Promise<SyncResult> {
   const config = getConfig();
@@ -32,37 +86,49 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
   const adapter = getSupaCloudAdapter();
 
   try {
-    const { roles, permissions } = await roleRepo.resolveUserPermissions(userId, orgId);
+    // Step 1: Read existing user from GoTrue
+    const existingUser = await adapter.getUser(userId) as Record<string, unknown>;
+    const existingAppMetadata = (existingUser.app_metadata as Record<string, unknown>) || {};
 
-    const supaoauthMetadata: Record<string, unknown> = {
-      roles: roles.map(r => r.name),
-      rbac_version: Date.now(),
+    // Step 2: Build the new supaoauth namespace
+    const newSupaoauth = await buildSupaoauthNamespace(userId, orgId);
+
+    // Step 3: Deep-merge — only replace `supaoauth` key, preserve everything else
+    const mergedAppMetadata: Record<string, unknown> = {
+      ...existingAppMetadata,
+      supaoauth: newSupaoauth,
     };
 
-    if (orgId) {
-      const assignments = await roleRepo.getOrgRoleAssignments(orgId);
-      const userAssignment = assignments.find(a => a.userId === userId);
-      supaoauthMetadata.current_org_id = orgId;
-      supaoauthMetadata.current_org_role = userAssignment?.role?.name || 'member';
+    // Step 4: Verify critical fields are preserved
+    const preservedFields = ['role', 'provider', 'providers', 'tenant_id', 'parent'];
+    for (const field of preservedFields) {
+      if (field in existingAppMetadata && existingAppMetadata[field] !== undefined) {
+        if (mergedAppMetadata[field] !== existingAppMetadata[field]) {
+          throw new Error(`Merge safety violation: field "${field}" was clobbered during sync`);
+        }
+      }
     }
 
-    const patch: Record<string, unknown> = {
-      supaoauth: supaoauthMetadata,
-    };
-
+    // Step 5: Write back
     await adapter.updateUser(userId, {
-      app_metadata: patch,
+      app_metadata: mergedAppMetadata,
     });
+    const preservedFieldsPresent = preservedFields.filter(f => f in existingAppMetadata);
 
     await auditRepo.logAudit({
       eventType: 'sync.user_metadata',
       resourceType: 'user',
       resourceId: userId,
       actorType: 'system',
-      details: { orgId, roles: roles.map(r => r.name), patch },
+      details: { orgId, roles: newSupaoauth.roles, preserved_fields: preservedFieldsPresent },
     });
 
-    return { success: true, userId, appMetadataPatch: patch };
+    return {
+      success: true,
+      userId,
+      appMetadataPatch: { supaoauth: newSupaoauth },
+      preservedFields: preservedFieldsPresent,
+    };
   } catch (e) {
     const error = (e as Error).message;
     await auditRepo.logAudit({
@@ -78,8 +144,11 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
 
 /** Sync all members of an organization (batch) */
 export async function syncOrgMetadata(orgId: string): Promise<SyncResult[]> {
-  const assignments = await roleRepo.getOrgRoleAssignments(orgId);
-  const userIds = [...new Set(assignments.map(a => a.userId).filter((userId): userId is string => !!userId))];
+  const adapter = getSupaCloudAdapter();
+  const assignments = getItems(await adapter.getOrgRoleAssignments(orgId)) as Array<Record<string, unknown>>;
+  const userIds = [...new Set(assignments
+    .map((assignment) => assignment.userId || assignment.user_id)
+    .filter((userId): userId is string => typeof userId === 'string' && userId.length > 0))];
   const results: SyncResult[] = [];
 
   for (const userId of userIds) {

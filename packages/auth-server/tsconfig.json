@@ -14,7 +14,7 @@
     "sourceMap": true,
     "outDir": "dist",
     "paths": {
-      "@supaoauth/shared": ["../shared/src/index.ts"]
+      "@supauth/shared": ["../shared/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],

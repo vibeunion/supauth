@@ -2,20 +2,22 @@
 
 ## Decision
 
-SupaOAuth uses a product RBAC source model plus a Supabase-compatible projection layer.
+SupaOAuth uses SupaCloud-owned product RBAC plus a Supabase-compatible projection layer.
 
 This is the default RBAC architecture for `runtime_mode=gotrue`:
 
 ```text
-SupaOAuth product RBAC
+SupaCloud Management API
   roles / permissions / organizations / applications / scopes
 
         -> project into Supabase
 
-supaoauth schema
+GoTrue app_metadata.supaoauth
   roles
   permissions
-  role_assignments
+  organizations
+
+supaoauth schema
   authorize(permission_name, organization_id)
   has_org_permission(organization_id, permission_name)
 
@@ -32,8 +34,8 @@ Supabase runtime
 - It preserves Supabase semantics for `auth.users`, `auth.uid()`, `auth.jwt()`, and the JWT `role` claim.
 - It lets existing Supabase projects migrate RLS policies gradually.
 - It avoids putting large permission arrays into JWTs.
-- Permission revocation becomes database-state driven instead of waiting for token refresh.
-- It keeps SupaOAuth's Logto-like RBAC model independent from Supabase runtime internals.
+- Permission revocation is driven by SupaCloud RBAC state and projected into GoTrue metadata.
+- It keeps SupaOAuth's Logto-like RBAC surface independent from Supabase runtime internals.
 
 ## Non-Negotiable Rules
 
@@ -48,11 +50,11 @@ Supabase runtime
 | Data | Location | Notes |
 | --- | --- | --- |
 | Primary user identity | `auth.users.id` | GoTrue/Supabase owns this. |
-| Product roles | `supaoauth.roles` | SupaOAuth owns this. |
-| Product permissions | `supaoauth.permissions` | SupaOAuth owns this. |
-| Role assignments | `supaoauth.role_assignments` | User, organization, or application scoped. |
-| Lightweight JWT hint | `app_metadata.supaoauth` | Small, non-authoritative hints only. |
-| RLS authorization | `supaoauth.authorize(...)` | Source of truth for database authorization. |
+| Product roles | SupaCloud Management API `/rbac/roles` | SupaCloud owns this. |
+| Product permissions | SupaCloud Management API `/rbac/roles/:id/permissions` | SupaCloud owns this. |
+| Role assignments | SupaCloud Management API RBAC assignment APIs | User, organization, or application scoped. |
+| Supabase projection | `app_metadata.supaoauth` | Synced from SupaCloud RBAC; used by RLS helpers and UI hints. |
+| RLS authorization | `supaoauth.authorize(...)` | Reads the GoTrue metadata projection; no local RBAC source tables. |
 
 ## JWT Strategy
 
@@ -81,7 +83,7 @@ SupaOAuth may write a small namespaced object:
 }
 ```
 
-This object is a hint for UI and lightweight checks. RLS should call database helper functions for authoritative authorization.
+This object is projected from SupaCloud RBAC. RLS should call database helper functions so policy SQL stays stable while SupaCloud remains the management source of truth.
 
 ## RLS Migration Patterns
 
@@ -134,9 +136,9 @@ The functions are:
 - `STABLE`
 - `SECURITY DEFINER`
 - executable by `authenticated`
-- backed by `supaoauth.role_assignments` and `supaoauth.permissions`
+- backed by `auth.jwt()->app_metadata->supaoauth`, which is synced from SupaCloud RBAC
 
-Authenticated users should execute the helpers but should not receive direct table privileges on SupaOAuth metadata tables.
+Authenticated users should execute the helpers but should not receive direct table privileges on SupaOAuth overlay tables.
 
 ## Migration Levels
 
@@ -144,7 +146,7 @@ Authenticated users should execute the helpers but should not receive direct tab
    Connect SupaOAuth to an existing Supabase project and inspect users, claims, runtime routes, and existing RLS.
 
 2. **Shadow**
-   Create the `supaoauth` schema and populate roles/permissions/assignments without changing existing RLS.
+   Create the `supaoauth` schema helpers and sync SupaCloud RBAC projection into `app_metadata.supaoauth` without changing existing RLS.
 
 3. **Wrapper**
    Add `OR supaoauth.authorize(...)` or `supaoauth.has_org_permission(...)` to selected policies.

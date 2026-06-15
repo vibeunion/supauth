@@ -29,3 +29,41 @@ jobs:
 
       - name: Type check and test
         run: bun run check
+
+  package-auth-ui:
+    name: Package Auth UI SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: check
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build SDK packages
+        run: |
+          bun run --filter '@supauth/shared' build
+          bun run --filter '@supauth/sdk-typescript' build
+          bun run --filter '@supauth/sdk-auth-ui' build
+
+      - name: Prepare npm package metadata
+        run: bun run scripts/prepare-npm-packages.ts --write
+
+      - name: Verify npm package contents
+        run: |
+          set -e
+          for pkg_dir in packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
+            echo "Packing $pkg_dir"
+            (cd "$pkg_dir" && bunx npm pack --dry-run)
+          done

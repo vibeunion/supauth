@@ -67,16 +67,16 @@ The following Supabase runtime paths must remain accessible and functional:
 | `/realtime/v1/*` | Realtime WebSocket |
 | `/functions/v1/*` | Edge Functions |
 
-SupaOAuth Management API paths must not conflict with these. Management API uses a separate path prefix (e.g. `/api/v1/*` or a separate port).
+SupAuth Function paths must not conflict with these. The Management API facade uses the SupaCloud app route prefix `/api/v1/*`; there is no separate SupAuth service port in the supported runtime.
 
-### SC-6: Self-Hosted
+### SC-6: SupaCloud Project-Scoped Runtime
 
-SupaOAuth must work with self-hosted Supabase stacks:
+SupaOAuth must work inside a SupaCloud-created project:
 
-- No dependency on Supabase Cloud control plane
-- GoTrue, Kong, PostgREST, Storage, Realtime all run as self-hosted services
-- SupaCloud orchestrates the self-hosted stack
-- SupaOAuth Management API and Admin Console run independently
+- SupaCloud owns GoTrue, gateway routing, PostgREST, Storage, Realtime, and Functions runtime paths
+- SupAuth installs only as SupaCloud Functions and Pages from the generated manifest
+- SupAuth Management API is a Function facade over SupaCloud Management API plus SupAuth overlay data
+- No standalone SupAuth service, systemd unit, pm2 process, webhook worker, or SupAuth-owned cron is supported
 
 ### SC-7: Dual Runtime Mode
 

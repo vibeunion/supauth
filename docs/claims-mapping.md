@@ -4,9 +4,9 @@ This document defines how SupaOAuth roles, scopes, organizations, and permission
 
 ## Recommendation
 
-For `runtime_mode=gotrue`, use SupaOAuth RBAC as a source model and project it into the Supabase database through the `supaoauth` schema. RLS should call helper functions such as `supaoauth.authorize(...)` instead of depending on large JWT permission arrays.
+For `runtime_mode=gotrue`, use SupaCloud RBAC as the source model and project it into GoTrue `app_metadata.supaoauth`. RLS should call helper functions such as `supaoauth.authorize(...)` instead of depending on large JWT permission arrays or local RBAC source tables.
 
-The top-level JWT `role` claim must remain a Supabase runtime role such as `anon` or `authenticated`. SupaOAuth business roles are stored in `supaoauth.roles` and may be mirrored as lightweight hints under `app_metadata.supaoauth`.
+The top-level JWT `role` claim must remain a Supabase runtime role such as `anon` or `authenticated`. SupaOAuth business roles are owned by SupaCloud RBAC and projected under `app_metadata.supaoauth`.
 
 ## Baseline: GoTrue Claims (runtime_mode=gotrue)
 
@@ -48,7 +48,7 @@ SupaOAuth adds claims under the `supaoauth` namespace to avoid collisions:
 
 ### When are SupaOAuth claims present?
 
-**gotrue mode**: SupaOAuth namespaced top-level claims are NOT present in the JWT. GoTrue controls token issuance. SupaOAuth metadata is available through the Management API, the `supaoauth` database projection, and a small `app_metadata.supaoauth` hint object.
+**gotrue mode**: SupaOAuth namespaced top-level claims are NOT present in the JWT. GoTrue controls token issuance. SupaCloud RBAC projection is available through the Management API and `app_metadata.supaoauth`; RLS helpers read that projection.
 
 **external_oidc mode**: SupaOAuth (or the external IdP) controls token issuance and can inject `supaoauth:*` claims. These claims are available in RLS policies only if the Supabase project is configured to trust the external issuer.
 
@@ -97,14 +97,14 @@ CREATE POLICY "admin_only" ON sensitive_data
 
 | SupaOAuth Concept | gotrue mode | external_oidc mode |
 | --- | --- | --- |
-| Roles | `app_metadata.supaoauth.roles` hint + `supaoauth.roles` source table | `supaoauth:roles` claim |
-| Organization | `app_metadata.supaoauth.current_org_id` hint + `supaoauth.organization_members` source table | `supaoauth:org_id` claim |
+| Roles | `app_metadata.supaoauth.roles` projected from SupaCloud RBAC | `supaoauth:roles` claim |
+| Organization | `app_metadata.supaoauth.current_org_id` projected from SupaCloud organization membership | `supaoauth:org_id` claim |
 | Scopes | Not in JWT; query Management API | `supaoauth:scopes` claim |
 | Permissions | Not in JWT; use `supaoauth.authorize(...)` in RLS | `supaoauth:permissions` claim |
 
 ### Syncing SupaOAuth metadata to app_metadata (gotrue mode)
 
-When a user's organization or role changes in SupaOAuth, the BFF should sync these to `app_metadata` through the SupaCloud adapter:
+When a user's organization or role changes in SupaCloud RBAC, the BFF should sync these to `app_metadata` through the SupaCloud adapter:
 
 ```typescript
 // In auth-server, after org/role change:

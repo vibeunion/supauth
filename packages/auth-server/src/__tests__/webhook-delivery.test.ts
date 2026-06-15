@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock, afterEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 describe('Webhook delivery — buildEvent', () => {
   it('builds event envelope with type, payload, and timestamp', async () => {
@@ -83,53 +83,48 @@ describe('Webhook delivery — SUPPORTED_WEBHOOK_EVENTS', () => {
   });
 });
 
-describe('Webhook delivery — signature computation', () => {
-  it('HMAC-SHA256 produces correct hex digest', async () => {
-    // Verify the signing approach independently
-    const key = new TextEncoder().encode('secret');
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-    );
-    const sig = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode('test payload'));
-    const hex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
-    expect(hex).toHaveLength(64); // SHA-256 = 32 bytes = 64 hex chars
-    expect(hex).toMatch(/^[0-9a-f]{64}$/);
+describe('Webhook delivery — SupaCloud managed pipeline', () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body?: string }> = [];
+
+  beforeEach(() => {
+    process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
+    process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
+    process.env.SUPACLOUD_PROJECT_REF = 'test-project';
+    process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
+    process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
+    process.env.RUNTIME_MODE = 'gotrue';
+    calls.length = 0;
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        url,
+        method: init?.method || 'GET',
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+      return Promise.resolve(Response.json({ queued: true }));
+    }) as unknown as typeof fetch;
   });
 
-  it('signature is deterministic for same input', async () => {
-    const key = new TextEncoder().encode('secret');
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-    );
-    const payload = new TextEncoder().encode('deterministic test');
-    const sig1 = await crypto.subtle.sign('HMAC', cryptoKey, payload);
-    const sig2 = await crypto.subtle.sign('HMAC', cryptoKey, payload);
-    const hex1 = Array.from(new Uint8Array(sig1)).map(b => b.toString(16).padStart(2, '0')).join('');
-    const hex2 = Array.from(new Uint8Array(sig2)).map(b => b.toString(16).padStart(2, '0')).join('');
-    expect(hex1).toBe(hex2);
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
-  it('different secrets produce different signatures', async () => {
-    const payload = new TextEncoder().encode('same payload');
-    const results: string[] = [];
-    for (const secret of ['secret1', 'secret2', 'secret3']) {
-      const key = new TextEncoder().encode(secret);
-      const cryptoKey = await crypto.subtle.importKey(
-        'raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-      );
-      const sig = await crypto.subtle.sign('HMAC', cryptoKey, payload);
-      results.push(Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join(''));
-    }
-    expect(new Set(results).size).toBe(3);
+  it('submits events to SupaCloud instead of delivering locally', async () => {
+    const { buildEvent, dispatchEvent } = await import('../repositories/webhook-delivery.js');
+    const event = buildEvent('application.created', { client_id: 'client-one' });
+
+    await dispatchEvent(event);
+
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0].url);
+    expect(calls[0].method).toBe('POST');
+    expect(url.pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')).toBe('/v1/projects/{projectRef}/webhooks/events');
+    expect(JSON.parse(calls[0].body || '{}')).toEqual(event);
   });
 });
 
 describe('Webhook delivery — module exports', () => {
-  it('exports deliverWebhookOnce function', async () => {
-    const mod = await import('../repositories/webhook-delivery.js');
-    expect(typeof mod.deliverWebhookOnce).toBe('function');
-  });
-
   it('exports dispatchEvent function', async () => {
     const mod = await import('../repositories/webhook-delivery.js');
     expect(typeof mod.dispatchEvent).toBe('function');

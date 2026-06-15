@@ -28,10 +28,10 @@ if (!existsSync(envPath)) {
 }
 
 if (shouldMigrate) {
-  console.log('Running database migration...');
-  run(['bun', 'run', 'migrate']);
+  console.error('Direct DB migration is removed. Run `bun run install:supacloud` so SupaCloud Management API applies hosted migrations.');
+  process.exit(1);
 } else {
-  console.log('Skipping migration. Run `bun run setup -- --migrate` when DATABASE_URL is ready.');
+  console.log('Skipping migration. SupAuth migrations are applied by `bun run install:supacloud` through SupaCloud Management API.');
 }
 
 console.log('Setup complete. Start development with `bun run dev`.');

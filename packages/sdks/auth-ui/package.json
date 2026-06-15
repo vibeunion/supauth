@@ -1,0 +1,43 @@
+{
+  "name": "@supauth/sdk-auth-ui",
+  "version": "0.1.0",
+  "description": "SupaOAuth adapter for Supabase Auth UI React and Svelte components",
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "clean": "bun -e \"const fs = await import('node:fs/promises'); await fs.rm('dist', { recursive: true, force: true });\"",
+    "build": "bun run clean && bunx tsc -p tsconfig.json",
+    "prepack": "bun run build",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zuohuadong/supauth.git",
+    "directory": "packages/sdks/auth-ui"
+  },
+  "dependencies": {
+    "@supauth/sdk-typescript": "workspace:*",
+    "@supauth/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.8.0"
+  }
+}

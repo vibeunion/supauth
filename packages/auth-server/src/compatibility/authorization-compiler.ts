@@ -189,7 +189,7 @@ const HELPER_SQL = `-- SupaOAuth helper functions are installed by the main auth
 -- Verify these functions exist before applying generated policies:
 --   supaoauth.authorize(permission_name text, target_organization_id uuid default null)
 --   supaoauth.has_org_permission(organization_id uuid, permission_name text)
--- Run: bun run migrate`;
+-- Install SupAuth through SupaCloud hosted migrations first: bun run install:supacloud`;
 
 export function compileAuthorizationPlan(request: AuthorizationCompileRequest = {}): AuthorizationCompileResult {
   const warnings: string[] = [];

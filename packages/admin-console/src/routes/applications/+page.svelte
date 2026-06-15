@@ -3,12 +3,32 @@
   import { resolve } from '$app/paths';
   import { listApplications, createApplication, deleteApplication, rotateApplicationSecret } from '$lib/api/client.js';
 
+  const CONFIDENTIAL_AUTH_METHODS = [
+    { value: 'client_secret_basic', label: 'client_secret_basic' },
+    { value: 'client_secret_post', label: 'client_secret_post' },
+  ];
+
   let applications = $state([]);
   let loading = $state(true);
   let error = $state(null);
   let showCreate = $state(false);
-  let newApp = $state({ name: '', redirect_uris: '', type: 'web' });
+  let newApp = $state({ name: '', redirect_uris: '', type: 'web', token_endpoint_auth_method: 'client_secret_basic' });
   let revealedSecrets = $state({});
+
+  function handleTypeChange(event) {
+    const type = event.currentTarget.value;
+    const authMethod = type === 'spa'
+      ? 'none'
+      : newApp.token_endpoint_auth_method === 'none'
+        ? 'client_secret_basic'
+        : newApp.token_endpoint_auth_method;
+
+    newApp = {
+      ...newApp,
+      type,
+      token_endpoint_auth_method: authMethod,
+    };
+  }
 
   async function load() {
     loading = true;
@@ -30,14 +50,14 @@
         grant_types: newApp.type === 'm2m'
           ? ['client_credentials']
           : ['authorization_code', 'refresh_token'],
-        token_endpoint_auth_method: newApp.type === 'spa' ? 'none' : 'client_secret_basic',
+        token_endpoint_auth_method: newApp.type === 'spa' ? 'none' : newApp.token_endpoint_auth_method,
       });
       // Show secret once on creation
       if (created.client_secret) {
         revealedSecrets[created.client_id] = created.client_secret;
       }
       showCreate = false;
-      newApp = { name: '', redirect_uris: '', type: 'web' };
+      newApp = { name: '', redirect_uris: '', type: 'web', token_endpoint_auth_method: 'client_secret_basic' };
       await load();
     } catch (e) {
       error = e.message;
@@ -90,12 +110,23 @@
       </div>
       <div>
         <label for="app-type" class="block text-sm font-medium text-surface-700 mb-1">Type</label>
-        <select id="app-type" bind:value={newApp.type} class="px-3 py-2 border border-surface-300 rounded-lg text-sm">
+        <select id="app-type" bind:value={newApp.type} onchange={handleTypeChange} class="px-3 py-2 border border-surface-300 rounded-lg text-sm">
           <option value="web">Web (Confidential)</option>
           <option value="spa">SPA / Native (Public)</option>
           <option value="m2m">Machine-to-Machine</option>
         </select>
       </div>
+      {#if newApp.type !== 'spa'}
+        <div>
+          <label for="app-auth-method" class="block text-sm font-medium text-surface-700 mb-1">Token Endpoint Auth Method</label>
+          <select id="app-auth-method" bind:value={newApp.token_endpoint_auth_method} class="px-3 py-2 border border-surface-300 rounded-lg text-sm">
+            {#each CONFIDENTIAL_AUTH_METHODS as method (method.value)}
+              <option value={method.value}>{method.label}</option>
+            {/each}
+          </select>
+          <p class="mt-2 text-xs text-surface-500">Use <code>client_secret_post</code> for clients like Better Auth that send client credentials in the token request body.</p>
+        </div>
+      {/if}
       {#if newApp.type !== 'm2m'}
         <div>
           <label for="app-redirects" class="block text-sm font-medium text-surface-700 mb-1">Redirect URIs (comma-separated)</label>
@@ -137,6 +168,7 @@
         {/if}
         <div class="mt-3 space-y-1">
           <p class="text-sm text-surface-600">Type: <span class="font-medium">{app.client_type || 'confidential'}</span></p>
+          <p class="text-sm text-surface-600">Auth Method: <span class="font-medium">{app.token_endpoint_auth_method || 'client_secret_basic'}</span></p>
           {#if app.redirect_uris?.length}
             <p class="text-sm text-surface-600">Redirect URIs:</p>
             {#each app.redirect_uris as uri (uri)}

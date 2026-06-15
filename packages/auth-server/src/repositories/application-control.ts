@@ -1,121 +1,60 @@
-// Application runtime controls: client secret lifecycle and consent settings.
+// Application runtime controls.
+//
+// SupaCloud owns OAuth client secret lifecycle. SupAuth keeps legacy local
+// secret helpers for compatibility, but the public lifecycle APIs below proxy
+// to SupaCloud client-secret management.
 
-import { randomBytes, createHash } from 'node:crypto';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
-import { applicationConsentSettings, applicationSecrets } from '../db/schema.js';
+import { applicationConsentSettings } from '../db/schema.js';
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { logAudit } from './audit.js';
-
-function generateSecret() {
-  return `so_${randomBytes(32).toString('base64url')}`;
-}
-
-function generateSecretId() {
-  return `sec_${randomBytes(12).toString('base64url')}`;
-}
-
-/** SHA-256 hash a plaintext secret for secure at-rest storage. */
-function hashSecret(plaintext: string): string {
-  return createHash('sha256').update(plaintext).digest('hex');
-}
-
-/** Strip secretHash from any application_secret row before it crosses the API
- * boundary. Every secret-lifecycle endpoint must go through this so the hash
- * is never leaked even if new endpoints are added later.
- */
-function sanitizeSecret<T extends { secretHash?: string | null }>(
-  row: T,
-): Omit<T, 'secretHash'> {
-  const { secretHash: _omit, ...rest } = row;
-  return rest;
-}
+export {
+  createLocalApplicationSecret,
+  deleteLocalApplicationSecret,
+  disableLocalApplicationSecret,
+  listLocalApplicationSecrets,
+  verifyApplicationSecret,
+} from './application-control-local.js';
 
 export async function listApplicationSecrets(applicationId: string) {
-  const db = getDb();
-  // Expose only whether a hash is present (legacy rows may not have one), never
-  // the hash string itself. Returning the raw hash to the API surface would
-  // let a compromised/leaked response be used for offline verification attempts.
-  return db.select({
-    id: applicationSecrets.id,
-    applicationId: applicationSecrets.applicationId,
-    secretId: applicationSecrets.secretId,
-    name: applicationSecrets.name,
-    status: applicationSecrets.status,
-    lastUsedAt: applicationSecrets.lastUsedAt,
-    expiresAt: applicationSecrets.expiresAt,
-    createdAt: applicationSecrets.createdAt,
-    disabledAt: applicationSecrets.disabledAt,
-    hasHash: sql<boolean>`${applicationSecrets.secretHash} IS NOT NULL`,
-  }).from(applicationSecrets)
-    .where(eq(applicationSecrets.applicationId, applicationId))
-    .orderBy(desc(applicationSecrets.createdAt));
+  return getSupaCloudAdapter().listClientSecrets(applicationId);
 }
 
 export async function createApplicationSecret(applicationId: string, data: { name?: string; expiresAt?: Date | null }) {
-  const db = getDb();
-  const secretId = generateSecretId();
-  const secret = generateSecret();
-  const [entry] = await db.insert(applicationSecrets).values({
-    applicationId,
-    secretId,
-    secretHash: hashSecret(secret),
-    name: data.name || 'Client secret',
-    expiresAt: data.expiresAt || null,
-  }).returning();
+  const secret = await getSupaCloudAdapter().createClientSecret(applicationId, {
+    name: data.name,
+    expires_at: data.expiresAt?.toISOString() ?? null,
+  });
   await logAudit({
     eventType: 'application.secret.created',
     resourceType: 'application',
     resourceId: applicationId,
-    details: { secret_id: secretId, name: entry.name },
+    details: { name: data.name },
   });
-  // Return only metadata + the one-time plaintext secret. The stored hash must
-  // never leave this function; callers/API consumers only get a boolean-like
-  // view of the secret via listApplicationSecrets.
-  return { ...sanitizeSecret(entry), secret };
+  return secret;
 }
 
 export async function disableApplicationSecret(applicationId: string, secretId: string) {
-  const db = getDb();
-  const [entry] = await db.update(applicationSecrets).set({
-    status: 'disabled',
-    disabledAt: new Date(),
-  }).where(and(
-    eq(applicationSecrets.applicationId, applicationId),
-    eq(applicationSecrets.secretId, secretId),
-  )).returning();
-  if (entry) {
-    await logAudit({
-      eventType: 'application.secret.disabled',
-      resourceType: 'application',
-      resourceId: applicationId,
-      details: { secret_id: secretId },
-    });
-    // Never return the hash; only metadata so callers know which secret changed.
-    return sanitizeSecret(entry);
-  }
-  return null;
+  const secret = await getSupaCloudAdapter().disableClientSecret(applicationId, secretId);
+  await logAudit({
+    eventType: 'application.secret.disabled',
+    resourceType: 'application',
+    resourceId: applicationId,
+    details: { secret_id: secretId },
+  });
+  return secret;
 }
 
 export async function deleteApplicationSecret(applicationId: string, secretId: string) {
-  const db = getDb();
-  const [entry] = await db.update(applicationSecrets).set({
-    status: 'deleted',
-    disabledAt: new Date(),
-  }).where(and(
-    eq(applicationSecrets.applicationId, applicationId),
-    eq(applicationSecrets.secretId, secretId),
-  )).returning();
-  if (entry) {
-    await logAudit({
-      eventType: 'application.secret.deleted',
-      resourceType: 'application',
-      resourceId: applicationId,
-      details: { secret_id: secretId },
-    });
-    // Never return the hash; only metadata so callers know which secret changed.
-    return sanitizeSecret(entry);
-  }
-  return null;
+  const secret = await getSupaCloudAdapter().deleteClientSecret(applicationId, secretId);
+  await logAudit({
+    eventType: 'application.secret.deleted',
+    resourceType: 'application',
+    resourceId: applicationId,
+    details: { secret_id: secretId },
+  });
+  return secret;
 }
 
 export async function getApplicationConsentSettings(applicationId: string) {
@@ -159,27 +98,4 @@ export async function upsertApplicationConsentSettings(applicationId: string, da
     },
   });
   return settings;
-}
-
-
-/** Verify a plaintext secret against stored hashes for an application.
- * Returns the matching secret record on success, null otherwise.
- * Updates lastUsedAt on match.
- */
-export async function verifyApplicationSecret(applicationId: string, plaintext: string) {
-  const db = getDb();
-  const candidateHash = hashSecret(plaintext);
-  const rows = await db.select().from(applicationSecrets)
-    .where(and(
-      eq(applicationSecrets.applicationId, applicationId),
-      eq(applicationSecrets.status, 'active'),
-    ));
-  for (const row of rows) {
-    if (row.secretHash === candidateHash) {
-      await db.update(applicationSecrets).set({ lastUsedAt: new Date() })
-        .where(eq(applicationSecrets.id, row.id));
-      return row;
-    }
-  }
-  return null;
 }

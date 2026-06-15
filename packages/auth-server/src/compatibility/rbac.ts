@@ -21,16 +21,16 @@ export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
   results.push({
     check_id: 'rb-1-authorize-function',
     status: 'warn',
-    message: 'Cannot verify supaoauth.authorize() existence without a live Postgres connection. Run migration first, then re-check.',
-    details: { required_action: 'Run bun run migrate to create supaoauth schema and helper functions' },
+    message: 'Cannot verify supaoauth.authorize() existence without a live Postgres connection. Install SupAuth through SupaCloud hosted migrations first, then re-check.',
+    details: { required_action: 'Run bun run install:supacloud so SupaCloud Management API creates supaoauth schema and helper functions' },
   });
 
   // RB-2: Check supaoauth.has_org_permission() function exists and is callable
   results.push({
     check_id: 'rb-2-has-org-permission-function',
     status: 'warn',
-    message: 'Cannot verify supaoauth.has_org_permission() existence without a live Postgres connection. Run migration first.',
-    details: { required_action: 'Run bun run migrate to create supaoauth schema and helper functions' },
+    message: 'Cannot verify supaoauth.has_org_permission() existence without a live Postgres connection. Install SupAuth through SupaCloud hosted migrations first.',
+    details: { required_action: 'Run bun run install:supacloud so SupaCloud Management API creates supaoauth schema and helper functions' },
   });
 
   // RB-3: Check GRANT EXECUTE on helpers to authenticated role
@@ -75,16 +75,16 @@ export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
   results.push({
     check_id: 'rb-5-app-metadata-namespace',
     status: 'pass',
-    message: 'SupaOAuth uses app_metadata.supaoauth namespace for lightweight JWT hints. RLS authorization should use supaoauth.authorize() function, not JWT claims.',
-    details: { namespace: 'app_metadata.supaoauth', authoritative_source: 'supaoauth.authorize() SQL function' },
+    message: 'SupaOAuth uses app_metadata.supaoauth as the SupaCloud RBAC projection consumed by supaoauth.authorize(). Top-level JWT role is not used for business RBAC.',
+    details: { namespace: 'app_metadata.supaoauth', authoritative_source: 'SupaCloud Management API RBAC projected into GoTrue app_metadata' },
   });
 
   // RB-6: Check that supaoauth schema is isolated from auth schema
   results.push({
     check_id: 'rb-6-schema-isolation',
     status: 'pass',
-    message: 'SupaOAuth metadata lives in supaoauth schema, separate from GoTrue auth schema. No cross-schema table writes.',
-    details: { supaoauth_tables: ['api_resources', 'scopes', 'organizations', 'organization_members', 'roles', 'permissions', 'role_assignments', 'webhooks', 'audit_logs', 'sign_in_experience', 'connectors', 'application_bindings'] },
+    message: 'SupaOAuth overlay metadata lives in supaoauth schema, separate from GoTrue auth schema. SupaCloud-owned Organizations/RBAC/Audit/Webhooks are not duplicated on new installs.',
+    details: { overlay_tables: ['api_resources', 'scopes', 'sign_in_experience', 'application_sign_in_experience', 'connectors', 'application_bindings', 'user_consents', 'organization_templates', 'security_config', 'enterprise_sso_config', 'api_version_log', 'application_consent_settings', 'connector_factories', 'tenant_configs', 'account_provisioning_records'] },
   });
 
   // RB-7: Detect unsafe RLS patterns — policies using JWT role claim for business authorization

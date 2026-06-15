@@ -45,7 +45,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __appSecretDir = dirname(fileURLToPath(import.meta.url));
-const appControlSrc = readFileSync(join(__appSecretDir, '../repositories/application-control.ts'), 'utf-8');
+const appControlSrc = readFileSync(join(__appSecretDir, '../repositories/application-control-local.ts'), 'utf-8');
 
 describe('Application secret — no secretHash leakage', () => {
   it('has a shared sanitizeSecret helper', () => {
@@ -55,8 +55,8 @@ describe('Application secret — no secretHash leakage', () => {
   it('disableApplicationSecret returns a sanitized row', () => {
     // The disable path must route through sanitizeSecret before returning.
     const disableBlock = appControlSrc.slice(
-      appControlSrc.indexOf('export async function disableApplicationSecret'),
-      appControlSrc.indexOf('export async function deleteApplicationSecret'),
+      appControlSrc.indexOf('export async function disableLocalApplicationSecret'),
+      appControlSrc.indexOf('export async function deleteLocalApplicationSecret'),
     );
     expect(disableBlock).toContain('sanitizeSecret(entry)');
     // And must NOT return the raw entry.
@@ -65,8 +65,8 @@ describe('Application secret — no secretHash leakage', () => {
 
   it('deleteApplicationSecret returns a sanitized row', () => {
     const deleteBlock = appControlSrc.slice(
-      appControlSrc.indexOf('export async function deleteApplicationSecret'),
-      appControlSrc.indexOf('export async function getApplicationConsentSettings'),
+      appControlSrc.indexOf('export async function deleteLocalApplicationSecret'),
+      appControlSrc.indexOf('export async function verifyApplicationSecret'),
     );
     expect(deleteBlock).toContain('sanitizeSecret(entry)');
     expect(deleteBlock).not.toContain('return entry || null');
@@ -74,8 +74,8 @@ describe('Application secret — no secretHash leakage', () => {
 
   it('createApplicationSecret also sanitizes', () => {
     const createBlock = appControlSrc.slice(
-      appControlSrc.indexOf('export async function createApplicationSecret'),
-      appControlSrc.indexOf('export async function disableApplicationSecret'),
+      appControlSrc.indexOf('export async function createLocalApplicationSecret'),
+      appControlSrc.indexOf('export async function disableLocalApplicationSecret'),
     );
     expect(createBlock).toContain('sanitizeSecret(entry)');
   });

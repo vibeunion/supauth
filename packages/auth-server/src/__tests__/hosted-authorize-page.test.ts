@@ -1,0 +1,116 @@
+import { describe, expect, test } from 'bun:test';
+import { Elysia } from 'elysia';
+import { hostedPageRoutes, resolveHostedPagePaths } from '../routes/hosted-pages.js';
+
+function request(url: string, init?: RequestInit) {
+  const app = new Elysia().use(hostedPageRoutes);
+  return app.handle(new Request(url, { ...init }));
+}
+
+describe('hostedPageRoutes', () => {
+  test('resolveHostedPagePaths covers src and dist execution layouts', () => {
+    const fromSrc = resolveHostedPagePaths('/opt/supauth/packages/auth-server/src/routes', '/opt/supauth/packages/auth-server');
+    expect(fromSrc.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
+    expect(fromSrc.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
+
+    const fromDist = resolveHostedPagePaths('/opt/supauth/packages/auth-server/dist', '/opt/supauth');
+    expect(fromDist.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
+    expect(fromDist.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
+  });
+
+  test('GET /oauth/authorize serves hosted authorize html', async () => {
+    const response = await request('http://localhost/oauth/authorize?authorization_id=test-authz');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+  });
+
+  test('GET /login.html serves the same authorize page', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+  });
+
+  test('GET /claim serves the account claim page', async () => {
+    const response = await request('http://localhost/claim');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Account Claim</title>');
+    expect(body).toContain('/account-claims/claim');
+  });
+
+  test('hosted login page normalizes credentials and maps GoTrue login errors', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('<form id="login-form" novalidate>');
+    expect(body).toContain('function normalizeEmailInput(value)');
+    expect(body).toContain("invalidLoginCredentials: 'Account or password does not match. Please check and try again.'");
+    expect(body).toContain("invalidLoginCredentials: '账号或密码不匹配，请检查后重试。'");
+    expect(body).toContain("value.includes('invalid login credentials')");
+    expect(body).toContain("value.includes('invalid_credentials')");
+    expect(body).toContain("setMessage('error', loginResponseMessage(data))");
+    expect(body).toContain('const email = normalizeEmailInput(emailInput.value);');
+    expect(body).toContain("setMessage('error', t('emailInvalid'))");
+    expect(body).toContain("setMessage('error', t('passwordRequired'))");
+  });
+
+  test('hosted login page places social sign-in below the credential panels', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    const credentialPanelIndex = body.indexOf('<div id="panel-signin" class="tab-panel active">');
+    const forgotPanelIndex = body.indexOf('<div id="panel-forgot" class="tab-panel">');
+    const socialDividerIndex = body.indexOf('<div id="social-divider" class="divider" style="display:none">');
+    const socialSectionIndex = body.indexOf('<div id="social-section" class="social-buttons" style="display:none">');
+    const footerIndex = body.indexOf('<div id="footer" class="footer">');
+
+    expect(credentialPanelIndex).toBeGreaterThan(-1);
+    expect(forgotPanelIndex).toBeGreaterThan(credentialPanelIndex);
+    expect(socialDividerIndex).toBeGreaterThan(forgotPanelIndex);
+    expect(socialSectionIndex).toBeGreaterThan(socialDividerIndex);
+    expect(footerIndex).toBeGreaterThan(socialSectionIndex);
+  });
+
+  test('hosted login page blocks expired OAuth authorization requests', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('let authorizationAvailable = !authorizationId;');
+    expect(body).toContain("authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.'");
+    expect(body).toContain("authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。'");
+    expect(body).toContain('function disableExpiredAuthorization()');
+    expect(body).toContain('if (!authorizationAvailable) throw new Error(t(\'authorizationExpired\'));');
+    expect(body).toContain('authorizationAvailable = !!experience.authorization;');
+    expect(body).toContain("setMessage('error', t('authorizationExpired'))");
+  });
+
+  test('GET / serves the same authorize page', async () => {
+    const response = await request('http://localhost/');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+  });
+
+  test('GET /favicon.ico and /favicon.svg serve the hosted favicon', async () => {
+    for (const path of ['/favicon.ico', '/favicon.svg']) {
+      const response = await request(`http://localhost${path}`);
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('image/svg+xml');
+      expect(body).toContain('<svg');
+    }
+  });
+});

@@ -1,4 +1,4 @@
-// @supaoauth/shared — shared schemas and types
+// @supauth/shared — shared schemas and types
 
 // Re-export claims module
 export * from './claims.js';
@@ -148,6 +148,21 @@ export interface EffectiveSignInExperience extends SignInExperience {
     response_type: string;
     nonce?: string | null;
   } | null;
+}
+
+export interface PublicSignInConnector {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface PublicEffectiveSignInExperience extends EffectiveSignInExperience {
+  connectors?: PublicSignInConnector[];
+}
+
+export interface PublicPhraseBundle {
+  language_tag: string;
+  phrases: Record<string, unknown>;
 }
 
 // Audit log

@@ -3,22 +3,20 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="supaoauth-api-base" content="">
     <title>SupaOAuth Sign In</title>
-    <link rel="icon" href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E%3Crect width="32" height="32" rx="7" fill="%230a2540"/%3E%3Cpath d="M9 18c2.5-5.4 5.4-8 8.8-8 2.8 0 4.8 1.5 5.2 4 .3 2.2-1 4.1-3.3 4.6l-4.1.9c-1.3.3-2 .9-2.2 1.9h9.3v2.8H9.1c.1-3.7 2-6.1 5.7-6.9l4.2-.9c.9-.2 1.3-.8 1.2-1.6-.2-1.1-1.1-1.8-2.5-1.8-2 0-4 2-6.1 6L9 18z" fill="%23635bff"/%3E%3C/svg%3E'>
     <style>
       * { box-sizing: border-box; }
-      :root {
-        --primary: #635bff;
-        --ink: #0a2540;
-      }
+      :root { --primary: #2563eb; }
       body {
         margin: 0;
         min-height: 100vh;
-        background:
-          linear-gradient(180deg, #ffffff 0%, #f6f9fc 58%, #eef3f9 100%);
-        color: var(--ink);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f6f7f9;
+        color: #111827;
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        overflow-x: hidden;
       }
       body.has-bg {
         background-position: center;
@@ -28,287 +26,392 @@
         content: "";
         position: fixed;
         inset: 0;
-        z-index: 0;
-        background: rgba(246, 249, 252, 0.78);
-        backdrop-filter: blur(8px);
-      }
-      .page {
-        position: relative;
-        z-index: 1;
-        min-height: 100vh;
-        display: grid;
-        grid-template-columns: minmax(0, 1.1fr) minmax(360px, 480px);
-        align-items: center;
-        gap: clamp(32px, 6vw, 96px);
-        width: min(1180px, calc(100vw - 48px));
-        margin: 0 auto;
-        padding: 64px 0;
-      }
-      .geometry {
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
-        overflow: hidden;
-      }
-      .geometry::before,
-      .geometry::after {
-        content: "";
-        position: absolute;
-        left: 50%;
-        width: 120vw;
-        height: 260px;
-        transform: translateX(-50%) rotate(-7deg);
-        transform-origin: center;
-      }
-      .geometry::before {
-        top: -86px;
-        background:
-          linear-gradient(90deg, #7a73ff 0%, #00d4ff 34%, #00c48c 68%, #ffd166 100%);
-        box-shadow: 0 22px 60px rgba(99, 91, 255, 0.16);
-      }
-      .geometry::after {
-        top: 84px;
-        left: 62%;
-        width: 82vw;
-        height: 146px;
-        background:
-          linear-gradient(90deg, rgba(10, 37, 64, 0.08), rgba(99, 91, 255, 0.18), rgba(0, 212, 255, 0.06));
-      }
-      .brand {
-        max-width: 600px;
-        padding-top: 44px;
-      }
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        margin: 0 0 18px;
-        color: #425466;
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0;
-      }
-      .eyebrow::before {
-        content: "";
-        width: 28px;
-        height: 3px;
-        border-radius: 999px;
-        background: var(--primary);
-      }
-      .brand h2 {
-        margin: 0 0 18px;
-        max-width: 580px;
-        color: #0a2540;
-        font-size: 68px;
-        line-height: 0.95;
-        letter-spacing: 0;
-      }
-      .brand p {
-        margin: 0;
-        max-width: 520px;
-        color: #425466;
-        font-size: 18px;
-        line-height: 1.65;
+        background: rgba(255, 255, 255, 0.72);
       }
       .card {
         position: relative;
-        width: 100%;
-        padding: 30px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        border-radius: 8px;
-        background: rgba(10, 37, 64, 0.96);
-        box-shadow:
-          0 36px 90px rgba(10, 37, 64, 0.28),
-          inset 0 1px 0 rgba(255, 255, 255, 0.08);
-        color: #ffffff;
+        width: min(420px, calc(100vw - 32px));
+        padding: 36px;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
       }
-      .card::before {
-        content: "";
+      .language-select {
         position: absolute;
-        inset: 0;
-        border-radius: inherit;
-        background: linear-gradient(145deg, rgba(99, 91, 255, 0.18), transparent 38%);
-        pointer-events: none;
+        top: 14px;
+        right: 14px;
+        height: 30px;
+        padding: 0 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 7px;
+        background: #fff;
+        color: #374151;
+        font-size: 12px;
       }
       .logo {
         display: none;
         max-width: 180px;
-        max-height: 64px;
-        margin: 0 0 22px;
-        object-fit: contain;
+        max-height: 72px;
+        margin: 0 auto 18px;
       }
       h1 {
-        position: relative;
         margin: 0 0 8px;
-        color: #ffffff;
-        font-size: 28px;
-        font-weight: 750;
-        letter-spacing: 0;
-        overflow-wrap: anywhere;
+        text-align: center;
+        font-size: 24px;
+        font-weight: 700;
       }
       .subtitle {
         margin: 0 0 24px;
-        color: #adbdcc;
+        text-align: center;
+        color: #6b7280;
         font-size: 14px;
-        line-height: 1.5;
-      }
-      form {
-        position: relative;
       }
       label {
         display: block;
-        margin: 0 0 7px;
-        color: #d6e0eb;
+        margin: 0 0 6px;
+        color: #374151;
         font-size: 13px;
         font-weight: 600;
       }
       input {
         width: 100%;
-        height: 46px;
-        margin: 0 0 16px;
-        padding: 0 14px;
-        border: 1px solid rgba(173, 189, 204, 0.32);
-        border-radius: 6px;
-        background: rgba(255, 255, 255, 0.08);
-        color: #ffffff;
+        height: 42px;
+        margin: 0 0 14px;
+        padding: 0 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
         font-size: 14px;
         outline: none;
-        transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
-      }
-      input::placeholder {
-        color: rgba(214, 224, 235, 0.54);
       }
       input:focus {
-        border-color: color-mix(in srgb, var(--primary) 80%, #ffffff);
-        background: rgba(255, 255, 255, 0.12);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
       }
       button {
         width: 100%;
-        height: 46px;
+        height: 44px;
         border: 0;
-        border-radius: 6px;
-        background: linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 76%, #00d4ff));
+        border-radius: 8px;
+        background: var(--primary);
         color: #fff;
         cursor: pointer;
         font-size: 15px;
-        font-weight: 760;
-        box-shadow: 0 16px 34px color-mix(in srgb, var(--primary) 34%, transparent);
-        transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
-      }
-      button:hover:not(:disabled) {
-        transform: translateY(-1px);
-        filter: saturate(1.04);
-      }
-      button:focus-visible {
-        outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent);
-        outline-offset: 3px;
+        font-weight: 700;
       }
       button:disabled { opacity: 0.65; cursor: wait; }
       .message {
-        position: relative;
         display: none;
-        margin: 0 0 16px;
-        padding: 11px 12px;
-        border-radius: 6px;
+        margin: 0 0 14px;
+        padding: 10px 12px;
+        border-radius: 8px;
         font-size: 13px;
       }
-      .message.error { display: block; background: rgba(255, 90, 95, 0.14); color: #ffd4d6; }
-      .message.ok { display: block; background: rgba(0, 212, 146, 0.14); color: #b5f4df; }
+      .message.error { display: block; background: #fef2f2; color: #991b1b; }
+      .message.ok { display: block; background: #ecfdf5; color: #065f46; }
       .footer {
-        position: relative;
-        display: flex;
-        justify-content: space-between;
-        gap: 14px;
-        margin-top: 20px;
-        padding-top: 18px;
-        border-top: 1px solid rgba(173, 189, 204, 0.18);
-        color: #adbdcc;
+        margin-top: 18px;
+        text-align: center;
+        color: #9ca3af;
         font-size: 12px;
       }
-      .footer span:last-child {
-        color: #d6e0eb;
-        font-weight: 650;
+      /* Tab switcher for sign-in / sign-up / forgot-password */
+      .tabs {
+        display: flex;
+        gap: 0;
+        margin: 0 0 20px;
+        border-bottom: 2px solid #e5e7eb;
       }
-      @media (max-width: 860px) {
-        .page {
-          grid-template-columns: 1fr;
-          width: min(520px, calc(100vw - 32px));
-          gap: 28px;
-          padding: 92px 0 36px;
-        }
-        .brand {
-          padding-top: 0;
-        }
-        .brand h2 {
-          font-size: 42px;
-        }
-        .brand p {
-          font-size: 16px;
-        }
+      .tab-btn {
+        flex: 1;
+        height: 38px;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: #6b7280;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: color .15s, border-color .15s;
       }
-      @media (max-width: 520px) {
-        .page {
-          width: min(100vw - 24px, 460px);
-          padding-top: 82px;
-        }
-        .card {
-          padding: 24px;
-        }
-        .brand h2 {
-          font-size: 36px;
-        }
-        .footer {
-          display: block;
-        }
-        .footer span {
-          display: block;
-        }
-        .footer span + span {
-          margin-top: 4px;
-        }
+      .tab-btn.active {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
       }
+      .tab-panel { display: none; }
+      .tab-panel.active { display: block; }
+      /* Social buttons */
+      .social-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: 14px 0 0;
+      }
+      .social-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        height: 42px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        background: #fff;
+        color: #1f2937;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .15s, border-color .15s, box-shadow .15s;
+      }
+      .social-btn:hover {
+        background: #f9fafb;
+        border-color: #c7ccd4;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+      }
+      .divider {
+        display: flex;
+        align-items: center;
+        margin: 22px 0 0;
+        color: #9ca3af;
+        font-size: 12px;
+      }
+      .divider::before, .divider::after {
+        content: "";
+        flex: 1;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .divider span { padding: 0 12px; }
+      .forgot-link {
+        display: inline-block;
+        margin: -6px 0 14px;
+        color: var(--primary);
+        font-size: 13px;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .forgot-link:hover { text-decoration: underline; }
     </style>
     <style id="custom-style"></style>
   </head>
   <body>
-    <div class="geometry" aria-hidden="true"></div>
-    <main class="page">
-      <section class="brand" aria-labelledby="brand-title">
-        <p class="eyebrow">SupaOAuth Identity</p>
-        <h2 id="brand-title">Access for modern product teams</h2>
-        <p>Secure access to your workspace.</p>
-      </section>
+    <main class="card">
+      <select id="language" class="language-select" aria-label="Language">
+        <option value="en">English</option>
+        <option value="zh-CN">中文</option>
+      </select>
+      <img id="logo" class="logo" alt="">
+      <h1 id="title">SupaOAuth</h1>
+      <p id="subtitle" class="subtitle">Sign in to continue</p>
+      <div id="message" class="message"></div>
 
-      <section class="card" aria-labelledby="title">
-        <img id="logo" class="logo" alt="">
-        <h1 id="title">SupaOAuth</h1>
-        <p class="subtitle">Sign in to continue to your application.</p>
-        <div id="message" class="message"></div>
-        <form id="login-form">
-          <label for="email">Email</label>
-          <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-          <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+      <!-- Tabs: sign-in / sign-up / forgot-password -->
+      <div id="tabs-nav" class="tabs">
+        <button type="button" class="tab-btn active" data-tab="signin" id="tab-signin">Sign In</button>
+        <button type="button" class="tab-btn" data-tab="signup" id="tab-signup" style="display:none">Sign Up</button>
+        <button type="button" class="tab-btn" data-tab="forgot" id="tab-forgot" style="display:none">Forgot Password</button>
+      </div>
+
+      <!-- Sign In panel -->
+      <div id="panel-signin" class="tab-panel active">
+        <form id="login-form" novalidate>
+          <label id="email-label" for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" required>
+          <a id="forgot-password-link" class="forgot-link" style="display:none">Forgot password?</a>
+          <label id="password-label" for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
           <button id="submit" type="submit">Sign In</button>
         </form>
-        <div class="footer">
-          <span>Protected by SupaOAuth</span>
-          <span>Secure session</span>
-        </div>
-      </section>
+      </div>
+
+      <!-- Sign Up panel -->
+      <div id="panel-signup" class="tab-panel">
+        <form id="signup-form">
+          <label id="signup-email-label" for="signup-email">Email</label>
+          <input id="signup-email" name="email" type="email" autocomplete="email" required>
+          <label id="signup-password-label" for="signup-password">Password</label>
+          <input id="signup-password" name="password" type="password" autocomplete="new-password" required minlength="6">
+          <button id="signup-submit" type="submit">Sign Up</button>
+        </form>
+      </div>
+
+      <!-- Forgot Password panel -->
+      <div id="panel-forgot" class="tab-panel">
+        <form id="forgot-form">
+          <label id="forgot-email-label" for="forgot-email">Email</label>
+          <input id="forgot-email" name="email" type="email" autocomplete="email" required>
+          <button id="forgot-submit" type="submit">Send Reset Link</button>
+        </form>
+      </div>
+
+      <!-- Social login buttons -->
+      <div id="social-divider" class="divider" style="display:none"><span id="or-text">or</span></div>
+      <div id="social-section" class="social-buttons" style="display:none"></div>
+
+      <div id="footer" class="footer">SupaOAuth Identity Provider</div>
     </main>
 
     <script>
       const params = new URLSearchParams(window.location.search);
       const authorizationId = params.get('authorization_id') || '';
       let authorizationRedirectUrl = params.get('redirect_to') || '';
+      let authorizationAvailable = !authorizationId;
+      let hasCustomPageTitle = false;
+      let hasCustomButtonLabel = false;
+      let signUpEnabled = false;
 
+      // ─── i18n defaults with phrase override support ─────────────────
+      const LOCALE_STORAGE_KEY = 'supaoauth.locale';
+      const defaultMessages = {
+        en: {
+          documentTitle: 'SupaOAuth Sign In',
+          title: 'SupaOAuth',
+          subtitle: 'Sign in to continue',
+          email: 'Email',
+          password: 'Password',
+          submit: 'Sign In',
+          signingIn: 'Signing in...',
+          footer: 'SupaOAuth Identity Provider',
+          loginFailed: 'Login failed',
+          loginSuccess: 'Login successful.',
+          redirecting: 'Login successful. Redirecting...',
+          networkError: 'Network error',
+          emailRequired: 'Enter your email address.',
+          emailInvalid: 'Enter a valid email address.',
+          passwordRequired: 'Enter your password.',
+          invalidLoginCredentials: 'Account or password does not match. Please check and try again.',
+          authorizationFailed: 'Authorization approval failed',
+          authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.',
+          signIn: 'Sign In',
+          signUp: 'Sign Up',
+          forgotPassword: 'Forgot Password',
+          signUpSubmit: 'Sign Up',
+          signingUp: 'Signing up...',
+          signUpSuccess: 'Account created. You can now sign in.',
+          signUpFailed: 'Sign up failed',
+          forgotEmailLabel: 'Email',
+          forgotSubmit: 'Send Reset Link',
+          sendingReset: 'Sending...',
+          forgotSuccess: 'Password reset email sent. Check your inbox.',
+          forgotFailed: 'Failed to send reset email',
+          or: 'or',
+          forgotLink: 'Forgot password?',
+          backToSignIn: 'Back to Sign In',
+        },
+        'zh-CN': {
+          documentTitle: 'SupaOAuth 登录',
+          title: 'SupaOAuth',
+          subtitle: '登录后继续',
+          email: '邮箱',
+          password: '密码',
+          submit: '登录',
+          signingIn: '正在登录...',
+          footer: 'SupaOAuth 身份提供方',
+          loginFailed: '登录失败',
+          loginSuccess: '登录成功。',
+          redirecting: '登录成功，正在跳转...',
+          networkError: '网络错误',
+          emailRequired: '请输入邮箱。',
+          emailInvalid: '请输入正确的邮箱格式。',
+          passwordRequired: '请输入密码。',
+          invalidLoginCredentials: '账号或密码不匹配，请检查后重试。',
+          authorizationFailed: '授权确认失败',
+          authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。',
+          signIn: '登录',
+          signUp: '注册',
+          forgotPassword: '忘记密码',
+          signUpSubmit: '注册',
+          signingUp: '正在注册...',
+          signUpSuccess: '账号已创建，请登录。',
+          signUpFailed: '注册失败',
+          forgotEmailLabel: '邮箱',
+          forgotSubmit: '发送重置链接',
+          sendingReset: '正在发送...',
+          forgotSuccess: '密码重置邮件已发送，请查看邮箱。',
+          forgotFailed: '发送重置邮件失败',
+          or: '或',
+          forgotLink: '忘记密码？',
+          backToSignIn: '返回登录',
+        },
+      };
+
+      // Phrase overrides from API
+      const phraseOverrides = {};
+
+      function normalizeLocale(locale) {
+        if (!locale) return null;
+        const normalized = locale.replace('_', '-').toLowerCase();
+        if (normalized === 'zh' || normalized.startsWith('zh-')) return 'zh-CN';
+        if (normalized === 'en' || normalized.startsWith('en-')) return 'en';
+        return null;
+      }
+
+      function localeCandidates() {
+        const uiLocales = (params.get('ui_locales') || '').split(/\s+/).filter(Boolean);
+        const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+        const browserLocales = navigator.languages && navigator.languages.length
+          ? navigator.languages
+          : [navigator.language];
+        return [...uiLocales, stored, ...browserLocales, 'en'];
+      }
+
+      function detectLocale() {
+        for (const candidate of localeCandidates()) {
+          const locale = normalizeLocale(candidate);
+          if (locale && defaultMessages[locale]) return locale;
+        }
+        return 'en';
+      }
+
+      let currentLocale = detectLocale();
+
+      function t(key) {
+        // Phrase overrides take priority, then defaults
+        if (phraseOverrides[currentLocale] && phraseOverrides[currentLocale][key]) {
+          return phraseOverrides[currentLocale][key];
+        }
+        return (defaultMessages[currentLocale] && defaultMessages[currentLocale][key]) || defaultMessages.en[key] || key;
+      }
+
+      function applyLocale(locale, persist = false) {
+        currentLocale = defaultMessages[locale] || phraseOverrides[locale] ? locale : 'en';
+        document.documentElement.lang = currentLocale;
+        document.getElementById('language').value = currentLocale;
+        document.getElementById('subtitle').textContent = t('subtitle');
+        document.getElementById('email-label').textContent = t('email');
+        document.getElementById('password-label').textContent = t('password');
+        document.getElementById('signup-email-label').textContent = t('email');
+        document.getElementById('signup-password-label').textContent = t('password');
+        document.getElementById('signup-submit').textContent = t('signUpSubmit');
+        document.getElementById('forgot-email-label').textContent = t('forgotEmailLabel');
+        document.getElementById('forgot-submit').textContent = t('forgotSubmit');
+        document.getElementById('forgot-password-link').textContent = t('forgotLink');
+        document.getElementById('tab-signin').textContent = t('signIn');
+        document.getElementById('tab-signup').textContent = t('signUp');
+        document.getElementById('tab-forgot').textContent = t('forgotPassword');
+        document.getElementById('or-text').textContent = t('or');
+        document.getElementById('footer').textContent = t('footer');
+        if (!hasCustomPageTitle) {
+          document.title = t('documentTitle');
+          document.getElementById('title').textContent = t('title');
+        }
+        if (!hasCustomButtonLabel) {
+          document.getElementById('submit').textContent = t('submit');
+        }
+        if (persist) localStorage.setItem(LOCALE_STORAGE_KEY, currentLocale);
+      }
+
+      // ─── API helpers ─────────────────────────────────────────────────
       function publicApiBase() {
+        const metaBase = document.querySelector('meta[name="supaoauth-api-base"]');
+        if (metaBase && metaBase.content) return metaBase.content;
         const { protocol, hostname, port, origin } = window.location;
         if (hostname === '127.0.0.1' || hostname === 'localhost') {
           return `${protocol}//${hostname}:4010/v1/public`;
+        }
+        if (hostname.startsWith('auth.')) {
+          return `${origin}/v1/public`;
         }
         if (hostname.startsWith('api.')) {
           return `${protocol}//${hostname.replace(/^api\./, 'auth.')}${port ? `:${port}` : ''}/api/v1/public`;
@@ -320,6 +423,52 @@
         const el = document.getElementById('message');
         el.className = `message ${type}`;
         el.textContent = text;
+      }
+
+      function clearMessage() {
+        const el = document.getElementById('message');
+        el.className = 'message';
+        el.textContent = '';
+      }
+
+      function responseMessage(data, fallback) {
+        if (!data || typeof data !== 'object') return fallback;
+        return data.msg || data.error_description || data.error || fallback;
+      }
+
+      function normalizeEmailInput(value) {
+        return String(value || '')
+          .normalize('NFKC')
+          .replace(/[\u200B-\u200D\uFEFF]/g, '')
+          .trim();
+      }
+
+      function isValidEmail(value) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      }
+
+      function isInvalidCredentials(data) {
+        const fields = [
+          data && data.error,
+          data && data.error_code,
+          data && data.error_description,
+          data && data.msg,
+          data && data.message,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+        return fields.some((value) => (
+          value.includes('invalid login credentials') ||
+          value.includes('invalid_credentials') ||
+          value.includes('invalid credentials')
+        ));
+      }
+
+      function loginResponseMessage(data) {
+        if (data && typeof data === 'object' && isInvalidCredentials(data)) {
+          return t('invalidLoginCredentials');
+        }
+        return responseMessage(data, t('loginFailed'));
       }
 
       function buildAuthorizeUrl(authorization) {
@@ -343,17 +492,89 @@
 
       async function approveAuthorization(accessToken) {
         if (!authorizationId) return null;
+        if (!authorizationAvailable) throw new Error(t('authorizationExpired'));
         const res = await fetch(`${publicApiBase()}/oauth/authorizations/${encodeURIComponent(authorizationId)}/approve`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => null);
         if (!res.ok) {
-          throw new Error(data.msg || data.error_description || data.error || 'Authorization approval failed');
+          throw new Error(responseMessage(data, t('authorizationFailed')));
         }
-        return data.redirect_url || null;
+        return data && typeof data === 'object' ? data.redirect_url || null : null;
       }
 
+      function disableExpiredAuthorization() {
+        authorizationAvailable = false;
+        setMessage('error', t('authorizationExpired'));
+        ['email', 'password', 'submit'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.disabled = true;
+        });
+      }
+
+      // ─── Tab switching ────────────────────────────────────────────────
+      function switchTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tabName}`));
+        clearMessage();
+      }
+
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+      });
+
+      document.getElementById('forgot-password-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        switchTab('forgot');
+      });
+
+      // ─── Social login ────────────────────────────────────────────────
+      function renderSocialButtons(connectors) {
+        if (!connectors || !connectors.length) return;
+        const section = document.getElementById('social-section');
+        const divider = document.getElementById('social-divider');
+        const icons = {
+          google: '<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 019.5 24c0-1.59.28-3.14.78-4.59l-7.98-6.19A23.9 23.9 0 000 24c0 3.77.9 7.34 2.56 10.53l7.97-5.94z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.94C6.51 42.62 14.62 48 24 48z"/></svg>',
+          github: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>',
+        };
+
+        for (const c of connectors) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'social-btn';
+          const icon = icons[c.id] || '';
+          btn.innerHTML = `${icon}<span>${c.name}</span>`;
+          btn.addEventListener('click', () => {
+            const url = new URL(`${publicApiBase()}/connectors/${encodeURIComponent(c.id)}/authorize`, window.location.origin);
+            // Forward current OAuth params so the flow continues after social login
+            const forward = ['client_id', 'redirect_uri', 'response_type', 'scope', 'state', 'code_challenge', 'code_challenge_method', 'nonce', 'resource'];
+            for (const p of forward) {
+              const val = params.get(p);
+              if (val) url.searchParams.set(p, val);
+            }
+            if (authorizationId) url.searchParams.set('authorization_id', authorizationId);
+            window.location.href = url.toString();
+          });
+          section.appendChild(btn);
+        }
+        section.style.display = 'flex';
+        divider.style.display = 'flex';
+      }
+
+      // ─── Load phrases from API ────────────────────────────────────────
+      async function loadPhrases(locale) {
+        try {
+          const res = await fetch(`${publicApiBase()}/phrases/${encodeURIComponent(locale)}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data && data.phrases && typeof data.phrases === 'object' && Object.keys(data.phrases).length > 0) {
+            phraseOverrides[locale] = data.phrases;
+          }
+        } catch {}
+      }
+
+      // ─── Load experience (branding + connectors + features) ───────────
       async function loadExperience() {
         if (!authorizationId) return;
         const url = `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`;
@@ -361,11 +582,20 @@
           const res = await fetch(url, { credentials: 'include' });
           if (!res.ok) return;
           const experience = await res.json();
-          if (!authorizationRedirectUrl && experience.authorization) {
-            authorizationRedirectUrl = buildAuthorizeUrl(experience.authorization);
+          if (authorizationId) {
+            authorizationAvailable = !!experience.authorization;
+            if (!authorizationAvailable) {
+              disableExpiredAuthorization();
+            }
+          }
+          if (experience.authorization) {
+            if (!authorizationRedirectUrl) authorizationRedirectUrl = buildAuthorizeUrl(experience.authorization);
           }
           const branding = experience.branding || {};
+
+          // Branding
           if (branding.page_title) {
+            hasCustomPageTitle = true;
             document.title = branding.page_title;
             document.getElementById('title').textContent = branding.page_title;
           }
@@ -388,54 +618,178 @@
             document.body.style.backgroundImage = `url("${branding.background_url}")`;
           }
           if (branding.button_label) {
+            hasCustomButtonLabel = true;
             document.getElementById('submit').textContent = branding.button_label;
           }
           if (branding.custom_css) {
             document.getElementById('custom-style').textContent = branding.custom_css;
           }
+
+          // Social connectors
+          if (experience.connectors && experience.connectors.length > 0) {
+            renderSocialButtons(experience.connectors);
+          }
+
+          // Sign-up enabled
+          if (experience.sign_up_enabled === true || experience.sign_up_enabled === undefined) {
+            signUpEnabled = true;
+            document.getElementById('tab-signup').style.display = '';
+          }
+
+          // Forgot password link always visible (GoTrue supports it)
+          document.getElementById('forgot-password-link').style.display = '';
+          document.getElementById('tab-forgot').style.display = '';
         } catch {
           // Branding is non-critical; login should continue with the default page.
         }
       }
 
+      // ─── Sign In ──────────────────────────────────────────────────────
       document.getElementById('login-form').addEventListener('submit', async (event) => {
         event.preventDefault();
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const email = normalizeEmailInput(emailInput.value);
+        const password = passwordInput.value;
+        emailInput.value = email;
+        if (!authorizationAvailable) {
+          setMessage('error', t('authorizationExpired'));
+          return;
+        }
+        if (!email) {
+          setMessage('error', t('emailRequired'));
+          emailInput.focus();
+          return;
+        }
+        if (!isValidEmail(email)) {
+          setMessage('error', t('emailInvalid'));
+          emailInput.focus();
+          return;
+        }
+        if (!password) {
+          setMessage('error', t('passwordRequired'));
+          passwordInput.focus();
+          return;
+        }
         const button = document.getElementById('submit');
         button.disabled = true;
         const originalText = button.textContent;
-        button.textContent = 'Signing in...';
+        button.textContent = t('signingIn');
         try {
           const res = await fetch('/auth/v1/token?grant_type=password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
-              email: document.getElementById('email').value,
-              password: document.getElementById('password').value,
+              email,
+              password,
             }),
           });
-          const data = await res.json().catch(() => ({}));
+          const data = await res.json().catch(() => null);
           if (!res.ok) {
-            setMessage('error', data.msg || data.error_description || 'Login failed');
+            setMessage('error', loginResponseMessage(data));
+            return;
+          }
+          if (!data || typeof data !== 'object' || !data.access_token) {
+            setMessage('error', t('loginFailed'));
             return;
           }
           const approvedRedirectUrl = await approveAuthorization(data.access_token);
           const redirectUrl = approvedRedirectUrl || authorizationRedirectUrl;
           if (redirectUrl) {
-            setMessage('ok', 'Login successful. Redirecting...');
+            setMessage('ok', t('redirecting'));
             window.location.href = redirectUrl;
           } else {
-            setMessage('ok', 'Login successful.');
+            setMessage('ok', t('loginSuccess'));
           }
         } catch {
-          setMessage('error', 'Network error');
+          setMessage('error', t('networkError'));
         } finally {
           button.disabled = false;
           button.textContent = originalText;
         }
       });
 
-      loadExperience();
+      // ─── Sign Up ──────────────────────────────────────────────────────
+      document.getElementById('signup-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const button = document.getElementById('signup-submit');
+        button.disabled = true;
+        const originalText = button.textContent;
+        button.textContent = t('signingUp');
+        try {
+          const res = await fetch('/auth/v1/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              email: document.getElementById('signup-email').value,
+              password: document.getElementById('signup-password').value,
+            }),
+          });
+          const data = await res.json().catch(() => null);
+          if (!res.ok) {
+            setMessage('error', responseMessage(data, t('signUpFailed')));
+            return;
+          }
+          setMessage('ok', t('signUpSuccess'));
+          // Switch to sign-in tab after successful sign-up
+          setTimeout(() => {
+            switchTab('signin');
+            document.getElementById('email').value = document.getElementById('signup-email').value;
+          }, 1500);
+        } catch {
+          setMessage('error', t('networkError'));
+        } finally {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      });
+
+      // ─── Forgot Password ──────────────────────────────────────────────
+      document.getElementById('forgot-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const button = document.getElementById('forgot-submit');
+        button.disabled = true;
+        const originalText = button.textContent;
+        button.textContent = t('sendingReset');
+        try {
+          const res = await fetch('/auth/v1/recover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              email: document.getElementById('forgot-email').value,
+            }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            setMessage('error', responseMessage(data, t('forgotFailed')));
+            return;
+          }
+          setMessage('ok', t('forgotSuccess'));
+        } catch {
+          setMessage('error', t('networkError'));
+        } finally {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      });
+
+      // ─── Language switch ──────────────────────────────────────────────
+      document.getElementById('language').addEventListener('change', async (event) => {
+        const locale = event.target.value;
+        await loadPhrases(locale);
+        applyLocale(locale, true);
+      });
+
+      // ─── Init ─────────────────────────────────────────────────────────
+      async function init() {
+        await loadPhrases(currentLocale);
+        applyLocale(currentLocale);
+        await loadExperience();
+      }
+      init();
     </script>
   </body>
 </html>

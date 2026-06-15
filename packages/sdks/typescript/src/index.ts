@@ -1,4 +1,4 @@
-// @supaoauth/sdk-typescript — TypeScript SDK for SupaOAuth Management API
+// @supauth/sdk-typescript — TypeScript SDK for SupaOAuth Management API
 import type {
   Application,
   CreateApplicationInput,
@@ -13,11 +13,13 @@ import type {
   SignInExperience,
   ApplicationSignInExperience,
   EffectiveSignInExperience,
+  PublicEffectiveSignInExperience,
+  PublicPhraseBundle,
   AuditLogEntry,
   Webhook,
   RuntimeMode,
   CompatibilityCheckResult,
-} from '@supaoauth/shared';
+} from '@supauth/shared';
 
 // ─── Response wrappers ──────────────────────────────────
 interface ListResponse<T> {
@@ -836,7 +838,11 @@ export class SupaOAuthClient {
     if (params.application_id) qs.set('application_id', params.application_id);
     if (params.authorization_id) qs.set('authorization_id', params.authorization_id);
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
-    return this.request<EffectiveSignInExperience>(`/v1/public/sign-in-experience/resolve${suffix}`);
+    return this.request<PublicEffectiveSignInExperience>(`/v1/public/sign-in-experience/resolve${suffix}`);
+  }
+
+  getPublicPhrases(languageTag: string) {
+    return this.request<PublicPhraseBundle>(`/v1/public/phrases/${encodeURIComponent(languageTag)}`);
   }
 
   updateSignInExperience(data: Partial<SignInExperience>) {

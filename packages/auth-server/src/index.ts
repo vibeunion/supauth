@@ -1,5 +1,5 @@
-// SupaOAuth Auth Server — Elysia/Bun Management API + BFF
-// Routes are organized into separate modules for OpenAPI tag generation.
+// SupAuth Function app — Elysia route composition for SupaCloud Functions.
+// This module must not bind a port. SupaCloud owns all HTTP invocation.
 
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
@@ -15,7 +15,8 @@ import { resourceRoutes } from './routes/resources.js';
 import { userRoutes } from './routes/users.js';
 import { organizationRoutes } from './routes/organizations.js';
 import { roleRoutes } from './routes/roles.js';
-import { sieRoutes, authConfigRoutes, publicSignInExperienceRoutes, publicOAuthRoutes } from './routes/sign-in-experience.js';
+import { sieRoutes, authConfigRoutes, publicSignInExperienceRoutes, publicOAuthRoutes, publicConnectorRoutes, publicPhrasesRoutes, publicCustomUiRoutes } from './routes/sign-in-experience.js';
+import { hostedPageRoutes } from './routes/hosted-pages.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { auditRoutes } from './routes/audit.js';
 import { compatibilityRoutes } from './routes/compatibility.js';
@@ -31,7 +32,10 @@ import { apiVersionRoutes } from './routes/api-versions.js';
 import { tenantConfigRoutes } from './routes/tenant-config.js';
 import { myAccountRoutes } from './routes/my-account.js';
 import { authHookRoutes } from './routes/auth-hooks.js';
-import { processPendingDeliveries } from './repositories/webhook-delivery.js';
+import { rbacBridgeRoutes } from './routes/rbac-bridge.js';
+import { routeGateRoutes } from './routes/route-gate.js';
+import { ssoAuthorizeRoutes } from './routes/sso-authorize.js';
+import { accountProvisioningRoutes, publicAccountClaimRoutes } from './routes/account-provisioning.js';
 
 const config = getConfig();
 const configErrors = validateConfig(config);
@@ -45,13 +49,19 @@ const app = new Elysia()
   .use(cors({ origin: config.corsOrigins, credentials: true }))
   .use(authRoutes)
   .use(storageRoutes)
+  .use(hostedPageRoutes)
   .use(publicSignInExperienceRoutes)
   .use(publicOAuthRoutes)
+  .use(publicConnectorRoutes)
+  .use(publicPhrasesRoutes)
+  .use(publicCustomUiRoutes)
+  .use(publicAccountClaimRoutes)
   .use(authHookRoutes)
+  .use(ssoAuthorizeRoutes)
   .use(swagger({
     path: '/swagger',
     documentation: {
-      info: { title: 'SupaOAuth Management API', version: '0.2.0', description: 'SupaOAuth is an independent Identity Provider (IdP) — a standalone user center that orchestrates GoTrue as the OIDC runtime and provides product RBAC, organizations, connectors, and sign-in experience management.' },
+      info: { title: 'SupaOAuth Management API', version: '0.2.0', description: 'SupaOAuth is a SupaCloud-hosted Identity Provider (IdP) surface that orchestrates GoTrue as the OIDC runtime and provides product RBAC, organizations, connectors, and sign-in experience management.' },
       tags: [
         { name: 'Health', description: 'Server health and project info' },
         { name: 'Project', description: 'Project-level metadata' },
@@ -79,7 +89,7 @@ const app = new Elysia()
         { name: 'Admin Tools', description: 'RLS migration assistant and SDK tools' },
         { name: 'Consents', description: 'User consent management for OAuth authorization' },
         { name: 'Security', description: 'Production security configuration and enforcement' },
-        { name: 'Provisioning', description: 'SupaCloud project provisioning and idempotent reconcile' },
+        { name: 'Provisioning', description: 'SupaCloud project provisioning and idempotent reconcile (P0-26: project-scoped)' },
         { name: 'Enterprise SSO', description: 'Enterprise SSO configuration, domain discovery, JIT provisioning' },
         { name: 'Passkeys', description: 'WebAuthn passkey enrollment, listing, and revocation' },
         { name: 'API Versions', description: 'API version tracking and breaking change detection' },
@@ -91,6 +101,10 @@ const app = new Elysia()
         { name: 'JIT', description: 'Organization just-in-time provisioning settings' },
         { name: 'Account Center', description: 'User profile, sessions, identities, MFA, and suspension operations' },
         { name: 'Auth Hooks', description: 'Supabase Auth Hooks bridge for signup policy, token shaping, and MFA risk checks' },
+        { name: 'RBAC Bridge', description: 'Legacy role migration and compatibility bridge (P0-28)' },
+        { name: 'Route Gate', description: 'Route/domain integration gate for deployment verification (P0-29)' },
+        { name: 'SSO', description: 'GoTrue-compatible SSO authorization entrypoints' },
+        { name: 'Account Provisioning', description: 'Bulk account provisioning, SupaOAuth user creation, and self-service account claiming' },
       ],
     },
   }))
@@ -121,20 +135,13 @@ const app = new Elysia()
   .use(apiVersionRoutes)
   .use(tenantConfigRoutes)
   .use(myAccountRoutes)
+  .use(rbacBridgeRoutes)
+  .use(routeGateRoutes)
+  .use(accountProvisioningRoutes);
 
-  .listen({ port: config.port, hostname: config.host });
-
-console.log(`SupaOAuth Management API running at http://${config.host}:${config.port}`);
-console.log(`Swagger docs at http://${config.host}:${config.port}/swagger`);
-console.log(`Runtime mode: ${config.runtimeMode}`);
-
-// Periodic webhook delivery worker — drains pending deliveries every 30s so
-// events survive process restarts instead of relying on setTimeout alone.
-const WEBHOOK_WORKER_INTERVAL_MS = 30_000;
-const webhookWorker = setInterval(() => {
-  processPendingDeliveries().catch(() => {});
-}, WEBHOOK_WORKER_INTERVAL_MS);
-webhookWorker.unref();
+export function handleSupAuthRequest(request: Request): Response | Promise<Response> {
+  return app.handle(request);
+}
 
 // Export the app for OpenAPI spec extraction (used by scripts/export-openapi.ts)
 export { app };
