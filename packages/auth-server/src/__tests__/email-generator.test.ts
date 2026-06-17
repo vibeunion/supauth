@@ -46,32 +46,32 @@ describe('formatSuffix', () => {
 describe('generateUniqueEmail', () => {
   test('generates clean email when no collision', () => {
     const result = generateUniqueEmail('张三', new Set(), '10086');
-    expect(result).toBe('zhangsan@example.team');
+    expect(result).toBe('zhangsan@example.com');
   });
 
   test('adds suffix from external_id when base collides', () => {
     const existing = new Set(['zhangsan']);
     const result = generateUniqueEmail('张三', existing, '10086');
-    expect(result).toBe('zhangsan.0086@example.team');
+    expect(result).toBe('zhangsan.0086@example.com');
   });
 
   test('uses last 4 digits when external_id is longer', () => {
     const existing = new Set(['zhangsan']);
     const result = generateUniqueEmail('张三', existing, 'A02317');
     // 'A02317' last 4 chars = '2317'
-    expect(result).toBe('zhangsan.2317@example.team');
+    expect(result).toBe('zhangsan.2317@example.com');
   });
 
   test('pads short external_id', () => {
     const existing = new Set(['zhangsan']);
     const result = generateUniqueEmail('张三', existing, '1');
-    expect(result).toBe('zhangsan.0001@example.team');
+    expect(result).toBe('zhangsan.0001@example.com');
   });
 
   test('increments numerically when suffix also collides', () => {
     const existing = new Set(['zhangsan', 'zhangsan.0001']);
     const result = generateUniqueEmail('张三', existing, '1');
-    expect(result).toBe('zhangsan.0002@example.team');
+    expect(result).toBe('zhangsan.0002@example.com');
   });
 
   test('respects custom domain', () => {
@@ -88,9 +88,9 @@ describe('batchGenerateEmails', () => {
       { display_name: '王小明', external_id: '003' },
     ];
     const result = batchGenerateEmails(records, new Set());
-    expect(result.get('001')).toBe('zhangsan@example.team');
-    expect(result.get('002')).toBe('lisi@example.team');
-    expect(result.get('003')).toBe('wangxiaoming@example.team');
+    expect(result.get('001')).toBe('zhangsan@example.com');
+    expect(result.get('002')).toBe('lisi@example.com');
+    expect(result.get('003')).toBe('wangxiaoming@example.com');
   });
 
   test('handles intra-batch duplicate pinyin bases', () => {
@@ -100,8 +100,8 @@ describe('batchGenerateEmails', () => {
       { display_name: '张三', external_id: '0232' },
     ];
     const result = batchGenerateEmails(records, new Set());
-    expect(result.get('0231')).toBe('zhangsan@example.team');
-    expect(result.get('0232')).toBe('zhangsan.0232@example.team');
+    expect(result.get('0231')).toBe('zhangsan@example.com');
+    expect(result.get('0232')).toBe('zhangsan.0232@example.com');
   });
 
   test('preserves explicitly provided emails', () => {
@@ -111,7 +111,7 @@ describe('batchGenerateEmails', () => {
     ];
     const result = batchGenerateEmails(records, new Set());
     expect(result.get('001')).toBe('custom@other.com');
-    expect(result.get('002')).toBe('lisi@example.team');
+    expect(result.get('002')).toBe('lisi@example.com');
   });
 
   test('handles collision with existing emails', () => {
@@ -120,17 +120,17 @@ describe('batchGenerateEmails', () => {
     ];
     const existing = new Set(['zhangsan']); // already taken
     const result = batchGenerateEmails(records, existing);
-    expect(result.get('0231')).toBe('zhangsan.0231@example.team');
+    expect(result.get('0231')).toBe('zhangsan.0231@example.com');
   });
 
   test('handles collision with explicit email in batch', () => {
     const records = [
-      { display_name: '张三', external_id: '0231', email: 'zhangsan@example.team' },
+      { display_name: '张三', external_id: '0231', email: 'zhangsan@example.com' },
       { display_name: '张三', external_id: '0232' },
     ];
     const result = batchGenerateEmails(records, new Set());
-    expect(result.get('0231')).toBe('zhangsan@example.team');
+    expect(result.get('0231')).toBe('zhangsan@example.com');
     // The second 张三 should get a suffix
-    expect(result.get('0232')).toBe('zhangsan.0232@example.team');
+    expect(result.get('0232')).toBe('zhangsan.0232@example.com');
   });
 });

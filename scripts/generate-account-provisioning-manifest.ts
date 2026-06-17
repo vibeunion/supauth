@@ -37,7 +37,7 @@ function parseArgs(): Args {
   const args = process.argv.slice(2);
   const input = args.find(arg => !arg.startsWith('--'));
   if (!input) {
-    throw new Error('Usage: bun run scripts/generate-account-provisioning-manifest.ts <xlsx> [--out path] [--csv path] [--domain example.team] [--batch name] [--external-type employee]');
+    throw new Error('Usage: bun run scripts/generate-account-provisioning-manifest.ts <xlsx> [--out path] [--csv path] [--domain example.com] [--batch name] [--external-type employee]');
   }
   const option = (name: string, fallback: string) => {
     const prefix = `--${name}=`;
@@ -49,7 +49,12 @@ function parseArgs(): Args {
     input,
     output: option('out', `.agents/state/${batch}/import-manifest.json`),
     csvOutput: option('csv', `.agents/state/${batch}/import-review.csv`),
-    domain: option('domain', 'example.team').replace(/^@/, '').toLowerCase(),
+    domain: option(
+      'domain',
+      process.env.SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+        || process.env.ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+        || 'example.com',
+    ).replace(/^@/, '').toLowerCase(),
     batch,
     externalType: option('external-type', 'employee'),
   };

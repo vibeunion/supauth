@@ -18,8 +18,16 @@ interface ImportPayload {
   dry_run?: boolean;
   /** Auto-generate pinyin emails for records without an explicit email. Default: true */
   generate_emails?: boolean;
-  /** Email domain for auto-generated addresses. Default: "example.team" */
+  /** Email domain for auto-generated addresses. Defaults to env or "example.com". */
   email_domain?: string;
+}
+
+function defaultProvisioningEmailDomain(): string {
+  return (
+    process.env.SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+    || process.env.ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+    || 'example.com'
+  ).replace(/^@/, '').toLowerCase();
 }
 
 function requestIp(headers: Record<string, string | undefined>): string {
@@ -249,7 +257,7 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
     const createUsers = payload.create_users === true;
     const dryRun = payload.dry_run === true;
     const generateEmails = payload.generate_emails !== false;
-    const emailDomain = payload.email_domain || 'example.team';
+    const emailDomain = (payload.email_domain || defaultProvisioningEmailDomain()).replace(/^@/, '').toLowerCase();
     const summary = {
       total: records.length,
       eligible: 0,

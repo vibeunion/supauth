@@ -1,5 +1,5 @@
 // Email generator — converts Chinese display names to pinyin-based email addresses
-// with duplicate-suffix logic: zhangsan@example.team / zhangsan.0231@example.team
+// with duplicate-suffix logic: zhangsan@example.com / zhangsan.0231@example.com
 
 import { pinyin } from 'pinyin-pro';
 
@@ -12,7 +12,9 @@ export interface EmailGeneratorOptions {
 }
 
 const DEFAULT_OPTIONS: EmailGeneratorOptions = {
-  domain: 'example.team',
+  domain: process.env.SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+    || process.env.ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+    || 'example.com',
   suffixSeparator: '.',
   suffixMinDigits: 4,
 };
@@ -60,8 +62,8 @@ export function formatSuffix(value: number | string, minDigits: number): string 
  * Generate a unique email for a display name, avoiding collisions with existing emails.
  *
  * Strategy:
- * 1. First try: base@domain (e.g. zhangsan@example.team)
- * 2. If collision: try base.suffix@domain using external_id tail (e.g. zhangsan.0231@example.team)
+ * 1. First try: base@domain (e.g. zhangsan@example.com)
+ * 2. If collision: try base.suffix@domain using external_id tail (e.g. zhangsan.0231@example.com)
  * 3. If still collides: increment suffix numerically
  *
  * @param displayName - The employee's display name (e.g. "张三")

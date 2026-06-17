@@ -33,7 +33,7 @@ describe('account provisioning and claiming', () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       claimAccount: async () => ({
         status: 'claimed',
-        email: 'zhangsan@example.team',
+        email: 'zhangsan@example.com',
         initialPassword: 'Init123!',
       }),
     }));
@@ -49,7 +49,7 @@ describe('account provisioning and claiming', () => {
     expect(body).toEqual({
       success: true,
       status: 'claimed',
-      email: 'zhangsan@example.team',
+      email: 'zhangsan@example.com',
       initial_password: 'Init123!',
     });
   });
@@ -58,7 +58,7 @@ describe('account provisioning and claiming', () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       claimAccount: async () => ({
         status: 'already_claimed',
-        email: 'zhangsan@example.team',
+        email: 'zhangsan@example.com',
         claimedAt: new Date('2026-06-09T00:00:00.000Z'),
       }),
     }));
@@ -73,7 +73,7 @@ describe('account provisioning and claiming', () => {
     expect(response.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.status).toBe('already_claimed');
-    expect(body.email).toBe('zhangsan@example.team');
+    expect(body.email).toBe('zhangsan@example.com');
     expect(body.initial_password).toBeUndefined();
   });
 
@@ -103,7 +103,7 @@ describe('account provisioning and claiming', () => {
         external_id: '10086',
         external_type: 'employee',
         display_name: '张三',
-        email: 'zhangsan@example.team',
+        email: 'zhangsan@example.com',
       }, {
         initialPasswordEncrypted: encrypted,
         initialPasswordClaimed: false,
@@ -121,7 +121,7 @@ describe('account provisioning and claiming', () => {
       external_id: '10086',
       external_type: 'employee',
       display_name: '张三',
-      email: 'zhangsan@example.team',
+      email: 'zhangsan@example.com',
     }, {
       initialPasswordEncrypted: null,
       initialPasswordClaimed: true,
@@ -132,7 +132,7 @@ describe('account provisioning and claiming', () => {
 
   test('existing user updates can reset the password while preserving metadata', () => {
     const payload = mergeUserPayload({
-      email: 'old@example.team',
+      email: 'old@example.com',
       user_metadata: { locale: 'zh-CN' },
       app_metadata: {
         role: 'authenticated',
@@ -142,12 +142,12 @@ describe('account provisioning and claiming', () => {
       external_id: '10086',
       external_type: 'employee',
       display_name: '张三',
-      email: 'zhangsan@example.team',
+      email: 'zhangsan@example.com',
       profile: { department: 'Engineering' },
     }, 'Reset123!');
 
     expect(payload.password).toBe('Reset123!');
-    expect(payload.email).toBe('zhangsan@example.team');
+    expect(payload.email).toBe('zhangsan@example.com');
     expect(payload.user_metadata).toMatchObject({
       locale: 'zh-CN',
       name: '张三',

@@ -41,7 +41,7 @@ describe('hostedPageRoutes', () => {
   });
 
   test('GET /claim serves the account claim page with same-origin public API base', async () => {
-    const response = await request('https://auth.ai.example.team/claim');
+    const response = await request('https://auth.example.com/claim');
     const body = await response.text();
 
     expect(response.status).toBe(200);
@@ -54,12 +54,12 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('/account-claims/claim');
     expect(body).toContain('function claimErrorMessage(response)');
     expect(body).toContain("if (response.status >= 500) return '系统暂时无法完成查询，请稍后重试或联系管理员。';");
-    expect(body).not.toContain('http://auth.ai.example.team/v1/public');
-    expect(body).not.toContain('示例用户中心');
+    expect(body).not.toContain('http://auth.example.com/v1/public');
+    expect(body).not.toContain('Example User Center');
   });
 
   test('GET /account/password serves hosted password change page with same-origin public API base', async () => {
-    const response = await request('https://auth.ai.example.team/account/password');
+    const response = await request('https://auth.example.com/account/password');
     const body = await response.text();
 
     expect(response.status).toBe(200);
@@ -69,13 +69,13 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
     expect(body).toContain('/account-password/change');
     expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
-    expect(body).not.toContain('http://auth.ai.example.team/v1/public');
-    expect(body).not.toContain('示例用户中心');
+    expect(body).not.toContain('http://auth.example.com/v1/public');
+    expect(body).not.toContain('Example User Center');
   });
 
   test('GET /account serves hosted account center page with same-origin public API base', async () => {
     for (const path of ['/account', '/account.html']) {
-      const response = await request(`https://auth.ai.example.team${path}`);
+      const response = await request(`https://auth.example.com${path}`);
       const body = await response.text();
 
       expect(response.status).toBe(200);
@@ -111,8 +111,8 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('data-section="contact"');
       expect(body).toContain('data-section="delete-account"');
       expect(body).not.toContain('/v1/my-account');
-      expect(body).not.toContain('http://auth.ai.example.team/v1/public');
-      expect(body).not.toContain('示例用户中心');
+      expect(body).not.toContain('http://auth.example.com/v1/public');
+      expect(body).not.toContain('Example User Center');
     }
   });
 
