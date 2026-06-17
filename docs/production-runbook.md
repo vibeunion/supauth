@@ -5,7 +5,7 @@ This runbook covers release, rollback, restore, and incident triage for SupaOAut
 ## Release Gate
 
 1. Run local gate: `bun run release:gate`.
-2. For live cutover, set `RUN_LIVE_RELEASE_GATE=1`, `SUPAUTH_INSTALLED_BASE_URL`, and `SUPAUTH_INSTALLED_RUNTIME_URL`; this runs the installed SupaCloud Function/Pages verifier.
+2. For live cutover, set `RUN_LIVE_RELEASE_GATE=1`, `SUPAUTH_PUBLIC_URL`, and `SUPAUTH_INSTALLED_RUNTIME_URL`; this runs the installed SupaCloud Function/Pages verifier. `SUPAUTH_INSTALLED_BASE_URL` remains supported for existing SupaCloud installs.
 3. Optional: set `RUN_SUPABASE_RUNTIME_COMPAT=1` or `RUN_SUPABASE_OAUTH21_COMPAT=1` with their fixture-specific env vars to run the broader Supabase runtime black-box fixtures.
 4. Confirm the generated `artifacts/<release>/release-manifest.json` contains commit, OpenAPI hash, SupaCloud app manifest hash, installed app verification path, and live gate status.
 5. Deploy the artifact through SupaCloud using `artifacts/<release>/supacloud-app-manifest.json`.

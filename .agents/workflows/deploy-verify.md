@@ -17,13 +17,13 @@ Use this after implementing changes that need to be deployed and verified on a r
 - Push changes to the target branch
 - SSH into the target server
 - Pull latest changes: `git pull`
-- Install dependencies if needed: `bun install`
-- Restart the service: `pm2 restart <app>` or equivalent
+- Install dependencies if needed (e.g. `bun install`, `npm install`, `pnpm install`)
+- Restart the service via the project's process manager (e.g. `pm2 restart <app>`, `systemctl restart <service>`, `docker compose up -d --force-recreate`)
 
 ## 3. Smoke Test
 - Verify health check endpoint responds: `curl http://localhost:<port>/health`
 - Test 2-3 critical user flows manually or via curl
-- Check logs for errors: `pm2 logs <app> --lines 50` or `journalctl`
+- Check logs for errors via the project's process manager (e.g. `pm2 logs <app>`, `journalctl -u <service>`, `docker compose logs <service>`)
 
 ## 4. Verify Evidence
 Record concrete evidence of successful deployment:

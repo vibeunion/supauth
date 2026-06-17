@@ -36,6 +36,8 @@ import { rbacBridgeRoutes } from './routes/rbac-bridge.js';
 import { routeGateRoutes } from './routes/route-gate.js';
 import { ssoAuthorizeRoutes } from './routes/sso-authorize.js';
 import { accountProvisioningRoutes, publicAccountClaimRoutes } from './routes/account-provisioning.js';
+import { publicAccountPasswordRoutes } from './routes/account-password.js';
+import { publicAccountRoutes } from './routes/account-self-service.js';
 
 const config = getConfig();
 const configErrors = validateConfig(config);
@@ -56,6 +58,8 @@ const app = new Elysia()
   .use(publicPhrasesRoutes)
   .use(publicCustomUiRoutes)
   .use(publicAccountClaimRoutes)
+  .use(publicAccountPasswordRoutes)
+  .use(publicAccountRoutes)
   .use(authHookRoutes)
   .use(ssoAuthorizeRoutes)
   .use(swagger({

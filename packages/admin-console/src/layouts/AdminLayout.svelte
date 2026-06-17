@@ -14,6 +14,7 @@
     { path: '/org-templates', label: 'Org Templates', icon: '▦' },
     { path: '/consents', label: 'Consents', icon: '✓' },
     { path: '/enterprise-sso', label: 'Enterprise SSO', icon: '⇄' },
+    { path: '/account-center', label: 'Account Center', icon: '◎' },
     { path: '/tenant-config', label: 'Tenant Config', icon: '◧' },
     { path: '/security', label: 'Security Policy', icon: '◇' },
     { path: '/operations', label: 'Operations', icon: '⌁' },

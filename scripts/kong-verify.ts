@@ -23,7 +23,7 @@ if (legacyHost || legacyDomain) {
 const result = await verifySupacloudInstalledApp({
   artifactDir: option('artifact-dir'),
   manifestPath: option('manifest'),
-  baseUrl: option('base-url') || process.env.SUPAUTH_INSTALLED_BASE_URL,
+  baseUrl: option('base-url') || process.env.SUPAUTH_PUBLIC_URL || process.env.AUTH_PUBLIC_URL || process.env.SUPAUTH_INSTALLED_BASE_URL,
   runtimeUrl: option('runtime-url') || process.env.SUPAUTH_INSTALLED_RUNTIME_URL,
   expectedManifestHash: option('expected-manifest-hash') || process.env.SUPAUTH_EXPECTED_MANIFEST_HASH,
 });

@@ -4,6 +4,8 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as accountProvisioning from '../repositories/account-provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
+import { batchGenerateEmails, nameToPinyinBase } from '../utils/email-generator.js';
+import { syncEmployeeStatuses, reconcileAllEmployeeStatuses } from '../sync/employee-status.js';
 
 const adapter = getSupaCloudAdapter();
 const CLAIM_LIMIT_WINDOW_MS = 60_000;
@@ -14,6 +16,10 @@ interface ImportPayload {
   records?: accountProvisioning.AccountProvisioningImportRecord[];
   create_users?: boolean;
   dry_run?: boolean;
+  /** Auto-generate pinyin emails for records without an explicit email. Default: true */
+  generate_emails?: boolean;
+  /** Email domain for auto-generated addresses. Default: "example.team" */
+  email_domain?: string;
 }
 
 function requestIp(headers: Record<string, string | undefined>): string {
@@ -113,7 +119,11 @@ function buildUserPayload(record: accountProvisioning.AccountProvisioningImportR
   };
 }
 
-function mergeUserPayload(user: Record<string, unknown>, record: accountProvisioning.AccountProvisioningImportRecord) {
+export function mergeUserPayload(
+  user: Record<string, unknown>,
+  record: accountProvisioning.AccountProvisioningImportRecord,
+  password?: string,
+) {
   const appMetadata = isRecord(user.app_metadata) ? user.app_metadata : {};
   const userMetadata = isRecord(user.user_metadata) ? user.user_metadata : {};
   const existingSupaOAuth = isRecord(appMetadata.supaoauth) ? appMetadata.supaoauth : {};
@@ -122,6 +132,7 @@ function mergeUserPayload(user: Record<string, unknown>, record: accountProvisio
   const nextSupaOAuth = isRecord(nextAppMetadata.supaoauth) ? nextAppMetadata.supaoauth : {};
 
   return {
+    ...(password ? { password } : {}),
     email: record.email,
     user_metadata: {
       ...userMetadata,
@@ -137,6 +148,21 @@ function mergeUserPayload(user: Record<string, unknown>, record: accountProvisio
       },
     },
   };
+}
+
+export function resolveProvisioningInitialPassword(
+  record: accountProvisioning.AccountProvisioningImportRecord,
+  existingRecord?: {
+    initialPasswordEncrypted?: string | null;
+    initialPasswordClaimed?: boolean | null;
+  } | null,
+) {
+  if (existingRecord?.initialPasswordClaimed) return undefined;
+  if (record.initial_password) return record.initial_password;
+  if (existingRecord?.initialPasswordEncrypted) {
+    return accountProvisioning.decryptInitialPassword(existingRecord.initialPasswordEncrypted);
+  }
+  return accountProvisioning.generateInitialPassword();
 }
 
 async function audit(eventType: string, resourceId: string, details?: Record<string, unknown>) {
@@ -222,6 +248,8 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
     const records = Array.isArray(payload.records) ? payload.records : [];
     const createUsers = payload.create_users === true;
     const dryRun = payload.dry_run === true;
+    const generateEmails = payload.generate_emails !== false;
+    const emailDomain = payload.email_domain || 'example.team';
     const summary = {
       total: records.length,
       eligible: 0,
@@ -230,6 +258,8 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       users_created: 0,
       users_updated: 0,
       users_suspended: 0,
+      passwords_reset: 0,
+      emails_generated: 0,
       errors: [] as Array<{ external_id?: string; email?: string; error: string }>,
     };
 
@@ -241,11 +271,46 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       users.map(user => [userExternalKey(user), user] as [string, Record<string, unknown>]).filter(([key]) => !!key),
     );
 
+    // Auto-generate pinyin emails for records without explicit email
+    const needsEmail = generateEmails ? records.filter(r => !r.email?.trim()) : [];
+    let generatedEmails: Map<string, string> = new Map();
+    if (needsEmail.length > 0) {
+      const existingLocals = new Set<string>();
+      for (const user of users) {
+        const email = userEmail(user);
+        if (email) existingLocals.add(email.split('@')[0]);
+      }
+      // Also include emails already specified in the import batch
+      for (const r of records) {
+        if (r.email?.trim()) existingLocals.add(r.email.trim().toLowerCase().split('@')[0]);
+      }
+      // Also include existing provisioning records
+      try {
+        const existingRecords = await accountProvisioning.listAccountProvisioningRecords(500, 0);
+        for (const er of existingRecords) {
+          if (er.email) existingLocals.add(er.email.split('@')[0]);
+        }
+      } catch {}
+      generatedEmails = batchGenerateEmails(
+        needsEmail.map(r => ({ display_name: r.display_name, external_id: r.external_id || '' })),
+        existingLocals,
+        { domain: emailDomain },
+      );
+      summary.emails_generated = generatedEmails.size;
+    }
+
     for (const record of records) {
       const externalId = accountProvisioning.normalizeExternalId(record.external_id || '');
       const sourceStatus = record.source_status || 'active';
       const statusIsActive = ['active', '正常'].includes(sourceStatus);
       const key = externalKey({ ...record, external_id: externalId });
+
+      // Auto-generate email if not provided
+      if (!record.email?.trim() && generatedEmails.has(externalId)) {
+        record.email = generatedEmails.get(externalId)!;
+      } else if (!record.email?.trim()) {
+        record.email = `${nameToPinyinBase(record.display_name)}@${emailDomain}`;
+      }
       if (!statusIsActive) {
         summary.skipped += 1;
         const existingUser = byExternalKey.get(key);
@@ -268,13 +333,15 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
 
       try {
         const existingUser = byExternalKey.get(key) || byEmail.get(record.email.toLowerCase());
-        const password = existingUser ? undefined : record.initial_password || accountProvisioning.generateInitialPassword();
+        const existingProvisioningRecord = await accountProvisioning.findRecordByExternalId(externalId, record.external_type || 'generic');
+        const password = resolveProvisioningInitialPassword(record, existingProvisioningRecord);
         let userIdForRecord = existingUser ? userId(existingUser) : null;
 
         if (createUsers) {
           if (existingUser && userIdForRecord) {
-            await adapter.updateUser(userIdForRecord, mergeUserPayload(existingUser, { ...record, external_id: externalId }));
+            await adapter.updateUser(userIdForRecord, mergeUserPayload(existingUser, { ...record, external_id: externalId }, password));
             summary.users_updated += 1;
+            if (password) summary.passwords_reset += 1;
           } else {
             const created = await adapter.createUser(buildUserPayload({ ...record, external_id: externalId }, password)) as Record<string, unknown>;
             userIdForRecord = userId(created);
@@ -324,4 +391,42 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
     return { items, total: items.length };
   }, {
     detail: { summary: 'List account provisioning records without initial passwords', tags: ['Account Provisioning'] },
+  })
+  .post('/sync', async ({ body }) => {
+    const payload = body as {
+      records?: Array<{ external_id: string; source_status: string; display_name?: string; email?: string }>;
+      external_type?: string;
+      suspend_users?: boolean;
+      reactivate_users?: boolean;
+      dry_run?: boolean;
+    };
+    if (!Array.isArray(payload.records) || payload.records.length === 0) {
+      return { total: 0, unchanged: 0, updated: 0, suspended: 0, reactivated: 0, errors: [] };
+    }
+    return syncEmployeeStatuses({
+      records: payload.records,
+      external_type: payload.external_type,
+      suspend_users: payload.suspend_users,
+      reactivate_users: payload.reactivate_users,
+      dry_run: payload.dry_run,
+    });
+  }, {
+    detail: { summary: 'Sync employee status changes (suspend/reactivate GoTrue users)', tags: ['Account Provisioning', 'Sync'] },
+  })
+  .post('/sync/reconcile', async ({ body }) => {
+    const payload = body as { external_type?: string; dry_run?: boolean; batch_size?: number };
+    return reconcileAllEmployeeStatuses({
+      externalType: payload.external_type,
+      dryRun: payload.dry_run,
+      batchSize: payload.batch_size,
+    });
+  }, {
+    detail: { summary: 'Full reconciliation: scan all provisioning records and sync GoTrue user state', tags: ['Account Provisioning', 'Sync'] },
+  })
+  .get('/sync/status', async ({ query }) => {
+    const externalType = String(query.external_type || 'employee');
+    const counts = await accountProvisioning.countBySourceStatus(externalType);
+    return { external_type: externalType, counts };
+  }, {
+    detail: { summary: 'Get employee status distribution counts', tags: ['Account Provisioning', 'Sync'] },
   });

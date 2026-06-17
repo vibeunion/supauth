@@ -11,10 +11,14 @@ describe('hostedPageRoutes', () => {
   test('resolveHostedPagePaths covers src and dist execution layouts', () => {
     const fromSrc = resolveHostedPagePaths('/opt/supauth/packages/auth-server/src/routes', '/opt/supauth/packages/auth-server');
     expect(fromSrc.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
+    expect(fromSrc.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
+    expect(fromSrc.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
     expect(fromSrc.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
 
     const fromDist = resolveHostedPagePaths('/opt/supauth/packages/auth-server/dist', '/opt/supauth');
     expect(fromDist.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
+    expect(fromDist.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
+    expect(fromDist.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
     expect(fromDist.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
   });
 
@@ -36,14 +40,80 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
-  test('GET /claim serves the account claim page', async () => {
-    const response = await request('http://localhost/claim');
+  test('GET /claim serves the account claim page with same-origin public API base', async () => {
+    const response = await request('https://auth.ai.example.team/claim');
     const body = await response.text();
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<title>SupaOAuth Account Claim</title>');
+    expect(body).toContain('<h1 id="claim-title">领取 SupAuth 账号</h1>');
+    expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
+    expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
+    expect(body).toContain('title.textContent = branding.page_title;');
     expect(body).toContain('/account-claims/claim');
+    expect(body).toContain('function claimErrorMessage(response)');
+    expect(body).toContain("if (response.status >= 500) return '系统暂时无法完成查询，请稍后重试或联系管理员。';");
+    expect(body).not.toContain('http://auth.ai.example.team/v1/public');
+    expect(body).not.toContain('示例用户中心');
+  });
+
+  test('GET /account/password serves hosted password change page with same-origin public API base', async () => {
+    const response = await request('https://auth.ai.example.team/account/password');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Change Password</title>');
+    expect(body).toContain('<h1 id="page-title">修改密码</h1>');
+    expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
+    expect(body).toContain('/account-password/change');
+    expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
+    expect(body).not.toContain('http://auth.ai.example.team/v1/public');
+    expect(body).not.toContain('示例用户中心');
+  });
+
+  test('GET /account serves hosted account center page with same-origin public API base', async () => {
+    for (const path of ['/account', '/account.html']) {
+      const response = await request(`https://auth.ai.example.team${path}`);
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/html');
+      expect(body).toContain('<title>SupaOAuth Account Center</title>');
+      expect(body).toContain('<h1 id="account-title">账户中心</h1>');
+      expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
+      expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
+      expect(body).toContain('fetch(`${apiBase}/account/config`, { credentials: \'include\' })');
+      expect(body).toContain('fetch(`${apiBase}${path}`, {');
+      expect(body).toContain("accountFetch('/account/me')");
+      expect(body).toContain("accountFetch('/account/profile'");
+      expect(body).toContain("load('sessions', '/account/sessions')");
+      expect(body).toContain("load('grants', '/account/grants')");
+      expect(body).toContain("load('identities', '/account/identities')");
+      expect(body).toContain("load('mfa', '/account/mfa')");
+      expect(body).toContain("load('passkeys', '/account/passkeys')");
+      expect(body).toContain("accountFetch('/account/email'");
+      expect(body).toContain("accountFetch('/account/phone'");
+      expect(body).toContain("accountFetch('/account',");
+      expect(body).toContain("button.dataset.action === 'revoke-session'");
+      expect(body).toContain("button.dataset.action === 'revoke-grant'");
+      expect(body).toContain("button.dataset.action === 'unlink-identity'");
+      expect(body).toContain("button.dataset.action === 'reset-mfa'");
+      expect(body).toContain("button.dataset.action === 'revoke-passkey'");
+      expect(body).toContain('href="/account/password" data-section="security"');
+      expect(body).toContain('href="#account-panel" data-section="profile"');
+      expect(body).toContain('data-section="profile"');
+      expect(body).toContain('data-section="sessions"');
+      expect(body).toContain('data-section="grants"');
+      expect(body).toContain('data-section="identities"');
+      expect(body).toContain('data-section="mfa"');
+      expect(body).toContain('data-section="contact"');
+      expect(body).toContain('data-section="delete-account"');
+      expect(body).not.toContain('/v1/my-account');
+      expect(body).not.toContain('http://auth.ai.example.team/v1/public');
+      expect(body).not.toContain('示例用户中心');
+    }
   });
 
   test('hosted login page normalizes credentials and maps GoTrue login errors', async () => {
@@ -61,6 +131,19 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('const email = normalizeEmailInput(emailInput.value);');
     expect(body).toContain("setMessage('error', t('emailInvalid'))");
     expect(body).toContain("setMessage('error', t('passwordRequired'))");
+    expect(body).toContain("setMessage('error', error && error.message ? error.message : t('networkError'))");
+    expect(body).toContain("sessionStorage.setItem('supaoauth.account.access_token', data.access_token)");
+    expect(body).toContain('window.location.href = `/account#access_token=${encodeURIComponent(data.access_token)}`;');
+    expect(body).toContain('function safeRedirectUrl(value, allowExternal = false)');
+    expect(body).toContain("url.protocol !== 'http:' && url.protocol !== 'https:'");
+    expect(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");
+    expect(body).toContain('return allowExternal ? url.toString() : `${url.pathname}${url.search}${url.hash}`;');
+    expect(body).toContain('const redirectUrl = approvedRedirectUrl');
+    expect(body).toContain('? safeRedirectUrl(approvedRedirectUrl, true)');
+    expect(body).toContain(': safeRedirectUrl(authorizationRedirectUrl);');
+    expect(body).toContain('? `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`');
+    expect(body).toContain(': `${publicApiBase()}/sign-in-experience/resolve`;');
+    expect(body).not.toContain('if (!authorizationId) return;');
   });
 
   test('hosted login page places social sign-in below the credential panels', async () => {
@@ -88,9 +171,12 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('let authorizationAvailable = !authorizationId;');
     expect(body).toContain("authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.'");
     expect(body).toContain("authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。'");
+    expect(body).toContain("authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。'");
     expect(body).toContain('function disableExpiredAuthorization()');
+    expect(body).toContain('function disableUnavailableAuthorization()');
     expect(body).toContain('if (!authorizationAvailable) throw new Error(t(\'authorizationExpired\'));');
     expect(body).toContain('authorizationAvailable = !!experience.authorization;');
+    expect(body).toContain('if (experience.authorization_error) {');
     expect(body).toContain("setMessage('error', t('authorizationExpired'))");
   });
 

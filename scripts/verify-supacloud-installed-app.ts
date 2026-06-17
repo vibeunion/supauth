@@ -105,6 +105,31 @@ async function probeAny(fetchImpl: FetchLike, name: string, candidates: string[]
   return { ok: false, attempts };
 }
 
+async function probeSsoAuthorizeRedirect(fetchImpl: FetchLike, url: string, baseUrl: string): Promise<ProbeResult> {
+  try {
+    const response = await fetchImpl(url, { method: 'GET', redirect: 'manual' });
+    const location = response.headers.get('location') || '';
+    const expectedPrefix = joinUrl(baseUrl, '/auth/v1/oauth/authorize?');
+    const ok = response.status >= 300 && response.status < 400 && location.startsWith(expectedPrefix);
+    return {
+      name: 'sso_authorize_redirect_origin',
+      url,
+      expectation: 'route-exists',
+      ok,
+      status: response.status,
+      error: ok ? undefined : `expected 3xx Location to start with ${expectedPrefix}, got HTTP ${response.status} Location ${location || '<empty>'}`,
+    };
+  } catch (error) {
+    return {
+      name: 'sso_authorize_redirect_origin',
+      url,
+      expectation: 'route-exists',
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function verifySupacloudInstalledApp(input: {
   root?: string;
   artifactDir?: string;
@@ -112,6 +137,7 @@ export async function verifySupacloudInstalledApp(input: {
   baseUrl?: string;
   runtimeUrl?: string;
   expectedManifestHash?: string;
+  ssoAuthorizeProbeUrl?: string;
   fetchImpl?: FetchLike;
 } = {}): Promise<InstalledAppVerificationResult> {
   const root = resolve(input.root || new URL('..', import.meta.url).pathname);
@@ -146,7 +172,7 @@ export async function verifySupacloudInstalledApp(input: {
     result.errors.push(error instanceof Error ? error.message : String(error));
   }
 
-  if (!baseUrl) result.errors.push('Missing deployed SupAuth base URL: set --base-url or SUPAUTH_INSTALLED_BASE_URL');
+  if (!baseUrl) result.errors.push('Missing deployed SupAuth base URL: set --base-url, SUPAUTH_PUBLIC_URL, or SUPAUTH_INSTALLED_BASE_URL');
   if (!runtimeUrl) result.errors.push('Missing SupaCloud runtime URL: set --runtime-url or SUPAUTH_INSTALLED_RUNTIME_URL');
   if (!offline.ok || !baseUrl || !runtimeUrl) {
     result.ok = result.errors.length === 0;
@@ -158,6 +184,9 @@ export async function verifySupacloudInstalledApp(input: {
     ['supauth_health_api_strip_prefix', joinUrl(baseUrl, '/api/v1/health'), 'exact-200'],
     ['public_sign_in_experience', joinUrl(baseUrl, '/v1/public/sign-in-experience/resolve'), 'route-exists'],
     ['hosted_login_page', joinUrl(baseUrl, '/login.html'), 'exact-200'],
+    ['account_center_page', joinUrl(baseUrl, '/account'), 'exact-200'],
+    ['account_center_html', joinUrl(baseUrl, '/account.html'), 'exact-200'],
+    ['change_password_page', joinUrl(baseUrl, '/account/password'), 'exact-200'],
     ['account_claim_page', joinUrl(baseUrl, '/claim'), 'exact-200'],
     ['account_claim_html', joinUrl(baseUrl, '/claim.html'), 'exact-200'],
     ['favicon', joinUrl(baseUrl, '/favicon.ico'), 'exact-200'],
@@ -183,6 +212,10 @@ export async function verifySupacloudInstalledApp(input: {
     result.errors.push('No hosted OAuth authorize route responded as an installed SupAuth Function route');
   }
 
+  if (input.ssoAuthorizeProbeUrl) {
+    result.probes.push(await probeSsoAuthorizeRedirect(fetchImpl, input.ssoAuthorizeProbeUrl, baseUrl));
+  }
+
   for (const [name, url, expectation] of requiredRuntimeProbes) {
     result.probes.push(await probe(fetchImpl, name, url, expectation));
   }
@@ -200,9 +233,10 @@ if (import.meta.main) {
   const result = await verifySupacloudInstalledApp({
     artifactDir: option('artifact-dir'),
     manifestPath: option('manifest'),
-    baseUrl: option('base-url') || process.env.SUPAUTH_INSTALLED_BASE_URL,
+    baseUrl: option('base-url') || process.env.SUPAUTH_PUBLIC_URL || process.env.AUTH_PUBLIC_URL || process.env.SUPAUTH_INSTALLED_BASE_URL,
     runtimeUrl: option('runtime-url') || process.env.SUPAUTH_INSTALLED_RUNTIME_URL,
     expectedManifestHash: option('expected-manifest-hash') || process.env.SUPAUTH_EXPECTED_MANIFEST_HASH,
+    ssoAuthorizeProbeUrl: option('sso-authorize-probe-url') || process.env.SUPAUTH_SSO_AUTHORIZE_PROBE_URL,
   });
   const serialized = `${JSON.stringify(result, null, 2)}\n`;
 

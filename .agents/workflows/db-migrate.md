@@ -7,6 +7,9 @@ description: 数据库迁移 — 安全创建、测试和部署 Schema 变更
 Use this for any schema change: new tables, column changes, RLS policies, function updates.
 
 ## 1. Analyze Current State
+- Confirm `database_profile` exists in the Task Contract. If database target,
+  migration tool, backup/restore, runtime access, or rollback ownership is
+  unclear, block before writing SQL.
 - Check existing schema: `\d <table>` or query `information_schema`
 - Review existing RLS policies if applicable
 - Check for dependent views, functions, or triggers

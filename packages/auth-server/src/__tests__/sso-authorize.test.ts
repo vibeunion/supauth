@@ -4,6 +4,7 @@ import {
   createSsoAuthorizeRoutes,
   isRedirectUriAllowed,
   isSafeOAuthClientId,
+  publicOriginFromRequest,
 } from '../routes/sso-authorize.js';
 
 const oauthClient = {
@@ -22,7 +23,8 @@ function createTestApp(client = oauthClient) {
       return client;
     },
   }, {
-    oauthRuntimeUrl: 'https://auth-runtime.example.test',
+    publicBaseUrl: '',
+    trustProxyHeaders: false,
   });
 }
 
@@ -42,7 +44,8 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
         return oauthClient;
       },
     }, {
-      oauthRuntimeUrl: 'https://auth-runtime.example.test',
+      publicBaseUrl: '',
+      trustProxyHeaders: false,
     });
 
     const response = await app.handle(new Request(
@@ -83,19 +86,89 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
     expect(url.searchParams.has('ignored')).toBe(false);
   });
 
-  it('redirects valid requests to GoTrue without issuing tokens', async () => {
+  it('ignores forwarded gateway headers unless trusted proxy mode is enabled', () => {
+    const request = new Request('http://127.0.0.1/functions/v1/supauth/oauth/sso/authorize', {
+      headers: {
+        host: '127.0.0.1:9000',
+        'x-forwarded-host': 'auth.example.test',
+        'x-forwarded-proto': 'https',
+      },
+    });
+
+    expect(publicOriginFromRequest(request)).toBe('http://127.0.0.1:9000');
+  });
+
+  it('derives public origin from forwarded gateway headers in trusted proxy mode', () => {
+    const request = new Request('http://127.0.0.1/functions/v1/supauth/oauth/sso/authorize', {
+      headers: {
+        host: '127.0.0.1:9000',
+        'x-forwarded-host': 'auth.example.test',
+        'x-forwarded-proto': 'https',
+      },
+    });
+
+    expect(publicOriginFromRequest(request, true)).toBe('https://auth.example.test');
+  });
+
+  it('redirects valid requests to hosted GoTrue path without leaking the project runtime host', async () => {
     const app = createTestApp();
     const response = await app.handle(new Request(
-      'http://localhost/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback&scope=openid%20email&state=abc&prompt=none',
+      'https://auth.example.test/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback&scope=openid%20email&state=abc&prompt=none',
     ));
 
     expect(response.status).toBe(302);
     const location = response.headers.get('location') || '';
-    expect(location).toStartWith('https://auth-runtime.example.test/auth/v1/oauth/authorize?');
+    expect(location).toStartWith('https://auth.example.test/auth/v1/oauth/authorize?');
     const redirect = new URL(location);
     expect(redirect.searchParams.get('client_id')).toBe('app_123');
     expect(redirect.searchParams.get('state')).toBe('abc');
     expect(redirect.searchParams.get('prompt')).toBe('none');
+  });
+
+  it('prefers configured custom auth domain over request host', async () => {
+    const app = createSsoAuthorizeRoutes('/oauth/sso', {
+      async getOAuthClient(clientId: string) {
+        if (clientId !== oauthClient.client_id) throw new Error('not found');
+        return oauthClient;
+      },
+    }, {
+      publicBaseUrl: 'https://auth.example.test/',
+      trustProxyHeaders: false,
+    });
+
+    const response = await app.handle(new Request(
+      'https://project-runtime.example.test/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback&scope=openid%20email',
+    ));
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get('location') || '';
+    expect(location).toStartWith('https://auth.example.test/auth/v1/oauth/authorize?');
+  });
+
+  it('uses trusted forwarded host only when no custom auth domain is configured', async () => {
+    const app = createSsoAuthorizeRoutes('/oauth/sso', {
+      async getOAuthClient(clientId: string) {
+        if (clientId !== oauthClient.client_id) throw new Error('not found');
+        return oauthClient;
+      },
+    }, {
+      publicBaseUrl: '',
+      trustProxyHeaders: true,
+    });
+
+    const response = await app.handle(new Request(
+      'http://127.0.0.1:9000/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback',
+      {
+        headers: {
+          'x-forwarded-host': 'auth.example.test',
+          'x-forwarded-proto': 'https',
+        },
+      },
+    ));
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get('location') || '';
+    expect(location).toStartWith('https://auth.example.test/auth/v1/oauth/authorize?');
   });
 
   it('rejects unregistered redirect_uri before redirecting', async () => {

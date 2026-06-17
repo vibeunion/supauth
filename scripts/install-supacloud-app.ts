@@ -120,7 +120,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     SUPACLOUD_GATEWAY_ADMIN_TOKEN: options.gatewayAdminToken,
     SUPACLOUD_RUNTIME_URL: options.runtimeUrl,
     SUPACLOUD_RUNTIME_INTERNAL_URL: options.runtimeInternalUrl,
-    SUPAUTH_INSTALLED_BASE_URL: options.baseUrl,
+    SUPAUTH_PUBLIC_URL: options.baseUrl,
     SUPACLOUD_EDGE_RUNTIME_UPSTREAM: options.edgeRuntimeUpstream,
     SUPACLOUD_DATABASE_URL: options.databaseUrl,
   };
@@ -151,7 +151,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     'GOTRUE_INTERNAL_URL',
   ]);
   const databaseUrl = firstValue(sources, ['SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL']);
-  const baseUrl = firstValue(sources, ['SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL', 'AUTH_PUBLIC_URL']);
+  const baseUrl = firstValue(sources, ['SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL']);
   const edgeRuntimeUpstream = firstValue(sources, ['SUPACLOUD_EDGE_RUNTIME_UPSTREAM', 'EDGE_RUNTIME_UPSTREAM']);
 
   return {
@@ -232,6 +232,12 @@ function functionEnv(config: ResolvedInstallConfig) {
     { name: 'SUPACLOUD_INTERNAL_TOKEN', value: config.token },
     { name: 'SUPACLOUD_PROJECT_REF', value: config.projectRef },
     { name: 'SUPACLOUD_RUNTIME_URL', value: config.runtimeUrl },
+    ...(config.baseUrl
+      ? [
+        { name: 'SUPAUTH_PUBLIC_URL', value: config.baseUrl },
+        { name: 'SUPAUTH_INSTALLED_BASE_URL', value: config.baseUrl },
+      ]
+      : []),
     ...(config.runtimeInternalUrl
       ? [{ name: 'SUPACLOUD_RUNTIME_INTERNAL_URL', value: config.runtimeInternalUrl }]
       : []),
@@ -271,7 +277,7 @@ async function configureGatewayRoutes(input: {
   edgeRuntimeUpstream: string;
 }) {
   const host = hostnameFromUrl(input.baseUrl);
-  if (!host) throw new Error('SUPAUTH_INSTALLED_BASE_URL is required for gateway route binding');
+  if (!host) throw new Error('SUPAUTH_PUBLIC_URL or SUPAUTH_INSTALLED_BASE_URL is required for gateway route binding');
 
   await input.client.request(`/v1/projects/${input.projectRef}/gateway/routes`, {
     method: 'POST',
@@ -283,6 +289,11 @@ async function configureGatewayRoutes(input: {
         '/v1/public/*',
         '/oauth/*',
         '/login.html',
+        '/account',
+        '/account.html',
+        '/account/*',
+        '/change-password',
+        '/change-password.html',
         '/claim',
         '/claim.html',
         '/favicon.ico',
@@ -467,8 +478,8 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   }
 
   if (!config.baseUrl) {
-    steps.push({ name: 'gateway-routes', status: 'skipped', detail: 'SUPAUTH_INSTALLED_BASE_URL is not set' });
-    warnings.push('Gateway hosted routes were not configured because SUPAUTH_INSTALLED_BASE_URL is missing.');
+    steps.push({ name: 'gateway-routes', status: 'skipped', detail: 'SUPAUTH_PUBLIC_URL is not set' });
+    warnings.push('Gateway hosted routes were not configured because SUPAUTH_PUBLIC_URL or SUPAUTH_INSTALLED_BASE_URL is missing.');
   } else if (!gatewayClient) {
     steps.push({ name: 'gateway-routes', status: 'skipped', detail: 'SUPACLOUD_GATEWAY_ADMIN_TOKEN is not set' });
     warnings.push('Gateway hosted routes were not configured because an admin-scoped SupaCloud token is required.');
@@ -500,7 +511,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   }
 
   if (!config.baseUrl || !gatewayClient) {
-    warnings.push('Gateway hosted routes (/api/*, /oauth/*, /claim*) still require SupaCloud route binding before installed-app verifier can pass.');
+    warnings.push('Gateway hosted routes (/api/*, /oauth/*, /account*, /claim*) still require SupaCloud route binding before installed-app verifier can pass.');
   }
   warnings.push('Admin Pages path routing (/admin/*) is not configured by this installer until SupaCloud exposes path-scoped Pages binding.');
 

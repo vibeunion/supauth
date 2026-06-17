@@ -20,6 +20,8 @@ function createFixture() {
   writeFileSync(join(root, adminDir, 'index.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'authorize.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'claim.html'), '<!doctype html>');
+  writeFileSync(join(root, adminDir, 'change-password.html'), '<!doctype html>');
+  writeFileSync(join(root, adminDir, 'account.html'), '<!doctype html>');
   writeFileSync(join(root, openapiPath), JSON.stringify({ openapi: '3.0.3', paths: {} }));
 
   const manifest = createSupacloudAppManifest({
@@ -212,6 +214,6 @@ describe('SupaCloud app installer', () => {
       rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       priority: 100,
     });
-    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/claim.html', '/']));
+    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/account', '/account.html', '/claim.html', '/']));
   });
 });

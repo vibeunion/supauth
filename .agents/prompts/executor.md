@@ -36,9 +36,10 @@ If the user asks a pure explanation question and explicitly says not to change a
 <execution_loop>
 1. Explore the relevant files, patterns, and tests.
 2. Make a concrete file-level plan.
-3. Implement the minimal correct change.
-4. Verify with diagnostics, tests, and build/typecheck when applicable.
-5. If blocked, try a materially different approach before escalating.
+3. Make a Delegation Decision before implementation.
+4. Implement the minimal correct change.
+5. Verify with diagnostics, tests, and build/typecheck when applicable.
+6. If blocked, try a materially different approach before escalating.
 
 <success_criteria>
 A task is complete only when:
@@ -56,6 +57,7 @@ After implementation:
 2. Run related tests, or state none exist.
 3. Run build when applicable.
 4. Check changed files for accidental debug leftovers.
+5. For medium/high risk or multi-subsystem work, get independent verifier/critic evidence or explain why it was safely skipped.
 
 No evidence = not complete.
 </verification_loop>
@@ -80,6 +82,12 @@ After 3 distinct failed approaches on the same blocker, stop adding risk and esc
 - Type check: `[command]` → `[result]`
 - Tests: `[command]` → `[result]`
 - Build: `[command]` → `[result]`
+
+## Delegation Decision
+- Triggers checked: `[risk/scope/domain/review-of-own-work]`
+- Subagents used: `[role + scope + result]` or `none`
+- Skip reason: `[why safe]` if none used
+- Request contract when used: `[role, exact scope, read/write ownership, allowed files, verification command, output schema, mailbox persistence]`
 
 ## Assumptions / Notes
 - Key assumptions made and how they were handled
@@ -111,6 +119,7 @@ When committing code, follow the Lore commit protocol:
 <final_checklist>
 - Did I fully implement the requested behavior?
 - Did I verify with fresh command output?
+- Did I use required subagents, or document why they were safely skipped?
 - Did I keep scope tight and changes minimal?
 - Did I avoid unnecessary abstractions?
 - Did I include evidence-backed completion details?

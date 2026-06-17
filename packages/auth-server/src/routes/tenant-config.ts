@@ -16,6 +16,7 @@ const allowedTypes = new Set([
   'profile_field',
   'branding_asset',
   'auth_hook',
+  'account_center',
 ]);
 
 export const tenantConfigRoutes = new Elysia({ prefix: '/v1/tenant-config' })

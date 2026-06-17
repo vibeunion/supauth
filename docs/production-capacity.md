@@ -21,7 +21,7 @@ This baseline defines the minimum production guardrails for SupaOAuth on top of 
 
 ```bash
 OAUTH_RUNTIME_URL=https://api.example.com \
-SUPAUTH_INSTALLED_BASE_URL=https://auth.example.com \
+SUPAUTH_PUBLIC_URL=https://auth.example.com \
 CAPACITY_CONCURRENCY=10 \
 CAPACITY_ITERATIONS=50 \
 bun run capacity:baseline

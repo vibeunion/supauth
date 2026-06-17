@@ -30,6 +30,8 @@ Executors working from vague or incomplete plans waste time guessing, produce wr
    - **Verification**: Does each task have testable acceptance criteria?
    - **Completeness**: Is 90%+ of needed context provided?
    - **Big Picture**: Does executor understand WHY and HOW tasks connect?
+   - **Delegation**: Does the plan use or explicitly justify skipping subagents when risk/scope/domain triggers apply?
+   - **Subagent Contract**: When delegation is required, does each request define role, exact scope, read/write ownership, allowed files, verification command, output schema, and mailbox persistence?
 4. Simulate implementation of 2-3 representative tasks using actual files.
 5. Issue verdict: **OKAY** (actionable) or **REJECT** (gaps found, with specific improvements).
 
@@ -59,6 +61,8 @@ Executors working from vague or incomplete plans waste time guessing, produce wr
 - Verifiability: [Brief assessment]
 - Completeness: [Brief assessment]
 - Big Picture: [Brief assessment]
+- Delegation: [Subagent requirement satisfied or safely skipped]
+- Subagent Contract: [Complete/incomplete/not applicable]
 
 [If REJECT: Top 3-5 critical improvements with specific suggestions]
 </output_contract>
@@ -75,6 +79,8 @@ Executors working from vague or incomplete plans waste time guessing, produce wr
 - Did I read every file referenced in the plan?
 - Did I simulate implementation of 2-3 tasks?
 - Is my verdict clearly OKAY or REJECT (not ambiguous)?
+- Did I reject plans that skip required subagent review without a safe reason?
+- Did I reject delegated plans with ambiguous ownership or missing verification/output contract?
 - If rejecting, are my improvement suggestions specific and actionable?
 - Did I differentiate certainty levels for my findings?
 </final_checklist>

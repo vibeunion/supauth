@@ -51,6 +51,7 @@
 | `/deep-review`   | 苏格拉底式需求澄清（模糊请求时使用） |
 | `/deploy-verify` | 部署验证 + 回滚计划                  |
 | `/db-migrate`    | 数据库迁移（含回滚脚本）             |
+| `/design-review` | 架构/API/数据模型/高风险方案质证     |
 | `/research`      | 并行多源研究                         |
 | `/handoff`       | Agent 交接文档                       |
 
@@ -78,6 +79,29 @@
 - ✅ 相关测试通过
 - ✅ 验证证据已在回复中展示
 - ✅ 无临时调试代码残留
+
+### Delegation Gate（默认启动子代理）
+
+**核心原则：有任务时默认启动子代理执行，主进程负责审查和裁决。**
+
+调度命令：
+- `agent-team subagent dispatch <role> "<prompt>"` — 派发子代理任务
+- `agent-team subagent list` — 查看可用角色
+- `agent-team subagent status` — 检查运行时可用性
+
+默认模型映射：
+- Orchestrator: `gpt-5.5` — 任务拆解、最终裁决、高风险审查
+- Executor: `gpt-5.3-codex` — 实现、测试、修复 (sandbox: workspace-write)
+- Explorer / Critic / Verifier: `gpt-5.3-codex` — 探索、评审、验证 (sandbox: read-only)
+
+标准流程（有明确目标的任务）：
+1. Explorer 探索代码和上下文
+2. Executor 实现
+3. Verifier 独立验证
+4. Orchestrator 审查所有输出并裁决
+
+低风险单文件修复可跳过 Explorer/Critic，但必须仍有 Verifier。
+纯文档/格式化/简单命令可跳过全部子代理，但必须记录 `safe_skip_reason`。
 
 ### 终端、系统与 Git 安全护栏 (Safety & Permissions guardrails)
 
@@ -127,12 +151,14 @@ Directive: <警告>             # 给未来修改者
 
 - 默认任务入口是 Task Contract；GitHub、CNB、GitLab、本地 `tasks.md` 都只是 provider adapter
 - 领取任务前必须识别相关 skill、项目规则、代码规范和测试约定，并写入 Task Contract
+- 实现有明确目标的任务时默认启动子代理（explorer → executor → verifier），主进程负责审查；低风险简单任务可跳过但必须记录 `safe_skip_reason`
 - 执行器优先使用 `gpt-5.3-codex`，在每个项目内串行循环处理 eligible `ready` 任务，直到任务列表没有可执行任务
 - 同一时间只领取并持有 1 个任务；每完成或阻塞一个任务后，重新读取 ledger 和 mailbox
 - 每小时审查器优先使用 `gpt-5.5`，只处理 `review` 状态的 PR/MR
 - 每小时健康检查器检查卡住任务、权限失效、CI 可见性和队列漂移
 - 领取、阻塞、完成都要更新 `progress.md`
 - 任务契约需要明确目标、非目标、验收标准、相关 skill、代码规范、风险和回滚方案，不能只写一句话
+- 涉及技术栈、SvelteKit/Nuxt、数据库或部署目标选择时，任务契约必须记录 Stack/Fullstack/Database/Deployment Profile、决策来源、证据、所需 skill、非目标和验证计划；推荐栈/推荐数据库/推荐平台只作为 greenfield fallback，不覆盖已有项目技术栈、数据库或托管平台
 - 审查不合格优先退回原 PR/MR；只有原 PR/MR 无法继续或问题已合并才创建 follow-up 修复任务
 - follow-up 修复任务必须包含 parent / source / reason
 
@@ -140,43 +166,11 @@ Directive: <警告>             # 给未来修改者
 
 - 如果任务涉及特定技术栈，先查 `.agents/prompts/`、`.agents/workflows/`、`references/skills/`、项目级 `AGENTS.md` / `GEMINI.md` 中的相关规范
 - 不确定任务应加载哪些 skill 时，优先查全局 `references/skills/INDEX.md` 或已安装的 `~/.codex/skills/agent-team/INDEX.md`
+- 涉及默认技术栈、后端框架、前端框架、SvelteKit/Nuxt、数据库、桌面端、移动端、小程序、Mpx 或部署平台边界时，先加载 `stack-profile-selector`；涉及托管/部署时再加载 `deployment-target-selector`；涉及数据库/持久化时再加载 `database-profile-selector`，并按证据加载 `elysiajs` / `nestjs-backend` / `hono-backend` / `svelte-code-writer` / `svelte-core-bestpractices` / `vue-frontend` / `alpine-frontend` / `sveltekit-fullstack` / `nuxt-fullstack` / `sqlite-database` / `cloudflare-d1-database` / `postgres-database` / `electron-desktop` / `tauri-desktop` / `mobile-app` / `mpx-development-guides` / `supacloud-platform` / `svadmin-admin-ui` / `edgeone-deploy` / `cloudflare-edge-hosting` 等具体 skill
 - Codex 环境下优先使用已安装的 `~/.codex/skills/agent-team/` 技能，不要绕过本地 skill 自行发明规范
 - 修改代码时遵循既有框架、目录结构、命名、测试和提交习惯
 - PR/MR 审查必须检查是否遗漏相关 skill 或违反项目代码规范
 
 <!-- AGENT:OVERLAY:START -->
-## Project Identity
-
-SupaOAuth is an **independent Identity Provider (IdP)** — a standalone user center comparable to Logto. It is NOT merely an admin panel for GoTrue configuration.
-
-## Architecture Dependency
-
-- **@svadmin/core** + **@svadmin/ui** → Admin console UI framework
-- **@svadmin/sso** → Admin console's own authentication
-- **SupaCloud Management API** → GoTrue instance orchestration, env injection, Kong routing
-- **GoTrue** → The underlying OIDC-compliant auth engine (SupaOAuth orchestrates, not replaces)
-
-## Key Principles
-
-1. **Read `progress.md`** before starting any work — tasks and context live there.
-2. **Check `.mailbox/`** for inter-agent messages.
-3. **No scope reduction** — if a task expands beyond the original request, stop and ask.
-4. **Verify first** — run `bunx tsc --noEmit` and `bun test` before marking tasks complete.
-5. **No secrets** — never hardcode API keys or tokens.
-
-## Package Structure
-
-```text
-packages/
-  auth-server/     # Elysia/Bun Management API + BFF + SupaCloud adapter + metadata APIs
-  admin-console/   # SvelteKit + @svadmin/core management UI
-  shared/          # Shared schemas and types
-  sdks/            # Client SDKs
-```
-
-## Integration Boundary
-
-- SupaOAuth **owns**: Application registration, Resource/Scope definitions, Role/Permission model, Organization model, Connector model, Sign-in Experience config, Audit log, Webhooks, SDKs, Management API, Runtime health verification
-- SupaOAuth **delegates to SupaCloud**: GoTrue env injection, GoTrue restart, Kong route setup, user CRUD proxy, MFA proxy
-- SupaOAuth **does NOT**: Reimplement OIDC token signing (GoTrue does this), manage Postgres directly, manage Kong configs directly, expose management credentials to browser code
+<!-- 项目特定的 overlay 内容可以在这里添加 -->
 <!-- AGENT:OVERLAY:END -->

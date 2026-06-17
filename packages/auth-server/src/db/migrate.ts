@@ -310,6 +310,22 @@ SELECT 'saml-enterprise', 'Enterprise SAML', 'saml', 'enterprise_sso',
   '{"required":["entity_id","sso_url","certificate"],"secret_fields":["certificate"]}'::jsonb, true
 WHERE NOT EXISTS (SELECT 1 FROM supaoauth.connector_factories WHERE factory_id = 'saml-enterprise');
 
+-- Enterprise social SSO connectors (reserved — no runtime adapter yet)
+INSERT INTO supaoauth.connector_factories (factory_id, name, protocol, category, config_schema, enabled)
+SELECT 'wecom-work', '企业微信', 'oauth2', 'enterprise_sso',
+  '{"required":["corp_id","agent_id"],"secret_fields":["secret"],"optional":["callback_url"],"notes":"Reserved for future WeCom Work OAuth2 adapter"}'::jsonb, false
+WHERE NOT EXISTS (SELECT 1 FROM supaoauth.connector_factories WHERE factory_id = 'wecom-work');
+
+INSERT INTO supaoauth.connector_factories (factory_id, name, protocol, category, config_schema, enabled)
+SELECT 'feishu', '飞书', 'oauth2', 'enterprise_sso',
+  '{"required":["app_id"],"secret_fields":["app_secret"],"optional":["callback_url"],"notes":"Reserved for future Feishu/Lark OAuth2 adapter"}'::jsonb, false
+WHERE NOT EXISTS (SELECT 1 FROM supaoauth.connector_factories WHERE factory_id = 'feishu');
+
+INSERT INTO supaoauth.connector_factories (factory_id, name, protocol, category, config_schema, enabled)
+SELECT 'dingtalk', '钉钉', 'oauth2', 'enterprise_sso',
+  '{"required":["app_key"],"secret_fields":["app_secret"],"optional":["callback_url"],"notes":"Reserved for future DingTalk OAuth2 adapter"}'::jsonb, false
+WHERE NOT EXISTS (SELECT 1 FROM supaoauth.connector_factories WHERE factory_id = 'dingtalk');
+
 INSERT INTO supaoauth.tenant_configs (config_type, key, value, enabled)
 SELECT 'captcha', 'default', '{"provider":"none","configured":false}'::jsonb, false
 WHERE NOT EXISTS (SELECT 1 FROM supaoauth.tenant_configs WHERE config_type = 'captcha' AND key = 'default');
@@ -328,6 +344,8 @@ BEGIN
     EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', project_role);
     EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %I', project_role);
     EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT EXECUTE ON FUNCTIONS TO %I', project_role);
+    EXECUTE format('GRANT USAGE ON SCHEMA auth TO %I', project_role);
+    EXECUTE format('GRANT SELECT, UPDATE ON TABLE auth.oauth_authorizations TO %I', project_role);
   END IF;
 END $$;
 `;

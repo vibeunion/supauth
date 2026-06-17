@@ -47,6 +47,8 @@ const adminStaticDir = resolve(root, 'packages/admin-console/build');
 const adminIndex = resolve(adminStaticDir, 'index.html');
 const hostedAuthorize = resolve(adminStaticDir, 'authorize.html');
 const hostedClaim = resolve(adminStaticDir, 'claim.html');
+const hostedChangePassword = resolve(adminStaticDir, 'change-password.html');
+const hostedAccount = resolve(adminStaticDir, 'account.html');
 const openapiPath = resolve(artifactDir, 'openapi.json');
 const manifestPath = resolve(artifactDir, 'supacloud-app-manifest.json');
 
@@ -54,6 +56,8 @@ requireFile(functionBundle);
 requireFile(adminIndex);
 requireFile(hostedAuthorize);
 requireFile(hostedClaim);
+requireFile(hostedChangePassword);
+requireFile(hostedAccount);
 
 run(['bun', 'run', 'scripts/export-openapi.ts', openapiPath]);
 

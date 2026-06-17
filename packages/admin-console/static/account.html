@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SupaOAuth Account Center</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18202f;
+      --muted: #647084;
+      --line: #d8dee8;
+      --panel: #ffffff;
+      --bg: #f4f7fb;
+      --brand: #13736f;
+      --brand-dark: #0d5855;
+      --disabled: #94a3b8;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      padding: 24px;
+    }
+
+    body.has-bg {
+      background-position: center;
+      background-size: cover;
+    }
+
+    body.has-bg::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    main {
+      position: relative;
+      width: min(100%, 760px);
+      margin: 36px auto;
+    }
+
+    .brand {
+      margin-bottom: 22px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: var(--ink);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .logo {
+      display: none;
+      max-width: 180px;
+      max-height: 72px;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 16px 0 6px;
+      font-size: 30px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+      max-width: 620px;
+    }
+
+    .panel {
+      margin-bottom: 18px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      box-shadow: 0 14px 36px rgba(17, 24, 39, .06);
+    }
+
+    .panel h2 {
+      margin: 0 0 7px;
+      font-size: 17px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    .panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .token-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    input {
+      width: 100%;
+      height: 42px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      padding: 0 12px;
+      color: var(--ink);
+      font-size: 14px;
+      outline: none;
+      background: #fff;
+    }
+
+    input:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(19, 115, 111, .14);
+    }
+
+    button {
+      border: 0;
+      border-radius: 7px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 0 14px;
+    }
+
+    .primary {
+      color: #fff;
+      background: var(--brand);
+    }
+
+    .primary:hover { background: var(--brand-dark); }
+
+    .secondary {
+      color: var(--ink);
+      background: #e2e8f0;
+    }
+
+    button:disabled { cursor: not-allowed; opacity: .62; }
+
+    .message {
+      display: none;
+      margin-top: 12px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .message.active { display: block; }
+    .message.error { color: #b42318; }
+    .message.ok { color: #067647; }
+
+    .profile-details {
+      display: none;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 8px 12px;
+      margin: 16px 0 0;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .profile-details.active { display: grid; }
+    .profile-details dt { color: var(--muted); }
+    .profile-details dd { margin: 0; overflow-wrap: anywhere; }
+
+    .profile-form {
+      display: none;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .profile-form.active { display: grid; }
+
+    .inline-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .module-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .module-grid {
+      display: none;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .module-grid.active { display: grid; }
+
+    .module-card {
+      min-height: 120px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #f8fafc;
+    }
+
+    .module-card h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    .module-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .module-list li {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .module-list button {
+      justify-self: start;
+      min-height: 28px;
+      padding: 0 10px;
+      color: var(--brand-dark);
+      background: #e2e8f0;
+      font-size: 12px;
+    }
+
+    .danger-card {
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+
+    .danger-card button {
+      color: #fff;
+      background: #b42318;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      min-height: 132px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+      color: inherit;
+      text-decoration: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      box-shadow: 0 14px 36px rgba(17, 24, 39, .06);
+    }
+
+    .card.active:hover {
+      border-color: rgba(19, 115, 111, .42);
+      box-shadow: 0 16px 44px rgba(17, 24, 39, .09);
+    }
+
+    .card.disabled {
+      color: var(--disabled);
+      cursor: not-allowed;
+      background: rgba(255, 255, 255, .64);
+    }
+
+    .card h2 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    .card p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .disabled p { color: var(--disabled); }
+
+    .tag {
+      align-self: flex-start;
+      color: var(--brand-dark);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .disabled .tag { color: var(--disabled); }
+
+    .footer {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .link {
+      color: var(--brand-dark);
+      text-decoration: none;
+      font-weight: 650;
+    }
+
+    .link:hover { text-decoration: underline; }
+
+    @media (max-width: 640px) {
+      body { padding: 20px; }
+      main { margin: 16px auto; }
+      .grid { grid-template-columns: 1fr; }
+      .module-grid { grid-template-columns: 1fr; }
+      .token-row,
+      .profile-form,
+      .inline-form { grid-template-columns: 1fr; }
+      h1 { font-size: 26px; }
+    }
+  </style>
+  <style id="custom-style"></style>
+  <script>
+    window.__SUPAOAUTH_PUBLIC_API_BASE__ = null;
+  </script>
+</head>
+<body>
+  <main>
+    <section id="brand" class="brand" aria-label="SupaOAuth">
+      <img id="logo" class="logo" alt="">
+      <div id="brand-mark" class="brand-mark">SA</div>
+      <h1 id="account-title">账户中心</h1>
+      <p class="lead">管理你的 SupaOAuth 账号资料、安全设置、登录会话、应用授权和登录身份。</p>
+    </section>
+
+    <section id="account-panel" class="panel">
+      <h2>当前账号</h2>
+      <p>登录后会自动进入账号中心；如当前浏览器没有登录态，可从登录页重新登录。</p>
+      <div class="token-row">
+        <input id="access-token" type="password" autocomplete="off" spellcheck="false" placeholder="User access token">
+        <button id="load-account" class="primary" type="button">加载资料</button>
+        <button id="clear-token" class="secondary" type="button">清除</button>
+      </div>
+      <div id="account-message" class="message" role="status"></div>
+      <dl id="profile-details" class="profile-details">
+        <dt data-profile-field="email">邮箱</dt>
+        <dd id="profile-email" data-profile-field="email">-</dd>
+        <dt data-profile-field="phone">手机号</dt>
+        <dd id="profile-phone" data-profile-field="phone">-</dd>
+        <dt data-profile-field="id">用户 ID</dt>
+        <dd id="profile-id" data-profile-field="id">-</dd>
+        <dt data-profile-field="name">显示名称</dt>
+        <dd id="profile-name" data-profile-field="name">-</dd>
+      </dl>
+      <form id="profile-form" class="profile-form">
+        <input id="profile-name-input" name="name" type="text" autocomplete="name" placeholder="显示名称">
+        <button id="save-profile" class="primary" type="submit">保存资料</button>
+      </form>
+      <div id="module-grid" class="module-grid">
+        <section class="module-card" aria-label="登录会话" data-module="sessions">
+          <h3>登录会话</h3>
+          <ul id="sessions-list" class="module-list">
+            <li>加载账号后显示。</li>
+          </ul>
+        </section>
+        <section class="module-card" aria-label="应用授权" data-module="grants">
+          <h3>应用授权</h3>
+          <ul id="grants-list" class="module-list">
+            <li>加载账号后显示。</li>
+          </ul>
+        </section>
+        <section class="module-card" aria-label="登录身份" data-module="identities">
+          <h3>登录身份</h3>
+          <ul id="identities-list" class="module-list">
+            <li>加载账号后显示。</li>
+          </ul>
+        </section>
+        <section class="module-card" aria-label="联系信息" data-module="contact">
+          <h3>邮箱与手机号</h3>
+          <div class="module-stack">
+            <form id="email-form" class="inline-form">
+              <input id="email-input" name="email" type="email" autocomplete="email" placeholder="新邮箱">
+              <button class="secondary" type="submit">验证邮箱</button>
+            </form>
+            <form id="phone-form" class="inline-form">
+              <input id="phone-input" name="phone" type="tel" autocomplete="tel" placeholder="新手机号">
+              <button class="secondary" type="submit">验证手机号</button>
+            </form>
+          </div>
+        </section>
+        <section class="module-card" aria-label="MFA" data-module="mfa">
+          <h3>MFA</h3>
+          <ul id="mfa-list" class="module-list">
+            <li>加载账号后显示。</li>
+          </ul>
+        </section>
+        <section class="module-card" aria-label="Passkey" data-module="passkeys">
+          <h3>Passkey</h3>
+          <ul id="passkeys-list" class="module-list">
+            <li>加载账号后显示。</li>
+          </ul>
+        </section>
+        <section class="module-card danger-card" aria-label="注销账号" data-module="delete-account">
+          <h3>注销账号</h3>
+          <p>输入 DELETE 后注销当前账号。</p>
+          <form id="delete-account-form" class="inline-form">
+            <input id="delete-confirmation" name="confirmation" type="text" autocomplete="off" placeholder="DELETE">
+            <button type="submit">注销</button>
+          </form>
+          <p id="delete-account-link-wrap" hidden><a id="delete-account-link" class="link" href="#">前往注销流程</a></p>
+        </section>
+      </div>
+    </section>
+
+    <section class="grid" aria-label="Account center sections">
+      <a class="card active" href="#account-panel" data-section="profile">
+        <span>
+          <h2>个人资料</h2>
+          <p>使用用户 access token 查看账号资料，并更新安全的 profile metadata。</p>
+        </span>
+        <span class="tag">查看资料</span>
+      </a>
+
+      <a class="card active" href="/account/password" data-section="security">
+        <span>
+          <h2>安全设置</h2>
+          <p>使用当前密码验证身份并更新登录密码。</p>
+        </span>
+        <span class="tag">修改密码</span>
+      </a>
+
+      <a class="card active" href="#account-panel" data-section="sessions">
+        <span>
+          <h2>登录会话</h2>
+          <p>查看当前账号的会话记录，并撤销不再使用的会话。</p>
+        </span>
+        <span class="tag">查看会话</span>
+      </a>
+
+      <a class="card active" href="#account-panel" data-section="grants">
+        <span>
+          <h2>应用授权</h2>
+          <p>查看已授权应用、权限范围和访问时间。</p>
+        </span>
+        <span class="tag">管理授权</span>
+      </a>
+
+      <a class="card active" href="#account-panel" data-section="identities">
+        <span>
+          <h2>登录身份</h2>
+          <p>查看邮箱、社交账号和企业 SSO 身份，并解绑不再使用的身份。</p>
+        </span>
+        <span class="tag">管理身份</span>
+      </a>
+
+      <a class="card active" href="#account-panel" data-section="mfa">
+        <span>
+          <h2>MFA / Passkey</h2>
+          <p>查看多因素认证和 Passkey，移除不再使用的认证方式。</p>
+        </span>
+        <span class="tag">管理安全因子</span>
+      </a>
+
+      <a class="card active" href="#account-panel" data-section="contact">
+        <span>
+          <h2>邮箱和手机号</h2>
+          <p>发起邮箱或手机号变更，并交由认证运行时完成验证。</p>
+        </span>
+        <span class="tag">变更验证</span>
+      </a>
+
+      <a class="card active" href="#account-panel" data-section="delete-account">
+        <span>
+          <h2>注销账号</h2>
+          <p>确认后删除当前登录账号。</p>
+        </span>
+        <span class="tag">危险操作</span>
+      </a>
+    </section>
+
+    <p class="footer">需要登录或找回密码时，请返回 <a class="link" href="/login.html">登录页</a>。</p>
+  </main>
+
+  <script>
+    const apiBase = (window.__SUPAOAUTH_PUBLIC_API_BASE__ || '/v1/public').replace(/\/$/, '');
+    const brandMark = document.getElementById('brand-mark');
+    const logo = document.getElementById('logo');
+    const title = document.getElementById('account-title');
+    const tokenInput = document.getElementById('access-token');
+    const loadAccountButton = document.getElementById('load-account');
+    const clearTokenButton = document.getElementById('clear-token');
+    const message = document.getElementById('account-message');
+    const profileDetails = document.getElementById('profile-details');
+    const profileForm = document.getElementById('profile-form');
+    const profileEmail = document.getElementById('profile-email');
+    const profilePhone = document.getElementById('profile-phone');
+    const profileId = document.getElementById('profile-id');
+    const profileName = document.getElementById('profile-name');
+    const profileNameInput = document.getElementById('profile-name-input');
+    const moduleGrid = document.getElementById('module-grid');
+    const sessionsList = document.getElementById('sessions-list');
+    const grantsList = document.getElementById('grants-list');
+    const identitiesList = document.getElementById('identities-list');
+    const mfaList = document.getElementById('mfa-list');
+    const passkeysList = document.getElementById('passkeys-list');
+    const emailForm = document.getElementById('email-form');
+    const phoneForm = document.getElementById('phone-form');
+    const emailInput = document.getElementById('email-input');
+    const phoneInput = document.getElementById('phone-input');
+    const deleteAccountForm = document.getElementById('delete-account-form');
+    const deleteConfirmationInput = document.getElementById('delete-confirmation');
+    const deleteAccountLinkWrap = document.getElementById('delete-account-link-wrap');
+    const deleteAccountLink = document.getElementById('delete-account-link');
+    const tokenStoreKey = 'supaoauth.account.access_token';
+    let accountConfig = {
+      enabled: true,
+      profile: { edit_mode: 'read_only', fields: ['name', 'email', 'phone'] },
+      security: {
+        password_change: true,
+        mfa: false,
+        passkeys: false,
+        email_change: false,
+        phone_change: false,
+      },
+      sessions: { enabled: false },
+      grants: { enabled: false },
+      identities: { enabled: false },
+      delete_account: { enabled: false, url: null },
+    };
+
+    function applyBranding(branding) {
+      if (!branding) return;
+
+      if (branding.page_title) {
+        document.title = `${branding.page_title} Account Center`;
+      }
+
+      if (branding.primary_color) {
+        document.documentElement.style.setProperty('--brand', branding.primary_color);
+        document.documentElement.style.setProperty('--brand-dark', branding.primary_color);
+      }
+
+      if (branding.logo_url) {
+        logo.src = branding.logo_url;
+        logo.style.display = 'block';
+        brandMark.style.display = 'none';
+      }
+
+      if (branding.background_url) {
+        document.body.classList.add('has-bg');
+        document.body.style.backgroundImage = `url("${branding.background_url}")`;
+      }
+
+      if (branding.custom_css) {
+        document.getElementById('custom-style').textContent = branding.custom_css;
+      }
+    }
+
+    function moduleEnabled(name) {
+      if (name === 'profile') return accountConfig.profile && accountConfig.profile.edit_mode !== 'disabled';
+      if (name === 'security') return accountConfig.security && accountConfig.security.password_change;
+      if (name === 'sessions') return accountConfig.sessions && accountConfig.sessions.enabled;
+      if (name === 'grants') return accountConfig.grants && accountConfig.grants.enabled;
+      if (name === 'identities') return accountConfig.identities && accountConfig.identities.enabled;
+      if (name === 'mfa') return accountConfig.security && (accountConfig.security.mfa || accountConfig.security.passkeys);
+      if (name === 'contact') return accountConfig.security && (accountConfig.security.email_change || accountConfig.security.phone_change);
+      if (name === 'delete-account') return accountConfig.delete_account && accountConfig.delete_account.enabled;
+      if (name === 'passkeys') return accountConfig.security && accountConfig.security.passkeys;
+      return true;
+    }
+
+    function applyAccountConfig(config) {
+      const next = config || {};
+      accountConfig = {
+        ...accountConfig,
+        ...next,
+        profile: { ...accountConfig.profile, ...(next.profile || {}) },
+        security: { ...accountConfig.security, ...(next.security || {}) },
+        sessions: { ...accountConfig.sessions, ...(next.sessions || {}) },
+        grants: { ...accountConfig.grants, ...(next.grants || {}) },
+        identities: { ...accountConfig.identities, ...(next.identities || {}) },
+        delete_account: { ...accountConfig.delete_account, ...(next.delete_account || {}) },
+      };
+      if (!accountConfig.enabled) {
+        document.getElementById('account-panel').hidden = true;
+        document.querySelector('.grid').hidden = true;
+        setMessage('error', '账号中心当前未启用。');
+        return;
+      }
+
+      document.querySelectorAll('[data-section]').forEach((element) => {
+        const section = element.getAttribute('data-section');
+        element.hidden = !moduleEnabled(section);
+      });
+      document.querySelectorAll('[data-module]').forEach((element) => {
+        const moduleName = element.getAttribute('data-module');
+        element.hidden = !moduleEnabled(moduleName);
+      });
+
+      profileForm.hidden = !(accountConfig.profile && accountConfig.profile.edit_mode === 'editable');
+      emailForm.hidden = !(accountConfig.security && accountConfig.security.email_change);
+      phoneForm.hidden = !(accountConfig.security && accountConfig.security.phone_change);
+      deleteAccountForm.hidden = !!(accountConfig.delete_account && accountConfig.delete_account.url);
+      if (accountConfig.delete_account && accountConfig.delete_account.url) {
+        deleteAccountLink.href = accountConfig.delete_account.url;
+        deleteAccountLinkWrap.hidden = false;
+      } else {
+        deleteAccountLinkWrap.hidden = true;
+      }
+      applyProfileFields();
+    }
+
+    function applyProfileFields() {
+      const fields = new Set((accountConfig.profile && accountConfig.profile.fields) || ['name', 'email', 'phone']);
+      fields.add('id');
+      document.querySelectorAll('[data-profile-field]').forEach((element) => {
+        element.hidden = !fields.has(element.getAttribute('data-profile-field'));
+      });
+    }
+
+    async function loadAccountConfig() {
+      try {
+        const response = await fetch(`${apiBase}/account/config`, { credentials: 'include' });
+        const data = await response.json().catch(() => null);
+        if (response.ok && data && data.config) applyAccountConfig(data.config);
+      } catch {}
+    }
+
+    function setMessage(type, text) {
+      message.className = `message active ${type}`;
+      message.textContent = text;
+    }
+
+    function clearMessage() {
+      message.className = 'message';
+      message.textContent = '';
+    }
+
+    function readHashAccessToken() {
+      if (!window.location.hash) return '';
+      const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const token = params.get('access_token') || '';
+      if (token) {
+        history.replaceState(null, document.title, window.location.pathname + window.location.search);
+      }
+      return token;
+    }
+
+    function storedAccessToken() {
+      try {
+        return sessionStorage.getItem(tokenStoreKey) || localStorage.getItem(tokenStoreKey) || '';
+      } catch {
+        return '';
+      }
+    }
+
+    function persistAccessToken(token) {
+      try {
+        sessionStorage.setItem(tokenStoreKey, token);
+      } catch {}
+    }
+
+    function forgetAccessToken() {
+      try {
+        sessionStorage.removeItem(tokenStoreKey);
+        localStorage.removeItem(tokenStoreKey);
+      } catch {}
+    }
+
+    function displayUser(user) {
+      const metadata = user && user.user_metadata && typeof user.user_metadata === 'object'
+        ? user.user_metadata
+        : {};
+      const name = metadata.name || metadata.full_name || metadata.display_name || '';
+      profileEmail.textContent = user.email || '-';
+      profilePhone.textContent = user.phone || '-';
+      profileId.textContent = user.id || '-';
+      profileName.textContent = name || '-';
+      profileNameInput.value = name || '';
+      emailInput.value = user.email || '';
+      phoneInput.value = user.phone || '';
+      profileDetails.classList.add('active');
+      if (accountConfig.profile && accountConfig.profile.edit_mode === 'editable') {
+        profileForm.classList.add('active');
+      }
+      moduleGrid.classList.add('active');
+    }
+
+    function itemLabel(item, fallback) {
+      if (!item || typeof item !== 'object') return fallback;
+      return item.name || item.display_name || item.email || item.provider || item.applicationId || item.application_id || item.id || fallback;
+    }
+
+    function itemId(item) {
+      if (!item || typeof item !== 'object') return '';
+      return item.id || item.session_id || item.identity_id || item.consent_id || '';
+    }
+
+    function renderModuleList(list, items, emptyText, action) {
+      list.innerHTML = '';
+      if (!items || items.length === 0) {
+        const li = document.createElement('li');
+        li.textContent = emptyText;
+        list.appendChild(li);
+        return;
+      }
+      for (const item of items) {
+        const li = document.createElement('li');
+        const label = document.createElement('span');
+        const id = itemId(item);
+        label.textContent = itemLabel(item, id || '记录');
+        li.appendChild(label);
+        if (action && id) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.dataset.action = action;
+          button.dataset.id = id;
+          button.textContent = action === 'revoke-session'
+            ? '撤销会话'
+            : action === 'revoke-grant'
+              ? '撤销授权'
+              : action === 'unlink-identity'
+                ? '解绑身份'
+                : action === 'reset-mfa'
+                  ? '重置 MFA'
+                  : '移除 Passkey';
+          li.appendChild(button);
+        }
+        list.appendChild(li);
+      }
+    }
+
+    async function accountFetch(path, options = {}) {
+      const token = tokenInput.value.trim();
+      if (!token) {
+        setMessage('error', '请输入当前用户 access token。');
+        tokenInput.focus();
+        return null;
+      }
+      persistAccessToken(token);
+      const response = await fetch(`${apiBase}${path}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          ...(options.headers || {}),
+        },
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.success === false) {
+        const apiMessage = data && data.error && data.error.message ? data.error.message : '账号请求失败。';
+        setMessage('error', apiMessage);
+        return null;
+      }
+      return data;
+    }
+
+    async function loadAccount() {
+      clearMessage();
+      loadAccountButton.disabled = true;
+      try {
+        const data = await accountFetch('/account/me');
+        if (!data) return;
+        displayUser(data.user || {});
+        await loadAccountModules();
+        setMessage('ok', '账号资料已加载。');
+      } catch {
+        setMessage('error', '无法连接账号中心，请稍后重试。');
+      } finally {
+        loadAccountButton.disabled = false;
+      }
+    }
+
+    async function saveProfile(event) {
+      event.preventDefault();
+      clearMessage();
+      const name = profileNameInput.value.trim();
+      if (!name) {
+        setMessage('error', '请输入显示名称。');
+        return;
+      }
+      const saveButton = document.getElementById('save-profile');
+      saveButton.disabled = true;
+      try {
+        const data = await accountFetch('/account/profile', {
+          method: 'PATCH',
+          body: JSON.stringify({ data: { name } }),
+        });
+        if (!data) return;
+        displayUser(data.user || {});
+        setMessage('ok', '资料已更新。');
+      } catch {
+        setMessage('error', '无法保存资料，请稍后重试。');
+      } finally {
+        saveButton.disabled = false;
+      }
+    }
+
+    async function loadAccountModules() {
+      const requests = [];
+      const load = async (key, path) => {
+        const data = await accountFetch(path);
+        return [key, data];
+      };
+      if (moduleEnabled('sessions')) requests.push(load('sessions', '/account/sessions'));
+      if (moduleEnabled('grants')) requests.push(load('grants', '/account/grants'));
+      if (moduleEnabled('identities')) requests.push(load('identities', '/account/identities'));
+      if (accountConfig.security && accountConfig.security.mfa) requests.push(load('mfa', '/account/mfa'));
+      if (accountConfig.security && accountConfig.security.passkeys) requests.push(load('passkeys', '/account/passkeys'));
+
+      const results = Object.fromEntries(await Promise.all(requests));
+      if (moduleEnabled('sessions')) {
+        renderModuleList(sessionsList, results.sessions && results.sessions.items, '没有活跃会话记录。', 'revoke-session');
+      }
+      if (moduleEnabled('grants')) {
+        renderModuleList(grantsList, results.grants && results.grants.items, '没有应用授权记录。', 'revoke-grant');
+      }
+      if (moduleEnabled('identities')) {
+        renderModuleList(identitiesList, results.identities && results.identities.items, '没有可管理身份。', 'unlink-identity');
+      }
+      if (accountConfig.security && accountConfig.security.mfa) {
+        renderModuleList(mfaList, results.mfa && results.mfa.items, '没有 MFA 因子。', 'reset-mfa');
+      }
+      if (accountConfig.security && accountConfig.security.passkeys) {
+        renderModuleList(passkeysList, results.passkeys && results.passkeys.items, '没有 Passkey。', 'revoke-passkey');
+      }
+    }
+
+    async function handleModuleAction(event) {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const id = button.dataset.id;
+      if (!id) return;
+      button.disabled = true;
+      try {
+        if (button.dataset.action === 'revoke-session') {
+          await accountFetch(`/account/sessions/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
+        } else if (button.dataset.action === 'revoke-grant') {
+          await accountFetch(`/account/grants/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        } else if (button.dataset.action === 'unlink-identity') {
+          await accountFetch(`/account/identities/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        } else if (button.dataset.action === 'reset-mfa') {
+          await accountFetch(`/account/mfa/${encodeURIComponent(id)}/reset`, { method: 'POST' });
+        } else if (button.dataset.action === 'revoke-passkey') {
+          await accountFetch(`/account/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        }
+        await loadAccountModules();
+        setMessage('ok', '账号项目已更新。');
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function updateEmail(event) {
+      event.preventDefault();
+      const email = emailInput.value.trim();
+      if (!email) {
+        setMessage('error', '请输入新邮箱。');
+        return;
+      }
+      const data = await accountFetch('/account/email', {
+        method: 'PATCH',
+        body: JSON.stringify({ email }),
+      });
+      if (data) {
+        displayUser(data.user || {});
+        setMessage('ok', '邮箱变更请求已提交，请完成验证。');
+      }
+    }
+
+    async function updatePhone(event) {
+      event.preventDefault();
+      const phone = phoneInput.value.trim();
+      if (!phone) {
+        setMessage('error', '请输入新手机号。');
+        return;
+      }
+      const data = await accountFetch('/account/phone', {
+        method: 'PATCH',
+        body: JSON.stringify({ phone }),
+      });
+      if (data) {
+        displayUser(data.user || {});
+        setMessage('ok', '手机号变更请求已提交，请完成验证。');
+      }
+    }
+
+    async function deleteAccount(event) {
+      event.preventDefault();
+      if (deleteConfirmationInput.value.trim() !== 'DELETE') {
+        setMessage('error', '请输入 DELETE 确认注销账号。');
+        return;
+      }
+      const data = await accountFetch('/account', {
+        method: 'DELETE',
+        body: JSON.stringify({ confirmation: 'DELETE' }),
+      });
+      if (data) {
+        forgetAccessToken();
+        tokenInput.value = '';
+        profileDetails.classList.remove('active');
+        profileForm.classList.remove('active');
+        moduleGrid.classList.remove('active');
+        setMessage('ok', '账号已注销。');
+      }
+    }
+
+    fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: 'include' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((experience) => {
+        const branding = experience && experience.branding ? experience.branding : null;
+        applyBranding(branding);
+        if (branding && branding.page_title) title.textContent = `${branding.page_title} 账户中心`;
+      })
+      .catch(() => {});
+
+    loadAccountButton.addEventListener('click', loadAccount);
+    clearTokenButton.addEventListener('click', () => {
+      tokenInput.value = '';
+      forgetAccessToken();
+      profileDetails.classList.remove('active');
+      profileForm.classList.remove('active');
+      moduleGrid.classList.remove('active');
+      setMessage('ok', '本地令牌已清除。');
+    });
+    profileForm.addEventListener('submit', saveProfile);
+    moduleGrid.addEventListener('click', handleModuleAction);
+    emailForm.addEventListener('submit', updateEmail);
+    phoneForm.addEventListener('submit', updatePhone);
+    deleteAccountForm.addEventListener('submit', deleteAccount);
+
+    (async () => {
+      await loadAccountConfig();
+      const initialToken = readHashAccessToken() || storedAccessToken();
+      if (initialToken && accountConfig.enabled) {
+        tokenInput.value = initialToken;
+        loadAccount();
+      }
+    })();
+  </script>
+</body>
+</html>

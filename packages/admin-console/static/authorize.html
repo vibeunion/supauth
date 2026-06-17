@@ -283,6 +283,7 @@
           invalidLoginCredentials: 'Account or password does not match. Please check and try again.',
           authorizationFailed: 'Authorization approval failed',
           authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.',
+          authorizationUnavailable: 'This sign-in request cannot be verified right now. Please return to the application and start sign-in again.',
           signIn: 'Sign In',
           signUp: 'Sign Up',
           forgotPassword: 'Forgot Password',
@@ -318,6 +319,7 @@
           invalidLoginCredentials: '账号或密码不匹配，请检查后重试。',
           authorizationFailed: '授权确认失败',
           authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。',
+          authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。',
           signIn: '登录',
           signUp: '注册',
           forgotPassword: '忘记密码',
@@ -490,6 +492,18 @@
         return `${next.pathname}${next.search}`;
       }
 
+      function safeRedirectUrl(value, allowExternal = false) {
+        if (!value) return '';
+        try {
+          const url = new URL(value, window.location.origin);
+          if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+          if (!allowExternal && url.origin !== window.location.origin) return '';
+          return allowExternal ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
+        } catch {
+          return '';
+        }
+      }
+
       async function approveAuthorization(accessToken) {
         if (!authorizationId) return null;
         if (!authorizationAvailable) throw new Error(t('authorizationExpired'));
@@ -507,6 +521,15 @@
       function disableExpiredAuthorization() {
         authorizationAvailable = false;
         setMessage('error', t('authorizationExpired'));
+        ['email', 'password', 'submit'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.disabled = true;
+        });
+      }
+
+      function disableUnavailableAuthorization() {
+        authorizationAvailable = false;
+        setMessage('error', t('authorizationUnavailable'));
         ['email', 'password', 'submit'].forEach((id) => {
           const el = document.getElementById(id);
           if (el) el.disabled = true;
@@ -576,12 +599,20 @@
 
       // ─── Load experience (branding + connectors + features) ───────────
       async function loadExperience() {
-        if (!authorizationId) return;
-        const url = `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`;
+        const url = authorizationId
+          ? `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`
+          : `${publicApiBase()}/sign-in-experience/resolve`;
         try {
           const res = await fetch(url, { credentials: 'include' });
-          if (!res.ok) return;
+          if (!res.ok) {
+            if (authorizationId) disableUnavailableAuthorization();
+            return;
+          }
           const experience = await res.json();
+          if (experience.authorization_error) {
+            if (authorizationId) disableUnavailableAuthorization();
+            return;
+          }
           if (authorizationId) {
             authorizationAvailable = !!experience.authorization;
             if (!authorizationAvailable) {
@@ -640,7 +671,7 @@
           document.getElementById('forgot-password-link').style.display = '';
           document.getElementById('tab-forgot').style.display = '';
         } catch {
-          // Branding is non-critical; login should continue with the default page.
+          if (authorizationId) disableUnavailableAuthorization();
         }
       }
 
@@ -695,15 +726,21 @@
             return;
           }
           const approvedRedirectUrl = await approveAuthorization(data.access_token);
-          const redirectUrl = approvedRedirectUrl || authorizationRedirectUrl;
+          const redirectUrl = approvedRedirectUrl
+            ? safeRedirectUrl(approvedRedirectUrl, true)
+            : safeRedirectUrl(authorizationRedirectUrl);
           if (redirectUrl) {
             setMessage('ok', t('redirecting'));
             window.location.href = redirectUrl;
           } else {
-            setMessage('ok', t('loginSuccess'));
+            try {
+              sessionStorage.setItem('supaoauth.account.access_token', data.access_token);
+            } catch {}
+            setMessage('ok', t('redirecting'));
+            window.location.href = `/account#access_token=${encodeURIComponent(data.access_token)}`;
           }
-        } catch {
-          setMessage('error', t('networkError'));
+        } catch (error) {
+          setMessage('error', error && error.message ? error.message : t('networkError'));
         } finally {
           button.disabled = false;
           button.textContent = originalText;

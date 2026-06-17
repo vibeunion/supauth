@@ -86,4 +86,14 @@ describe('Sign-in experience repository — module structure', () => {
 
     expect(connectors).toEqual([{ id: 'github', name: 'GitHub Login', type: 'social' }]);
   });
+
+  it('builds GoTrue API URLs with the /auth/v1 prefix exactly once', async () => {
+    const { buildGoTrueApiUrl } = await import('../routes/sign-in-experience.js');
+
+    expect(buildGoTrueApiUrl('https://auth.example.test', '/user')).toBe('https://auth.example.test/auth/v1/user');
+    expect(buildGoTrueApiUrl('https://auth.example.test/auth/v1', '/user')).toBe('https://auth.example.test/auth/v1/user');
+    expect(buildGoTrueApiUrl('https://auth.example.test/base/', 'oauth/authorizations/authz/consent')).toBe(
+      'https://auth.example.test/base/auth/v1/oauth/authorizations/authz/consent',
+    );
+  });
 });

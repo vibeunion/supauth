@@ -4,7 +4,7 @@ import {
   createSupacloudAppManifest,
   SUPAOAUTH_TABLE_OWNERSHIP,
 } from '../scripts/supacloud-app-contract.js';
-import { MIGRATION_SQL } from '../packages/auth-server/src/db/migrate.js';
+import { MIGRATION_SQL, PROJECT_ROLE_GRANTS_SQL } from '../packages/auth-server/src/db/migrate.js';
 
 describe('SupAuth SupaCloud app contract', () => {
   it('declares SupaCloud Functions as the only HTTP runtime', () => {
@@ -88,6 +88,12 @@ describe('SupAuth SupaCloud app contract', () => {
     expect(MIGRATION_SQL).toContain("auth.jwt() -> 'app_metadata' -> 'supaoauth'");
     expect(MIGRATION_SQL).not.toContain('JOIN supaoauth.permissions');
     expect(MIGRATION_SQL).not.toContain('FROM supaoauth.role_assignments');
+  });
+
+  it('grants the Function role only the GoTrue OAuth authorization access required by hosted login', () => {
+    expect(PROJECT_ROLE_GRANTS_SQL).toContain('GRANT USAGE ON SCHEMA auth');
+    expect(PROJECT_ROLE_GRANTS_SQL).toContain('GRANT SELECT, UPDATE ON TABLE auth.oauth_authorizations');
+    expect(PROJECT_ROLE_GRANTS_SQL).not.toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA auth');
   });
 
   it('legacy management repositories are SupaCloud facades, not local source-of-truth writes', () => {

@@ -9,7 +9,7 @@
 export {};
 
 const runtimeUrl = (process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999').replace(/\/+$/, '');
-const supauthUrl = (process.env.SUPAUTH_INSTALLED_BASE_URL || process.env.MANAGEMENT_URL || 'http://localhost:4010').replace(/\/+$/, '');
+const supauthUrl = (process.env.SUPAUTH_PUBLIC_URL || process.env.AUTH_PUBLIC_URL || process.env.SUPAUTH_INSTALLED_BASE_URL || process.env.MANAGEMENT_URL || 'http://localhost:4010').replace(/\/+$/, '');
 const concurrency = parseInt(process.env.CAPACITY_CONCURRENCY || '10', 10);
 const iterations = parseInt(process.env.CAPACITY_ITERATIONS || '50', 10);
 const supauthHealthPath = supauthUrl.endsWith('/api') ? '/v1/health' : '/api/v1/health';

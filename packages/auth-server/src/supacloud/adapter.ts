@@ -304,6 +304,12 @@ export class SupaCloudAdapter {
     });
   }
 
+  async unsuspendUser(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/unsuspend`, {
+      method: 'POST',
+    });
+  }
+
   async revokeUserSession(userId: string, sessionId: string) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/sessions/${sessionId}/revoke`, {
       method: 'POST',

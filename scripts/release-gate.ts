@@ -68,10 +68,10 @@ const supacloudAppManifestHash = output(['shasum', '-a', '256', `${artifactDir}/
 let supacloudInstalledAppVerification: string | undefined;
 
 if (runLive) {
-  const installedBaseUrl = process.env.SUPAUTH_INSTALLED_BASE_URL?.replace(/\/+$/, '');
+  const installedBaseUrl = (process.env.SUPAUTH_PUBLIC_URL || process.env.AUTH_PUBLIC_URL || process.env.SUPAUTH_INSTALLED_BASE_URL)?.replace(/\/+$/, '');
   const installedRuntimeUrl = process.env.SUPAUTH_INSTALLED_RUNTIME_URL?.replace(/\/+$/, '');
   if (!installedBaseUrl || !installedRuntimeUrl) {
-    console.error('RUN_LIVE_RELEASE_GATE=1 requires SUPAUTH_INSTALLED_BASE_URL and SUPAUTH_INSTALLED_RUNTIME_URL');
+    console.error('RUN_LIVE_RELEASE_GATE=1 requires SUPAUTH_PUBLIC_URL or SUPAUTH_INSTALLED_BASE_URL, plus SUPAUTH_INSTALLED_RUNTIME_URL');
     process.exit(1);
   }
 

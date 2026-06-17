@@ -17,6 +17,12 @@ description: 自动化烟雾测试 — 在沙盒里运行 no-op 任务闭环
 agent-team automation smoke
 ```
 
+发布前运行完整门禁：
+
+```bash
+agent-team automation release-check
+```
+
 可选保留沙盒用于排查：
 
 ```bash
@@ -26,6 +32,8 @@ agent-team automation smoke ./tmp-agent-team-smoke --keep
 ## 2. Checks
 
 - deploy 是否能在空项目生成完整 `.agents/`、`tasks.md`、`progress.md`、`.mailbox/`
+- deploy 后必需文件 manifest 是否完整，包括自动化模板和关键 workflow（如 `/design-review`、`/task-automation`、`/pr-review-merge`）
+- Codex skill 同步是否覆盖 `references/skills/*/SKILL.md`
 - Task Ledger 是否能解析 `ready` 任务
 - mailbox 是否没有 pending 冲突消息
 - 执行器是否能把任务推进到 `running`
@@ -35,6 +43,7 @@ agent-team automation smoke ./tmp-agent-team-smoke --keep
 - 是否能把任务推进到 `done`
 - ready / running / review 队列是否清空
 - 临时沙盒是否按预期清理
+- release-check 额外验证 `setup.ts` 可打包且 `git diff --check` 通过
 
 ## 3. Failure Handling
 

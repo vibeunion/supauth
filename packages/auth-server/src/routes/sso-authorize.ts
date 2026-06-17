@@ -78,13 +78,35 @@ export function buildGoTrueOAuthAuthorizeUrl(runtimeUrl: string, query: Authoriz
   return url;
 }
 
+export function publicOriginFromRequest(request: Request, trustProxyHeaders = false) {
+  const forwardedHost = trustProxyHeaders
+    ? request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+    : '';
+  const forwardedProto = trustProxyHeaders
+    ? request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    : '';
+  const parsed = new URL(request.url);
+  const host = forwardedHost || request.headers.get('host') || parsed.host;
+  const protocol = forwardedProto || parsed.protocol.replace(/:$/, '');
+  return `${protocol}://${host}`;
+}
+
+function normalizePublicBaseUrl(value?: string) {
+  if (!value) return '';
+  const url = new URL(value);
+  url.pathname = url.pathname.replace(/\/+$/, '');
+  url.search = '';
+  url.hash = '';
+  return url.toString().replace(/\/$/, '');
+}
+
 export function createSsoAuthorizeRoutes(
   prefix: string,
   adapter: Pick<SupaCloudAdapter, 'getOAuthClient'> = getSupaCloudAdapter(),
-  config: Pick<ServerConfig, 'oauthRuntimeUrl'> = getConfig(),
+  config: Pick<ServerConfig, 'publicBaseUrl' | 'trustProxyHeaders'> = getConfig(),
 ) {
   return new Elysia({ prefix })
-    .get('/authorize', async ({ query, set }) => {
+    .get('/authorize', async ({ query, request, set }) => {
       const clientId = stringParam(query as AuthorizeQuery, 'client_id');
       const redirectUri = stringParam(query as AuthorizeQuery, 'redirect_uri');
       const responseType = stringParam(query as AuthorizeQuery, 'response_type') || 'code';
@@ -128,7 +150,8 @@ export function createSsoAuthorizeRoutes(
         return { redirect: location };
       }
 
-      const goTrueUrl = buildGoTrueOAuthAuthorizeUrl(config.oauthRuntimeUrl, query as AuthorizeQuery);
+      const publicBaseUrl = normalizePublicBaseUrl(config.publicBaseUrl) || publicOriginFromRequest(request, config.trustProxyHeaders);
+      const goTrueUrl = buildGoTrueOAuthAuthorizeUrl(publicBaseUrl, query as AuthorizeQuery);
       set.status = 302;
       set.headers.location = goTrueUrl.toString();
       return { redirect: goTrueUrl.toString() };

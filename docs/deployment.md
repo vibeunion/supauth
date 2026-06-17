@@ -60,7 +60,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 1. 构建 SupaCloud app artifact：`bun run build`
 2. SupaCloud 读取 `artifacts/supacloud-app/supacloud-app-manifest.json`
-3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL`、`SUPACLOUD_DATABASE_URL`
+3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL`、`SUPAUTH_PUBLIC_URL`、`SUPACLOUD_DATABASE_URL`
 4. 对 `SUPACLOUD_DATABASE_URL` 执行 migration：`bun run --filter '@supauth/auth-server' migrate`
 5. 将 `packages/auth-server/dist/supacloud-function/supacloud-function.js` 发布到 SupaCloud Functions
 6. 将 `packages/admin-console/build` 发布到 SupaCloud Pages/static hosting
@@ -68,7 +68,9 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 8. 按 manifest 的 `supacloud_owned_management_domains` 确认 Applications、Users、Organizations、RBAC、Audit、Webhooks 等管理面由 SupaCloud Management API 提供，SupAuth Function 只做 BFF/facade 和 overlay。
 9. 按 manifest 的 `supacloud_managed_background_jobs` 确认 webhook 投递、重试、诊断和失败禁用由 SupaCloud 托管任务执行；SupAuth 不部署 webhook worker、cron 或 systemd/pm2 进程。
 10. 安装完成后运行 live verifier：
-    `SUPAUTH_INSTALLED_BASE_URL=https://auth.example.com SUPAUTH_INSTALLED_RUNTIME_URL=https://project.example.com bun run scripts/verify-supacloud-installed-app.ts --artifact-dir artifacts/supacloud-app`
+    `SUPAUTH_PUBLIC_URL=https://auth.example.com SUPAUTH_INSTALLED_RUNTIME_URL=https://project.example.com bun run scripts/verify-supacloud-installed-app.ts --artifact-dir artifacts/supacloud-app`
+
+`SUPAUTH_PUBLIC_URL` 是浏览器可见的 SupAuth/Auth 自定义域名，OAuth/SSO 跳转会优先使用它；`SUPACLOUD_RUNTIME_URL` 只用于 GoTrue/Supabase runtime 内部或保留路径探测。仅在反向代理会清洗并独占 `X-Forwarded-*` 请求头时，才设置 `TRUST_PROXY_HEADERS=1`。
 
 `bun run build` 是唯一构建入口。项目尚未发版，因此不保留额外兼容构建别名。
 

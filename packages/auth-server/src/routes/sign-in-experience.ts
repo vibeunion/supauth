@@ -27,6 +27,61 @@ function runtimeInternalUrl(path: string) {
   return `${base}${normalizedPath}`;
 }
 
+export function buildGoTrueApiUrl(baseUrl: string, path: string) {
+  const base = new URL(baseUrl);
+  base.pathname = base.pathname.replace(/\/+$/, '');
+  if (!base.pathname.endsWith('/auth/v1')) {
+    base.pathname = `${base.pathname}/auth/v1`.replace(/\/+/g, '/');
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  base.pathname = `${base.pathname}${normalizedPath}`.replace(/\/+/g, '/');
+  base.search = '';
+  base.hash = '';
+  return base.toString();
+}
+
+function goTrueApiBaseCandidates() {
+  const values = [config.publicBaseUrl, config.oauthRuntimeInternalUrl, config.oauthRuntimeUrl].filter(Boolean);
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const normalized = value.replace(/\/+$/, '');
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text().catch(() => '');
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchGoTrueJson(path: string, init: RequestInit = {}) {
+  let lastError: unknown = null;
+  for (const base of goTrueApiBaseCandidates()) {
+    try {
+      const response = await fetch(buildGoTrueApiUrl(base, path), {
+        ...init,
+        signal: init.signal || AbortSignal.timeout(5000),
+      });
+      const payload = await readJsonResponse(response);
+      if (response.ok && !payload) {
+        lastError = new Error(`GoTrue ${path} returned an empty success response`);
+        continue;
+      }
+      return { response, payload };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`GoTrue ${path} request failed`);
+}
+
 async function getSupaCloudSignInSource(applicationId?: string) {
   const [projectResult, applicationResult] = await Promise.allSettled([
     adapter.getProject(),
@@ -297,9 +352,15 @@ export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sig
     const q = query as Record<string, unknown>;
     let applicationId = typeof q.application_id === 'string' ? q.application_id : undefined;
     let authorization: Awaited<ReturnType<typeof sieRepo.getOAuthAuthorizationContext>> | null = null;
+    let authorizationError: string | null = null;
     if (!applicationId && typeof q.authorization_id === 'string') {
-      authorization = await sieRepo.getOAuthAuthorizationContext(q.authorization_id);
-      applicationId = authorization?.client_id || undefined;
+      try {
+        authorization = await sieRepo.getOAuthAuthorizationContext(q.authorization_id);
+        applicationId = authorization?.client_id || undefined;
+      } catch (error) {
+        authorizationError = 'authorization_lookup_failed';
+        console.warn(`Failed to resolve OAuth authorization context: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     const [experience, connectors] = await Promise.all([
       sieRepo.resolveSignInExperience(applicationId, await getSupaCloudSignInSource(applicationId)),
@@ -310,6 +371,7 @@ export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sig
       connectors,
       sign_up_enabled: experience?.sign_up_enabled ?? true,
     };
+    if (authorizationError) return { ...result, authorization_error: authorizationError };
     return authorization ? { ...result, authorization } : result;
   }, {
     detail: { summary: 'Resolve public effective sign-in experience for hosted login pages', tags: ['Sign-in Experience', 'Public'] },
@@ -384,15 +446,25 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
     }
 
     const accessToken = match[1];
-    const userRes = await fetch(runtimeInternalUrl('/user'), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    let userResult: Awaited<ReturnType<typeof fetchGoTrueJson>>;
+    try {
+      userResult = await fetchGoTrueJson('/user', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      set.status = 502;
+      return {
+        error: 'gotrue_user_lookup_failed',
+        error_description: error instanceof Error ? error.message : 'GoTrue user lookup failed',
+      };
+    }
+    const userRes = userResult.response;
     if (!userRes.ok) {
       set.status = 401;
       return { error: 'invalid_bearer_token' };
     }
-    const user = await userRes.json() as { id?: string };
-    if (!user.id) {
+    const user = userResult.payload as { id?: string } | null;
+    if (!user?.id) {
       set.status = 401;
       return { error: 'invalid_user' };
     }
@@ -403,15 +475,25 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
       return { error: 'authorization_not_found' };
     }
 
-    const consentRes = await fetch(runtimeInternalUrl(`/oauth/authorizations/${params.authorizationId}/consent`), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ action: 'approve' }),
-    });
-    const payload = await consentRes.json().catch(() => ({}));
+    let consentResult: Awaited<ReturnType<typeof fetchGoTrueJson>>;
+    try {
+      consentResult = await fetchGoTrueJson(`/oauth/authorizations/${params.authorizationId}/consent`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'approve' }),
+      });
+    } catch (error) {
+      set.status = 502;
+      return {
+        error: 'gotrue_consent_failed',
+        error_description: error instanceof Error ? error.message : 'GoTrue consent approval failed',
+      };
+    }
+    const consentRes = consentResult.response;
+    const payload = consentResult.payload || {};
     if (!consentRes.ok) {
       set.status = consentRes.status;
       return payload;

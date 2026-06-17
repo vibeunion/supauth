@@ -3,7 +3,7 @@
 // tenant-owned anchor used for imports, sync, and self-service account claims.
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { accountProvisioningRecords } from '../db/schema.js';
 import { logAudit } from './audit.js';
@@ -44,13 +44,28 @@ export function normalizeDisplayName(value: string): string {
 }
 
 export function normalizeExternalId(value: string): string {
-  return value.normalize('NFKC').trim();
+  const normalized = value.normalize('NFKC').trim();
+  if (/^\d+$/.test(normalized)) {
+    return normalized.replace(/^0+(?=\d)/, '');
+  }
+  return normalized;
+}
+
+export function externalIdLookupCandidates(value: string): string[] {
+  const normalized = value.normalize('NFKC').trim();
+  const canonical = normalizeExternalId(normalized);
+  const candidates = new Set([canonical, normalized]);
+  if (/^\d+$/.test(canonical) && canonical.length < 4) {
+    candidates.add(canonical.padStart(4, '0'));
+  }
+  return [...candidates].filter(Boolean);
 }
 
 function claimSecret(): string {
   const secret = process.env.ACCOUNT_CLAIM_SECRET
     || process.env.ADMIN_TOKEN
     || process.env.SUPACLOUD_MASTER_TOKEN
+    || process.env.SUPACLOUD_INTERNAL_TOKEN
     || '';
   if (secret.length < 16) {
     throw new Error('ACCOUNT_CLAIM_SECRET, ADMIN_TOKEN, or SUPACLOUD_MASTER_TOKEN is required for account claim password encryption');
@@ -149,7 +164,7 @@ export async function findAccountProvisioningRecord(input: {
   const db = getDb();
   const rows = await db.select().from(accountProvisioningRecords)
     .where(and(
-      eq(accountProvisioningRecords.externalId, normalizeExternalId(input.externalId)),
+      inArray(accountProvisioningRecords.externalId, externalIdLookupCandidates(input.externalId)),
       eq(accountProvisioningRecords.externalType, input.externalType || 'generic'),
       eq(accountProvisioningRecords.normalizedDisplayName, normalizeDisplayName(input.displayName)),
     ))
@@ -209,4 +224,69 @@ export async function listAccountProvisioningRecords(limit = 100, offset = 0) {
     createdAt: accountProvisioningRecords.createdAt,
     updatedAt: accountProvisioningRecords.updatedAt,
   }).from(accountProvisioningRecords).limit(limit).offset(offset);
+}
+
+// ─── Employee status sync queries ───────────────────────────────────────
+
+/** Find a provisioning record by external_id alone (no display_name needed). */
+export async function findRecordByExternalId(externalId: string, externalType = 'employee') {
+  const db = getDb();
+  const rows = await db.select().from(accountProvisioningRecords)
+    .where(and(
+      eq(accountProvisioningRecords.externalId, normalizeExternalId(externalId)),
+      eq(accountProvisioningRecords.externalType, externalType),
+    ))
+    .limit(1);
+  return rows[0] || null;
+}
+
+/** Update just the source_status of a provisioning record. */
+export async function updateRecordSourceStatus(id: string, sourceStatus: string) {
+  const db = getDb();
+  const [updated] = await db.update(accountProvisioningRecords).set({
+    sourceStatus,
+    updatedAt: new Date(),
+  }).where(eq(accountProvisioningRecords.id, id)).returning();
+  return updated;
+}
+
+/** List records whose source_status differs from the provided map, or whose
+ *  display_name / email has changed. Returns all records if no since date. */
+export async function listRecordsForSync(options?: {
+  externalType?: string;
+  since?: Date;
+  limit?: number;
+  offset?: number;
+}) {
+  const db = getDb();
+  const type = options?.externalType || 'employee';
+  let query = db.select().from(accountProvisioningRecords)
+    .where(eq(accountProvisioningRecords.externalType, type));
+
+  // If since date provided, only return records updated after that date
+  if (options?.since) {
+    query = db.select().from(accountProvisioningRecords)
+      .where(and(
+        eq(accountProvisioningRecords.externalType, type),
+        sql`${accountProvisioningRecords.updatedAt} > ${options.since}`,
+      ));
+  }
+
+  return query
+    .limit(Math.min(options?.limit || 500, 1000))
+    .offset(options?.offset || 0);
+}
+
+/** Count provisioning records by source_status. */
+export async function countBySourceStatus(externalType = 'employee') {
+  const db = getDb();
+  const rows = await db.select({
+    sourceStatus: accountProvisioningRecords.sourceStatus,
+    count: sql<number>`count(*)::int`,
+  }).from(accountProvisioningRecords)
+    .where(eq(accountProvisioningRecords.externalType, externalType))
+    .groupBy(accountProvisioningRecords.sourceStatus);
+  const result: Record<string, number> = {};
+  for (const row of rows) result[row.sourceStatus] = row.count;
+  return result;
 }

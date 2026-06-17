@@ -60,6 +60,14 @@ function cell(row: Record<string, unknown>, key: string): string {
   return value === undefined || value === null ? '' : String(value).trim();
 }
 
+function normalizeExternalIdForManifest(value: string): string {
+  const normalized = value.normalize('NFKC').trim();
+  if (/^\d+$/.test(normalized) && normalized.length < 4) {
+    return normalized.padStart(4, '0');
+  }
+  return normalized;
+}
+
 function slugName(name: string): string {
   const raw = pinyin(name, { toneType: 'none', type: 'array', v: true }) as string[];
   const slug = raw.join('').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -108,7 +116,7 @@ async function main() {
   const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
   const normalized: NormalizedRow[] = rows.map((row: Record<string, unknown>) => ({
-    externalId: cell(row, '数字ID') || cell(row, 'external_id') || cell(row, 'External ID'),
+    externalId: normalizeExternalIdForManifest(cell(row, '数字ID') || cell(row, 'external_id') || cell(row, 'External ID')),
     displayName: cell(row, '姓名') || cell(row, 'display_name') || cell(row, 'Display Name'),
     sourceStatus: cell(row, '状态') || cell(row, 'source_status') || 'active',
     department: cell(row, '部门'),

@@ -20,6 +20,8 @@ function createFixture() {
   writeFileSync(join(root, adminDir, 'index.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'authorize.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'claim.html'), '<!doctype html>');
+  writeFileSync(join(root, adminDir, 'change-password.html'), '<!doctype html>');
+  writeFileSync(join(root, adminDir, 'account.html'), '<!doctype html>');
   writeFileSync(join(root, openapiPath), JSON.stringify({ openapi: '3.0.3', paths: {} }));
 
   const manifest = createSupacloudAppManifest({
@@ -37,6 +39,9 @@ function mockFetch(overrides: Record<string, number> = {}) {
     '/api/v1/health': 200,
     '/v1/public/sign-in-experience/resolve': 200,
     '/login.html': 200,
+    '/account': 200,
+    '/account.html': 200,
+    '/account/password': 200,
     '/claim': 200,
     '/claim.html': 200,
     '/favicon.ico': 200,
@@ -51,6 +56,12 @@ function mockFetch(overrides: Record<string, number> = {}) {
 
   return async (input: string | URL) => {
     const url = new URL(String(input));
+    if (url.pathname === '/oauth/sso/authorize' && url.searchParams.has('client_id')) {
+      const location = overrides['/oauth/sso/authorize'] === 302
+        ? 'https://auth.example.test/auth/v1/oauth/authorize?client_id=app_123'
+        : 'https://project.example.test/auth/v1/oauth/authorize?client_id=app_123';
+      return new Response('redirect', { status: 302, headers: { location } });
+    }
     const status = defaultStatuses[url.pathname] ?? 404;
     return new Response(status === 200 ? 'ok' : 'probe', { status });
   };
@@ -84,7 +95,7 @@ describe('SupaCloud installed app verifier', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.errors).toContain('Missing deployed SupAuth base URL: set --base-url or SUPAUTH_INSTALLED_BASE_URL');
+    expect(result.errors).toContain('Missing deployed SupAuth base URL: set --base-url, SUPAUTH_PUBLIC_URL, or SUPAUTH_INSTALLED_BASE_URL');
     expect(result.errors).toContain('Missing SupaCloud runtime URL: set --runtime-url or SUPAUTH_INSTALLED_RUNTIME_URL');
   });
 
@@ -117,5 +128,37 @@ describe('SupaCloud installed app verifier', () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors[0]).toContain('Installed verifier manifest hash mismatch');
+  });
+
+  it('accepts a live SSO authorize probe when the redirect stays on the hosted auth domain', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      ssoAuthorizeProbeUrl: 'https://auth.example.test/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback',
+      fetchImpl: mockFetch({ '/oauth/sso/authorize': 302 }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.probes.find((probe) => probe.name === 'sso_authorize_redirect_origin')?.ok).toBe(true);
+  });
+
+  it('rejects a live SSO authorize probe when the redirect leaks the project runtime domain', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      ssoAuthorizeProbeUrl: 'https://auth.example.test/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback',
+      fetchImpl: mockFetch(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.includes('expected 3xx Location to start with https://auth.example.test/auth/v1/oauth/authorize?'))).toBe(true);
   });
 });

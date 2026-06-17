@@ -22,6 +22,7 @@ export const SUPACLOUD_OWNED_MANAGEMENT_DOMAINS = [
 
 export const SUPAUTH_OVERLAY_DOMAINS = [
   'hosted_auth_pages',
+  'account_center_pages',
   'account_claim_pages',
   'sign_in_experience_overrides',
   'connector_visibility_overrides',
@@ -142,6 +143,11 @@ export function createSupacloudAppManifest(input: {
           { path: '/v1/public/*' },
           { path: '/oauth/*' },
           { path: '/login.html' },
+          { path: '/account' },
+          { path: '/account.html' },
+          { path: '/account/*' },
+          { path: '/change-password' },
+          { path: '/change-password.html' },
           { path: '/claim' },
           { path: '/claim.html' },
           { path: '/favicon.ico' },
