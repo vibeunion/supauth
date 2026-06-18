@@ -12,22 +12,22 @@ Create a local review run:
 
 ```bash
 cd "<path-to-sibling-goal-forge>"
-npx tsx src/index.ts init --goal "<design goal>" --config "/Users/zhd/workspace/supaoauth/.agents/goal-forge/goal-forge.config.json" --out "/Users/zhd/workspace/supaoauth/.agents/goal-forge/runs/<run-id>"
+npx tsx src/index.ts init --goal "<design goal>" --config "/private/tmp/at-sync-supauth/.agents/goal-forge/goal-forge.config.json" --out "/private/tmp/at-sync-supauth/.agents/goal-forge/runs/<run-id>"
 ```
 
 Run a deterministic local round:
 
 ```bash
 cd "<path-to-sibling-goal-forge>"
-npx tsx src/index.ts run "/Users/zhd/workspace/supaoauth/.agents/goal-forge/runs/<run-id>" --rounds 1 --adapter local
-npx tsx src/index.ts validate "/Users/zhd/workspace/supaoauth/.agents/goal-forge/runs/<run-id>" --strict
+npx tsx src/index.ts run "/private/tmp/at-sync-supauth/.agents/goal-forge/runs/<run-id>" --rounds 1 --adapter local
+npx tsx src/index.ts validate "/private/tmp/at-sync-supauth/.agents/goal-forge/runs/<run-id>" --strict
 ```
 
 Run repository-aware verification through the Codex adapter:
 
 ```bash
 cd "<path-to-sibling-goal-forge>"
-npx tsx src/index.ts run "/Users/zhd/workspace/supaoauth/.agents/goal-forge/runs/<run-id>" --rounds 1 --adapter codex --repo "/Users/zhd/workspace/supaoauth" --model gpt-5.3-codex
+npx tsx src/index.ts run "/private/tmp/at-sync-supauth/.agents/goal-forge/runs/<run-id>" --rounds 1 --adapter codex --repo "/private/tmp/at-sync-supauth" --model gpt-5.3-codex
 ```
 
 Shortcuts from this project:
