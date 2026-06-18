@@ -9,6 +9,7 @@ description: 任务自动化 — 从任务契约领取、执行、提 PR/MR
 - 优先读取 `progress.md`、`.mailbox/`、`tasks.md` 和 Task Contract
 - 若任务来源不明确，先看 Task Contract，再回查 provider 原始任务
 - 识别任务相关 skill、项目代码规范、测试约定和提交规范
+- 先看 skill 元数据和索引，命中后再渐进加载完整 `SKILL.md` 与必要引用；若用户或契约显式指定 `/skill-name`，只对本轮激活该 skill
 - 若任务创建、扩展或依赖技术栈、Fullstack Web、数据库或部署目标选择，先补齐 Stack/Fullstack/Database/Deployment Profile、decision source、evidence、required skills 和 verification plan
 - 若任务涉及高风险变更、生产环境、权限、密钥，先停下来澄清
 
@@ -102,11 +103,19 @@ agent-team subagent status
 - `exact scope`：要回答的问题或负责的实现切片
 - `read/write ownership`：只读，或允许修改的文件/目录
 - `allowed files/directories`：明确边界，避免并行写冲突
+- `context isolation`：默认 isolated；显式列出 shared context、handoff artifacts 和合并策略
 - `verification command`：需要运行或复核的命令
 - `output schema`：至少包含 `verdict`、`evidence`、`blocking_findings`、`non_blocking_risks`、`recommended_next_action`
 - `mailbox persistence`：是否必须写 `.mailbox/`，以及 request/response 文件名
 
 不要为常规实现默认升级到 `gpt-5.5`，也不要创建多个 always-on executor 竞争同一个队列。并行写入只有在文件所有权明确互斥时才允许。
+
+### 中断恢复
+
+- 子代理超时、中断、输出结构不完整或 mailbox 缺失时，先更新 Task Contract 的 `interruption_recovery` 字段
+- 记录 `resume_state`、`last_stable_artifact`、`dangling_subagents`、`recovery_owner` 和 `recovery_action`
+- 只有最后稳定证据足以支撑验收时才能继续；否则重派子代理、请求用户输入或标记 blocked
+- 不要把半截输出、未写入 mailbox 的结论或未验证的推测当作完成证据
 
 ## 3. 循环执行器（Codex 优先）
 - 模型优先：`gpt-5.3-codex`
@@ -116,7 +125,7 @@ agent-team subagent status
 - 先创建独立分支或 worktree，再修改代码
 - 实施顺序：
   1. 读取 Task Contract，确认目标和非目标
-  2. 加载相关 skill 和项目代码规范
+  2. 按 `skill_loading` 渐进加载相关 skill 和项目代码规范
   3. 领取任务并写入 owner / branch / provider 状态
   4. 执行 Delegation Gate；符合完整流水线条件时派发 explorer / executor / verifier，低风险单文件任务至少派发 verifier
   5. 最小实现
@@ -137,5 +146,7 @@ agent-team subagent status
 ## 5. 记录要求
 - 每次领取、暂停、完成都要更新 `progress.md`
 - 需要协作时通过 `.mailbox/` 留消息
+- 中/高风险、长程、多子代理或可恢复任务建议写入 `.agents/state/runs/<run_id>.json`，按 `.agents/state/run-records.schema.json` 保存证据引用、命令和 redaction 状态
+- 任务完成后只把稳定事实、决策、已知坑、否决方案或回滚约束写入 `.agents/state/project-memory.json`，并先去重；不要把 `tasks.md`、`progress.md` 或 `.mailbox/` 整文件灌入 memory
 - 非显而易见的决策写进 commit body 的 `Rejected:` / `Constraint:` / `Directive:`
 - 任务平台变更时只更新 provider adapter，不改 Task Contract 语义

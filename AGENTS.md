@@ -31,7 +31,7 @@
 
 ## 角色路由
 
-当需要不同视角时，参考以下角色定义（位于 `.agents/prompts/`）：
+当需要不同视角时，参考由 `agent-team deploy` 生成的项目级角色定义（位于目标项目的 `.agents/prompts/`）：
 
 | 角色          | 用途         | 何时使用                             |
 | ------------- | ------------ | ------------------------------------ |
@@ -54,6 +54,7 @@
 | `/design-review` | 架构/API/数据模型/高风险方案质证     |
 | `/research`      | 并行多源研究                         |
 | `/handoff`       | Agent 交接文档                       |
+| `/token-report`  | Token 用量报告（仅使用 ccusage 聚合）|
 
 ## 协作规则
 
@@ -102,6 +103,10 @@
 
 低风险单文件且验收清楚的任务可由主进程直接实现，但完成前仍必须派发独立 Verifier。
 纯解释、只读、简单命令、格式化或纯文档任务可跳过全部子代理，但必须记录 `safe_skip_reason`。
+
+子代理上下文默认隔离：dispatch 时必须写明 role、exact scope、read/write ownership、allowed files/directories、context isolation、handoff artifacts、verification command、output schema 和 mailbox persistence；并行写入只有在文件所有权明确互斥时才允许。
+
+子代理中断、超时或输出不完整时，先在 Task Contract 记录 `interruption_recovery`（resume_state、last_stable_artifact、dangling_subagents、recovery_owner、recovery_action），再决定续跑、重派、请求用户输入或标记 blocked；不要把半截输出当作完成证据。
 
 ### 终端、系统与 Git 安全护栏 (Safety & Permissions guardrails)
 
@@ -166,7 +171,7 @@ Directive: <警告>             # 给未来修改者
 
 ## Skill 与代码规范
 
-- 如果任务涉及特定技术栈，先查 `.agents/prompts/`、`.agents/workflows/`、`references/skills/`、项目级 `AGENTS.md` 中的相关规范
+- 如果任务涉及特定技术栈，先查 deploy 生成的 `.agents/prompts/`、`.agents/workflows/`、`references/skills/`、项目级 `AGENTS.md` 中的相关规范
 - 不确定任务应加载哪些 skill 时，优先查全局 `references/skills/INDEX.md` 或已安装的 `~/.codex/skills/agent-team/INDEX.md`
 - 涉及默认技术栈、后端框架、前端框架、SvelteKit/Nuxt、数据库、桌面端、移动端、小程序、Mpx 或部署平台边界时，先加载 `stack-profile-selector`；涉及托管/部署时再加载 `deployment-target-selector`；涉及数据库/持久化时再加载 `database-profile-selector`，并按证据加载 `elysiajs` / `nestjs-backend` / `hono-backend` / `svelte-code-writer` / `svelte-core-bestpractices` / `vue-frontend` / `alpine-frontend` / `sveltekit-fullstack` / `nuxt-fullstack` / `sqlite-database` / `cloudflare-d1-database` / `postgres-database` / `electron-desktop` / `tauri-desktop` / `mobile-app` / `mpx-development-guides` / `supacloud-platform` / `svadmin-admin-ui` / `edgeone-deploy` / `cloudflare-edge-hosting` 等具体 skill
 - Codex 环境下优先使用已安装的 `~/.codex/skills/agent-team/` 技能，不要绕过本地 skill 自行发明规范
