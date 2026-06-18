@@ -245,14 +245,47 @@
       overflow-wrap: anywhere;
     }
 
-    .module-list button {
-      justify-self: start;
-      min-height: 28px;
-      padding: 0 10px;
-      color: var(--brand-dark);
-      background: #e2e8f0;
-      font-size: 12px;
-    }
+      .module-list button {
+        justify-self: start;
+        min-height: 28px;
+        padding: 0 10px;
+        color: var(--brand-dark);
+        background: #e2e8f0;
+        font-size: 12px;
+      }
+
+      .mfa-enroll {
+        display: none;
+        gap: 10px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+      }
+
+      .mfa-enroll.active { display: grid; }
+
+      .mfa-qr {
+        width: 176px;
+        max-width: 100%;
+        aspect-ratio: 1;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px;
+        background: #fff;
+      }
+
+      .mfa-uri {
+        max-height: 80px;
+        overflow: auto;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        color: var(--muted);
+        background: #f8fafc;
+        font-size: 11px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
 
     .danger-card {
       border-color: #fecaca;
@@ -416,12 +449,21 @@
             </form>
           </div>
         </section>
-        <section class="module-card" aria-label="MFA" data-module="mfa">
-          <h3>MFA</h3>
-          <ul id="mfa-list" class="module-list">
-            <li>加载账号后显示。</li>
-          </ul>
-        </section>
+          <section class="module-card" aria-label="MFA" data-module="mfa">
+            <h3>MFA</h3>
+            <ul id="mfa-list" class="module-list">
+              <li>加载账号后显示。</li>
+            </ul>
+            <button id="start-totp-enroll" class="secondary" type="button">绑定 Authenticator</button>
+            <div id="totp-enroll" class="mfa-enroll" aria-live="polite">
+              <img id="totp-qr" class="mfa-qr" alt="Authenticator QR code" hidden>
+              <div id="totp-uri" class="mfa-uri" hidden></div>
+              <form id="totp-verify-form" class="inline-form">
+                <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位动态码">
+                <button class="primary" type="submit">确认绑定</button>
+              </form>
+            </div>
+          </section>
         <section class="module-card" aria-label="Passkey" data-module="passkeys">
           <h3>Passkey</h3>
           <ul id="passkeys-list" class="module-list">
@@ -529,8 +571,14 @@
     const sessionsList = document.getElementById('sessions-list');
     const grantsList = document.getElementById('grants-list');
     const identitiesList = document.getElementById('identities-list');
-    const mfaList = document.getElementById('mfa-list');
-    const passkeysList = document.getElementById('passkeys-list');
+      const mfaList = document.getElementById('mfa-list');
+      const startTotpEnrollButton = document.getElementById('start-totp-enroll');
+      const totpEnroll = document.getElementById('totp-enroll');
+      const totpQr = document.getElementById('totp-qr');
+      const totpUri = document.getElementById('totp-uri');
+      const totpVerifyForm = document.getElementById('totp-verify-form');
+      const totpCodeInput = document.getElementById('totp-code');
+      const passkeysList = document.getElementById('passkeys-list');
     const emailForm = document.getElementById('email-form');
     const phoneForm = document.getElementById('phone-form');
     const emailInput = document.getElementById('email-input');
@@ -539,8 +587,9 @@
     const deleteConfirmationInput = document.getElementById('delete-confirmation');
     const deleteAccountLinkWrap = document.getElementById('delete-account-link-wrap');
     const deleteAccountLink = document.getElementById('delete-account-link');
-    const tokenStoreKey = 'supaoauth.account.access_token';
-    let accountConfig = {
+      const tokenStoreKey = 'supaoauth.account.access_token';
+      let pendingTotpFactorId = '';
+      let accountConfig = {
       enabled: true,
       profile: { edit_mode: 'read_only', fields: ['name', 'email', 'phone'] },
       security: {
@@ -719,44 +768,75 @@
       return item.name || item.display_name || item.email || item.provider || item.applicationId || item.application_id || item.id || fallback;
     }
 
-    function itemId(item) {
-      if (!item || typeof item !== 'object') return '';
-      return item.id || item.session_id || item.identity_id || item.consent_id || '';
-    }
+      function itemId(item) {
+        if (!item || typeof item !== 'object') return '';
+        return item.id || item.session_id || item.identity_id || item.consent_id || '';
+      }
 
-    function renderModuleList(list, items, emptyText, action) {
-      list.innerHTML = '';
-      if (!items || items.length === 0) {
-        const li = document.createElement('li');
-        li.textContent = emptyText;
-        list.appendChild(li);
-        return;
-      }
-      for (const item of items) {
-        const li = document.createElement('li');
-        const label = document.createElement('span');
-        const id = itemId(item);
-        label.textContent = itemLabel(item, id || '记录');
-        li.appendChild(label);
-        if (action && id) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.dataset.action = action;
-          button.dataset.id = id;
-          button.textContent = action === 'revoke-session'
-            ? '撤销会话'
-            : action === 'revoke-grant'
-              ? '撤销授权'
-              : action === 'unlink-identity'
-                ? '解绑身份'
-                : action === 'reset-mfa'
-                  ? '重置 MFA'
-                  : '移除 Passkey';
-          li.appendChild(button);
+      function renderModuleList(list, items, emptyText, action) {
+        list.innerHTML = '';
+        if (!items || items.length === 0) {
+          const li = document.createElement('li');
+          li.textContent = emptyText;
+          list.appendChild(li);
+          return;
         }
-        list.appendChild(li);
+        for (const item of items) {
+          const li = document.createElement('li');
+          const label = document.createElement('span');
+          const id = itemId(item);
+          label.textContent = itemLabel(item, id || '记录');
+          li.appendChild(label);
+          if (action && id) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.dataset.action = action;
+            button.dataset.id = id;
+            button.textContent = action === 'revoke-session'
+              ? '撤销会话'
+              : action === 'revoke-grant'
+                ? '撤销授权'
+                : action === 'unlink-identity'
+                  ? '解绑身份'
+                  : action === 'unenroll-mfa'
+                    ? '解绑 MFA'
+                    : '移除 Passkey';
+            li.appendChild(button);
+          }
+          list.appendChild(li);
+        }
       }
-    }
+
+      function resetTotpEnrollment() {
+        pendingTotpFactorId = '';
+        totpEnroll.classList.remove('active');
+        totpQr.hidden = true;
+        totpQr.removeAttribute('src');
+        totpUri.hidden = true;
+        totpUri.textContent = '';
+        totpCodeInput.value = '';
+      }
+
+      function showTotpEnrollment(enrollment) {
+        pendingTotpFactorId = enrollment.factor_id || enrollment.id || '';
+        const totp = enrollment.totp && typeof enrollment.totp === 'object' ? enrollment.totp : {};
+        const qrCode = typeof totp.qr_code === 'string' ? totp.qr_code : '';
+        const uri = typeof totp.uri === 'string' ? totp.uri : '';
+        if (qrCode && qrCode.startsWith('data:image/')) {
+          totpQr.src = qrCode;
+          totpQr.hidden = false;
+        } else {
+          totpQr.hidden = true;
+        }
+        if (uri) {
+          totpUri.textContent = uri;
+          totpUri.hidden = false;
+        } else {
+          totpUri.hidden = true;
+        }
+        totpEnroll.classList.add('active');
+        totpCodeInput.focus();
+      }
 
     async function accountFetch(path, options = {}) {
       const token = tokenInput.value.trim();
@@ -824,35 +904,78 @@
       }
     }
 
-    async function loadAccountModules() {
-      const requests = [];
-      const load = async (key, path) => {
-        const data = await accountFetch(path);
-        return [key, data];
-      };
-      if (moduleEnabled('sessions')) requests.push(load('sessions', '/account/sessions'));
-      if (moduleEnabled('grants')) requests.push(load('grants', '/account/grants'));
-      if (moduleEnabled('identities')) requests.push(load('identities', '/account/identities'));
-      if (accountConfig.security && accountConfig.security.mfa) requests.push(load('mfa', '/account/mfa'));
-      if (accountConfig.security && accountConfig.security.passkeys) requests.push(load('passkeys', '/account/passkeys'));
+      async function loadAccountModules() {
+        const requests = [];
+        const load = async (key, path) => {
+          const data = await accountFetch(path);
+          return [key, data];
+        };
+        if (moduleEnabled('sessions')) requests.push(load('sessions', '/account/sessions'));
+        if (moduleEnabled('grants')) requests.push(load('grants', '/account/grants'));
+        if (moduleEnabled('identities')) requests.push(load('identities', '/account/identities'));
+        if (accountConfig.security && accountConfig.security.mfa) requests.push(load('mfa', '/account/mfa'));
+        if (accountConfig.security && accountConfig.security.passkeys) requests.push(load('passkeys', '/account/passkeys'));
 
-      const results = Object.fromEntries(await Promise.all(requests));
-      if (moduleEnabled('sessions')) {
-        renderModuleList(sessionsList, results.sessions && results.sessions.items, '没有活跃会话记录。', 'revoke-session');
+        const results = Object.fromEntries(await Promise.all(requests));
+        if (moduleEnabled('sessions')) {
+          renderModuleList(sessionsList, results.sessions && results.sessions.items, '没有活跃会话记录。', 'revoke-session');
+        }
+        if (moduleEnabled('grants')) {
+          renderModuleList(grantsList, results.grants && results.grants.items, '没有应用授权记录。', 'revoke-grant');
+        }
+        if (moduleEnabled('identities')) {
+          renderModuleList(identitiesList, results.identities && results.identities.items, '没有可管理身份。', 'unlink-identity');
+        }
+        if (accountConfig.security && accountConfig.security.mfa) {
+          renderModuleList(mfaList, results.mfa && results.mfa.items, '没有 MFA 因子。', 'unenroll-mfa');
+        }
+        if (accountConfig.security && accountConfig.security.passkeys) {
+          renderModuleList(passkeysList, results.passkeys && results.passkeys.items, '没有 Passkey。', 'revoke-passkey');
+        }
       }
-      if (moduleEnabled('grants')) {
-        renderModuleList(grantsList, results.grants && results.grants.items, '没有应用授权记录。', 'revoke-grant');
+
+      async function startTotpEnrollment() {
+        clearMessage();
+        startTotpEnrollButton.disabled = true;
+        try {
+          const data = await accountFetch('/account/mfa/totp/enroll', {
+            method: 'POST',
+            body: JSON.stringify({ friendly_name: 'Authenticator app', issuer: document.title || 'SupaOAuth' }),
+          });
+          if (!data || !data.enrollment) return;
+          showTotpEnrollment(data.enrollment);
+          setMessage('ok', '请使用 Authenticator 扫描二维码，然后输入动态码完成绑定。');
+        } catch {
+          setMessage('error', '无法创建 MFA 绑定，请稍后重试。');
+        } finally {
+          startTotpEnrollButton.disabled = false;
+        }
       }
-      if (moduleEnabled('identities')) {
-        renderModuleList(identitiesList, results.identities && results.identities.items, '没有可管理身份。', 'unlink-identity');
+
+      async function verifyTotpEnrollment(event) {
+        event.preventDefault();
+        const code = totpCodeInput.value.trim();
+        if (!pendingTotpFactorId || !code) {
+          setMessage('error', '请先扫码并输入动态码。');
+          return;
+        }
+        const verifyButton = totpVerifyForm.querySelector('button');
+        verifyButton.disabled = true;
+        try {
+          const data = await accountFetch(`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`, {
+            method: 'POST',
+            body: JSON.stringify({ code }),
+          });
+          if (!data) return;
+          resetTotpEnrollment();
+          await loadAccountModules();
+          setMessage('ok', 'Authenticator 已绑定。');
+        } catch {
+          setMessage('error', '动态码验证失败，请重试。');
+        } finally {
+          verifyButton.disabled = false;
+        }
       }
-      if (accountConfig.security && accountConfig.security.mfa) {
-        renderModuleList(mfaList, results.mfa && results.mfa.items, '没有 MFA 因子。', 'reset-mfa');
-      }
-      if (accountConfig.security && accountConfig.security.passkeys) {
-        renderModuleList(passkeysList, results.passkeys && results.passkeys.items, '没有 Passkey。', 'revoke-passkey');
-      }
-    }
 
     async function handleModuleAction(event) {
       const button = event.target.closest('button[data-action]');
@@ -867,8 +990,8 @@
           await accountFetch(`/account/grants/${encodeURIComponent(id)}`, { method: 'DELETE' });
         } else if (button.dataset.action === 'unlink-identity') {
           await accountFetch(`/account/identities/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        } else if (button.dataset.action === 'reset-mfa') {
-          await accountFetch(`/account/mfa/${encodeURIComponent(id)}/reset`, { method: 'POST' });
+        } else if (button.dataset.action === 'unenroll-mfa') {
+          await accountFetch(`/account/mfa/${encodeURIComponent(id)}`, { method: 'DELETE' });
         } else if (button.dataset.action === 'revoke-passkey') {
           await accountFetch(`/account/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
         }
@@ -943,16 +1066,19 @@
       .catch(() => {});
 
     loadAccountButton.addEventListener('click', loadAccount);
-    clearTokenButton.addEventListener('click', () => {
-      tokenInput.value = '';
-      forgetAccessToken();
-      profileDetails.classList.remove('active');
-      profileForm.classList.remove('active');
-      moduleGrid.classList.remove('active');
-      setMessage('ok', '本地令牌已清除。');
-    });
+      clearTokenButton.addEventListener('click', () => {
+        tokenInput.value = '';
+        forgetAccessToken();
+        profileDetails.classList.remove('active');
+        profileForm.classList.remove('active');
+        moduleGrid.classList.remove('active');
+        resetTotpEnrollment();
+        setMessage('ok', '本地令牌已清除。');
+      });
     profileForm.addEventListener('submit', saveProfile);
-    moduleGrid.addEventListener('click', handleModuleAction);
+      moduleGrid.addEventListener('click', handleModuleAction);
+      startTotpEnrollButton.addEventListener('click', startTotpEnrollment);
+      totpVerifyForm.addEventListener('submit', verifyTotpEnrollment);
     emailForm.addEventListener('submit', updateEmail);
     phoneForm.addEventListener('submit', updatePhone);
     deleteAccountForm.addEventListener('submit', deleteAccount);

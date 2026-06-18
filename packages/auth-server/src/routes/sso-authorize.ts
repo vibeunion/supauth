@@ -3,15 +3,6 @@
 
 import { Elysia } from 'elysia';
 import { getConfig, type ServerConfig } from '../config/index.js';
-import { getSupaCloudAdapter, type SupaCloudAdapter } from '../supacloud/adapter.js';
-
-type OAuthClient = {
-  client_id?: string;
-  id?: string;
-  redirect_uris?: string[];
-  redirect_uri?: string;
-  grant_types?: string[];
-};
 
 type AuthorizeQuery = Record<string, unknown>;
 
@@ -42,31 +33,16 @@ export function isSafeOAuthClientId(clientId: string) {
   return !/[/?#\\\u0000-\u001f\u007f]/.test(clientId);
 }
 
-function normalizeRedirectUris(client: OAuthClient) {
-  const values = [
-    ...(Array.isArray(client.redirect_uris) ? client.redirect_uris : []),
-    ...(typeof client.redirect_uri === 'string' ? [client.redirect_uri] : []),
-  ];
-  return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))];
-}
-
-function appendOAuthError(redirectUri: string, error: string, description: string, state?: string) {
-  const url = new URL(redirectUri);
-  url.searchParams.set('error', error);
-  url.searchParams.set('error_description', description);
-  if (state) url.searchParams.set('state', state);
-  return url.toString();
-}
-
-export function isRedirectUriAllowed(client: OAuthClient, redirectUri: string) {
+export function isSafeRedirectUriSyntax(redirectUri: string) {
   if (!redirectUri) return false;
   try {
     const parsed = new URL(redirectUri);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
     if (parsed.hash) return false;
   } catch {
     return false;
   }
-  return normalizeRedirectUris(client).includes(redirectUri);
+  return true;
 }
 
 export function buildGoTrueOAuthAuthorizeUrl(runtimeUrl: string, query: AuthorizeQuery) {
@@ -102,7 +78,6 @@ function normalizePublicBaseUrl(value?: string) {
 
 export function createSsoAuthorizeRoutes(
   prefix: string,
-  adapter: Pick<SupaCloudAdapter, 'getOAuthClient'> = getSupaCloudAdapter(),
   config: Pick<ServerConfig, 'publicBaseUrl' | 'trustProxyHeaders'> = getConfig(),
 ) {
   return new Elysia({ prefix })
@@ -110,7 +85,6 @@ export function createSsoAuthorizeRoutes(
       const clientId = stringParam(query as AuthorizeQuery, 'client_id');
       const redirectUri = stringParam(query as AuthorizeQuery, 'redirect_uri');
       const responseType = stringParam(query as AuthorizeQuery, 'response_type') || 'code';
-      const state = stringParam(query as AuthorizeQuery, 'state');
 
       if (!clientId || !redirectUri) {
         set.status = 400;
@@ -122,34 +96,18 @@ export function createSsoAuthorizeRoutes(
         return { error: 'invalid_request', error_description: 'client_id contains unsupported characters' };
       }
 
-      let client: OAuthClient;
-      try {
-        client = await adapter.getOAuthClient(clientId) as OAuthClient;
-      } catch (error) {
+      if (!isSafeRedirectUriSyntax(redirectUri)) {
         set.status = 400;
-        return {
-          error: 'invalid_client',
-          error_description: error instanceof Error ? error.message : 'OAuth client was not found',
-        };
-      }
-
-      if (!isRedirectUriAllowed(client, redirectUri)) {
-        set.status = 400;
-        return { error: 'invalid_request', error_description: 'redirect_uri is not registered for this client' };
+        return { error: 'invalid_request', error_description: 'redirect_uri must be an http(s) URL without a fragment' };
       }
 
       if (responseType !== 'code') {
-        const location = appendOAuthError(
-          redirectUri,
-          'unsupported_response_type',
-          'Only authorization code flow is supported',
-          state,
-        );
-        set.status = 302;
-        set.headers.location = location;
-        return { redirect: location };
+        set.status = 400;
+        return { error: 'unsupported_response_type', error_description: 'Only authorization code flow is supported' };
       }
 
+      // 生产 Function 不能把公网登录入口依赖在 Management API 可达性上；
+      // OAuth client 与 redirect_uri 的权威校验交给 GoTrue authorize 端点完成。
       const publicBaseUrl = normalizePublicBaseUrl(config.publicBaseUrl) || publicOriginFromRequest(request, config.trustProxyHeaders);
       const goTrueUrl = buildGoTrueOAuthAuthorizeUrl(publicBaseUrl, query as AuthorizeQuery);
       set.status = 302;

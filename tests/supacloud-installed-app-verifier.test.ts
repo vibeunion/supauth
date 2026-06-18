@@ -37,7 +37,9 @@ function createFixture() {
 function mockFetch(overrides: Record<string, number> = {}) {
   const defaultStatuses: Record<string, number> = {
     '/api/v1/health': 200,
+    '/v1/auth-config': 401,
     '/v1/public/sign-in-experience/resolve': 200,
+    '/admin/security': 200,
     '/login.html': 200,
     '/account': 200,
     '/account.html': 200,

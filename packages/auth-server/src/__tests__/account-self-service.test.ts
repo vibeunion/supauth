@@ -2,10 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import {
   createPublicAccountRoutes,
+  enrollTotpMfaWithGoTrue,
   getAccountWithGoTrue,
   sanitizeAccountCenterConfig,
+  unenrollMfaFactorWithGoTrue,
   updateAccountContactWithGoTrue,
   updateAccountProfileWithGoTrue,
+  verifyTotpMfaWithGoTrue,
 } from '../routes/account-self-service.js';
 
 const permissiveAccountCenterConfig = sanitizeAccountCenterConfig({
@@ -111,17 +114,17 @@ describe('account self-service API', () => {
     expect(calls.map(call => call.url)).toEqual(['https://auth.example.test/auth/v1/user']);
   });
 
-  test('updates email and phone through GoTrue user endpoint with the user bearer token', async () => {
+    test('updates email and phone through GoTrue user endpoint with the user bearer token', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url: String(url), init });
-      expect(init?.headers).toMatchObject({
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer user-access-token',
-      });
-      return Response.json({
-        id: 'user-1',
-        email: 'new@example.test',
+        expect(init?.headers).toMatchObject({
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer user-access-token',
+        });
+        return Response.json({
+          id: 'user-1',
+          email: 'new@example.test',
         phone: '+15551234567',
         user_metadata: {},
       });
@@ -142,10 +145,111 @@ describe('account self-service API', () => {
       { email: 'new@example.test' },
       { phone: '+15551234567' },
     ]);
+      expect(calls.map(call => call.url)).toEqual([
+        'https://auth.example.test/auth/v1/user',
+        'https://auth.example.test/auth/v1/user',
+      ]);
+    });
+
+    test('enrolls TOTP MFA through GoTrue without returning the raw secret', async () => {
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
+      const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        expect(init?.headers).toMatchObject({
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer user-access-token',
+        });
+        expect(JSON.parse(String(init?.body))).toEqual({
+          factor_type: 'totp',
+          friendly_name: 'Work phone',
+          issuer: 'SupAuth',
+        });
+        return Response.json({
+          id: 'factor-1',
+          type: 'totp',
+          status: 'unverified',
+          friendly_name: 'Work phone',
+          totp: {
+            qr_code: 'data:image/svg+xml;base64,abc',
+            uri: 'otpauth://totp/SupAuth:user@example.test?secret=SECRET',
+            secret: 'SECRET',
+          },
+        });
+      };
+
+      const result = await enrollTotpMfaWithGoTrue('user-access-token', {
+        friendly_name: 'Work phone',
+        issuer: 'SupAuth',
+      }, {
+        fetchImpl: fetchImpl as typeof fetch,
+        runtimeBaseUrls: ['https://auth.example.test'],
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        data: {
+          factor_id: 'factor-1',
+          id: 'factor-1',
+          type: 'totp',
+          status: 'unverified',
+          friendly_name: 'Work phone',
+          totp: {
+            qr_code: 'data:image/svg+xml;base64,abc',
+            uri: 'otpauth://totp/SupAuth:user@example.test?secret=SECRET',
+          },
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain('"secret"');
+      expect(calls.map(call => call.url)).toEqual(['https://auth.example.test/auth/v1/factors']);
+    });
+
+    test('verifies TOTP MFA by creating a GoTrue challenge first', async () => {
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
+      const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        expect(init?.headers).toMatchObject({
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer user-access-token',
+        });
+        if (String(url).endsWith('/challenge')) {
+          expect(JSON.parse(String(init?.body))).toEqual({});
+          return Response.json({ id: 'challenge-1' });
+        }
+        expect(JSON.parse(String(init?.body))).toEqual({ code: '123456', challenge_id: 'challenge-1' });
+        return Response.json({ id: 'factor-1', status: 'verified' });
+      };
+
+      const result = await verifyTotpMfaWithGoTrue('user-access-token', 'factor-1', { code: '123456' }, {
+        fetchImpl: fetchImpl as typeof fetch,
+        runtimeBaseUrls: ['https://auth.example.test'],
+      });
+
+      expect(result).toEqual({ ok: true, data: { id: 'factor-1', status: 'verified' } });
     expect(calls.map(call => call.url)).toEqual([
-      'https://auth.example.test/auth/v1/user',
-      'https://auth.example.test/auth/v1/user',
+      'https://auth.example.test/auth/v1/factors/factor-1/challenge',
+      'https://auth.example.test/auth/v1/factors/factor-1/verify',
     ]);
+  });
+
+  test('unenrolls an MFA factor through GoTrue with the user bearer token', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      expect(init?.method).toBe('DELETE');
+      expect(init?.headers).toMatchObject({
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer user-access-token',
+      });
+      return new Response(null, { status: 204 });
+    };
+
+    const result = await unenrollMfaFactorWithGoTrue('user-access-token', 'factor-1', {
+      fetchImpl: fetchImpl as typeof fetch,
+      runtimeBaseUrls: ['https://auth.example.test'],
+    });
+
+    expect(result).toEqual({ ok: true, data: { id: 'factor-1', status: 'unenrolled' } });
+    expect(calls.map(call => call.url)).toEqual(['https://auth.example.test/auth/v1/factors/factor-1']);
   });
 
   test('sanitizes public account center config and drops unknown fields', () => {
@@ -528,7 +632,7 @@ describe('account self-service API', () => {
     expect(await response.json()).toEqual({ success: true, result: { unlinked: true } });
   });
 
-  test('lists and revokes passkeys only for the resolved current user', async () => {
+    test('lists and revokes passkeys only for the resolved current user', async () => {
     const calls: string[] = [];
     const app = new Elysia().use(routes({
       getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
@@ -553,7 +657,148 @@ describe('account self-service API', () => {
     expect(listResponse.status).toBe(200);
     expect(revokeResponse.status).toBe(200);
     expect(calls).toEqual(['list:user-1', 'revoke:user-1:passkey-1']);
-  });
+    });
+
+    test('enrolls and verifies TOTP MFA only with the current user token', async () => {
+      const events: string[] = [];
+      const app = new Elysia().use(routes({
+        getAccount: async (token) => {
+          expect(token).toBe('user-access-token');
+          return { ok: true, user: { id: 'user-1' } };
+        },
+        enrollTotpMfa: async (token, input) => {
+          events.push(`enroll:${token}:${input.friendly_name}:${input.issuer}`);
+          return {
+            ok: true,
+            data: {
+              factor_id: 'factor-1',
+              id: 'factor-1',
+              type: 'totp',
+              status: 'unverified',
+              friendly_name: input.friendly_name,
+              totp: { qr_code: 'data:image/svg+xml;base64,abc', uri: 'otpauth://totp/SupAuth:user@example.test' },
+            },
+          };
+        },
+        verifyTotpMfa: async (token, factorId, input) => {
+          events.push(`verify:${token}:${factorId}:${input.code}:${input.challengeId || ''}`);
+          return { ok: true, data: { id: factorId, status: 'verified' } };
+        },
+        unenrollMfa: async (token, factorId) => {
+          events.push(`unenroll:${token}:${factorId}`);
+          return { ok: true, data: { id: factorId, status: 'unenrolled' } };
+        },
+        auditEvent: async (eventType, userId, details) => {
+          events.push(`audit:${eventType}:${userId}:${details?.factor_id || ''}`);
+        },
+      }));
+
+      const enrollResponse = await app.handle(new Request('http://localhost/v1/public/account/mfa/totp/enroll', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer user-access-token',
+        },
+        body: JSON.stringify({ friendly_name: 'Phone', issuer: 'SupAuth' }),
+      }));
+      const verifyResponse = await app.handle(new Request('http://localhost/v1/public/account/mfa/factor-1/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer user-access-token',
+        },
+        body: JSON.stringify({ code: '123456', challenge_id: 'challenge-1' }),
+      }));
+      const unenrollResponse = await app.handle(new Request('http://localhost/v1/public/account/mfa/factor-1', {
+        method: 'DELETE',
+        headers: {
+          Authorization: 'Bearer user-access-token',
+        },
+      }));
+
+      expect(enrollResponse.status).toBe(200);
+      expect(verifyResponse.status).toBe(200);
+      expect(unenrollResponse.status).toBe(200);
+      expect(await enrollResponse.json()).toMatchObject({
+        success: true,
+        enrollment: { factor_id: 'factor-1', totp: { qr_code: 'data:image/svg+xml;base64,abc' } },
+      });
+      expect(await verifyResponse.json()).toEqual({
+        success: true,
+        result: { id: 'factor-1', status: 'verified' },
+        status: 'verified',
+      });
+      expect(await unenrollResponse.json()).toEqual({
+        success: true,
+        result: { id: 'factor-1', status: 'unenrolled' },
+        status: 'unenrolled',
+      });
+      expect(events).toEqual([
+        'enroll:user-access-token:Phone:SupAuth',
+        'audit:my_account.mfa.totp.enrolled:user-1:factor-1',
+        'verify:user-access-token:factor-1:123456:challenge-1',
+        'audit:my_account.mfa.totp.verified:user-1:factor-1',
+        'unenroll:user-access-token:factor-1',
+        'audit:my_account.mfa.unenrolled:user-1:factor-1',
+      ]);
+    });
+
+    test('rejects TOTP MFA actions when account-center MFA is disabled', async () => {
+      const disabledConfig = sanitizeAccountCenterConfig({
+        value: { security: { mfa: false } },
+      });
+      const forbiddenCalls: string[] = [];
+      const app = new Elysia().use(routes({
+        getConfig: async () => disabledConfig,
+        getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
+        enrollTotpMfa: async () => {
+          forbiddenCalls.push('enroll');
+          return { ok: true, data: {} };
+        },
+        verifyTotpMfa: async () => {
+          forbiddenCalls.push('verify');
+          return { ok: true, data: {} };
+        },
+        unenrollMfa: async () => {
+          forbiddenCalls.push('unenroll');
+          return { ok: true, data: {} };
+        },
+      }));
+
+      const enrollResponse = await app.handle(new Request('http://localhost/v1/public/account/mfa/totp/enroll', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer user-access-token' },
+      }));
+      const verifyResponse = await app.handle(new Request('http://localhost/v1/public/account/mfa/factor-1/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer user-access-token',
+        },
+        body: JSON.stringify({ code: '123456' }),
+      }));
+      const unenrollResponse = await app.handle(new Request('http://localhost/v1/public/account/mfa/factor-1', {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer user-access-token' },
+      }));
+
+      expect(enrollResponse.status).toBe(403);
+      expect(verifyResponse.status).toBe(403);
+      expect(unenrollResponse.status).toBe(403);
+      expect(await enrollResponse.json()).toEqual({
+        success: false,
+        error: { code: 'mfa_disabled', message: 'MFA management is disabled for this account center.' },
+      });
+      expect(await verifyResponse.json()).toEqual({
+        success: false,
+        error: { code: 'mfa_disabled', message: 'MFA management is disabled for this account center.' },
+      });
+      expect(await unenrollResponse.json()).toEqual({
+        success: false,
+        error: { code: 'mfa_disabled', message: 'MFA management is disabled for this account center.' },
+      });
+      expect(forbiddenCalls).toEqual([]);
+    });
 
   test('delete account requires explicit confirmation and deletes only current user', async () => {
     const deleted: string[] = [];

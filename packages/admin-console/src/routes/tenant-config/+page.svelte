@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { listTenantConfigs, upsertTenantConfig, deleteTenantConfig, checkTenantDomain } from '$lib/api/client.js';
 
-  const configTypes = ['captcha', 'email_template', 'sms_template', 'domain', 'phrase', 'profile_field', 'branding_asset', 'account_center'];
+  const configTypes = ['captcha', 'email_template', 'sms_template', 'domain', 'phrase', 'profile_field', 'branding_asset', 'account_center', 'account_claim'];
 
   let configs = $state([]);
   let loading = $state(true);

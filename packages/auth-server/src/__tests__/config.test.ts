@@ -9,6 +9,7 @@ describe('ServerConfig', () => {
     delete process.env.SUPACLOUD_API_URL;
     delete process.env.SUPACLOUD_INTERNAL_API_URL;
     delete process.env.SUPACLOUD_MANAGEMENT_API_URL;
+    delete process.env.SUPACLOUD_INTERNAL_SUPABASE_URL;
     delete process.env.SUPACLOUD_MASTER_TOKEN;
     delete process.env.SUPACLOUD_INTERNAL_TOKEN;
     delete process.env.SUPACLOUD_SERVICE_TOKEN;
@@ -49,7 +50,7 @@ describe('ServerConfig', () => {
     const config = loadConfig();
     const errors = validateConfig(config);
     expect(errors.length).toBeGreaterThan(0);
-    expect(errors).toContain('SUPACLOUD_API_URL or SUPACLOUD_INTERNAL_API_URL is required');
+    expect(errors).toContain('SUPACLOUD_API_URL, SUPACLOUD_INTERNAL_API_URL, or SUPACLOUD_INTERNAL_SUPABASE_URL is required');
     expect(errors).toContain('SUPACLOUD_MASTER_TOKEN or SUPACLOUD_INTERNAL_TOKEN is required');
     expect(errors).toContain('PROJECT_REF or SUPACLOUD_PROJECT_REF is required');
     expect(errors).toContain('OAUTH_RUNTIME_URL, SUPACLOUD_RUNTIME_URL, or SUPABASE_URL is required');
@@ -81,6 +82,20 @@ describe('ServerConfig', () => {
     expect(config.oauthRuntimeUrl).toBe('https://runtime.example.test');
     expect(config.publicBaseUrl).toBe('https://auth.example.test');
     expect(config.databaseUrl).toBe('postgres://supacloud/project');
+    expect(validateConfig(config)).toHaveLength(0);
+  });
+
+  it('accepts the SupaCloud edge-runtime internal management URL alias', () => {
+    process.env.SUPACLOUD_INTERNAL_SUPABASE_URL = 'http://127.0.0.1:9090';
+    process.env.SUPACLOUD_INTERNAL_TOKEN = 'internal-token';
+    process.env.SUPACLOUD_PROJECT_REF = 'project-from-supacloud';
+    process.env.SUPACLOUD_RUNTIME_URL = 'https://runtime.example.test';
+    process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
+    process.env.SUPACLOUD_DATABASE_URL = 'postgres://supacloud/project';
+
+    const config = loadConfig();
+
+    expect(config.supacloudApiUrl).toBe('http://127.0.0.1:9090');
     expect(validateConfig(config)).toHaveLength(0);
   });
 

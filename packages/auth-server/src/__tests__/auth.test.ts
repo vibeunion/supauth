@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
+import { Elysia } from 'elysia';
 import { verifyAdminBearer } from '../auth/index.js';
 
 describe('Auth module — exported functions', () => {
@@ -48,5 +49,23 @@ describe('Auth module — guard and route structure', () => {
     const { authRoutes } = await import('../auth/index.js');
     expect(authRoutes).toBeDefined();
     expect(typeof authRoutes.fetch).toBe('function');
+  });
+
+  it('keeps auth-config protected while leaving auth routes public', async () => {
+    const { adminAuthGuard } = await import('../auth/index.js');
+    const app = new Elysia()
+      .use(adminAuthGuard)
+      .get('/v1/auth/login', () => 'public auth')
+      .get('/v1/auth-config', () => 'protected auth config')
+      .get('/v1/auth-config/runtime-consistency', () => 'protected runtime consistency');
+
+    const authRoute = await app.handle(new Request('http://localhost/v1/auth/login'));
+    expect(authRoute.status).toBe(200);
+
+    const authConfig = await app.handle(new Request('http://localhost/v1/auth-config'));
+    expect(authConfig.status).toBe(401);
+
+    const runtimeConsistency = await app.handle(new Request('http://localhost/v1/auth-config/runtime-consistency'));
+    expect(runtimeConsistency.status).toBe(401);
   });
 });

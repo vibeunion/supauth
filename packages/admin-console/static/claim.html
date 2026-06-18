@@ -55,6 +55,20 @@
       margin-bottom: 18px;
     }
 
+    .topbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .language-select {
+      width: auto;
+      height: 34px;
+      border-radius: 7px;
+      font-size: 13px;
+      background: rgba(255, 255, 255, .86);
+    }
+
     .brand-mark {
       width: 42px;
       height: 42px;
@@ -214,22 +228,38 @@
 </head>
 <body>
   <main>
+    <div class="topbar">
+      <select id="language" class="language-select" aria-label="Language">
+        <option value="zh-CN">中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
     <section id="brand" class="brand" aria-label="SupAuth">
       <img id="logo" class="logo" alt="">
       <div id="brand-mark" class="brand-mark">SA</div>
       <h1 id="claim-title">领取 SupAuth 账号</h1>
-      <p class="lead">输入姓名和数字 ID，查询你的登录邮箱并领取一次性初始密码。</p>
+      <p id="claim-lead" class="lead">输入姓名和数字 ID，查询你的登录邮箱并领取一次性初始密码。</p>
     </section>
 
     <section class="panel">
       <form id="claim-form" novalidate>
         <div class="field">
-          <label for="name">姓名</label>
+          <label id="name-label" for="name">姓名</label>
           <input id="name" name="name" autocomplete="name" required>
         </div>
         <div class="field">
-          <label for="external-id">数字 ID</label>
+          <label id="external-id-label" for="external-id">数字 ID</label>
           <input id="external-id" name="external_id" inputmode="numeric" autocomplete="off" required>
+        </div>
+        <div id="password-fields" hidden>
+          <div class="field">
+            <label id="new-password-label" for="new-password">设置登录密码</label>
+            <input id="new-password" name="new_password" type="password" autocomplete="new-password">
+          </div>
+          <div class="field">
+            <label id="confirm-password-label" for="confirm-password">确认登录密码</label>
+            <input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password">
+          </div>
         </div>
         <button id="submit" class="primary" type="submit">查询账号</button>
       </form>
@@ -240,36 +270,215 @@
         <div class="row">
           <div class="key">登录邮箱</div>
           <div id="email" class="value"></div>
-          <button class="copy" type="button" data-copy="email">复制邮箱</button>
+          <button id="copy-email" class="copy" type="button" data-copy="email">复制邮箱</button>
         </div>
         <div id="password-row" class="row">
           <div class="key">初始密码</div>
           <div id="password" class="value"></div>
-          <button class="copy" type="button" data-copy="password">复制密码</button>
+          <button id="copy-password" class="copy" type="button" data-copy="password">复制密码</button>
         </div>
       </div>
 
-      <p class="footer">初始密码只展示一次。再次查询时只会显示邮箱。</p>
+      <p id="claim-footer" class="footer">初始密码只展示一次。再次查询时只会显示邮箱。</p>
     </section>
   </main>
 
   <script>
     const apiBase = (window.__SUPAOAUTH_PUBLIC_API_BASE__ || '/v1/public').replace(/\/$/, '');
+    const params = new URLSearchParams(window.location.search);
+    const LOCALE_STORAGE_KEY = 'supaoauth.locale';
+    const defaultMessages = {
+      en: {
+        documentTitle: 'SupaOAuth Account Claim',
+        title: 'Claim SupAuth account',
+        leadInitial: 'Enter your name and numeric ID to find your login email and claim your one-time initial password.',
+        leadSetPassword: 'Enter your name and numeric ID to verify your account and set your login password.',
+        name: 'Name',
+        externalId: 'Numeric ID',
+        newPassword: 'Set login password',
+        confirmPassword: 'Confirm login password',
+        submitInitial: 'Find account',
+        submitSetPassword: 'Claim account and set password',
+        loading: 'Searching...',
+        email: 'Login email',
+        initialPassword: 'Initial password',
+        copyEmail: 'Copy email',
+        copyPassword: 'Copy password',
+        footerInitial: 'The initial password is shown only once. Future lookups only show the email.',
+        footerSetPassword: 'After the password is set, sign in with your login email and new password.',
+        required: 'Enter your name and numeric ID.',
+        passwordTooShort: 'Password must be at least {min} characters.',
+        passwordMismatch: 'The two passwords do not match.',
+        claimSuccessSetPassword: 'Account claimed. Your password has been set. Sign in with the new password.',
+        claimSuccessInitial: 'Account claimed. Please sign in and change your password soon.',
+        alreadyClaimed: 'The initial password has already been claimed. Contact an administrator if you forgot it.',
+        passwordUnavailable: 'Account found, but the initial password is unavailable. Contact an administrator.',
+        copiedEmail: 'Email copied.',
+        copiedPassword: 'Password copied.',
+        tooManyAttempts: 'Too many attempts. Please try again later.',
+        serverError: 'The system cannot complete the lookup right now. Please try again later or contact an administrator.',
+        invalidRequest: 'Enter your name and numeric ID.',
+        notFound: 'No matching account found. Check your name and numeric ID.',
+        networkError: 'Lookup failed. Please try again later.',
+      },
+      'zh-CN': {
+        documentTitle: 'SupaOAuth 账号领取',
+        title: '领取 SupAuth 账号',
+        leadInitial: '输入姓名和数字 ID，查询你的登录邮箱并领取一次性初始密码。',
+        leadSetPassword: '输入姓名和数字 ID，验证账号后设置你的登录密码。',
+        name: '姓名',
+        externalId: '数字 ID',
+        newPassword: '设置登录密码',
+        confirmPassword: '确认登录密码',
+        submitInitial: '查询账号',
+        submitSetPassword: '领取账号并设置密码',
+        loading: '查询中...',
+        email: '登录邮箱',
+        initialPassword: '初始密码',
+        copyEmail: '复制邮箱',
+        copyPassword: '复制密码',
+        footerInitial: '初始密码只展示一次。再次查询时只会显示邮箱。',
+        footerSetPassword: '密码设置成功后，请使用登录邮箱和新密码登录。',
+        required: '请填写姓名和数字 ID。',
+        passwordTooShort: '密码至少需要 {min} 个字符。',
+        passwordMismatch: '两次输入的密码不一致。',
+        claimSuccessSetPassword: '账号领取成功，密码已设置。请使用新密码登录。',
+        claimSuccessInitial: '账号领取成功，请尽快登录并修改密码。',
+        alreadyClaimed: '初始密码已领取，如忘记密码请联系管理员重置。',
+        passwordUnavailable: '账号已找到，但初始密码不可用，请联系管理员。',
+        copiedEmail: '邮箱已复制。',
+        copiedPassword: '密码已复制。',
+        tooManyAttempts: '查询次数过多，请稍后再试。',
+        serverError: '系统暂时无法完成查询，请稍后重试或联系管理员。',
+        invalidRequest: '请填写姓名和数字 ID。',
+        notFound: '未找到匹配账号，请核对姓名和数字 ID。',
+        networkError: '查询失败，请稍后重试。',
+      },
+    };
+    const phraseOverrides = {};
+    let currentLocale = detectLocale();
+    let hasCustomPageTitle = false;
     const brand = document.getElementById('brand');
     const brandMark = document.getElementById('brand-mark');
     const logo = document.getElementById('logo');
     const title = document.getElementById('claim-title');
     const form = document.getElementById('claim-form');
     const submit = document.getElementById('submit');
+    const lead = document.getElementById('claim-lead');
+    const footer = document.getElementById('claim-footer');
     const message = document.getElementById('message');
     const result = document.getElementById('result');
     const emailEl = document.getElementById('email');
     const passwordRow = document.getElementById('password-row');
     const passwordEl = document.getElementById('password');
+    const passwordFields = document.getElementById('password-fields');
+    const newPasswordInput = document.getElementById('new-password');
+    const confirmPasswordInput = document.getElementById('confirm-password');
+    let claimConfig = {
+      enabled: true,
+      external_type: 'employee',
+      password: { mode: 'show_initial_password', min_length: 8 },
+      phrases: {},
+    };
 
     function setMessage(kind, text) {
       message.className = `message active ${kind}`;
       message.textContent = text;
+    }
+
+    function normalizeLocale(locale) {
+      if (!locale) return null;
+      const normalized = locale.replace('_', '-').toLowerCase();
+      if (normalized === 'zh' || normalized.startsWith('zh-')) return 'zh-CN';
+      if (normalized === 'en' || normalized.startsWith('en-')) return 'en';
+      return null;
+    }
+
+    function localeCandidates() {
+      const uiLocales = (params.get('ui_locales') || '').split(/\s+/).filter(Boolean);
+      const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+      const browserLocales = navigator.languages && navigator.languages.length
+        ? navigator.languages
+        : [navigator.language];
+      return [...uiLocales, stored, ...browserLocales, 'zh-CN', 'en'];
+    }
+
+    function detectLocale() {
+      for (const candidate of localeCandidates()) {
+        const locale = normalizeLocale(candidate);
+        if (locale && defaultMessages[locale]) return locale;
+      }
+      return 'zh-CN';
+    }
+
+    function formatMessage(message, values = {}) {
+      return String(message).replace(/\{(\w+)\}/g, (_, key) => values[key] ?? '');
+    }
+
+    function t(key, values) {
+      const message = (phraseOverrides[currentLocale] && phraseOverrides[currentLocale][key])
+        || (defaultMessages[currentLocale] && defaultMessages[currentLocale][key])
+        || defaultMessages.en[key]
+        || key;
+      return formatMessage(message, values);
+    }
+
+    function mergePhraseOverrides(phrases) {
+      if (!phrases || typeof phrases !== 'object') return;
+      for (const [locale, messages] of Object.entries(phrases)) {
+        const normalized = normalizeLocale(locale);
+        if (!normalized || !messages || typeof messages !== 'object') continue;
+        phraseOverrides[normalized] = {
+          ...(phraseOverrides[normalized] || {}),
+          ...messages,
+        };
+      }
+    }
+
+    function applyClaimCopy() {
+      const mustSetPassword = claimConfig.password.mode === 'set_on_claim';
+      passwordFields.hidden = !mustSetPassword;
+      newPasswordInput.required = mustSetPassword;
+      confirmPasswordInput.required = mustSetPassword;
+      submit.textContent = mustSetPassword ? t('submitSetPassword') : t('submitInitial');
+      lead.textContent = mustSetPassword ? t('leadSetPassword') : t('leadInitial');
+      footer.textContent = mustSetPassword ? t('footerSetPassword') : t('footerInitial');
+    }
+
+    function applyLocale(locale, persist = false) {
+      currentLocale = defaultMessages[locale] || phraseOverrides[locale] ? locale : 'zh-CN';
+      document.documentElement.lang = currentLocale;
+      document.getElementById('language').value = currentLocale;
+      if (!hasCustomPageTitle) {
+        document.title = t('documentTitle');
+        title.textContent = t('title');
+        brand.setAttribute('aria-label', t('title'));
+        brandMark.textContent = brandInitials(t('title'));
+      }
+      document.getElementById('name-label').textContent = t('name');
+      document.getElementById('external-id-label').textContent = t('externalId');
+      document.getElementById('new-password-label').textContent = t('newPassword');
+      document.getElementById('confirm-password-label').textContent = t('confirmPassword');
+      document.querySelector('#result .row:first-child .key').textContent = t('email');
+      document.querySelector('#password-row .key').textContent = t('initialPassword');
+      document.getElementById('copy-email').textContent = t('copyEmail');
+      document.getElementById('copy-password').textContent = t('copyPassword');
+      applyClaimCopy();
+      if (persist) localStorage.setItem(LOCALE_STORAGE_KEY, currentLocale);
+    }
+
+    async function loadPhrases(locale) {
+      try {
+        const response = await fetch(`${apiBase}/phrases/${encodeURIComponent(locale)}`);
+        if (!response.ok) return;
+        const data = await response.json().catch(() => null);
+        if (data && data.phrases && typeof data.phrases === 'object') {
+          phraseOverrides[locale] = {
+            ...(phraseOverrides[locale] || {}),
+            ...data.phrases,
+          };
+        }
+      } catch {}
     }
 
     function brandInitials(text) {
@@ -287,6 +496,7 @@
         const experience = await response.json().catch(() => null);
         const branding = experience && typeof experience === 'object' ? experience.branding || {} : {};
         if (branding.page_title) {
+          hasCustomPageTitle = true;
           document.title = branding.page_title;
           title.textContent = branding.page_title;
           brand.setAttribute('aria-label', branding.page_title);
@@ -317,6 +527,30 @@
       } catch {}
     }
 
+    function applyClaimConfig(config) {
+      const next = config && typeof config === 'object' ? config : {};
+      const password = next.password && typeof next.password === 'object' ? next.password : {};
+      claimConfig = {
+        enabled: next.enabled !== false,
+        external_type: typeof next.external_type === 'string' && next.external_type ? next.external_type : 'employee',
+        password: {
+          mode: password.mode === 'set_on_claim' ? 'set_on_claim' : 'show_initial_password',
+          min_length: Number.isFinite(Number(password.min_length)) ? Math.max(6, Number(password.min_length)) : 8,
+        },
+        phrases: next.phrases && typeof next.phrases === 'object' ? next.phrases : {},
+      };
+      mergePhraseOverrides(claimConfig.phrases);
+      applyLocale(currentLocale);
+    }
+
+    async function loadClaimConfig() {
+      try {
+        const response = await fetch(`${apiBase}/account-claims/config`, { credentials: 'include' });
+        const data = await response.json().catch(() => null);
+        if (response.ok && data && data.config) applyClaimConfig(data.config);
+      } catch {}
+    }
+
     function clearResult() {
       result.classList.remove('active');
       emailEl.textContent = '';
@@ -326,15 +560,16 @@
 
     function showResult(data) {
       emailEl.textContent = data.email || '';
-      if (data.initial_password) {
+      if (data.password_set) {
+        passwordRow.style.display = 'none';
+        setMessage('success', t('claimSuccessSetPassword'));
+      } else if (data.initial_password) {
         passwordRow.style.display = '';
         passwordEl.textContent = data.initial_password;
-        setMessage('success', '账号领取成功，请尽快登录并修改密码。');
+        setMessage('success', t('claimSuccessInitial'));
       } else {
         passwordRow.style.display = 'none';
-        const text = data.status === 'already_claimed'
-          ? '初始密码已领取，如忘记密码请联系管理员重置。'
-          : '账号已找到，但初始密码不可用，请联系管理员。';
+        const text = data.status === 'already_claimed' ? t('alreadyClaimed') : t('passwordUnavailable');
         setMessage('muted', text);
       }
       result.classList.add('active');
@@ -345,14 +580,14 @@
       const text = target.textContent.trim();
       if (!text) return;
       await navigator.clipboard.writeText(text);
-      setMessage('success', targetId === 'password' ? '密码已复制。' : '邮箱已复制。');
+      setMessage('success', targetId === 'password' ? t('copiedPassword') : t('copiedEmail'));
     }
 
     function claimErrorMessage(response) {
-      if (response.status === 429) return '查询次数过多，请稍后再试。';
-      if (response.status >= 500) return '系统暂时无法完成查询，请稍后重试或联系管理员。';
-      if (response.status === 400) return '请填写姓名和数字 ID。';
-      return '未找到匹配账号，请核对姓名和数字 ID。';
+      if (response.status === 429) return t('tooManyAttempts');
+      if (response.status >= 500) return t('serverError');
+      if (response.status === 400) return t('invalidRequest');
+      return t('notFound');
     }
 
     form.addEventListener('submit', async (event) => {
@@ -361,17 +596,34 @@
       const name = form.name.value.trim();
       const externalId = form.external_id.value.trim();
       if (!name || !externalId) {
-        setMessage('error', '请填写姓名和数字 ID。');
+        setMessage('error', t('required'));
+        return;
+      }
+      const mustSetPassword = claimConfig.password.mode === 'set_on_claim';
+      const newPassword = newPasswordInput.value;
+      const confirmPassword = confirmPasswordInput.value;
+      if (mustSetPassword && newPassword.length < claimConfig.password.min_length) {
+        setMessage('error', t('passwordTooShort', { min: claimConfig.password.min_length }));
+        return;
+      }
+      if (mustSetPassword && newPassword !== confirmPassword) {
+        setMessage('error', t('passwordMismatch'));
         return;
       }
 
       submit.disabled = true;
-      submit.textContent = '查询中...';
+      submit.textContent = t('loading');
       try {
+        const payload = {
+          display_name: name,
+          external_id: externalId,
+          external_type: claimConfig.external_type || 'employee',
+        };
+        if (mustSetPassword) payload.new_password = newPassword;
         const response = await fetch(`${apiBase}/account-claims/claim`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ display_name: name, external_id: externalId, external_type: 'employee' }),
+          body: JSON.stringify(payload),
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) {
@@ -380,10 +632,10 @@
         }
         showResult(data);
       } catch {
-        setMessage('error', '查询失败，请稍后重试。');
+        setMessage('error', t('networkError'));
       } finally {
         submit.disabled = false;
-        submit.textContent = '查询账号';
+        applyClaimCopy();
       }
     });
 
@@ -391,7 +643,18 @@
       button.addEventListener('click', () => copyText(button.getAttribute('data-copy')));
     });
 
-    loadExperience();
+    document.getElementById('language').addEventListener('change', async (event) => {
+      const locale = event.target.value;
+      await loadPhrases(locale);
+      applyLocale(locale, true);
+    });
+
+    (async () => {
+      await loadPhrases(currentLocale);
+      applyLocale(currentLocale);
+      await loadExperience();
+      await loadClaimConfig();
+    })();
   </script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 <script>
-  import { resolve } from '$app/paths';
+  import { base, resolve } from '$app/paths';
   import { page } from '$app/state';
   let { children } = $props();
 
@@ -38,7 +38,8 @@
 
     <div class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
       {#each navItems as item (item.path)}
-        {@const isActive = page.url.pathname === `${resolve('')}${item.path}` || page.url.pathname === `${resolve('')}${item.path}/`}
+        {@const itemHref = `${base}${item.path}`}
+        {@const isActive = page.url.pathname === itemHref || page.url.pathname === `${itemHref}/`}
         <a
           href={resolve(item.path)}
           class={[

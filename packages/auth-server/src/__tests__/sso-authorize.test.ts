@@ -2,48 +2,30 @@ import { describe, expect, it } from 'bun:test';
 import {
   buildGoTrueOAuthAuthorizeUrl,
   createSsoAuthorizeRoutes,
-  isRedirectUriAllowed,
+  isSafeRedirectUriSyntax,
   isSafeOAuthClientId,
   publicOriginFromRequest,
 } from '../routes/sso-authorize.js';
 
-const oauthClient = {
-  client_id: 'app_123',
-  redirect_uris: [
-    'https://app.example.test/callback',
-    'https://app.example.test/alt-callback',
-  ],
-  grant_types: ['authorization_code'],
-};
-
-function createTestApp(client = oauthClient) {
+function createTestApp() {
   return createSsoAuthorizeRoutes('/oauth/sso', {
-    async getOAuthClient(clientId: string) {
-      if (clientId !== client.client_id) throw new Error('not found');
-      return client;
-    },
-  }, {
     publicBaseUrl: '',
     trustProxyHeaders: false,
   });
 }
 
 describe('GoTrue-compatible SSO authorize entrypoint', () => {
-  it('validates redirect_uri by exact registered value', () => {
-    expect(isRedirectUriAllowed(oauthClient, 'https://app.example.test/callback')).toBe(true);
-    expect(isRedirectUriAllowed(oauthClient, 'https://app.example.test/callback/')).toBe(false);
-    expect(isRedirectUriAllowed(oauthClient, 'https://evil.example.test/callback')).toBe(false);
-    expect(isRedirectUriAllowed(oauthClient, 'https://app.example.test/callback#fragment')).toBe(false);
+  it('validates redirect_uri syntax before handing off to GoTrue', () => {
+    expect(isSafeRedirectUriSyntax('https://app.example.test/callback')).toBe(true);
+    expect(isSafeRedirectUriSyntax('http://app.example.test/callback')).toBe(true);
+    expect(isSafeRedirectUriSyntax('https://evil.example.test/callback')).toBe(true);
+    expect(isSafeRedirectUriSyntax('https://app.example.test/callback#fragment')).toBe(false);
+    expect(isSafeRedirectUriSyntax('javascript:alert(1)')).toBe(false);
+    expect(isSafeRedirectUriSyntax('not a url')).toBe(false);
   });
 
-  it('rejects unsafe client_id before calling SupaCloud', async () => {
-    let calls = 0;
+  it('rejects unsafe client_id before redirecting to GoTrue', async () => {
     const app = createSsoAuthorizeRoutes('/oauth/sso', {
-      async getOAuthClient() {
-        calls += 1;
-        return oauthClient;
-      },
-    }, {
       publicBaseUrl: '',
       trustProxyHeaders: false,
     });
@@ -53,7 +35,6 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
     ));
 
     expect(response.status).toBe(400);
-    expect(calls).toBe(0);
     const payload = await response.json() as { error: string; error_description: string };
     expect(payload.error).toBe('invalid_request');
     expect(payload.error_description).toContain('client_id');
@@ -127,11 +108,6 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
 
   it('prefers configured custom auth domain over request host', async () => {
     const app = createSsoAuthorizeRoutes('/oauth/sso', {
-      async getOAuthClient(clientId: string) {
-        if (clientId !== oauthClient.client_id) throw new Error('not found');
-        return oauthClient;
-      },
-    }, {
       publicBaseUrl: 'https://auth.example.test/',
       trustProxyHeaders: false,
     });
@@ -147,11 +123,6 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
 
   it('uses trusted forwarded host only when no custom auth domain is configured', async () => {
     const app = createSsoAuthorizeRoutes('/oauth/sso', {
-      async getOAuthClient(clientId: string) {
-        if (clientId !== oauthClient.client_id) throw new Error('not found');
-        return oauthClient;
-      },
-    }, {
       publicBaseUrl: '',
       trustProxyHeaders: true,
     });
@@ -171,27 +142,41 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
     expect(location).toStartWith('https://auth.example.test/auth/v1/oauth/authorize?');
   });
 
-  it('rejects unregistered redirect_uri before redirecting', async () => {
+  it('rejects redirect_uri fragments before redirecting', async () => {
     const app = createTestApp();
     const response = await app.handle(new Request(
-      'http://localhost/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fevil.example.test%2Fcallback',
+      'http://localhost/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback%23fragment',
     ));
 
     expect(response.status).toBe(400);
-    const payload = await response.json() as { error: string };
+    const payload = await response.json() as { error: string; error_description: string };
     expect(payload.error).toBe('invalid_request');
+    expect(payload.error_description).toContain('without a fragment');
   });
 
-  it('returns standard OAuth callback error for unsupported response_type', async () => {
+  it('does not redirect arbitrary redirect_uri for unsupported response_type', async () => {
     const app = createTestApp();
     const response = await app.handle(new Request(
       'http://localhost/oauth/sso/authorize?response_type=token&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback&state=abc',
     ));
 
+    expect(response.status).toBe(400);
+    expect(response.headers.get('location')).toBeNull();
+    const payload = await response.json() as { error: string };
+    expect(payload.error).toBe('unsupported_response_type');
+  });
+
+  it('redirects valid requests to GoTrue without requiring SupaCloud Management API', async () => {
+    const app = createTestApp();
+    const response = await app.handle(new Request(
+      'https://auth.example.test/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback&scope=openid%20email',
+    ));
+
     expect(response.status).toBe(302);
-    const location = new URL(response.headers.get('location') || '');
-    expect(location.origin + location.pathname).toBe('https://app.example.test/callback');
-    expect(location.searchParams.get('error')).toBe('unsupported_response_type');
-    expect(location.searchParams.get('state')).toBe('abc');
+    const location = response.headers.get('location') || '';
+    expect(location).toStartWith('https://auth.example.test/auth/v1/oauth/authorize?');
+    const redirect = new URL(location);
+    expect(redirect.searchParams.get('client_id')).toBe('app_123');
+    expect(redirect.searchParams.get('redirect_uri')).toBe('https://app.example.test/callback');
   });
 });

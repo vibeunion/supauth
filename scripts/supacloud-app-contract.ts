@@ -140,6 +140,7 @@ export function createSupacloudAppManifest(input: {
         entrypoint: input.functionBundle,
         routes: [
           { path: '/api/*', strip_prefix: '/api' },
+          { path: '/v1/*' },
           { path: '/v1/public/*' },
           { path: '/oauth/*' },
           { path: '/login.html' },
@@ -152,6 +153,7 @@ export function createSupacloudAppManifest(input: {
           { path: '/claim.html' },
           { path: '/favicon.ico' },
           { path: '/favicon.svg' },
+          { path: '/admin/api/*', strip_prefix: '/admin/api' },
           { path: '/' },
         ],
       },

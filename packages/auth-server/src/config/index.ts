@@ -56,7 +56,12 @@ export function loadConfig(): ServerConfig {
     port: parseInt(process.env.PORT || '4010', 10),
     host: process.env.HOST || '0.0.0.0',
     nodeEnv: process.env.NODE_ENV || 'development',
-    supacloudApiUrl: env('SUPACLOUD_API_URL', 'SUPACLOUD_INTERNAL_API_URL', 'SUPACLOUD_MANAGEMENT_API_URL'),
+    supacloudApiUrl: env(
+      'SUPACLOUD_API_URL',
+      'SUPACLOUD_INTERNAL_API_URL',
+      'SUPACLOUD_MANAGEMENT_API_URL',
+      'SUPACLOUD_INTERNAL_SUPABASE_URL',
+    ),
     supacloudMasterToken: env('SUPACLOUD_MASTER_TOKEN', 'SUPACLOUD_INTERNAL_TOKEN', 'SUPACLOUD_SERVICE_TOKEN'),
     projectRef: env('PROJECT_REF', 'SUPACLOUD_PROJECT_REF', 'SUPABASE_PROJECT_REF'),
     oauthRuntimeUrl: runtimeUrl,
@@ -83,7 +88,9 @@ export function getConfig(): ServerConfig {
 
 export function validateConfig(config: ServerConfig): string[] {
   const errors: string[] = [];
-  if (!config.supacloudApiUrl) errors.push('SUPACLOUD_API_URL or SUPACLOUD_INTERNAL_API_URL is required');
+  if (!config.supacloudApiUrl) {
+    errors.push('SUPACLOUD_API_URL, SUPACLOUD_INTERNAL_API_URL, or SUPACLOUD_INTERNAL_SUPABASE_URL is required');
+  }
   if (!config.supacloudMasterToken) errors.push('SUPACLOUD_MASTER_TOKEN or SUPACLOUD_INTERNAL_TOKEN is required');
   if (!config.projectRef) errors.push('PROJECT_REF or SUPACLOUD_PROJECT_REF is required');
   if (!config.oauthRuntimeUrl) errors.push('OAUTH_RUNTIME_URL, SUPACLOUD_RUNTIME_URL, or SUPABASE_URL is required');

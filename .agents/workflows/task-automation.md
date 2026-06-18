@@ -28,7 +28,7 @@ description: 任务自动化 — 从任务契约领取、执行、提 PR/MR
 
 ## 2. Delegation Gate（默认启动子代理）
 
-**核心原则：有任务时默认启动子代理执行，主进程（Orchestrator）负责审查和裁决。**
+**核心原则：行动型任务必须先做 Delegation Decision；默认主进程（Orchestrator）拆解，子代理执行或独立验证，主进程最终审查和裁决。**
 
 ### 调度命令
 
@@ -57,7 +57,7 @@ agent-team subagent status
 
 ### 默认执行流程
 
-**标准任务（任何有明确目标的任务）**：
+**完整流水线任务（中/高风险、多文件、多 subsystem、根因不明、不熟悉区域或需要自审的任务）**：
 
 1. **Orchestrator 读取任务** → 形成 Task Contract
 2. **Explorer 探索** → `agent-team subagent dispatch explorer "..." --mailbox 0NN-explorer-result.md`
@@ -65,13 +65,13 @@ agent-team subagent status
 4. **Verifier 验证** → `agent-team subagent dispatch verifier "..." --mailbox 0NN-verifier-result.md`
 5. **Orchestrator 审查所有子代理输出** → 裁决 PASS/FAIL，更新 progress.md 和 tasks.md
 
-**低风险单文件修复**（可跳过 Explorer/Critic，但必须仍有 Verifier）：
+**低风险单文件修复**（可跳过 Explorer/Critic，但必须仍有独立 Verifier）：
 
 1. Executor 直接实现
 2. Verifier 独立验证
 3. Orchestrator 审查
 
-**纯文档/格式化/简单命令**（可跳过全部子代理，但必须记录跳过原因）：
+**纯解释/只读/简单命令/格式化/纯文档**（可跳过全部子代理，但必须记录跳过原因）：
 
 1. Orchestrator 直接执行
 2. 记录 `safe_skip_reason`
@@ -86,11 +86,12 @@ agent-team subagent status
 - 设计质量本身是交付物，应先运行 `/design-review` 或等价 Goal Forge 质证流程
 - 不熟悉的代码区域、根因不确定、存在多个实现路径
 - UI/运行时行为需要独立视觉或端到端核验
+- 任何完成声明需要由当前主进程自我证明时，至少派发 Verifier；不能只用主进程自己的测试输出替代独立验证
 
 ### 记录要求
 
 - 使用了子代理：记录角色、范围、收到的证据和最终如何采纳
-- 未使用子代理：记录为什么安全跳过（`safe_skip_reason`）
+- 未使用子代理：只允许纯解释/只读/简单命令/格式化/纯文档，记录为什么安全跳过（`safe_skip_reason`）
 - 若子代理结论冲突，先通过 `.mailbox/` 或 Task Contract 收敛，不要直接声明完成
 
 ### 子代理请求契约
@@ -117,7 +118,7 @@ agent-team subagent status
   1. 读取 Task Contract，确认目标和非目标
   2. 加载相关 skill 和项目代码规范
   3. 领取任务并写入 owner / branch / provider 状态
-  4. 执行 Delegation Gate，必要时派发 explorer / critic / verifier
+  4. 执行 Delegation Gate；符合完整流水线条件时派发 explorer / executor / verifier，低风险单文件任务至少派发 verifier
   5. 最小实现
   6. 测试 / 类型检查 / 构建
   7. 提交并推送

@@ -61,11 +61,11 @@ async function readJsonResponse(response: Response) {
   }
 }
 
-async function fetchGoTrueJson(path: string, init: RequestInit = {}) {
+async function fetchGoTrueJson(path: string, init: RequestInit = {}, fetchImpl: typeof fetch = fetch) {
   let lastError: unknown = null;
   for (const base of goTrueApiBaseCandidates()) {
     try {
-      const response = await fetch(buildGoTrueApiUrl(base, path), {
+      const response = await fetchImpl(buildGoTrueApiUrl(base, path), {
         ...init,
         signal: init.signal || AbortSignal.timeout(5000),
       });
@@ -168,8 +168,8 @@ export function resolveRuntimeSignupEnabled(runtimeSettings: Record<string, unkn
 
 export async function getAuthConfigRuntimeConsistency(fetchImpl: typeof fetch = fetch) {
   const authConfig = await adapter.getAuthConfig() as Record<string, unknown>;
-  const runtimeRes = await fetchImpl(`${config.oauthRuntimeUrl.replace(/\/$/, '')}/auth/v1/settings`);
-  const runtimeSettings = await runtimeRes.json().catch(() => ({})) as Record<string, unknown>;
+  const { response: runtimeRes, payload } = await fetchGoTrueJson('/settings', {}, fetchImpl);
+  const runtimeSettings = (payload || {}) as Record<string, unknown>;
 
   if (!runtimeRes.ok) {
     throw new Error(`Runtime settings probe failed with HTTP ${runtimeRes.status}`);

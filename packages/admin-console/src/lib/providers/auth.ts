@@ -16,6 +16,7 @@ const SSO_CLIENT_ID = import.meta.env.VITE_ADMIN_SSO_CLIENT_ID || import.meta.en
 const SSO_REDIRECT_URI = import.meta.env.VITE_ADMIN_SSO_REDIRECT_URI || defaultRedirectUri();
 const SSO_LOGOUT_REDIRECT_URI = import.meta.env.VITE_ADMIN_SSO_POST_LOGOUT_REDIRECT_URI || defaultLoginUri();
 const USE_SSO = Boolean(SSO_ISSUER && SSO_CLIENT_ID);
+export const adminSsoEnabled = USE_SSO;
 // GoTrue session logout endpoint — clears httpOnly session cookie on the auth domain.
 // GoTrue does not advertise this in OIDC discovery (no end_session_endpoint),
 // but it does expose POST /auth/v1/logout which revokes the session and clears the cookie.

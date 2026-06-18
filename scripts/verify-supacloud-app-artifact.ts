@@ -20,6 +20,7 @@ const EXPECTED_REQUIRED_ENV = [
 
 const EXPECTED_FUNCTION_ROUTES = [
   '/api/*',
+  '/v1/*',
   '/v1/public/*',
   '/oauth/*',
   '/login.html',
@@ -32,6 +33,7 @@ const EXPECTED_FUNCTION_ROUTES = [
   '/claim.html',
   '/favicon.ico',
   '/favicon.svg',
+  '/admin/api/*',
   '/',
 ];
 

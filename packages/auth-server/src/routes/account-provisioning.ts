@@ -4,6 +4,7 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as accountProvisioning from '../repositories/account-provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
+import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import { batchGenerateEmails, nameToPinyinBase } from '../utils/email-generator.js';
 import { syncEmployeeStatuses, reconcileAllEmployeeStatuses } from '../sync/employee-status.js';
 
@@ -21,6 +22,26 @@ interface ImportPayload {
   /** Email domain for auto-generated addresses. Defaults to env or "example.com". */
   email_domain?: string;
 }
+
+type AccountClaimConfig = {
+  enabled: boolean;
+  external_type: string;
+  password: {
+    mode: accountProvisioning.AccountClaimPasswordMode;
+    min_length: number;
+  };
+  phrases: Record<string, Record<string, string>>;
+};
+
+const DEFAULT_ACCOUNT_CLAIM_CONFIG: AccountClaimConfig = {
+  enabled: true,
+  external_type: 'employee',
+  password: {
+    mode: 'show_initial_password',
+    min_length: 8,
+  },
+  phrases: {},
+};
 
 function defaultProvisioningEmailDomain(): string {
   return (
@@ -48,6 +69,61 @@ function consumeClaimLimit(ip: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asPasswordMode(value: unknown): accountProvisioning.AccountClaimPasswordMode {
+  return value === 'set_on_claim' ? 'set_on_claim' : 'show_initial_password';
+}
+
+function asPositiveInt(value: unknown, fallback: number, min: number, max: number): number {
+  const numberValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numberValue)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(numberValue)));
+}
+
+function sanitizePhrases(value: unknown): Record<string, Record<string, string>> {
+  if (!isRecord(value)) return {};
+  const result: Record<string, Record<string, string>> = {};
+  for (const [locale, messages] of Object.entries(value)) {
+    if (!isRecord(messages)) continue;
+    const normalizedLocale = locale.trim();
+    if (!normalizedLocale) continue;
+    const entries = Object.entries(messages)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length <= 500);
+    if (entries.length > 0) result[normalizedLocale] = Object.fromEntries(entries);
+  }
+  return result;
+}
+
+export function sanitizeAccountClaimConfig(config: unknown): AccountClaimConfig {
+  const source = isRecord(config) && isRecord(config.value) ? config.value : config;
+  const value = isRecord(source) ? source : {};
+  const password = isRecord(value.password) ? value.password : {};
+  const enabled = isRecord(config) && typeof config.enabled === 'boolean'
+    ? config.enabled
+    : value.enabled !== false;
+
+  return {
+    enabled,
+    external_type: typeof value.external_type === 'string' && value.external_type.trim()
+      ? value.external_type.trim()
+      : DEFAULT_ACCOUNT_CLAIM_CONFIG.external_type,
+    password: {
+      mode: asPasswordMode(password.mode || value.password_mode),
+      min_length: asPositiveInt(
+        password.min_length || value.password_min_length,
+        DEFAULT_ACCOUNT_CLAIM_CONFIG.password.min_length,
+        6,
+        128,
+      ),
+    },
+    phrases: sanitizePhrases(value.phrases),
+  };
+}
+
+async function readAccountClaimConfig() {
+  const config = await tenantConfigRepo.getTenantConfig('account_claim', 'default');
+  return sanitizeAccountClaimConfig(config || {});
 }
 
 function extractUsers(response: unknown): Record<string, unknown>[] {
@@ -89,6 +165,19 @@ function unwrapUser(value: Record<string, unknown>): Record<string, unknown> {
     if (isRecord(nested) && typeof nested.id === 'string') return nested;
   }
   return value;
+}
+
+async function updateClaimedUserPassword(
+  target: accountProvisioning.AccountClaimPasswordUpdateTarget,
+  password: string,
+) {
+  const existing = unwrapUser(await adapter.getUser(target.userId) as Record<string, unknown>);
+  await adapter.updateUser(target.userId, {
+    email: typeof existing.email === 'string' ? existing.email : target.email,
+    password,
+    user_metadata: isRecord(existing.user_metadata) ? existing.user_metadata : {},
+    app_metadata: isRecord(existing.app_metadata) ? existing.app_metadata : {},
+  });
 }
 
 function typedExternalIdMetadata(record: accountProvisioning.AccountProvisioningImportRecord) {
@@ -187,10 +276,19 @@ async function audit(eventType: string, resourceId: string, details?: Record<str
 
 export function createPublicAccountClaimRoutes(options?: {
   claimAccount?: typeof accountProvisioning.claimAccount;
+  getConfig?: () => Promise<AccountClaimConfig>;
+  updatePassword?: (target: accountProvisioning.AccountClaimPasswordUpdateTarget, password: string) => Promise<void>;
 }) {
   const claimAccount = options?.claimAccount || accountProvisioning.claimAccount;
+  const getConfig = options?.getConfig || readAccountClaimConfig;
+  const updatePassword = options?.updatePassword || updateClaimedUserPassword;
 
   return new Elysia({ prefix: '/v1/public/account-claims' })
+    .get('/config', async () => {
+      return { success: true, config: await getConfig() };
+    }, {
+      detail: { summary: 'Get public account claim configuration', tags: ['Public', 'Account Provisioning'] },
+    })
     .post('/claim', async ({ body, headers, set }) => {
       const ip = requestIp(headers as Record<string, string | undefined>);
       if (!consumeClaimLimit(ip)) {
@@ -198,13 +296,37 @@ export function createPublicAccountClaimRoutes(options?: {
         return { success: false, error: { code: 'too_many_attempts', message: 'Too many attempts. Please try again later.' } };
       }
 
-      const data = body as { display_name?: string; name?: string; external_id?: string; external_type?: string };
+      const config = await getConfig();
+      if (!config.enabled) {
+        set.status = 403;
+        return { success: false, error: { code: 'account_claim_disabled', message: 'Account claiming is disabled.' } };
+      }
+
+      const data = body as {
+        display_name?: string;
+        name?: string;
+        external_id?: string;
+        external_type?: string;
+        new_password?: string;
+      };
       const displayName = String(data?.display_name || data?.name || '').trim();
       const externalId = String(data?.external_id || '').trim();
-      const externalType = String(data?.external_type || 'generic').trim() || 'generic';
+      const externalType = String(data?.external_type || config.external_type || 'generic').trim() || 'generic';
       if (!displayName || !externalId) {
         set.status = 400;
         return { success: false, error: { code: 'invalid_request', message: 'Display name and external ID are required.' } };
+      }
+      const passwordMode = config.password.mode;
+      const newPassword = String(data?.new_password || '');
+      if (passwordMode === 'set_on_claim' && newPassword.length < config.password.min_length) {
+        set.status = 400;
+        return {
+          success: false,
+          error: {
+            code: 'password_too_short',
+            message: `Password must be at least ${config.password.min_length} characters.`,
+          },
+        };
       }
 
       const headerMap = headers as Record<string, string | undefined>;
@@ -214,6 +336,9 @@ export function createPublicAccountClaimRoutes(options?: {
         externalType,
         ip,
         userAgent: headerMap['user-agent'],
+        passwordMode,
+        newPassword: passwordMode === 'set_on_claim' ? newPassword : undefined,
+        updatePassword: passwordMode === 'set_on_claim' ? updatePassword : undefined,
       });
 
       if (result.status === 'not_found') {
@@ -241,7 +366,7 @@ export function createPublicAccountClaimRoutes(options?: {
         success: true,
         status: result.status,
         email: result.email,
-        initial_password: result.initialPassword,
+        ...('passwordSet' in result ? { password_set: result.passwordSet } : { initial_password: result.initialPassword }),
       };
     }, {
       detail: { summary: 'Claim a pre-provisioned SupaOAuth account', tags: ['Public', 'Account Provisioning'] },

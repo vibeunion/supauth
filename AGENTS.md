@@ -1,6 +1,6 @@
 # Agent Configuration Template
 
-> 📋 此文件由 [agent-team-config](https://github.com/zuohuadong/agent-team-config) 自动部署，同时同步为 `.cursorrules`、`CLAUDE.md`、`HERMES.md` 和 `.goosehints`；若启用 Roo Code，还会额外部署 `.roomodes` 与 `.roo/` 规则目录。
+> 📋 此文件由 [agent-team-config](https://github.com/zuohuadong/agent-team-config) 自动部署，同时同步为 `CLAUDE.md`。
 > 修改后会在下次 `agent-team deploy` 时被覆盖。如需项目自定义，请创建 `.agents/AGENTS.local.md`（并在本文末尾引入）。
 
 ## 语言与交流规范 (Language Preferences)
@@ -82,7 +82,7 @@
 
 ### Delegation Gate（默认启动子代理）
 
-**核心原则：有任务时默认启动子代理执行，主进程负责审查和裁决。**
+**核心原则：行动型任务必须先做 Delegation Decision；默认主进程拆解，子代理执行或独立验证，主进程最终审查裁决。**
 
 调度命令：
 - `agent-team subagent dispatch <role> "<prompt>"` — 派发子代理任务
@@ -94,14 +94,14 @@
 - Executor: `gpt-5.3-codex` — 实现、测试、修复 (sandbox: workspace-write)
 - Explorer / Critic / Verifier: `gpt-5.3-codex` — 探索、评审、验证 (sandbox: read-only)
 
-标准流程（有明确目标的任务）：
+标准流程（中/高风险、多文件、多 subsystem、根因不明或需要自审的任务）：
 1. Explorer 探索代码和上下文
 2. Executor 实现
 3. Verifier 独立验证
 4. Orchestrator 审查所有输出并裁决
 
-低风险单文件修复可跳过 Explorer/Critic，但必须仍有 Verifier。
-纯文档/格式化/简单命令可跳过全部子代理，但必须记录 `safe_skip_reason`。
+低风险单文件且验收清楚的任务可由主进程直接实现，但完成前仍必须派发独立 Verifier。
+纯解释、只读、简单命令、格式化或纯文档任务可跳过全部子代理，但必须记录 `safe_skip_reason`。
 
 ### 终端、系统与 Git 安全护栏 (Safety & Permissions guardrails)
 
@@ -151,7 +151,9 @@ Directive: <警告>             # 给未来修改者
 
 - 默认任务入口是 Task Contract；GitHub、CNB、GitLab、本地 `tasks.md` 都只是 provider adapter
 - 领取任务前必须识别相关 skill、项目规则、代码规范和测试约定，并写入 Task Contract
-- 实现有明确目标的任务时默认启动子代理（explorer → executor → verifier），主进程负责审查；低风险简单任务可跳过但必须记录 `safe_skip_reason`
+- 实现、修复、测试、部署、重构、PR/MR、任务自动化等行动型请求都视为任务，必须先做 Delegation Decision，再改文件；默认主进程拆解，子代理执行或独立验证，主进程最终审查裁决。
+- 完整子代理流水线适用于中/高风险、多文件/多 subsystem、架构/API/数据/状态机/迁移/安全/权限/计费/生产配置、根因不明、不熟悉区域、UI/E2E 行为、需要外部核验、或需要审查自己完成声明的任务；低风险单文件且验收清楚的任务至少需要独立 Verifier；完全跳过仅限纯解释/只读/简单命令/格式化/纯文档并记录 `safe_skip_reason`。
+- 设计文档、架构/API/数据模型或高风险方案本身是交付物时，优先使用 `/design-review`；如果 `.agents/goal-forge/` 已部署且项目上级目录存在 `goal-forge` checkout，也可以使用 `agent-team goal-forge init . "<goal>"` 创建 Goal Forge run，并在 Task Contract 的 `goal_forge.run_dir` 记录证据路径
 - 执行器优先使用 `gpt-5.3-codex`，在每个项目内串行循环处理 eligible `ready` 任务，直到任务列表没有可执行任务
 - 同一时间只领取并持有 1 个任务；每完成或阻塞一个任务后，重新读取 ledger 和 mailbox
 - 每小时审查器优先使用 `gpt-5.5`，只处理 `review` 状态的 PR/MR
@@ -164,7 +166,7 @@ Directive: <警告>             # 给未来修改者
 
 ## Skill 与代码规范
 
-- 如果任务涉及特定技术栈，先查 `.agents/prompts/`、`.agents/workflows/`、`references/skills/`、项目级 `AGENTS.md` / `GEMINI.md` 中的相关规范
+- 如果任务涉及特定技术栈，先查 `.agents/prompts/`、`.agents/workflows/`、`references/skills/`、项目级 `AGENTS.md` 中的相关规范
 - 不确定任务应加载哪些 skill 时，优先查全局 `references/skills/INDEX.md` 或已安装的 `~/.codex/skills/agent-team/INDEX.md`
 - 涉及默认技术栈、后端框架、前端框架、SvelteKit/Nuxt、数据库、桌面端、移动端、小程序、Mpx 或部署平台边界时，先加载 `stack-profile-selector`；涉及托管/部署时再加载 `deployment-target-selector`；涉及数据库/持久化时再加载 `database-profile-selector`，并按证据加载 `elysiajs` / `nestjs-backend` / `hono-backend` / `svelte-code-writer` / `svelte-core-bestpractices` / `vue-frontend` / `alpine-frontend` / `sveltekit-fullstack` / `nuxt-fullstack` / `sqlite-database` / `cloudflare-d1-database` / `postgres-database` / `electron-desktop` / `tauri-desktop` / `mobile-app` / `mpx-development-guides` / `supacloud-platform` / `svadmin-admin-ui` / `edgeone-deploy` / `cloudflare-edge-hosting` 等具体 skill
 - Codex 环境下优先使用已安装的 `~/.codex/skills/agent-team/` 技能，不要绕过本地 skill 自行发明规范

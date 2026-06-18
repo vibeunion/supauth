@@ -207,7 +207,8 @@ function publicAdminPath(pathname: string): boolean {
   return pathname === '/v1/health'
     || pathname === '/v1/project'
     || pathname.startsWith('/v1/runtime')
-    || pathname.startsWith('/v1/auth')
+    || pathname === '/v1/auth'
+    || pathname.startsWith('/v1/auth/')
     || pathname.startsWith('/v1/public')
     || pathname.startsWith('/swagger');
 }

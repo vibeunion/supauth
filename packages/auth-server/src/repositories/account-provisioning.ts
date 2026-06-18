@@ -31,10 +31,23 @@ export interface AccountClaimInput {
   externalType?: string;
   ip?: string;
   userAgent?: string;
+  passwordMode?: AccountClaimPasswordMode;
+  newPassword?: string;
+  updatePassword?: (target: AccountClaimPasswordUpdateTarget, password: string) => Promise<void>;
+}
+
+export type AccountClaimPasswordMode = 'show_initial_password' | 'set_on_claim';
+
+export interface AccountClaimPasswordUpdateTarget {
+  userId: string;
+  email: string;
+  externalId: string;
+  externalType: string;
 }
 
 export type AccountClaimResult =
   | { status: 'claimed'; email: string; initialPassword: string }
+  | { status: 'claimed'; email: string; passwordSet: true }
   | { status: 'already_claimed'; email: string; claimedAt: Date | null }
   | { status: 'password_unavailable'; email: string }
   | { status: 'not_found' };
@@ -183,6 +196,21 @@ export async function claimAccount(input: AccountClaimInput): Promise<AccountCla
   }
 
   const initialPassword = decryptInitialPassword(record.initialPasswordEncrypted);
+  const passwordMode = input.passwordMode || 'show_initial_password';
+
+  if (passwordMode === 'set_on_claim') {
+    if (!input.newPassword || !record.userId || !input.updatePassword) {
+      return { status: 'password_unavailable', email: record.email };
+    }
+
+    await input.updatePassword({
+      userId: record.userId,
+      email: record.email,
+      externalId: record.externalId,
+      externalType: record.externalType,
+    }, input.newPassword);
+  }
+
   const db = getDb();
   await db.update(accountProvisioningRecords).set({
     initialPasswordClaimed: true,
@@ -201,8 +229,13 @@ export async function claimAccount(input: AccountClaimInput): Promise<AccountCla
       email: record.email,
       ip: input.ip || null,
       user_agent: input.userAgent || null,
+      password_mode: passwordMode,
     },
   });
+
+  if (passwordMode === 'set_on_claim') {
+    return { status: 'claimed', email: record.email, passwordSet: true };
+  }
 
   return { status: 'claimed', email: record.email, initialPassword };
 }

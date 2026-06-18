@@ -182,7 +182,9 @@ export async function verifySupacloudInstalledApp(input: {
   const fetchImpl = input.fetchImpl || fetch;
   const requiredSupauthProbes: Array<[string, string, ProbeExpectation]> = [
     ['supauth_health_api_strip_prefix', joinUrl(baseUrl, '/api/v1/health'), 'exact-200'],
+    ['supauth_management_api', joinUrl(baseUrl, '/v1/auth-config'), 'route-exists'],
     ['public_sign_in_experience', joinUrl(baseUrl, '/v1/public/sign-in-experience/resolve'), 'route-exists'],
+    ['admin_console_page', joinUrl(baseUrl, '/admin/security'), 'exact-200'],
     ['hosted_login_page', joinUrl(baseUrl, '/login.html'), 'exact-200'],
     ['account_center_page', joinUrl(baseUrl, '/account'), 'exact-200'],
     ['account_center_html', joinUrl(baseUrl, '/account.html'), 'exact-200'],

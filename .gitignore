@@ -24,3 +24,4 @@ OPENCODE.md
 
 artifacts/
 # Release gate output (release-manifest.json, openapi.json)
+.agents/goal-forge/runs/

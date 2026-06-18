@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { loadConfig } from "../config/index.js";
 
 function setupConfig() {
+  delete process.env.SUPAUTH_PUBLIC_URL;
+  delete process.env.AUTH_PUBLIC_URL;
   process.env.OAUTH_RUNTIME_URL = "http://runtime.test";
+  process.env.OAUTH_RUNTIME_INTERNAL_URL = "http://runtime-internal.test";
   process.env.SUPACLOUD_API_URL = "http://localhost:9090";
   process.env.SUPACLOUD_MASTER_TOKEN = "test-token";
   process.env.PROJECT_REF = "test-ref";
@@ -76,5 +79,35 @@ describe("auth config runtime consistency", () => {
     expect(result.consistent).toBe(true);
     expect(result.desired.signups_enabled).toBe(false);
     expect(result.runtime.signups_enabled).toBe(false);
+  });
+
+  it("falls back to the public runtime settings endpoint when the internal runtime is unreachable", async () => {
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("/v1/projects/test-ref/config/auth")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          enable_signup: false,
+        }), { status: 200 }));
+      }
+
+      if (url.startsWith("http://runtime-internal.test/auth/v1/settings")) {
+        return Promise.reject(new Error("Unable to connect. Is the computer able to access the url?"));
+      }
+
+      if (url.startsWith("http://runtime.test/auth/v1/settings")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          disable_signup: true,
+        }), { status: 200 }));
+      }
+
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    const { getAuthConfigRuntimeConsistency } = await import("../routes/sign-in-experience.js");
+    const result = await getAuthConfigRuntimeConsistency(globalThis.fetch);
+
+    expect(result.consistent).toBe(true);
+    expect(result.runtime.disable_signup).toBe(true);
   });
 });

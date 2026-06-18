@@ -286,6 +286,7 @@ async function configureGatewayRoutes(input: {
       hosts: [host],
       path: [
         '/api/*',
+        '/v1/*',
         '/v1/public/*',
         '/oauth/*',
         '/login.html',
@@ -298,6 +299,7 @@ async function configureGatewayRoutes(input: {
         '/claim.html',
         '/favicon.ico',
         '/favicon.svg',
+        '/admin/api/*',
         '/',
       ],
       upstream: input.edgeRuntimeUpstream,

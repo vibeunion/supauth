@@ -24,6 +24,7 @@ interface AccountSuccess {
 type AccountResult = AccountSuccess | AccountFailure;
 
 type ListResult = { items: unknown[]; total: number };
+type MfaOperationResult = { ok: true; data: Record<string, unknown> } | AccountFailure;
 
 type AccountCenterConfig = {
   enabled: boolean;
@@ -309,6 +310,41 @@ function normalizeName(body: unknown): string | AccountFailure {
   return name;
 }
 
+function normalizeTotpEnrollment(body: unknown) {
+  const input = isRecord(body) ? body : {};
+  const friendlyName = typeof input.friendly_name === 'string'
+    ? input.friendly_name.trim()
+    : typeof input.name === 'string'
+      ? input.name.trim()
+      : 'Authenticator app';
+  const issuer = typeof input.issuer === 'string' ? input.issuer.trim() : '';
+
+  return {
+    friendly_name: friendlyName.slice(0, 80) || 'Authenticator app',
+    ...(issuer && issuer.length <= 80 ? { issuer } : {}),
+  };
+}
+
+function normalizeTotpCode(body: unknown): string | AccountFailure {
+  const input = isRecord(body) ? body : {};
+  const code = typeof input.code === 'string' ? input.code.replace(/\s+/g, '') : '';
+  if (!/^\d{6,8}$/.test(code)) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'invalid_mfa_code',
+      message: 'Provide a valid authenticator code.',
+    };
+  }
+  return code;
+}
+
+function challengeIdFrom(body: unknown): string | null {
+  const input = isRecord(body) ? body : {};
+  const challengeId = input.challenge_id || input.challengeId;
+  return typeof challengeId === 'string' && challengeId.trim() ? challengeId.trim() : null;
+}
+
 function passkeyIdFrom(value: unknown) {
   if (!isRecord(value)) return '';
   const id = value.id || value.passkey_id || value.credential_id;
@@ -336,6 +372,72 @@ function toListResponse(value: unknown): ListResult {
     return { items, total: typeof value.total === 'number' ? value.total : items.length };
   }
   return { items: [], total: 0 };
+}
+
+function publicMfaEnrollmentPayload(payload: Record<string, unknown>) {
+  const totp = isRecord(payload.totp) ? payload.totp : {};
+  const factorId = payload.id || payload.factor_id;
+  return {
+    factor_id: typeof factorId === 'string' ? factorId : '',
+    id: typeof factorId === 'string' ? factorId : '',
+    type: payload.type || payload.factor_type || 'totp',
+    status: payload.status || payload.factor_status || 'unverified',
+    friendly_name: payload.friendly_name || payload.name || null,
+    totp: {
+      qr_code: typeof totp.qr_code === 'string' ? totp.qr_code : '',
+      uri: typeof totp.uri === 'string' ? totp.uri : '',
+    },
+  };
+}
+
+async function fetchGoTrueJsonWithUserToken(
+  accessToken: string,
+  routePath: string,
+  init: RequestInit,
+  failureCode: string,
+  fallbackMessage: string,
+  options: {
+    fetchImpl?: typeof fetch;
+    runtimeBaseUrls?: string[];
+    emptySuccessData?: Record<string, unknown>;
+  } = {},
+): Promise<MfaOperationResult> {
+  const fetchImpl = options.fetchImpl || fetch;
+  const bases = goTrueBaseCandidates(options.runtimeBaseUrls);
+  if (bases.length === 0) return accountUnavailable('Authentication runtime is not configured.');
+
+  let lastError: unknown = null;
+  for (const base of bases) {
+    try {
+      const response = await fetchImpl(buildGoTrueApiUrl(base, routePath), {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          ...(init.headers || {}),
+        },
+        signal: init.signal || AbortSignal.timeout(5000),
+      });
+      const payload = await readJson(response);
+      if (response.status === 401 || response.status === 403) return invalidToken();
+      if (response.ok && !isRecord(payload) && options.emptySuccessData) {
+        return { ok: true, data: options.emptySuccessData };
+      }
+      if (!response.ok || !isRecord(payload)) {
+        return {
+          ok: false,
+          status: response.status,
+          code: failureCode,
+          message: typeof payload?.message === 'string' ? payload.message : fallbackMessage,
+        };
+      }
+      return { ok: true, data: payload };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  return accountUnavailable(lastError instanceof Error ? lastError.message : undefined);
 }
 
 async function auditProfileUpdate(user: Record<string, unknown>, keys: string[]) {
@@ -496,6 +598,107 @@ export async function updateAccountContactWithGoTrue(
   return accountUnavailable(lastError instanceof Error ? lastError.message : undefined);
 }
 
+export async function enrollTotpMfaWithGoTrue(
+  accessToken: string,
+  input: { friendly_name: string; issuer?: string },
+  options: {
+    fetchImpl?: typeof fetch;
+    runtimeBaseUrls?: string[];
+  } = {},
+): Promise<MfaOperationResult> {
+  const result = await fetchGoTrueJsonWithUserToken(
+    accessToken,
+    '/factors',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        factor_type: 'totp',
+        friendly_name: input.friendly_name,
+        ...(input.issuer ? { issuer: input.issuer } : {}),
+      }),
+    },
+    'mfa_enrollment_failed',
+    'MFA enrollment failed.',
+    options,
+  );
+  if (!result.ok) return result;
+  return { ok: true, data: publicMfaEnrollmentPayload(result.data) };
+}
+
+export async function verifyTotpMfaWithGoTrue(
+  accessToken: string,
+  factorId: string,
+  input: { code: string; challengeId?: string | null },
+  options: {
+    fetchImpl?: typeof fetch;
+    runtimeBaseUrls?: string[];
+  } = {},
+): Promise<MfaOperationResult> {
+  const encodedFactorId = encodeURIComponent(factorId);
+  let challengeId = input.challengeId || null;
+  if (!challengeId) {
+    const challenge = await fetchGoTrueJsonWithUserToken(
+      accessToken,
+      `/factors/${encodedFactorId}/challenge`,
+      {
+        method: 'POST',
+        body: JSON.stringify({}),
+      },
+      'mfa_challenge_failed',
+      'MFA challenge failed.',
+      options,
+    );
+    if (!challenge.ok) return challenge;
+    const rawChallengeId = challenge.data.id || challenge.data.challenge_id;
+    challengeId = typeof rawChallengeId === 'string' ? rawChallengeId : null;
+    if (!challengeId) {
+      return {
+        ok: false,
+        status: 502,
+        code: 'mfa_challenge_invalid',
+        message: 'MFA challenge response did not include a challenge id.',
+      };
+    }
+  }
+
+  return fetchGoTrueJsonWithUserToken(
+    accessToken,
+    `/factors/${encodedFactorId}/verify`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        code: input.code,
+        challenge_id: challengeId,
+      }),
+    },
+    'mfa_verification_failed',
+    'MFA verification failed.',
+    options,
+  );
+}
+
+export async function unenrollMfaFactorWithGoTrue(
+  accessToken: string,
+  factorId: string,
+  options: {
+    fetchImpl?: typeof fetch;
+    runtimeBaseUrls?: string[];
+  } = {},
+): Promise<MfaOperationResult> {
+  const encodedFactorId = encodeURIComponent(factorId);
+  return fetchGoTrueJsonWithUserToken(
+    accessToken,
+    `/factors/${encodedFactorId}`,
+    { method: 'DELETE' },
+    'mfa_unenroll_failed',
+    'MFA factor unenroll failed.',
+    {
+      ...options,
+      emptySuccessData: { id: factorId, status: 'unenrolled' },
+    },
+  );
+}
+
 async function listCurrentUserSessions(userId: string) {
   return toListResponse(await adapter.listUserSessions(userId));
 }
@@ -581,9 +784,12 @@ export function createPublicAccountRoutes(options?: {
   renamePasskey?: (userId: string, passkeyId: string, name: string) => Promise<unknown | AccountFailure>;
   revokePasskey?: (userId: string, passkeyId: string) => Promise<unknown | AccountFailure>;
   resetMfa?: (userId: string, factorId: string) => Promise<unknown>;
+  enrollTotpMfa?: (accessToken: string, input: { friendly_name: string; issuer?: string }) => Promise<MfaOperationResult>;
+  verifyTotpMfa?: (accessToken: string, factorId: string, input: { code: string; challengeId?: string | null }) => Promise<MfaOperationResult>;
+  unenrollMfa?: (accessToken: string, factorId: string) => Promise<MfaOperationResult>;
   deleteAccount?: (userId: string) => Promise<unknown>;
   auditEvent?: (eventType: string, userId: string, details?: Record<string, unknown>) => Promise<void>;
-}) {
+  }) {
   const getAccount = options?.getAccount || getAccountWithGoTrue;
   const updateProfile = options?.updateProfile || updateAccountProfileWithGoTrue;
   const updateContact = options?.updateContact || updateAccountContactWithGoTrue;
@@ -597,8 +803,11 @@ export function createPublicAccountRoutes(options?: {
   const renamePasskey = options?.renamePasskey || renameCurrentUserPasskey;
   const revokePasskey = options?.revokePasskey || revokeCurrentUserPasskey;
   const resetMfa = options?.resetMfa || resetCurrentUserMfa;
-  const deleteAccount = options?.deleteAccount || deleteCurrentUserAccount;
-  const auditEvent = options?.auditEvent || auditAccountEvent;
+  const enrollTotpMfa = options?.enrollTotpMfa || enrollTotpMfaWithGoTrue;
+  const verifyTotpMfa = options?.verifyTotpMfa || verifyTotpMfaWithGoTrue;
+  const unenrollMfa = options?.unenrollMfa || unenrollMfaFactorWithGoTrue;
+    const deleteAccount = options?.deleteAccount || deleteCurrentUserAccount;
+    const auditEvent = options?.auditEvent || auditAccountEvent;
 
   async function requireAccount(headers: Record<string, string | undefined>, set: { status?: unknown }) {
     const token = bearerToken(headers);
@@ -906,7 +1115,7 @@ export function createPublicAccountRoutes(options?: {
     }, {
       detail: { summary: 'Revoke current account passkey with user access token', tags: ['Public', 'Account Center'] },
     })
-    .get('/mfa', async ({ headers, set }) => {
+      .get('/mfa', async ({ headers, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -918,10 +1127,59 @@ export function createPublicAccountRoutes(options?: {
       if (!feature.ok) return feature.response;
       const items = mfaFactorsFromUser(account.user);
       return { success: true, items, total: items.length };
-    }, {
-      detail: { summary: 'List current account MFA factors with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .post('/mfa/:factorId/reset', async ({ headers, params, set }) => {
+      }, {
+        detail: { summary: 'List current account MFA factors with user access token', tags: ['Public', 'Account Center'] },
+      })
+      .post('/mfa/totp/enroll', async ({ headers, body, set }) => {
+        const account = await requireAccount(headers as Record<string, string | undefined>, set);
+        if (!account.ok) return account.response;
+        const feature = await requireFeature(
+          set,
+          (config) => config.security.mfa,
+          'mfa_disabled',
+          'MFA management is disabled for this account center.',
+        );
+        if (!feature.ok) return feature.response;
+        const result = await enrollTotpMfa(account.token, normalizeTotpEnrollment(body));
+        if (!result.ok) {
+          set.status = result.status;
+          return { success: false, error: { code: result.code, message: result.message } };
+        }
+        await auditEvent('my_account.mfa.totp.enrolled', account.userId, { factor_id: result.data.factor_id || null });
+        return { success: true, enrollment: result.data };
+      }, {
+        detail: { summary: 'Enroll current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
+      })
+      .post('/mfa/:factorId/verify', async ({ headers, params, body, set }) => {
+        const account = await requireAccount(headers as Record<string, string | undefined>, set);
+        if (!account.ok) return account.response;
+        const feature = await requireFeature(
+          set,
+          (config) => config.security.mfa,
+          'mfa_disabled',
+          'MFA management is disabled for this account center.',
+        );
+        if (!feature.ok) return feature.response;
+        const code = normalizeTotpCode(body);
+        if (isFailure(code as AccountFailure)) {
+          const failure = code as AccountFailure;
+          set.status = failure.status;
+          return { success: false, error: { code: failure.code, message: failure.message } };
+        }
+        const result = await verifyTotpMfa(account.token, params.factorId, {
+          code: code as string,
+          challengeId: challengeIdFrom(body),
+        });
+        if (!result.ok) {
+          set.status = result.status;
+          return { success: false, error: { code: result.code, message: result.message } };
+        }
+        await auditEvent('my_account.mfa.totp.verified', account.userId, { factor_id: params.factorId });
+        return { success: true, result: result.data, status: 'verified' };
+      }, {
+        detail: { summary: 'Verify current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
+      })
+      .post('/mfa/:factorId/reset', async ({ headers, params, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -934,6 +1192,26 @@ export function createPublicAccountRoutes(options?: {
       return { success: true, result: await resetMfa(account.userId, params.factorId) };
     }, {
       detail: { summary: 'Reset current account MFA factor with user access token', tags: ['Public', 'Account Center'] },
+    })
+    .delete('/mfa/:factorId', async ({ headers, params, set }) => {
+      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+      if (!account.ok) return account.response;
+      const feature = await requireFeature(
+        set,
+        (config) => config.security.mfa,
+        'mfa_disabled',
+        'MFA management is disabled for this account center.',
+      );
+      if (!feature.ok) return feature.response;
+      const result = await unenrollMfa(account.token, params.factorId);
+      if (!result.ok) {
+        set.status = result.status;
+        return { success: false, error: { code: result.code, message: result.message } };
+      }
+      await auditEvent('my_account.mfa.unenrolled', account.userId, { factor_id: params.factorId });
+      return { success: true, result: result.data, status: 'unenrolled' };
+    }, {
+      detail: { summary: 'Unenroll current account MFA factor with user access token', tags: ['Public', 'Account Center'] },
     })
     .delete('/', async ({ headers, body, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);
