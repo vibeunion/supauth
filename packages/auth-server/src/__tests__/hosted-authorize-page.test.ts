@@ -31,6 +31,14 @@ describe('hostedPageRoutes', () => {
     ]);
   });
 
+  test('Admin Console SPA asset routes do not fall back to index.html', () => {
+    expect(adminConsoleSpaCandidates(['/opt/supauth/packages/admin-console/build'], '_app/immutable/missing.js')).toEqual([
+      '/opt/supauth/packages/admin-console/build/_app/immutable/missing.js',
+      '/opt/supauth/packages/admin-console/build/_app/immutable/missing.js.html',
+      '/opt/supauth/packages/admin-console/build/_app/immutable/missing.js/index.html',
+    ]);
+  });
+
   test('GET /oauth/authorize serves hosted authorize html', async () => {
     const response = await request('http://localhost/oauth/authorize?authorization_id=test-authz');
     const body = await response.text();
