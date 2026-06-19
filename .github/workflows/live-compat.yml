@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 15
     # Only run when the live runtime secrets are available
     if: github.event_name == 'workflow_dispatch' || github.repository == 'zuohuadong/supauth'
+    env:
+      PATH: /Users/zhd/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
     steps:
       - name: Use SSH for GitHub checkout
@@ -23,13 +25,10 @@ jobs:
 
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - name: Verify local toolchain
+        run: |
+          node --version
+          bun --version
 
       - name: Install dependencies
         run: bun install
