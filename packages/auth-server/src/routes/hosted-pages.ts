@@ -86,6 +86,7 @@ async function findFirstExistingFile(candidates: string[]) {
 }
 
 export function adminConsoleSpaCandidates(buildDirs: string[], sub: string) {
+  const shouldFallbackToIndex = !sub.startsWith('_app/') && !sub.startsWith('assets/');
   return buildDirs.flatMap(dir => {
     const candidates = sub
       ? [
@@ -94,7 +95,7 @@ export function adminConsoleSpaCandidates(buildDirs: string[], sub: string) {
         path.join(dir, sub, 'index.html'),
       ]
       : [];
-    return [...candidates, path.join(dir, 'index.html')];
+    return shouldFallbackToIndex ? [...candidates, path.join(dir, 'index.html')] : candidates;
   });
 }
 
