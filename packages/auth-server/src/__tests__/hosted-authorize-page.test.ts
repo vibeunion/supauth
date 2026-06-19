@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import { hostedPageRoutes, resolveHostedPagePaths } from '../routes/hosted-pages.js';
+import { adminConsoleSpaCandidates, hostedPageRoutes, resolveHostedPagePaths } from '../routes/hosted-pages.js';
 
 function request(url: string, init?: RequestInit) {
   const app = new Elysia().use(hostedPageRoutes);
@@ -20,6 +20,15 @@ describe('hostedPageRoutes', () => {
     expect(fromDist.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
     expect(fromDist.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
     expect(fromDist.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
+  });
+
+  test('Admin Console SPA routes fall back to index.html for client routes', () => {
+    expect(adminConsoleSpaCandidates(['/opt/supauth/packages/admin-console/build'], 'security')).toEqual([
+      '/opt/supauth/packages/admin-console/build/security',
+      '/opt/supauth/packages/admin-console/build/security.html',
+      '/opt/supauth/packages/admin-console/build/security/index.html',
+      '/opt/supauth/packages/admin-console/build/index.html',
+    ]);
   });
 
   test('GET /oauth/authorize serves hosted authorize html', async () => {

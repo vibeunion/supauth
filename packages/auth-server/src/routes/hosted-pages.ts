@@ -85,6 +85,19 @@ async function findFirstExistingFile(candidates: string[]) {
   return null;
 }
 
+export function adminConsoleSpaCandidates(buildDirs: string[], sub: string) {
+  return buildDirs.flatMap(dir => {
+    const candidates = sub
+      ? [
+        path.join(dir, sub),
+        path.join(dir, `${sub}.html`),
+        path.join(dir, sub, 'index.html'),
+      ]
+      : [];
+    return [...candidates, path.join(dir, 'index.html')];
+  });
+}
+
 async function loadAuthorizeHtml(): Promise<string | null> {
   // Custom UI takes priority
   const customFile = await findFirstExistingFile(
@@ -337,7 +350,7 @@ export const hostedPageRoutes = new Elysia()
   .get('/admin/*', ({ params }) => {
     const sub = (params as Record<string, string>)['*'] || '';
     const resp = serveFirstStaticFile(
-      hostedPagePaths.adminConsoleBuildDirs.map(dir => path.join(dir, sub || 'index.html')),
+      adminConsoleSpaCandidates(hostedPagePaths.adminConsoleBuildDirs, sub),
     );
     if (!resp) return new Response('Not Found', { status: 404 });
     return resp;
