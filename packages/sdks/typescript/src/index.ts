@@ -78,6 +78,19 @@ interface ApplicationBinding {
   created_at: string;
 }
 
+interface OAuthApplication {
+  client_id: string;
+  client_name?: string;
+  client_type?: string;
+  redirect_uris?: string[];
+  grant_types?: string[];
+  token_endpoint_auth_method?: string;
+  client_secret?: string;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
 interface RoleAssignment {
   id: string;
   role_id: string;
@@ -100,6 +113,37 @@ interface SyncResult {
 
 interface WebhookEventList {
   events: string[];
+}
+
+interface WebhookDeliveryLog {
+  id?: string;
+  event?: string;
+  event_type?: string;
+  eventType?: string;
+  status?: string | number;
+  status_code?: number;
+  statusCode?: number;
+  http_status?: number;
+  httpStatus?: number;
+  success?: boolean;
+  ok?: boolean;
+  delivered?: boolean;
+  error?: string;
+  error_message?: string;
+  errorMessage?: string;
+  signature_status?: string;
+  signatureStatus?: string;
+  signature_verified?: boolean;
+  signatureVerified?: boolean;
+  signature_valid?: boolean;
+  signatureValid?: boolean;
+  payload?: Record<string, unknown>;
+  body?: Record<string, unknown>;
+  created_at?: string;
+  createdAt?: string;
+  delivered_at?: string;
+  deliveredAt?: string;
+  [key: string]: unknown;
 }
 
 interface UserConsent {
@@ -396,7 +440,7 @@ export class SupaOAuthClient {
 
   // ─── Applications ──────────────────────────────────────
   listApplications() {
-    return this.request<unknown[]>('/v1/applications');
+    return this.request<ListResponse<OAuthApplication>>('/v1/applications');
   }
 
   createApplication(data: CreateApplicationInput) {
@@ -938,7 +982,7 @@ export class SupaOAuthClient {
 
   listWebhookLogs(webhookId: string, limit?: number) {
     const qs = limit ? `?limit=${limit}` : '';
-    return this.request<ListResponse<AuditLogEntry>>(`/v1/webhooks/${webhookId}/logs${qs}`);
+    return this.request<ListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${webhookId}/logs${qs}`);
   }
 
   testWebhook(webhookId: string, data?: { event?: string; payload?: Record<string, unknown> }) {

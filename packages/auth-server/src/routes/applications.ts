@@ -1,7 +1,7 @@
 // Application management routes with OpenAPI annotations
 
 import { Elysia, t } from 'elysia';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as bindingRepo from '../repositories/bindings.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
@@ -18,11 +18,35 @@ async function fireWebhook(eventType: string, data: Record<string, unknown>) {
   try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
 }
 
+const LIST_KEYS = ['items', 'data', 'clients', 'oauth_clients', 'applications', 'secrets'] as const;
+
+function listInfo(value: unknown): { items: unknown[]; total?: number } | null {
+  if (Array.isArray(value)) return { items: value };
+  if (!value || typeof value !== 'object') return null;
+
+  const record = value as Record<string, unknown>;
+  for (const key of LIST_KEYS) {
+    const candidate = record[key];
+    if (Array.isArray(candidate)) return { items: candidate };
+    if (candidate && typeof candidate === 'object' && Array.isArray((candidate as Record<string, unknown>).items)) {
+      const nested = candidate as { items: unknown[]; total?: unknown };
+      return {
+        items: nested.items,
+        total: typeof nested.total === 'number' ? nested.total : undefined,
+      };
+    }
+  }
+
+  return null;
+}
+
 function toListResponse(value: unknown) {
-  if (Array.isArray(value)) return { items: value, total: value.length };
-  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
-    const items = (value as { items: unknown[]; total?: unknown }).items;
-    return { items, total: typeof (value as { total?: unknown }).total === 'number' ? (value as { total: number }).total : items.length };
+  const list = listInfo(value);
+  if (list) {
+    const total = value && typeof value === 'object' && typeof (value as { total?: unknown }).total === 'number'
+      ? (value as { total: number }).total
+      : list.total ?? list.items.length;
+    return { items: list.items, total };
   }
   return { items: [], total: 0 };
 }
@@ -33,11 +57,21 @@ function getSecretId(secret: unknown) {
   return String(record.secret_id || record.secretId || record.id || '');
 }
 
+function unsupportedClientSecretsResponse() {
+  return new Response(JSON.stringify({
+    error: 'not_supported',
+    message: 'This SupaCloud cluster does not support per-client secret lifecycle APIs. Use Rotate Secret for the current OAuth client.',
+  }), {
+    status: 501,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   .get('/', async () => {
     const res = await adapter.listOAuthClients();
     await audit('application.list', 'application', 'all');
-    return res;
+    return toListResponse(res);
   }, {
     detail: { summary: 'List OAuth applications', tags: ['Applications'] },
   })
@@ -89,10 +123,16 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
 
   .post('/:appId/secrets', async ({ params, body }) => {
     const data = body as { name?: string; expires_at?: string };
-    const secret = await adapter.createClientSecret(params.appId, {
-      name: data.name,
-      expires_at: data.expires_at,
-    });
+    let secret: unknown;
+    try {
+      secret = await adapter.createClientSecret(params.appId, {
+        name: data.name,
+        expires_at: data.expires_at,
+      });
+    } catch (error) {
+      if (isSupaCloudApiError(error, [404, 501])) return unsupportedClientSecretsResponse();
+      throw error;
+    }
     await audit('application.secret.create', 'application', params.appId, { secret_id: getSecretId(secret) });
     await fireWebhook('application.secret_created', { client_id: params.appId, secret_id: getSecretId(secret) });
     return secret;
@@ -101,7 +141,13 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .post('/:appId/secrets/:secretId/disable', async ({ params }) => {
-    const secret = await adapter.disableClientSecret(params.appId, params.secretId);
+    let secret: unknown;
+    try {
+      secret = await adapter.disableClientSecret(params.appId, params.secretId);
+    } catch (error) {
+      if (isSupaCloudApiError(error, [404, 501])) return unsupportedClientSecretsResponse();
+      throw error;
+    }
     await audit('application.secret.disable', 'application', params.appId, { secret_id: params.secretId });
     return secret;
   }, {
@@ -109,7 +155,13 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .delete('/:appId/secrets/:secretId', async ({ params }) => {
-    const secret = await adapter.deleteClientSecret(params.appId, params.secretId);
+    let secret: unknown;
+    try {
+      secret = await adapter.deleteClientSecret(params.appId, params.secretId);
+    } catch (error) {
+      if (isSupaCloudApiError(error, [404, 501])) return unsupportedClientSecretsResponse();
+      throw error;
+    }
     await audit('application.secret.delete', 'application', params.appId, { secret_id: params.secretId });
     return secret;
   }, {

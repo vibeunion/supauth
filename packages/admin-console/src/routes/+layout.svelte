@@ -9,6 +9,7 @@
   import { supaoauthDataProvider } from '$lib/providers/data.js';
   import { adminSsoEnabled, supaoauthAuthProvider } from '$lib/providers/auth.js';
   import { supaoauthResources } from '$lib/providers/resources.js';
+  import { t } from '$lib/i18n.js';
   import AdminLayout from '../layouts/AdminLayout.svelte';
   import '../app.css';
 
@@ -31,7 +32,7 @@
       }
 
       if (!adminSsoEnabled) {
-        authError = 'Admin SSO is not configured for this console session.';
+        authError = t('auth.ssoNotConfigured');
         checkingAuth = false;
         return;
       }
@@ -42,10 +43,10 @@
         return;
       }
 
-      authError = loginResult.error?.message || 'Unauthorized';
+      authError = loginResult.error?.message || t('auth.unauthorized');
       checkingAuth = false;
     })().catch((error) => {
-      authError = error instanceof Error ? error.message : 'Unauthorized';
+      authError = error instanceof Error ? error.message : t('auth.unauthorized');
       checkingAuth = false;
     });
   });
@@ -53,12 +54,12 @@
 
 {#if checkingAuth}
   <div class="min-h-screen grid place-items-center bg-surface-50 text-sm text-surface-500">
-    Checking admin session...
+    {t('auth.checking')}
   </div>
 {:else if authError}
   <div class="min-h-screen grid place-items-center bg-surface-50 px-6">
     <div class="w-full max-w-sm rounded-lg border border-surface-200 bg-white p-6 text-center shadow-sm">
-      <h1 class="text-lg font-semibold text-surface-900">Admin login required</h1>
+      <h1 class="text-lg font-semibold text-surface-900">{t('auth.requiredTitle')}</h1>
       <p class="mt-2 text-sm text-surface-500">{authError}</p>
     </div>
   </div>

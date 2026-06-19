@@ -14,7 +14,11 @@ const ENV_ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const ENV_ADMIN_AUTH_MODE = (process.env.ADMIN_AUTH_MODE || 'auto').toLowerCase();
 const ENV_SSO_ISSUER = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
 const ENV_SSO_CLIENT_ID = process.env.ADMIN_SSO_CLIENT_ID || '';
-const ENV_SSO_AUDIENCE = process.env.ADMIN_SSO_AUDIENCE || ENV_SSO_CLIENT_ID;
+const ENV_SSO_AUDIENCES = resolveSsoAudiences({
+  configuredAudience: process.env.ADMIN_SSO_AUDIENCE,
+  clientId: ENV_SSO_CLIENT_ID,
+  issuer: ENV_SSO_ISSUER,
+});
 const ENV_SSO_JWKS_URI = process.env.ADMIN_SSO_JWKS_URI || (ENV_SSO_ISSUER ? `${ENV_SSO_ISSUER}/.well-known/jwks.json` : '');
 const ENV_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS);
 const ENV_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((d) => d.toLowerCase());
@@ -91,6 +95,39 @@ function parseCsv(value?: string): string[] {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function isGoTrueIssuer(issuer: string): boolean {
+  try {
+    const url = new URL(issuer);
+    return url.pathname.replace(/\/+$/, '').endsWith('/auth/v1');
+  } catch {
+    return issuer.replace(/\/+$/, '').endsWith('/auth/v1');
+  }
+}
+
+export function resolveSsoAudiences(input: {
+  configuredAudience?: string;
+  clientId?: string;
+  issuer?: string;
+}): string[] {
+  const configured = unique(parseCsv(input.configuredAudience));
+  const clientId = (input.clientId || '').trim();
+  const gotrueIssuer = isGoTrueIssuer(input.issuer || '');
+
+  const audiences = configured.length > 0
+    ? configured
+    : unique([clientId]);
+
+  if (gotrueIssuer && (configured.length === 0 || configured.includes(clientId))) {
+    audiences.push('authenticated');
+  }
+
+  return unique(audiences);
 }
 
 function bearerToken(headers: Record<string, string | undefined>): string | null {
@@ -182,7 +219,7 @@ async function verifySsoToken(token: string): Promise<AdminSession | null> {
   try {
     const result = await jwtVerify(token, jwks, {
       issuer: ENV_SSO_ISSUER,
-      audience: ENV_SSO_AUDIENCE || undefined,
+      audience: ENV_SSO_AUDIENCES.length > 0 ? ENV_SSO_AUDIENCES : undefined,
       algorithms: ['ES256', 'RS256'],
     });
     const session = sessionFromPayload(result.payload);

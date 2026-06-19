@@ -21,6 +21,25 @@ export interface AdapterTargetInfo {
   storageProjectScoped: boolean;
 }
 
+export class SupaCloudApiError extends Error {
+  status: number;
+  body: string;
+  path: string;
+
+  constructor(status: number, body: string, path: string) {
+    super(`SupaCloud ${status}: ${body}`);
+    this.name = 'SupaCloudApiError';
+    this.status = status;
+    this.body = body;
+    this.path = path;
+  }
+}
+
+export function isSupaCloudApiError(error: unknown, statuses?: number[]): error is SupaCloudApiError {
+  if (!(error instanceof SupaCloudApiError)) return false;
+  return statuses ? statuses.includes(error.status) : true;
+}
+
 function pathSegment(value: string) {
   return encodeURIComponent(value);
 }
@@ -100,7 +119,7 @@ export class SupaCloudAdapter {
       const res = await fetch(url, { ...options, headers, signal: controller.signal });
       if (!res.ok) {
         const body = await res.text();
-        throw new Error(`SupaCloud ${res.status}: ${body}`);
+        throw new SupaCloudApiError(res.status, body, path);
       }
       if (res.status === 204) return null;
       const body = await res.text();
@@ -223,7 +242,12 @@ export class SupaCloudAdapter {
   }
 
   async listClientSecrets(clientId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets`);
+    try {
+      return await this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets`);
+    } catch (error) {
+      if (isSupaCloudApiError(error, [404, 501])) return [];
+      throw error;
+    }
   }
 
   async createClientSecret(clientId: string, data: Record<string, unknown>) {
@@ -374,29 +398,29 @@ export class SupaCloudAdapter {
   // ─── Organizations ────────────────────────────────────────────────
 
   async listOrganizations() {
-    return this.request(`/v1/projects/${this.projectRef}/organizations`);
+    return this.requestWithGlobalOrganizationFallback('');
   }
 
   async createOrganization(data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/organizations`, {
+    return this.requestWithGlobalOrganizationFallback('', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   async getOrganization(orgId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`);
+    return this.requestWithGlobalOrganizationFallback(`/${pathSegment(orgId)}`);
   }
 
   async updateOrganization(orgId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`, {
+    return this.requestWithGlobalOrganizationFallback(`/${pathSegment(orgId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   async deleteOrganization(orgId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`, {
+    return this.requestWithGlobalOrganizationFallback(`/${pathSegment(orgId)}`, {
       method: 'DELETE',
     });
   }
@@ -470,6 +494,27 @@ export class SupaCloudAdapter {
     });
   }
 
+  private async requestWithGlobalOrganizationFallback(path: string, options: RequestInit = {}) {
+    const primary = `/v1/projects/${this.projectRef}/organizations${path}`;
+    try {
+      return await this.request(primary, options);
+    } catch (error) {
+      if (isSupaCloudApiError(error, [404])) {
+        return this.request(`/v1/organizations${path}`, options);
+      }
+      throw error;
+    }
+  }
+
+  private async requestListWithEmptyFallback(path: string) {
+    try {
+      return await this.request(path);
+    } catch (error) {
+      if (isSupaCloudApiError(error, [404, 501])) return { items: [], total: 0 };
+      throw error;
+    }
+  }
+
   // ─── RBAC ─────────────────────────────────────────────────────────
 
   async listRoles() {
@@ -533,7 +578,7 @@ export class SupaCloudAdapter {
   // ─── Audit ────────────────────────────────────────────────────────
 
   async queryAuditLogs(params: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/audit${queryString(params)}`);
+    return this.requestListWithEmptyFallback(`/v1/projects/${this.projectRef}/audit${queryString(params)}`);
   }
 
   async getAuditLog(logId: string) {
@@ -550,7 +595,7 @@ export class SupaCloudAdapter {
   // ─── Webhooks ─────────────────────────────────────────────────────
 
   async listWebhooks() {
-    return this.request(`/v1/projects/${this.projectRef}/webhooks`);
+    return this.requestListWithEmptyFallback(`/v1/projects/${this.projectRef}/webhooks`);
   }
 
   async createWebhook(data: Record<string, unknown>) {
@@ -584,7 +629,7 @@ export class SupaCloudAdapter {
   }
 
   async listWebhookLogs(webhookId: string, params: Record<string, unknown> = {}) {
-    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/logs${queryString(params)}`);
+    return this.requestListWithEmptyFallback(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/logs${queryString(params)}`);
   }
 
   async testWebhook(webhookId: string, data: Record<string, unknown>) {

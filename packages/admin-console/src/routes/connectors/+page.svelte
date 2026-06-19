@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { t } from '$lib/i18n.js';
   import { listConnectors, updateConnector, testConnector, listConnectorFactories } from '$lib/api/client.js';
 
   let connectors = $state([]);
@@ -36,9 +37,9 @@
     testing = connectorId;
     try {
       const result = await testConnector(connectorId);
-      alert(result.status === 'reachable' ? 'Connection test passed' : 'Connection test failed');
+      alert(result.status === 'reachable' ? t('Connection test passed') : t('Connection test failed'));
     } catch (e) {
-      alert('Test failed: ' + e.message);
+      alert(`${t('Test failed')}: ${e.message}`);
     }
     testing = null;
   }
@@ -47,7 +48,7 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">Connectors</h2>
+  <h2 class="text-2xl font-bold text-surface-900">{t('Connectors')}</h2>
 </div>
 
 {#if error}
@@ -55,14 +56,14 @@
 {/if}
 
 {#if loading}
-  <p class="text-surface-400">Loading...</p>
+  <p class="text-surface-400">{t('Loading...')}</p>
 {:else if connectors.length === 0}
   <div class="bg-surface-50 rounded-xl border border-surface-200 p-8 text-center">
-    <p class="text-surface-500">No connectors available</p>
-    <p class="text-sm text-surface-400 mt-2">Connectors are configured through SupaCloud. Check your project settings.</p>
+    <p class="text-surface-500">{t('No connectors available')}</p>
+    <p class="text-sm text-surface-400 mt-2">{t('Connectors are configured through SupaCloud. Check your project settings.')}</p>
   </div>
 {:else}
-  <h3 class="text-lg font-semibold text-surface-800 mb-3">Factory Catalog</h3>
+  <h3 class="text-lg font-semibold text-surface-800 mb-3">{t('Factory Catalog')}</h3>
   <div class="grid grid-cols-3 gap-3 mb-8">
     {#each factories as factory (factory.id)}
       <div class="bg-white rounded-lg border border-surface-200 p-4">
@@ -71,28 +72,28 @@
       </div>
     {/each}
     {#if factories.length === 0}
-      <div class="bg-surface-50 rounded-lg border border-surface-200 p-4 text-sm text-surface-500">No factory definitions yet.</div>
+      <div class="bg-surface-50 rounded-lg border border-surface-200 p-4 text-sm text-surface-500">{t('No factory definitions yet.')}</div>
     {/if}
   </div>
 
   <!-- International -->
-  <h3 class="text-lg font-semibold text-surface-800 mb-3">Social Connectors</h3>
+  <h3 class="text-lg font-semibold text-surface-800 mb-3">{t('Social Connectors')}</h3>
   <div class="grid grid-cols-4 gap-3 mb-8">
     {#each connectors.filter(c => !chinaConnectors.includes(c.id)) as connector (connector.id)}
       <div class="bg-white rounded-lg border {connector.enabled ? 'border-green-300 bg-green-50' : 'border-surface-200'} p-4">
         <div class="flex items-center justify-between mb-2">
           <span class="font-medium text-surface-900 capitalize">{connector.id}</span>
           <span class="text-xs px-2 py-0.5 rounded-full {connector.enabled ? 'bg-green-100 text-green-700' : 'bg-surface-100 text-surface-500'}">
-            {connector.enabled ? 'Enabled' : 'Disabled'}
+            {connector.enabled ? t('Enabled') : t('Disabled')}
           </span>
         </div>
         <div class="flex gap-2">
           <button onclick={() => handleToggle(connector)} class="text-xs text-brand-600 hover:text-brand-800">
-            {connector.enabled ? 'Disable' : 'Enable'}
+            {connector.enabled ? t('Disable') : t('Enable')}
           </button>
           {#if connector.enabled}
             <button onclick={() => handleTest(connector.id)} class="text-xs text-surface-600 hover:text-surface-800" disabled={testing === connector.id}>
-              {testing === connector.id ? 'Testing...' : 'Test'}
+              {testing === connector.id ? t('Testing...') : t('Test')}
             </button>
           {/if}
         </div>
@@ -101,23 +102,23 @@
   </div>
 
   <!-- China -->
-  <h3 class="text-lg font-semibold text-surface-800 mb-3">China Connectors</h3>
+  <h3 class="text-lg font-semibold text-surface-800 mb-3">{t('China Connectors')}</h3>
   <div class="grid grid-cols-4 gap-3">
     {#each connectors.filter(c => chinaConnectors.includes(c.id)) as connector (connector.id)}
       <div class="bg-white rounded-lg border {connector.enabled ? 'border-green-300 bg-green-50' : 'border-surface-200'} p-4">
         <div class="flex items-center justify-between mb-2">
           <span class="font-medium text-surface-900">{connector.id}</span>
           <span class="text-xs px-2 py-0.5 rounded-full {connector.enabled ? 'bg-green-100 text-green-700' : 'bg-surface-100 text-surface-500'}">
-            {connector.enabled ? 'Enabled' : 'Disabled'}
+            {connector.enabled ? t('Enabled') : t('Disabled')}
           </span>
         </div>
         <div class="flex gap-2">
           <button onclick={() => handleToggle(connector)} class="text-xs text-brand-600 hover:text-brand-800">
-            {connector.enabled ? 'Disable' : 'Enable'}
+            {connector.enabled ? t('Disable') : t('Enable')}
           </button>
           {#if connector.enabled}
             <button onclick={() => handleTest(connector.id)} class="text-xs text-surface-600 hover:text-surface-800" disabled={testing === connector.id}>
-              {testing === connector.id ? 'Testing...' : 'Test'}
+              {testing === connector.id ? t('Testing...') : t('Test')}
             </button>
           {/if}
         </div>
