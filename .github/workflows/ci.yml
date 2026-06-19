@@ -37,6 +37,12 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: Use SSH for GitHub checkout
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
+
       - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v6
