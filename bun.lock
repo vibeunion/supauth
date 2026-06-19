@@ -24,7 +24,6 @@
         "tailwindcss": "^4.3.0",
       },
       "devDependencies": {
-        "@sveltejs/adapter-auto": "^7.0.1",
         "@sveltejs/adapter-static": "^3.0.9",
         "@sveltejs/kit": "^2.57.0",
         "@sveltejs/vite-plugin-svelte": "^7.0.0",
@@ -243,8 +242,6 @@
     "@svadmin/sso": ["@svadmin/sso@0.9.0", "https://registry.npmmirror.com/@svadmin/sso/-/sso-0.9.0.tgz", { "peerDependencies": { "@svadmin/core": "^0.25.4" }, "optionalPeers": ["@svadmin/core"] }, "sha512-2MH/btS3jjEvVRp+gmlu3hNtVjZqIGROpBnZmJBkJ2T3jqvxWxiaGt7slC5LpDH/Sv2X0lIU9jxdR+MKvXr9Fg=="],
 
     "@sveltejs/acorn-typescript": ["@sveltejs/acorn-typescript@1.0.10", "https://registry.npmmirror.com/@sveltejs/acorn-typescript/-/acorn-typescript-1.0.10.tgz", { "peerDependencies": { "acorn": "^8.9.0" } }, "sha512-4WfKk68eTih+MiJD4fSbxN7E8kVBmTMPWHUPYjvl2N0rMs53YLTT8/YjKU5Dtnz5LqDjl7LEw4U7lXR2W3J5WA=="],
-
-    "@sveltejs/adapter-auto": ["@sveltejs/adapter-auto@7.0.1", "https://registry.npmmirror.com/@sveltejs/adapter-auto/-/adapter-auto-7.0.1.tgz", { "peerDependencies": { "@sveltejs/kit": "^2.0.0" } }, "sha512-dvuPm1E7M9NI/+canIQ6KKQDU2AkEefEZ2Dp7cY6uKoPq9Z/PhOXABe526UdW2mN986gjVkuSLkOYIBnS/M2LQ=="],
 
     "@sveltejs/adapter-static": ["@sveltejs/adapter-static@3.0.10", "https://registry.npmmirror.com/@sveltejs/adapter-static/-/adapter-static-3.0.10.tgz", { "peerDependencies": { "@sveltejs/kit": "^2.0.0" } }, "sha512-7D9lYFWJmB7zxZyTE/qxjksvMqzMuYrrsyh1f4AlZqeZeACPRySjbC3aFiY55wb1tWUaKOQG9PVbm74JcN2Iew=="],
 
