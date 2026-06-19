@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.2.0](https://github.com/zuohuadong/supauth/compare/auth-server-v0.1.1...auth-server-v0.2.0) (2026-06-19)
+
+
+### Features
+
+* **admin-console:** improve SupaCloud-backed diagnostics ([#19](https://github.com/zuohuadong/supauth/issues/19)) ([aabec40](https://github.com/zuohuadong/supauth/commit/aabec405c07a4df26f54aeb2bf2ae49162a1f0cf))
+* harden hosted account and admin auth ([c7dedee](https://github.com/zuohuadong/supauth/commit/c7dedee10376a271ba8feaa2b6c6fd7e929a96a3))
+* productize account center self-service ([3b3d22f](https://github.com/zuohuadong/supauth/commit/3b3d22fef6efc98bf3e47ecede900b0d7ce6ab99))
+* run SupAuth as a SupaCloud app ([609acdf](https://github.com/zuohuadong/supauth/commit/609acdf807ece32f60b27673fcff1051410af947))
+* run supauth as supacloud app ([95058b5](https://github.com/zuohuadong/supauth/commit/95058b589f72c24dd065a3ed5cf925205574068c))
+* webhook durable queue, DB-backed security config, V4/V5 migrations, release gate hardening ([e019d10](https://github.com/zuohuadong/supauth/commit/e019d107b2ede9f0678269d97c8102905d958464))
+
+
+### Bug Fixes
+
+* resolve incomplete logout — clear GoTrue session cookie and inject end_session_endpoint ([0cfbb3f](https://github.com/zuohuadong/supauth/commit/0cfbb3f8ca372634da0169bf2941c849fa3cf6bb))
+
+
+### Miscellaneous Chores
+
+* remove project-specific branding from repo ([dbc1c9c](https://github.com/zuohuadong/supauth/commit/dbc1c9c3d8600f0bdff056b429abc19af176565d))
+
 ## [0.1.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.1.0...auth-server-v0.1.1) (2026-06-04)
 
 
