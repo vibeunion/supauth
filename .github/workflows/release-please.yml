@@ -68,7 +68,6 @@ jobs:
           set -euo pipefail
           rm -rf release-assets
           mkdir -p release-assets
-          cp packages/auth-server/dist/index.js release-assets/auth-server-index.js
           cp packages/auth-server/dist/supacloud-function/supacloud-function.js release-assets/supacloud-function.js
           tar -czf release-assets/auth-server-dist.tar.gz -C packages/auth-server/dist .
           (cd release-assets && sha256sum * > SHA256SUMS)
