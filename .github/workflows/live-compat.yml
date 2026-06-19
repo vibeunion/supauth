@@ -28,25 +28,23 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Run live OAuth 2.1 compatibility fixture
+      - name: Run strict Supabase Auth compatibility suite
         env:
+          REQUIRE_SUPABASE_AUTH_COMPAT: '1'
           RUN_SUPABASE_OAUTH21_COMPAT: '1'
-          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_OAUTH_RUNTIME_URL }}
+          RUN_SUPABASE_RUNTIME_COMPAT: '1'
+          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_SUPABASE_AUTH_URL || secrets.LIVE_OAUTH_RUNTIME_URL }}
+          MANAGEMENT_URL: ${{ secrets.LIVE_MANAGEMENT_URL }}
           OAUTH21_CLIENT_ID: ${{ secrets.LIVE_OAUTH21_CLIENT_ID }}
           OAUTH21_REDIRECT_URI: ${{ secrets.LIVE_OAUTH21_REDIRECT_URI }}
           OAUTH21_ACCESS_TOKEN: ${{ secrets.LIVE_OAUTH21_ACCESS_TOKEN }}
           OAUTH21_REFRESH_TOKEN: ${{ secrets.LIVE_OAUTH21_REFRESH_TOKEN }}
-        run: bun test tests/integration/supabase-compat/oauth21.test.ts
-
-      - name: Run live supabase-js runtime fixture
-        env:
-          RUN_SUPABASE_RUNTIME_COMPAT: '1'
-          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_OAUTH_RUNTIME_URL }}
-          MANAGEMENT_URL: ${{ secrets.LIVE_MANAGEMENT_URL }}
+          OAUTH21_TOKEN_AUTH_METHOD: ${{ secrets.LIVE_OAUTH21_TOKEN_AUTH_METHOD }}
+          OAUTH21_CLIENT_SECRET: ${{ secrets.LIVE_OAUTH21_CLIENT_SECRET }}
           SUPABASE_ANON_KEY: ${{ secrets.LIVE_SUPABASE_ANON_KEY }}
           SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
           SUPABASE_TEST_PASSWORD: ${{ secrets.LIVE_SUPABASE_TEST_PASSWORD }}
-        run: bun test tests/integration/supabase-compat/supabase-js.test.ts
+        run: bun run test:supabase-auth-compat
 
       - name: Run tenant isolation live fixture
         env:

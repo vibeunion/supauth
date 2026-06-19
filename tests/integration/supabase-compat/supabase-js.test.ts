@@ -1,19 +1,18 @@
 /**
- * Full Supabase runtime compatibility fixture (P0-16).
+ * Supabase Auth compatibility fixture (P0-16).
  *
  * The smoke contract runs without live env. Live mode verifies that SupaOAuth
- * keeps standard Supabase paths intact and that supabase-js can complete the
- * auth/session/storage/realtime/functions surface against a real tenant.
+ * keeps the GoTrue Auth runtime intact and that supabase-js can complete the
+ * auth/session/token lifecycle against a real tenant.
  *
  * Live env:
+ *   REQUIRE_SUPABASE_AUTH_COMPAT=1
  *   RUN_SUPABASE_RUNTIME_COMPAT=1
  *   OAUTH_RUNTIME_URL=https://api.example.com
  *   MANAGEMENT_URL=https://auth.example.com/api
  *   SUPABASE_ANON_KEY=<anon-jwt>
  *   SUPABASE_TEST_EMAIL=<test-user@example.com>
  *   SUPABASE_TEST_PASSWORD=<password>
- *   SUPABASE_TEST_BUCKET=<optional bucket>
- *   SUPABASE_TEST_FUNCTION=<optional function name>
  */
 
 import { describe, it, expect } from 'bun:test';
@@ -22,15 +21,24 @@ import { createClient } from '@supabase/supabase-js';
 const RUNTIME_URL = trimTrailingSlash(process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999');
 const MANAGEMENT_PORT = parseInt(process.env.PORT || '4010', 10);
 const MANAGEMENT_URL = trimTrailingSlash(process.env.MANAGEMENT_URL || `http://localhost:${MANAGEMENT_PORT}`);
-const RUN_LIVE = process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1' || process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
+const STRICT_COMPAT = process.env.REQUIRE_SUPABASE_AUTH_COMPAT === '1';
+const RUN_LIVE = STRICT_COMPAT || process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1' || process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const TEST_EMAIL = process.env.SUPABASE_TEST_EMAIL || '';
 const TEST_PASSWORD = process.env.SUPABASE_TEST_PASSWORD || '';
-const TEST_BUCKET = process.env.SUPABASE_TEST_BUCKET || '';
-const TEST_FUNCTION = process.env.SUPABASE_TEST_FUNCTION || '';
 const liveIt = RUN_LIVE ? it : it.skip;
 const supabaseJsIt = RUN_LIVE && SUPABASE_ANON_KEY ? it : it.skip;
 const authIt = RUN_LIVE && SUPABASE_ANON_KEY && TEST_EMAIL && TEST_PASSWORD ? it : it.skip;
+
+if (STRICT_COMPAT) {
+  assertRequiredEnv([
+    'OAUTH_RUNTIME_URL',
+    'MANAGEMENT_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_TEST_EMAIL',
+    'SUPABASE_TEST_PASSWORD',
+  ]);
+}
 
 function supabaseClient() {
   return createClient(RUNTIME_URL, SUPABASE_ANON_KEY, {
@@ -45,46 +53,30 @@ function supabaseClient() {
 describe('Supabase runtime compatibility', () => {
   liveIt('/auth/v1/.well-known/openid-configuration returns GoTrue discovery', async () => {
     const res = await fetch(`${RUNTIME_URL}/auth/v1/.well-known/openid-configuration`);
-    if (res.ok) {
-      const body = await res.json();
-      expect(body.issuer).toBeDefined();
-      expect(body.authorization_endpoint).toBeDefined();
-      expect(body.token_endpoint).toBeDefined();
-      expect(body.runtime_mode).toBeUndefined();
-    }
+    expect(res.ok).toBe(true);
+
+    const body = await res.json();
+    expect(body.issuer).toBeDefined();
+    expect(body.authorization_endpoint).toBeDefined();
+    expect(body.token_endpoint).toBeDefined();
+    expect(body.runtime_mode).toBeUndefined();
   });
 
   liveIt('/auth/v1/.well-known/jwks.json returns JWKS', async () => {
     const res = await fetch(`${RUNTIME_URL}/auth/v1/.well-known/jwks.json`);
-    if (res.ok) {
-      const body = await res.json();
-      expect(Array.isArray(body.keys)).toBe(true);
-    }
+    expect(res.ok).toBe(true);
+
+    const body = await res.json();
+    expect(Array.isArray(body.keys)).toBe(true);
   });
 
   liveIt('Management API health returns SupaOAuth response', async () => {
     const res = await fetch(`${MANAGEMENT_URL}/v1/health`);
-    if (res.ok) {
-      const body = await res.json();
-      expect(body.runtime_mode).toBeDefined();
-      expect(['gotrue', 'external_oidc']).toContain(body.runtime_mode);
-    }
-  });
+    expect(res.ok).toBe(true);
 
-  liveIt('/rest/v1/* is not occupied by SupaOAuth', async () => {
-    const res = await fetch(`${RUNTIME_URL}/rest/v1/`);
-    if (res.status !== 404) {
-      const text = await res.text();
-      expect(text).not.toContain('SupaOAuth');
-    }
-  });
-
-  liveIt('/storage/v1/bucket is not occupied by SupaOAuth', async () => {
-    const res = await fetch(`${RUNTIME_URL}/storage/v1/bucket`);
-    if (res.ok) {
-      const body = await res.json();
-      expect(body.runtime_mode).toBeUndefined();
-    }
+    const body = await res.json();
+    expect(body.runtime_mode).toBeDefined();
+    expect(['gotrue', 'external_oidc']).toContain(body.runtime_mode);
   });
 
   supabaseJsIt('supabase-js can initialize and read current session', async () => {
@@ -135,29 +127,6 @@ describe('Supabase runtime compatibility', () => {
     expect(payload.app_metadata).toBeDefined();
   });
 
-  supabaseJsIt('supabase-js Storage smoke uses standard /storage/v1 path', async () => {
-    if (!TEST_BUCKET) return;
-    const client = supabaseClient();
-    const result = await client.storage.from(TEST_BUCKET).list('', { limit: 1 });
-    expect(result.error).toBeNull();
-    expect(Array.isArray(result.data)).toBe(true);
-  });
-
-  supabaseJsIt('supabase-js Realtime client can subscribe and unsubscribe', async () => {
-    const client = supabaseClient();
-    const channel = client.channel(`supaoauth-smoke-${Date.now()}`);
-    channel.subscribe();
-    const result = await client.removeChannel(channel);
-    expect(['ok', 'timed out', 'error']).toContain(result);
-  });
-
-  supabaseJsIt('supabase-js Functions smoke keeps /functions/v1 available', async () => {
-    if (!TEST_FUNCTION) return;
-    const client = supabaseClient();
-    const result = await client.functions.invoke(TEST_FUNCTION, { body: { smoke: true } });
-    expect(result.error).toBeNull();
-  });
-
   it('GoTrue JWT required claims are defined in compatibility spec', () => {
     const requiredClaims = ['sub', 'role', 'aud', 'iss', 'exp', 'app_metadata', 'user_metadata'];
     for (const claim of requiredClaims) {
@@ -176,4 +145,11 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+function assertRequiredEnv(names: string[]) {
+  const missing = names.filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required Supabase Auth compatibility env: ${missing.join(', ')}`);
+  }
 }

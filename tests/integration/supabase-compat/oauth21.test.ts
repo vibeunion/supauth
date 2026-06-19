@@ -15,7 +15,11 @@
  *   OAUTH21_REDIRECT_URI=http://localhost:3000/oauth/callback \
  *   bun test tests/integration/supabase-compat/oauth21.test.ts
  *
- * Optional live token checks:
+ * Strict CI checks:
+ *   REQUIRE_SUPABASE_AUTH_COMPAT=1 runs the live public OAuth/OIDC checks and
+ *   fails fast when any required live Auth secret is missing.
+ *
+ * Optional live token checks outside strict mode:
  *   OAUTH21_ACCESS_TOKEN=<oauth-access-token>
  *   OAUTH21_REFRESH_TOKEN=<oauth-refresh-token>
  *   OAUTH21_TOKEN_AUTH_METHOD=none|client_secret_basic|client_secret_post
@@ -24,7 +28,8 @@
 
 import { describe, expect, it } from 'bun:test';
 
-const RUN_LIVE = process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
+const STRICT_COMPAT = process.env.REQUIRE_SUPABASE_AUTH_COMPAT === '1';
+const RUN_LIVE = STRICT_COMPAT || process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
 const RUNTIME_URL = trimTrailingSlash(process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999');
 const CLIENT_ID = process.env.OAUTH21_CLIENT_ID || '';
 const REDIRECT_URI = process.env.OAUTH21_REDIRECT_URI || 'http://localhost:3000/oauth/callback';
@@ -33,6 +38,17 @@ const REFRESH_TOKEN = process.env.OAUTH21_REFRESH_TOKEN || '';
 const CLIENT_SECRET = process.env.OAUTH21_CLIENT_SECRET || '';
 const TOKEN_AUTH_METHOD = process.env.OAUTH21_TOKEN_AUTH_METHOD || 'none';
 const LIVE_TIMEOUT_MS = parseInt(process.env.OAUTH21_TEST_TIMEOUT_MS || '30000', 10);
+
+if (STRICT_COMPAT) {
+  assertRequiredEnv([
+    'OAUTH_RUNTIME_URL',
+    'OAUTH21_CLIENT_ID',
+    'OAUTH21_REDIRECT_URI',
+  ]);
+  if (TOKEN_AUTH_METHOD === 'client_secret_basic' || TOKEN_AUTH_METHOD === 'client_secret_post') {
+    assertRequiredEnv(['OAUTH21_CLIENT_SECRET']);
+  }
+}
 
 type LiveTestHandler = () => void | Promise<unknown>;
 
@@ -45,11 +61,20 @@ function clientLiveIt(name: string, fn: LiveTestHandler) {
 }
 
 function accessTokenLiveIt(name: string, fn: LiveTestHandler) {
-  return RUN_LIVE && ACCESS_TOKEN ? it(name, fn, LIVE_TIMEOUT_MS) : it.skip(name, fn);
+  if (RUN_LIVE && ACCESS_TOKEN) return it(name, fn, LIVE_TIMEOUT_MS);
+  return STRICT_COMPAT ? undefined : it.skip(name, fn);
 }
 
 function refreshTokenLiveIt(name: string, fn: LiveTestHandler) {
-  return RUN_LIVE && REFRESH_TOKEN ? it(name, fn, LIVE_TIMEOUT_MS) : it.skip(name, fn);
+  if (RUN_LIVE && REFRESH_TOKEN) return it(name, fn, LIVE_TIMEOUT_MS);
+  return STRICT_COMPAT ? undefined : it.skip(name, fn);
+}
+
+function assertRequiredEnv(names: string[]) {
+  const missing = names.filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required Supabase Auth compatibility env: ${missing.join(', ')}`);
+  }
 }
 
 type JsonObject = Record<string, unknown>;

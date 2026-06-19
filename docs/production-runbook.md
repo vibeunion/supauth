@@ -6,7 +6,7 @@ This runbook covers release, rollback, restore, and incident triage for SupaOAut
 
 1. Run local gate: `bun run release:gate`.
 2. For live cutover, set `RUN_LIVE_RELEASE_GATE=1`, `SUPAUTH_PUBLIC_URL`, and `SUPAUTH_INSTALLED_RUNTIME_URL`; this runs the installed SupaCloud Function/Pages verifier. `SUPAUTH_INSTALLED_BASE_URL` remains supported for existing SupaCloud installs.
-3. Optional: set `RUN_SUPABASE_RUNTIME_COMPAT=1` or `RUN_SUPABASE_OAUTH21_COMPAT=1` with their fixture-specific env vars to run the broader Supabase runtime black-box fixtures.
+3. CI branch protection must require the `Supabase Auth Compatibility` job. It runs `REQUIRE_SUPABASE_AUTH_COMPAT=1 bun run test:supabase-auth-compat`, so missing live Auth secrets or broken `supabase-js` auth coverage fail the build instead of passing as a smoke-only run. Set `LIVE_SUPABASE_AUTH_URL` to the public GoTrue/Auth origin that serves `/auth/v1/.well-known/openid-configuration` and `/auth/v1/.well-known/jwks.json`; the project runtime route preservation checks stay in `scripts/verify-supacloud-installed-app.ts`.
 4. Confirm the generated `artifacts/<release>/release-manifest.json` contains commit, OpenAPI hash, SupaCloud app manifest hash, installed app verification path, and live gate status.
 5. Deploy the artifact through SupaCloud using `artifacts/<release>/supacloud-app-manifest.json`.
 6. Switch traffic only after `scripts/verify-supacloud-installed-app.ts` passes against the installed Function/Pages routes and preserved `/auth/v1/*`, `/rest/v1/*`, `/storage/v1/*`, `/realtime/v1/*`, and `/functions/v1/*` runtime routes.
