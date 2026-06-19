@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/zuohuadong/supauth/compare/sdk-typescript-v0.1.0...sdk-typescript-v0.2.0) (2026-06-19)
+
+
+### Features
+
+* **admin-console:** improve SupaCloud-backed diagnostics ([#19](https://github.com/zuohuadong/supauth/issues/19)) ([aabec40](https://github.com/zuohuadong/supauth/commit/aabec405c07a4df26f54aeb2bf2ae49162a1f0cf))
+
 ## [0.1.0](https://github.com/zuohuadong/supauth/compare/sdk-typescript-v0.0.1...sdk-typescript-v0.1.0) (2026-06-04)
 
 
