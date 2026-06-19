@@ -300,6 +300,7 @@ async function configureGatewayRoutes(input: {
         '/favicon.ico',
         '/favicon.svg',
         '/admin/api/*',
+        '/admin/*',
         '/',
       ],
       upstream: input.edgeRuntimeUpstream,
@@ -515,8 +516,6 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   if (!config.baseUrl || !gatewayClient) {
     warnings.push('Gateway hosted routes (/api/*, /oauth/*, /account*, /claim*) still require SupaCloud route binding before installed-app verifier can pass.');
   }
-  warnings.push('Admin Pages path routing (/admin/*) is not configured by this installer until SupaCloud exposes path-scoped Pages binding.');
-
   return {
     ok: !probe || probe.ok,
     dryRun: config.dryRun,

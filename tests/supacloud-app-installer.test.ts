@@ -214,6 +214,6 @@ describe('SupaCloud app installer', () => {
       rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       priority: 100,
     });
-    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/account', '/account.html', '/claim.html', '/']));
+    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
   });
 });
