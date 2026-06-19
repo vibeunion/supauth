@@ -9,7 +9,7 @@ on:
 jobs:
   live-compat:
     name: Live Supabase/OAuth 2.1 Compatibility
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, supauth-live]
     timeout-minutes: 15
     # Only run when the live runtime secrets are available
     if: github.event_name == 'workflow_dispatch' || github.repository == 'zuohuadong/supauth'

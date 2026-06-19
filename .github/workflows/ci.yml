@@ -32,7 +32,8 @@ jobs:
 
   supabase-auth-compat:
     name: Supabase Auth Compatibility
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, supauth-live]
     timeout-minutes: 20
 
     steps:
@@ -71,9 +72,7 @@ jobs:
     name: Package Auth UI SDK
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs:
-      - check
-      - supabase-auth-compat
+    needs: check
 
     steps:
       - uses: actions/checkout@v6
