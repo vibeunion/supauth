@@ -1,26 +1,27 @@
 <script>
   import { base, resolve } from '$app/paths';
   import { page } from '$app/state';
+  import { t } from '$lib/i18n.js';
   let { children } = $props();
 
   const navItems = [
-    { path: '/dashboard', label: 'Overview', icon: '◉' },
-    { path: '/applications', label: 'Applications', icon: '⬡' },
-    { path: '/connectors', label: 'Connectors', icon: '⊕' },
-    { path: '/resources', label: 'API Resources', icon: '◆' },
-    { path: '/roles', label: 'Roles & Permissions', icon: '★' },
-    { path: '/users', label: 'Users', icon: '⊙' },
-    { path: '/organizations', label: 'Organizations', icon: '⬢' },
-    { path: '/org-templates', label: 'Org Templates', icon: '▦' },
-    { path: '/consents', label: 'Consents', icon: '✓' },
-    { path: '/enterprise-sso', label: 'Enterprise SSO', icon: '⇄' },
-    { path: '/account-center', label: 'Account Center', icon: '◎' },
-    { path: '/tenant-config', label: 'Tenant Config', icon: '◧' },
-    { path: '/security', label: 'Security Policy', icon: '◇' },
-    { path: '/operations', label: 'Operations', icon: '⌁' },
-    { path: '/settings', label: 'Settings', icon: '⚙' },
-    { path: '/webhooks', label: 'Webhooks', icon: '↗' },
-    { path: '/audit', label: 'Audit Logs', icon: '≡' },
+    { path: '/dashboard', labelKey: 'nav.overview', icon: '◉' },
+    { path: '/applications', labelKey: 'nav.applications', icon: '⬡' },
+    { path: '/connectors', labelKey: 'nav.connectors', icon: '⊕' },
+    { path: '/resources', labelKey: 'nav.resources', icon: '◆' },
+    { path: '/roles', labelKey: 'nav.roles', icon: '★' },
+    { path: '/users', labelKey: 'nav.users', icon: '⊙' },
+    { path: '/organizations', labelKey: 'nav.organizations', icon: '⬢' },
+    { path: '/org-templates', labelKey: 'nav.orgTemplates', icon: '▦' },
+    { path: '/consents', labelKey: 'nav.consents', icon: '✓' },
+    { path: '/enterprise-sso', labelKey: 'nav.enterpriseSso', icon: '⇄' },
+    { path: '/account-center', labelKey: 'nav.accountCenter', icon: '◎' },
+    { path: '/tenant-config', labelKey: 'nav.tenantConfig', icon: '◧' },
+    { path: '/security', labelKey: 'nav.security', icon: '◇' },
+    { path: '/operations', labelKey: 'nav.operations', icon: '⌁' },
+    { path: '/settings', labelKey: 'nav.settings', icon: '⚙' },
+    { path: '/webhooks', labelKey: 'nav.webhooks', icon: '↗' },
+    { path: '/audit', labelKey: 'nav.audit', icon: '≡' },
   ];
 </script>
 
@@ -32,7 +33,7 @@
         <h1 class="text-lg font-bold tracking-tight text-surface-900 leading-none">SupaOAuth</h1>
       </div>
       <p class="text-[11px] font-semibold tracking-wider uppercase text-surface-400 mt-1.5 pl-4">
-        Identity Provider
+        {t('layout.subtitle')}
       </p>
     </div>
 
@@ -59,7 +60,7 @@
           ].join(' ')}>
             {item.icon}
           </span>
-          {item.label}
+          {t(item.labelKey)}
         </a>
       {/each}
     </div>

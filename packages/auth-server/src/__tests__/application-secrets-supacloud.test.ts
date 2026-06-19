@@ -22,11 +22,26 @@ describe('application secret lifecycle', () => {
     calls.length = 0;
     globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method || 'GET';
       calls.push({
         url,
-        method: init?.method || 'GET',
+        method,
         body: typeof init?.body === 'string' ? init.body : undefined,
       });
+
+      if (method === 'GET' && new URL(url).pathname.endsWith('/auth/oauth-clients')) {
+        return Promise.resolve(Response.json({
+          oauth_clients: [{
+            client_id: 'client-one',
+            client_name: 'Client One',
+            client_type: 'confidential',
+            redirect_uris: ['https://app.example.test/callback'],
+            grant_types: ['authorization_code'],
+          }],
+          total: 1,
+        }));
+      }
+
       return Promise.resolve(Response.json({
         id: 'sec_test',
         secret_id: 'sec_test',
@@ -77,5 +92,61 @@ describe('application secret lifecycle', () => {
       name: 'Rotating secret',
       expires_at: '2026-12-31T00:00:00.000Z',
     });
+  });
+
+  it('normalizes OAuth client list envelopes for the admin applications page', async () => {
+    const { applicationRoutes } = await import('../routes/applications.js');
+    const app = new Elysia().use(applicationRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/applications'));
+    const payload = await response.json() as { items: Array<Record<string, unknown>>; total: number };
+
+    expect(response.status).toBe(200);
+    expect(payload.total).toBe(1);
+    expect(payload.items).toHaveLength(1);
+    expect(payload.items[0]).toMatchObject({
+      client_id: 'client-one',
+      client_name: 'Client One',
+    });
+  });
+
+  it('treats unsupported per-client secret listing as an empty tracked-secret list', async () => {
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({ url, method: 'GET' });
+      return Promise.resolve(new Response(JSON.stringify({ error: 'NOT_FOUND' }), { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    const { applicationRoutes } = await import('../routes/applications.js');
+    const app = new Elysia().use(applicationRoutes);
+    const response = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets'));
+    const payload = await response.json() as { items: unknown[]; total: number };
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({ items: [], total: 0 });
+  });
+
+  it('returns a clear not-supported response for unsupported per-client secret writes', async () => {
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        url,
+        method: init?.method || 'GET',
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+      return Promise.resolve(new Response(JSON.stringify({ error: 'NOT_FOUND' }), { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    const { applicationRoutes } = await import('../routes/applications.js');
+    const app = new Elysia().use(applicationRoutes);
+    const response = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Extra secret' }),
+    }));
+    const payload = await response.json() as { error: string };
+
+    expect(response.status).toBe(501);
+    expect(payload.error).toBe('not_supported');
   });
 });

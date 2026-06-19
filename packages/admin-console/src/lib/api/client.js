@@ -483,7 +483,9 @@ export function rotateWebhookSecret(webhookId) {
 }
 
 export function listWebhookLogs(webhookId, limit = 50) {
-  return request(`/v1/webhooks/${webhookId}/logs?limit=${limit}`);
+  const qs = new URLSearchParams();
+  if (limit) qs.set('limit', String(limit));
+  return request(`/v1/webhooks/${webhookId}/logs${qs.toString() ? `?${qs.toString()}` : ''}`);
 }
 
 export function testWebhook(webhookId, data = {}) {
@@ -502,6 +504,17 @@ export function replayWebhook(webhookId, data) {
 
 export function listWebhookEvents() {
   return request('/v1/webhooks/events');
+}
+
+export function listAuditLogs(params = {}) {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      qs.set(key, String(value).trim());
+    }
+  }
+  const query = qs.toString();
+  return request(`/v1/audit${query ? `?${query}` : ''}`);
 }
 
 // Storage

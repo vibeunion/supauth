@@ -1,18 +1,29 @@
 <script>
   import { onMount } from 'svelte';
-  import { listApplications, listOrganizations, listUsers, getCompatibilityReport, getProject } from '$lib/api/client.js';
+  import { t } from '$lib/i18n.js';
+  import { listAuditLogs } from '$lib/api/client.js';
 
   let entries = $state([]);
   let loading = $state(true);
   let error = $state(null);
-  let filter = $state({ event_type: '', resource_type: '' });
+  let filter = $state({ event_type: '', resource_type: '', resource_id: '', actor_id: '', from: '', to: '' });
+
+  function shortId(value) {
+    if (!value) return '-';
+    const text = String(value);
+    return text.length > 12 ? `${text.slice(0, 8)}...` : text;
+  }
+
+  function entryTime(entry) {
+    const value = entry.created_at || entry.createdAt || entry.timestamp;
+    return value ? new Date(value).toLocaleString() : '-';
+  }
 
   async function load() {
     loading = true;
+    error = null;
     try {
-      const res = await fetch(`${import.meta.env.VITE_AUTH_SERVER_URL || '/api'}/v1/audit?event_type=${filter.event_type}&resource_type=${filter.resource_type}&limit=100`);
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
+      const data = await listAuditLogs({ ...filter, limit: 100 });
       entries = data.items || [];
     } catch (e) {
       error = e.message;
@@ -20,50 +31,62 @@
     loading = false;
   }
 
+  async function resetFilters() {
+    filter = { event_type: '', resource_type: '', resource_id: '', actor_id: '', from: '', to: '' };
+    await load();
+  }
+
   onMount(load);
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">Audit Logs</h2>
-  <button onclick={load} class="px-3 py-1.5 text-sm bg-surface-100 text-surface-700 rounded-lg hover:bg-surface-200">Refresh</button>
+  <h2 class="text-2xl font-bold text-surface-900">{t('Audit Logs')}</h2>
+  <button onclick={load} class="px-3 py-1.5 text-sm bg-surface-100 text-surface-700 rounded-lg hover:bg-surface-200">{t('Refresh')}</button>
 </div>
 
 {#if error}
   <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">{error}</div>
 {/if}
 
-<div class="flex gap-3 mb-4">
-  <input bind:value={filter.event_type} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder="Filter: event type">
-  <input bind:value={filter.resource_type} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder="Filter: resource type">
-  <button onclick={load} class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Apply</button>
+<div class="grid gap-3 mb-4 sm:grid-cols-2 xl:grid-cols-6">
+  <input bind:value={filter.event_type} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder={t('Filter: event type')}>
+  <input bind:value={filter.resource_type} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder={t('Filter: resource type')}>
+  <input bind:value={filter.resource_id} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder={t('Filter: resource ID')}>
+  <input bind:value={filter.actor_id} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder={t('Filter: actor ID')}>
+  <input bind:value={filter.from} type="datetime-local" class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" aria-label={t('From time')}>
+  <input bind:value={filter.to} type="datetime-local" class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" aria-label={t('To time')}>
+</div>
+<div class="flex gap-2 mb-4">
+  <button onclick={load} class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">{t('Apply')}</button>
+  <button onclick={resetFilters} class="px-3 py-1.5 bg-surface-100 text-surface-700 rounded-lg text-sm font-medium hover:bg-surface-200">{t('Clear filters')}</button>
 </div>
 
 {#if loading}
-  <p class="text-surface-400">Loading...</p>
+  <p class="text-surface-400">{t('Loading...')}</p>
 {:else if entries.length === 0}
   <div class="bg-surface-50 rounded-xl border border-surface-200 p-8 text-center">
-    <p class="text-surface-500">No audit log entries</p>
+    <p class="text-surface-500">{t('No audit log entries')}</p>
   </div>
 {:else}
   <div class="bg-white rounded-xl border border-surface-200 overflow-hidden">
     <table class="w-full text-sm">
       <thead class="bg-surface-50 border-b border-surface-200">
         <tr>
-          <th class="text-left px-4 py-3 font-medium text-surface-600">Time</th>
-          <th class="text-left px-4 py-3 font-medium text-surface-600">Event</th>
-          <th class="text-left px-4 py-3 font-medium text-surface-600">Actor</th>
-          <th class="text-left px-4 py-3 font-medium text-surface-600">Resource</th>
-          <th class="text-left px-4 py-3 font-medium text-surface-600">ID</th>
+          <th class="text-left px-4 py-3 font-medium text-surface-600">{t('Time')}</th>
+          <th class="text-left px-4 py-3 font-medium text-surface-600">{t('Event')}</th>
+          <th class="text-left px-4 py-3 font-medium text-surface-600">{t('Actor')}</th>
+          <th class="text-left px-4 py-3 font-medium text-surface-600">{t('Resource')}</th>
+          <th class="text-left px-4 py-3 font-medium text-surface-600">{t('ID')}</th>
         </tr>
       </thead>
       <tbody>
         {#each entries as entry (entry.id)}
           <tr class="border-b border-surface-100">
-            <td class="px-4 py-3 text-surface-500 text-xs">{new Date(entry.created_at).toLocaleString()}</td>
-            <td class="px-4 py-3"><span class="px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-medium">{entry.event_type}</span></td>
-            <td class="px-4 py-3 text-surface-600 text-xs">{entry.actor_type}</td>
-            <td class="px-4 py-3 text-surface-600 text-xs">{entry.resource_type}</td>
-            <td class="px-4 py-3 font-mono text-xs text-surface-500">{entry.resource_id?.slice(0,8)}...</td>
+            <td class="px-4 py-3 text-surface-500 text-xs">{entryTime(entry)}</td>
+            <td class="px-4 py-3"><span class="px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-medium">{entry.event_type || entry.eventType || '-'}</span></td>
+            <td class="px-4 py-3 text-surface-600 text-xs">{entry.actor_type || entry.actorType || '-'}</td>
+            <td class="px-4 py-3 text-surface-600 text-xs">{entry.resource_type || entry.resourceType || '-'}</td>
+            <td class="px-4 py-3 font-mono text-xs text-surface-500">{shortId(entry.resource_id || entry.resourceId)}</td>
           </tr>
         {/each}
       </tbody>

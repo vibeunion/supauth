@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { t } from '$lib/i18n.js';
   import {
     getAuthConfig,
     getAuthConfigRuntimeConsistency,
@@ -9,10 +10,10 @@
   } from '$lib/api/client.js';
 
   const signInMethodOptions = [
-    { value: 'password', label: 'Password' },
-    { value: 'magic_link', label: 'Magic Link' },
-    { value: 'phone_otp', label: 'Phone OTP' },
-    { value: 'passkey', label: 'Passkey' },
+    { value: 'password', labelKey: 'Password' },
+    { value: 'magic_link', labelKey: 'Magic Link' },
+    { value: 'phone_otp', labelKey: 'Phone OTP' },
+    { value: 'passkey', labelKey: 'Passkey' },
   ];
 
   let loading = $state(true);
@@ -119,7 +120,7 @@
       securityForm.jwt_expiry = jwtExpiry;
       securityForm.mfa_max_enrolled_factors = mfaMaxFactors;
       runtimeConsistency = await getAuthConfigRuntimeConsistency().catch(() => null);
-      success = 'Security policy saved';
+      success = t('Security policy saved');
     } catch (e) {
       error = e.message;
     }
@@ -131,9 +132,9 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">Security Policy</h2>
+  <h2 class="text-2xl font-bold text-surface-900">{t('Security Policy')}</h2>
   <button onclick={saveSecurityPolicy} disabled={saving || loading} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
-    {saving ? 'Saving...' : 'Save'}
+    {saving ? t('Saving...') : t('Save')}
   </button>
 </div>
 
@@ -146,24 +147,24 @@
 {/if}
 
 {#if loading}
-  <p class="text-surface-400">Loading...</p>
+  <p class="text-surface-400">{t('Loading...')}</p>
 {:else}
   <div class="space-y-6">
     {#if runtimeConsistency && !runtimeConsistency.consistent}
       <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
-        Sign-up control-plane setting and GoTrue runtime state are out of sync. Desired state is
-        <span class="font-semibold">{runtimeConsistency.desired.signups_enabled ? 'open' : 'closed'}</span>,
-        but runtime is currently
-        <span class="font-semibold">{runtimeConsistency.runtime.signups_enabled ? 'open' : 'closed'}</span>.
+        {t('Sign-up control-plane setting and GoTrue runtime state are out of sync. Desired state is')}
+        <span class="font-semibold">{runtimeConsistency.desired.signups_enabled ? t('open') : t('closed')}</span>,
+        {t('but runtime is currently')}
+        <span class="font-semibold">{runtimeConsistency.runtime.signups_enabled ? t('open') : t('closed')}</span>.
       </div>
     {/if}
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Sign-in Methods</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Sign-in Methods')}</h3>
       <div class="grid grid-cols-2 gap-4">
         {#each signInMethodOptions as method (method.value)}
           <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-            <span class="text-sm font-medium text-surface-800">{method.label}</span>
+            <span class="text-sm font-medium text-surface-800">{t(method.labelKey)}</span>
             <input
               type="checkbox"
               checked={securityForm.sign_in_methods.includes(method.value)}
@@ -176,63 +177,63 @@
     </section>
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Account Protection</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Account Protection')}</h3>
       <div class="grid grid-cols-2 gap-4">
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Sign-up Enabled</span>
+          <span class="text-sm font-medium text-surface-800">{t('Sign-up Enabled')}</span>
           <input type="checkbox" bind:checked={securityForm.sign_up_enabled} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">MFA Required</span>
+          <span class="text-sm font-medium text-surface-800">{t('MFA Required')}</span>
           <input type="checkbox" bind:checked={securityForm.mfa_required} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Email Confirmations</span>
+          <span class="text-sm font-medium text-surface-800">{t('Email Confirmations')}</span>
           <input type="checkbox" bind:checked={securityForm.enable_confirmations} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Anonymous Users</span>
+          <span class="text-sm font-medium text-surface-800">{t('Anonymous Users')}</span>
           <input type="checkbox" bind:checked={securityForm.external_anonymous_users_enabled} class="h-4 w-4">
         </label>
       </div>
     </section>
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Password Policy</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Password Policy')}</h3>
       <div class="grid grid-cols-2 gap-4 mb-4">
         <div>
-          <label for="password-min-length" class="block text-sm font-medium text-surface-700 mb-1">Minimum Length</label>
+          <label for="password-min-length" class="block text-sm font-medium text-surface-700 mb-1">{t('Minimum Length')}</label>
           <input id="password-min-length" type="number" min="6" max="128" bind:value={securityForm.password_min_length} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
         </div>
         <div>
-          <label for="mfa-max-factors" class="block text-sm font-medium text-surface-700 mb-1">MFA Max Factors</label>
+          <label for="mfa-max-factors" class="block text-sm font-medium text-surface-700 mb-1">{t('MFA Max Factors')}</label>
           <input id="mfa-max-factors" type="number" min="1" max="20" bind:value={securityForm.mfa_max_enrolled_factors} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
         </div>
       </div>
       <div class="grid grid-cols-2 gap-4">
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Uppercase Letter</span>
+          <span class="text-sm font-medium text-surface-800">{t('Uppercase Letter')}</span>
           <input type="checkbox" bind:checked={securityForm.require_uppercase} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Lowercase Letter</span>
+          <span class="text-sm font-medium text-surface-800">{t('Lowercase Letter')}</span>
           <input type="checkbox" bind:checked={securityForm.require_lowercase} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Number</span>
+          <span class="text-sm font-medium text-surface-800">{t('Number')}</span>
           <input type="checkbox" bind:checked={securityForm.require_numbers} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Symbol</span>
+          <span class="text-sm font-medium text-surface-800">{t('Symbol')}</span>
           <input type="checkbox" bind:checked={securityForm.require_symbols} class="h-4 w-4">
         </label>
       </div>
     </section>
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Session Policy</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Session Policy')}</h3>
       <div>
-        <label for="jwt-expiry" class="block text-sm font-medium text-surface-700 mb-1">JWT Expiry Seconds</label>
+        <label for="jwt-expiry" class="block text-sm font-medium text-surface-700 mb-1">{t('JWT Expiry Seconds')}</label>
         <input id="jwt-expiry" type="number" min="60" bind:value={securityForm.jwt_expiry} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
       </div>
     </section>

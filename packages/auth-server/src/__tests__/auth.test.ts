@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { verifyAdminBearer } from '../auth/index.js';
+import { resolveSsoAudiences, verifyAdminBearer } from '../auth/index.js';
 
 describe('Auth module — exported functions', () => {
   beforeEach(() => {
@@ -34,6 +34,38 @@ describe('Auth module — exported functions', () => {
       const result = await verifyAdminBearer({ authorization: 'Bearer ' });
       expect(result).toBeNull();
     });
+  });
+});
+
+describe('Auth module — SSO audience resolution', () => {
+  it('uses the OIDC client id as the generic default audience', () => {
+    expect(resolveSsoAudiences({
+      issuer: 'https://idp.example.test',
+      clientId: 'admin-client',
+    })).toEqual(['admin-client']);
+  });
+
+  it('accepts GoTrue access-token audience for hosted auth issuers', () => {
+    expect(resolveSsoAudiences({
+      issuer: 'https://auth.example.test/auth/v1',
+      clientId: 'admin-client',
+    })).toEqual(['admin-client', 'authenticated']);
+  });
+
+  it('keeps explicit non-client audiences strict', () => {
+    expect(resolveSsoAudiences({
+      configuredAudience: 'supaoauth-admin-api',
+      issuer: 'https://auth.example.test/auth/v1',
+      clientId: 'admin-client',
+    })).toEqual(['supaoauth-admin-api']);
+  });
+
+  it('treats legacy client-id audience config as compatible with GoTrue access tokens', () => {
+    expect(resolveSsoAudiences({
+      configuredAudience: 'admin-client',
+      issuer: 'https://auth.example.test/auth/v1',
+      clientId: 'admin-client',
+    })).toEqual(['admin-client', 'authenticated']);
   });
 });
 

@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { t } from '$lib/i18n.js';
   import { listRoles, createRole, deleteRole, createRolePermission, deleteRolePermission } from '$lib/api/client.js';
 
   let roles = $state([]);
@@ -33,7 +34,7 @@
   }
 
   async function handleDelete(id) {
-    if (!confirm('Delete this role? All permissions and assignments will be removed.')) return;
+    if (!confirm(t('Delete this role? All permissions and assignments will be removed.'))) return;
     try {
       await deleteRole(id);
       await load();
@@ -65,9 +66,9 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">Roles & Permissions</h2>
+  <h2 class="text-2xl font-bold text-surface-900">{t('Roles & Permissions')}</h2>
   <button onclick={() => showCreate = !showCreate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">
-    {showCreate ? 'Cancel' : '+ New Role'}
+    {showCreate ? t('Cancel') : `+ ${t('New Role')}`}
   </button>
 </div>
 
@@ -77,27 +78,27 @@
 
 {#if showCreate}
   <div class="bg-white rounded-xl border border-surface-200 p-6 mb-6">
-    <h3 class="text-lg font-semibold text-surface-800 mb-4">New Role</h3>
+    <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('New Role')}</h3>
     <div class="space-y-4">
       <div>
-        <label for="new-role-name" class="block text-sm font-medium text-surface-700 mb-1">Name</label>
+        <label for="new-role-name" class="block text-sm font-medium text-surface-700 mb-1">{t('Name')}</label>
         <input id="new-role-name" bind:value={newRole.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="admin">
       </div>
       <div>
-        <label for="new-role-description" class="block text-sm font-medium text-surface-700 mb-1">Description</label>
-        <input id="new-role-description" bind:value={newRole.description} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="Full administrator access">
+        <label for="new-role-description" class="block text-sm font-medium text-surface-700 mb-1">{t('Description')}</label>
+        <input id="new-role-description" bind:value={newRole.description} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('Full administrator access')}>
       </div>
-      <button onclick={handleCreate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Create</button>
+      <button onclick={handleCreate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">{t('Create')}</button>
     </div>
   </div>
 {/if}
 
 {#if loading}
-  <p class="text-surface-400">Loading...</p>
+  <p class="text-surface-400">{t('Loading...')}</p>
 {:else if roles.length === 0}
   <div class="bg-surface-50 rounded-xl border border-surface-200 p-8 text-center">
-    <p class="text-surface-500">No roles defined</p>
-    <p class="text-sm text-surface-400 mt-2">Create roles to control access with fine-grained permissions</p>
+    <p class="text-surface-500">{t('No roles defined')}</p>
+    <p class="text-sm text-surface-400 mt-2">{t('Create roles to control access with fine-grained permissions')}</p>
   </div>
 {:else}
   <div class="space-y-3">
@@ -112,15 +113,15 @@
           </div>
           <div class="flex gap-2">
             <button onclick={() => expandedRole = expandedRole === role.id ? null : role.id} class="text-sm text-brand-600 hover:text-brand-800">
-              {expandedRole === role.id ? 'Collapse' : 'Permissions'}
+              {expandedRole === role.id ? t('Collapse') : t('Permissions')}
             </button>
-            <button onclick={() => handleDelete(role.id)} class="text-sm text-red-500 hover:text-red-700">Delete</button>
+            <button onclick={() => handleDelete(role.id)} class="text-sm text-red-500 hover:text-red-700">{t('Delete')}</button>
           </div>
         </div>
 
         {#if expandedRole === role.id}
           <div class="mt-4 border-t border-surface-100 pt-4">
-            <h5 class="text-sm font-medium text-surface-700 mb-3">Permissions ({role.permissions?.length || 0})</h5>
+            <h5 class="text-sm font-medium text-surface-700 mb-3">{t('Permissions')} ({role.permissions?.length || 0})</h5>
             {#if role.permissions?.length}
               <div class="flex flex-wrap gap-2 mb-3">
                 {#each role.permissions as perm (perm.id)}
@@ -132,9 +133,9 @@
               </div>
             {/if}
             <div class="flex gap-2">
-              <input bind:value={newPerm.name} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder="permission name">
-              <input bind:value={newPerm.description} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder="description (optional)">
-              <button onclick={() => handleAddPermission(role.id)} class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">Add</button>
+              <input bind:value={newPerm.name} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder={t('permissions.placeholderName')}>
+              <input bind:value={newPerm.description} class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm" placeholder={t('permissions.placeholderDescription')}>
+              <button onclick={() => handleAddPermission(role.id)} class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">{t('Add')}</button>
             </div>
           </div>
         {/if}

@@ -29,9 +29,11 @@ function normalizeBase(base: string) {
 function runtimeCandidates(): RuntimeCandidate[] {
   const config = getConfig();
   const candidates: RuntimeCandidate[] = [
-    // Order: direct internal first, then external with /auth/v1 prefix, then internal with prefix.
+    // Order: direct internal/runtime first, then installed public auth gateway.
     // Deduped by base+prefix so same-host dev setups only try each unique combination once.
     { base: config.oauthRuntimeInternalUrl, prefix: '' },
+    { base: config.oauthRuntimeUrl, prefix: '' },
+    { base: config.publicBaseUrl, prefix: '/auth/v1' },
     { base: config.oauthRuntimeUrl, prefix: '/auth/v1' },
     { base: config.oauthRuntimeInternalUrl, prefix: '/auth/v1' },
   ];
@@ -39,6 +41,7 @@ function runtimeCandidates(): RuntimeCandidate[] {
   const seen = new Set<string>();
   return candidates
     .map((candidate) => ({ base: normalizeBase(candidate.base), prefix: candidate.prefix }))
+    .filter((candidate) => candidate.base)
     .filter((candidate) => {
       const key = `${candidate.base}${candidate.prefix}`;
       if (seen.has(key)) return false;

@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { t } from '$lib/i18n.js';
   import { listTenantConfigs, upsertTenantConfig } from '$lib/api/client.js';
 
   let loading = $state(true);
@@ -107,7 +108,7 @@
         },
       });
       await load();
-      success = 'Account Center settings saved';
+      success = t('Account Center settings saved');
     } catch (e) {
       error = e.message;
     }
@@ -120,11 +121,11 @@
 
 <div class="flex items-center justify-between mb-6">
   <div>
-    <h2 class="text-2xl font-bold text-surface-900">Account Center</h2>
-    <p class="text-sm text-surface-500 mt-1">Configure the hosted self-service account center exposed at /account.</p>
+    <h2 class="text-2xl font-bold text-surface-900">{t('Account Center')}</h2>
+    <p class="text-sm text-surface-500 mt-1">{t('Configure the hosted self-service account center exposed at /account.')}</p>
   </div>
   <button onclick={saveAccountCenter} disabled={saving || loading} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
-    {saving ? 'Saving...' : 'Save'}
+    {saving ? t('Saving...') : t('Save')}
   </button>
 </div>
 
@@ -137,24 +138,24 @@
 {/if}
 
 {#if loading}
-  <p class="text-surface-400">Loading...</p>
+  <p class="text-surface-400">{t('Loading...')}</p>
 {:else}
   <div class="space-y-6">
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Availability</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Availability')}</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
           <span>
-            <span class="block text-sm font-medium text-surface-800">Hosted Account Center</span>
-            <span class="block text-xs text-surface-500 mt-1">Controls the public /account entry.</span>
+            <span class="block text-sm font-medium text-surface-800">{t('Hosted Account Center')}</span>
+            <span class="block text-xs text-surface-500 mt-1">{t('Controls the public /account entry.')}</span>
           </span>
           <input type="checkbox" bind:checked={form.enabled} class="h-4 w-4">
         </label>
 
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
           <span>
-            <span class="block text-sm font-medium text-surface-800">Password Change</span>
-            <span class="block text-xs text-surface-500 mt-1">Links to /account/password.</span>
+            <span class="block text-sm font-medium text-surface-800">{t('Password Change')}</span>
+            <span class="block text-xs text-surface-500 mt-1">{t('Links to /account/password.')}</span>
           </span>
           <input type="checkbox" bind:checked={form.password_change} class="h-4 w-4">
         </label>
@@ -162,73 +163,73 @@
     </section>
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Profile</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Profile')}</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label for="profile-edit" class="block text-sm font-medium text-surface-700 mb-1">Edit Mode</label>
+          <label for="profile-edit" class="block text-sm font-medium text-surface-700 mb-1">{t('Edit Mode')}</label>
           <select id="profile-edit" bind:value={form.profile_edit} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
-            <option value="disabled">Disabled</option>
-            <option value="read_only">Read Only</option>
-            <option value="editable">Editable</option>
+            <option value="disabled">{t('Disabled')}</option>
+            <option value="read_only">{t('Read Only')}</option>
+            <option value="editable">{t('Editable')}</option>
           </select>
         </div>
 
         <div>
-          <label for="profile-fields" class="block text-sm font-medium text-surface-700 mb-1">Profile Fields</label>
+          <label for="profile-fields" class="block text-sm font-medium text-surface-700 mb-1">{t('Profile Fields')}</label>
           <textarea id="profile-fields" bind:value={form.profile_fields_text} class="w-full h-28 px-3 py-2 border border-surface-300 rounded-lg text-sm font-mono" placeholder="name&#10;email&#10;phone"></textarea>
         </div>
       </div>
     </section>
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Modules</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Modules')}</h3>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Sessions</span>
+          <span class="text-sm font-medium text-surface-800">{t('Sessions')}</span>
           <input type="checkbox" bind:checked={form.sessions} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Application Grants</span>
+          <span class="text-sm font-medium text-surface-800">{t('Application Grants')}</span>
           <input type="checkbox" bind:checked={form.grants} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Identities</span>
+          <span class="text-sm font-medium text-surface-800">{t('Identities')}</span>
           <input type="checkbox" bind:checked={form.identities} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">MFA</span>
+          <span class="text-sm font-medium text-surface-800">{t('MFA')}</span>
           <input type="checkbox" bind:checked={form.mfa} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Passkeys</span>
+          <span class="text-sm font-medium text-surface-800">{t('Passkeys')}</span>
           <input type="checkbox" bind:checked={form.passkeys} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Email Change</span>
+          <span class="text-sm font-medium text-surface-800">{t('Email Change')}</span>
           <input type="checkbox" bind:checked={form.email_change} class="h-4 w-4">
         </label>
         <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">Phone Change</span>
+          <span class="text-sm font-medium text-surface-800">{t('Phone Change')}</span>
           <input type="checkbox" bind:checked={form.phone_change} class="h-4 w-4">
         </label>
       </div>
     </section>
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Delete Account</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Delete Account')}</h3>
       <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3 mb-4">
         <span>
-          <span class="block text-sm font-medium text-surface-800">Enable Delete Account</span>
-          <span class="block text-xs text-surface-500 mt-1">If URL is empty, hosted /account uses the built-in DELETE confirmation flow.</span>
+          <span class="block text-sm font-medium text-surface-800">{t('Enable Delete Account')}</span>
+          <span class="block text-xs text-surface-500 mt-1">{t('If URL is empty, hosted /account uses the built-in DELETE confirmation flow.')}</span>
         </span>
         <input type="checkbox" bind:checked={form.delete_account_enabled} class="h-4 w-4">
       </label>
-      <label for="delete-account-url" class="block text-sm font-medium text-surface-700 mb-1">External Delete Account URL</label>
+      <label for="delete-account-url" class="block text-sm font-medium text-surface-700 mb-1">{t('External Delete Account URL')}</label>
       <input id="delete-account-url" type="url" bind:value={form.delete_account_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://example.com/account/delete">
     </section>
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">Hosted URLs</h3>
+      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Hosted URLs')}</h3>
       <div class="flex flex-wrap gap-3">
         <a class="text-sm text-brand-600 hover:text-brand-800" href="/account" target="_blank" rel="noreferrer">/account</a>
         <a class="text-sm text-brand-600 hover:text-brand-800" href="/account.html" target="_blank" rel="noreferrer">/account.html</a>
