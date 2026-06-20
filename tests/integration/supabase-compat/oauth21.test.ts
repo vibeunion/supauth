@@ -5,7 +5,7 @@
  * depending on Supabase internal test helpers. Live checks are opt-in because
  * they require a real Supabase runtime and registered OAuth client.
  *
- * Run smoke/skip contract:
+ * Run smoke contract:
  *   bun test tests/integration/supabase-compat/oauth21.test.ts
  *
  * Run live checks:
@@ -17,7 +17,8 @@
  *
  * Strict CI checks:
  *   REQUIRE_SUPABASE_AUTH_COMPAT=1 runs the live public OAuth/OIDC checks and
- *   fails fast when any required live Auth secret is missing.
+ *   fails fast when any required live Auth secret is missing. The strict CI
+ *   workflow also fails if the suite reports skipped tests.
  *
  * Optional live token checks outside strict mode:
  *   OAUTH21_ACCESS_TOKEN=<oauth-access-token>
@@ -53,21 +54,19 @@ if (STRICT_COMPAT) {
 type LiveTestHandler = () => void | Promise<unknown>;
 
 function liveIt(name: string, fn: LiveTestHandler) {
-  return RUN_LIVE ? it(name, fn, LIVE_TIMEOUT_MS) : it.skip(name, fn);
+  if (RUN_LIVE) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 function clientLiveIt(name: string, fn: LiveTestHandler) {
-  return RUN_LIVE && CLIENT_ID ? it(name, fn, LIVE_TIMEOUT_MS) : it.skip(name, fn);
+  if (RUN_LIVE && CLIENT_ID) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 function accessTokenLiveIt(name: string, fn: LiveTestHandler) {
-  if (RUN_LIVE && ACCESS_TOKEN) return it(name, fn, LIVE_TIMEOUT_MS);
-  return STRICT_COMPAT ? undefined : it.skip(name, fn);
+  if (RUN_LIVE && ACCESS_TOKEN) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 function refreshTokenLiveIt(name: string, fn: LiveTestHandler) {
-  if (RUN_LIVE && REFRESH_TOKEN) return it(name, fn, LIVE_TIMEOUT_MS);
-  return STRICT_COMPAT ? undefined : it.skip(name, fn);
+  if (RUN_LIVE && REFRESH_TOKEN) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 function assertRequiredEnv(names: string[]) {

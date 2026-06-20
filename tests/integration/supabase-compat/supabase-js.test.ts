@@ -26,9 +26,20 @@ const RUN_LIVE = STRICT_COMPAT || process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const TEST_EMAIL = process.env.SUPABASE_TEST_EMAIL || '';
 const TEST_PASSWORD = process.env.SUPABASE_TEST_PASSWORD || '';
-const liveIt = RUN_LIVE ? it : it.skip;
-const supabaseJsIt = RUN_LIVE && SUPABASE_ANON_KEY ? it : it.skip;
-const authIt = RUN_LIVE && SUPABASE_ANON_KEY && TEST_EMAIL && TEST_PASSWORD ? it : it.skip;
+
+type LiveTestHandler = () => void | Promise<unknown>;
+
+function liveIt(name: string, fn: LiveTestHandler) {
+  if (RUN_LIVE) it(name, fn);
+}
+
+function supabaseJsIt(name: string, fn: LiveTestHandler) {
+  if (RUN_LIVE && SUPABASE_ANON_KEY) it(name, fn);
+}
+
+function authIt(name: string, fn: LiveTestHandler) {
+  if (RUN_LIVE && SUPABASE_ANON_KEY && TEST_EMAIL && TEST_PASSWORD) it(name, fn);
+}
 
 if (STRICT_COMPAT) {
   assertRequiredEnv([

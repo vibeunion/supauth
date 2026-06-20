@@ -71,7 +71,13 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.LIVE_SUPABASE_ANON_KEY }}
           SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
           SUPABASE_TEST_PASSWORD: ${{ secrets.LIVE_SUPABASE_TEST_PASSWORD }}
-        run: bun run test:supabase-auth-compat
+        run: |
+          set -o pipefail
+          bun run test:supabase-auth-compat 2>&1 | tee supabase-auth-compat.log
+          if grep -E '\(skip\)|(^|[[:space:]])[1-9][0-9]* skip' supabase-auth-compat.log; then
+            echo "::error::Supabase Auth compatibility suite must not report skipped tests"
+            exit 1
+          fi
 
   package-auth-ui:
     name: Package Auth UI SDK
