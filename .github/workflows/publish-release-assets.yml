@@ -1,0 +1,87 @@
+name: Publish Release Assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Git release tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  publish-release-assets:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+    steps:
+      - name: Classify release tag
+        id: release
+        run: |
+          set -euo pipefail
+          case "$RELEASE_TAG" in
+            auth-server-v*)
+              echo "package=auth-server" >> "$GITHUB_OUTPUT"
+              ;;
+            admin-console-v*)
+              echo "package=admin-console" >> "$GITHUB_OUTPUT"
+              ;;
+            shared-v*|sdk-typescript-v*|sdk-auth-ui-v*)
+              echo "package=npm" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "package=unsupported" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Publish release assets
+        env:
+          PACKAGE: ${{ steps.release.outputs.package }}
+        run: |
+          set -euo pipefail
+
+          case "$PACKAGE" in
+            auth-server)
+              bun install
+              bun run --filter '@supauth/shared' build
+              (cd packages/auth-server && bun run build)
+              rm -rf release-assets
+              mkdir -p release-assets
+              cp packages/auth-server/dist/supacloud-function/supacloud-function.js release-assets/supacloud-function.js
+              tar -czf release-assets/auth-server-dist.tar.gz -C packages/auth-server/dist .
+              (cd release-assets && sha256sum * > SHA256SUMS)
+              gh release upload "$RELEASE_TAG" release-assets/* --clobber
+              ;;
+            admin-console)
+              bun install
+              bun run --filter '@supauth/shared' build
+              (cd packages/admin-console && bun run build)
+              rm -rf release-assets
+              mkdir -p release-assets
+              tar -czf release-assets/admin-console-build.tar.gz -C packages/admin-console/build .
+              gh release upload "$RELEASE_TAG" release-assets/* --clobber
+              ;;
+            npm)
+              gh workflow run publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref main -f release_tag="$RELEASE_TAG"
+              echo "Dispatched npm publish workflow for $RELEASE_TAG"
+              ;;
+            *)
+              echo "No release asset publisher is configured for $RELEASE_TAG"
+              ;;
+          esac
