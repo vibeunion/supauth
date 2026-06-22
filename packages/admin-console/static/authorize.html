@@ -260,6 +260,7 @@
       let hasCustomPageTitle = false;
       let hasCustomButtonLabel = false;
       let signUpEnabled = false;
+      let systemName = 'SupaOAuth';
 
       // ─── i18n defaults with phrase override support ─────────────────
       const LOCALE_STORAGE_KEY = 'supaoauth.locale';
@@ -376,6 +377,12 @@
         return (defaultMessages[currentLocale] && defaultMessages[currentLocale][key]) || defaultMessages.en[key] || key;
       }
 
+      function renderFooter() {
+        // 系统名由 sign-in-experience.page_title 驱动；默认仍为 SupaOAuth。
+        if (systemName === 'SupaOAuth') return t('footer');
+        return currentLocale === 'zh-CN' ? systemName + ' 身份提供方' : systemName + ' Identity Provider';
+      }
+
       function applyLocale(locale, persist = false) {
         currentLocale = defaultMessages[locale] || phraseOverrides[locale] ? locale : 'en';
         document.documentElement.lang = currentLocale;
@@ -393,7 +400,7 @@
         document.getElementById('tab-signup').textContent = t('signUp');
         document.getElementById('tab-forgot').textContent = t('forgotPassword');
         document.getElementById('or-text').textContent = t('or');
-        document.getElementById('footer').textContent = t('footer');
+        document.getElementById('footer').textContent = renderFooter();
         if (!hasCustomPageTitle) {
           document.title = t('documentTitle');
           document.getElementById('title').textContent = t('title');
@@ -627,8 +634,10 @@
           // Branding
           if (branding.page_title) {
             hasCustomPageTitle = true;
+            systemName = branding.page_title;
             document.title = branding.page_title;
             document.getElementById('title').textContent = branding.page_title;
+            document.getElementById('footer').textContent = renderFooter();
           }
           if (branding.primary_color) {
             document.documentElement.style.setProperty('--primary', branding.primary_color);

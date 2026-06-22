@@ -2,7 +2,11 @@
   import { base, resolve } from '$app/paths';
   import { page } from '$app/state';
   import { t } from '$lib/i18n.js';
+  import { brand, loadBrand } from '$lib/brand.svelte.js';
   let { children } = $props();
+
+  // 启动时拉取系统品牌名（sign-in-experience.page_title）
+  loadBrand();
 
   const navItems = [
     { path: '/dashboard', labelKey: 'nav.overview', icon: '◉' },
@@ -30,7 +34,7 @@
     <div class="px-6 py-5 border-b border-surface-100 flex flex-col justify-center">
       <div class="flex items-center gap-2">
         <span class="text-xl text-brand-600 font-bold leading-none select-none">✦</span>
-        <h1 class="text-lg font-bold tracking-tight text-surface-900 leading-none">SupaOAuth</h1>
+        <h1 class="text-lg font-bold tracking-tight text-surface-900 leading-none">{brand.systemName}</h1>
       </div>
       <p class="text-[11px] font-semibold tracking-wider uppercase text-surface-400 mt-1.5 pl-4">
         {t('layout.subtitle')}
@@ -66,7 +70,7 @@
     </div>
 
     <div class="px-6 py-4 border-t border-surface-100 text-xs text-surface-400 font-medium bg-surface-50/50">
-      SupaOAuth
+      {brand.systemName}
     </div>
   </nav>
 

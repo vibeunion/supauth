@@ -391,7 +391,7 @@
       <img id="logo" class="logo" alt="">
       <div id="brand-mark" class="brand-mark">SA</div>
       <h1 id="account-title">账户中心</h1>
-      <p class="lead">管理你的 SupaOAuth 账号资料、安全设置、登录会话、应用授权和登录身份。</p>
+      <p id="account-lead" class="lead">管理你的 SupaOAuth 账号资料、安全设置、登录会话、应用授权和登录身份。</p>
     </section>
 
     <section id="account-panel" class="panel">
@@ -556,6 +556,7 @@
     const brandMark = document.getElementById('brand-mark');
     const logo = document.getElementById('logo');
     const title = document.getElementById('account-title');
+    const lead = document.getElementById('account-lead');
     const tokenInput = document.getElementById('access-token');
     const loadAccountButton = document.getElementById('load-account');
     const clearTokenButton = document.getElementById('clear-token');
@@ -610,6 +611,8 @@
 
       if (branding.page_title) {
         document.title = `${branding.page_title} Account Center`;
+        brand.setAttribute('aria-label', branding.page_title);
+        if (lead) lead.textContent = `管理你的 ${branding.page_title} 账号资料、安全设置、登录会话、应用授权和登录身份。`;
       }
 
       if (branding.primary_color) {
