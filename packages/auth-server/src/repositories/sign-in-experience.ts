@@ -184,7 +184,13 @@ function applyApplicationFallback(branding: Branding, fallback: Branding) {
   for (const [key, value] of Object.entries(fallback) as Array<[keyof Branding, string | null | undefined]>) {
     if (!value) continue;
     if (key === 'custom_css' || key === 'background_url' || key === 'button_label') continue;
-    next[key] = value;
+    // 系统名（page_title）：仅在全局未显式设置或仍为 stock 值时，才用 OAuth client 名回填。
+    // 显式设置的租户级系统名（如"西谷智灯枢鉴系统"）保持生效；每个应用的显式覆盖仍由 mergeBranding 负责。
+    if (key === 'page_title') {
+      if (!next.page_title || STOCK_PAGE_TITLES.has(next.page_title)) next.page_title = value;
+    } else {
+      next[key] = value;
+    }
   }
   return next;
 }

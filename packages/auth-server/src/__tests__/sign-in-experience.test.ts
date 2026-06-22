@@ -45,7 +45,7 @@ describe('Sign-in experience repository — module structure', () => {
   it('uses SupaCloud OAuth client metadata as application branding defaults', async () => {
     const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
     const branding = mergeSupaCloudBrandingDefaults({
-      page_title: 'Tenant Name',
+      page_title: 'SupaOAuth',
       logo_url: 'https://assets.example.com/tenant-logo.png',
       favicon_url: null,
       primary_color: '#0a2540',
@@ -57,9 +57,27 @@ describe('Sign-in experience repository — module structure', () => {
       },
     });
 
+    // stock 全局标题时，应用 client_name 回填标题
     expect(branding.page_title).toBe('Volt Studio');
     expect(branding.logo_url).toBe('https://assets.example.com/volt-studio-logo.png');
     expect(branding.primary_color).toBe('#00d4ff');
+  });
+
+  it('preserves a non-stock tenant-level system name against application metadata', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({
+      page_title: '西谷智灯枢鉴系统',
+      logo_url: null,
+      favicon_url: null,
+      primary_color: null,
+    }, {
+      application: {
+        client_name: 'SupAuth Admin Console',
+      },
+    });
+
+    // 显式租户系统名不应被 OAuth client 元数据覆盖
+    expect(branding.page_title).toBe('西谷智灯枢鉴系统');
   });
 
   it('keeps third-party connectors closed by default for public sign-in', async () => {
