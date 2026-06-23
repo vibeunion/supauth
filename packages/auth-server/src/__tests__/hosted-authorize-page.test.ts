@@ -57,6 +57,15 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
+  test('GET /login serves the same authorize page', async () => {
+    const response = await request('http://localhost/login');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+  });
+
   test('GET /authorize.html serves the same authorize page', async () => {
     const response = await request('http://localhost/authorize.html');
     const body = await response.text();

@@ -257,6 +257,18 @@ export const hostedPageRoutes = new Elysia()
     detail: { summary: 'Serve hosted login page (alias for authorize)', tags: ['Public'] },
   })
 
+  .get('/login', async ({ set }) => {
+    const html = await getAuthorizeHtml();
+    if (!html) {
+      set.status = 404;
+      return { error: 'authorize_page_missing' };
+    }
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+    return renderAuthorizeHtml(html);
+  }, {
+    detail: { summary: 'Serve hosted login path alias', tags: ['Public'] },
+  })
+
   .get('/authorize.html', async ({ set }) => {
     const html = await getAuthorizeHtml();
     if (!html) {

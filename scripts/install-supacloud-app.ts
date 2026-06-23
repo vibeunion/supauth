@@ -294,6 +294,7 @@ async function configureGatewayRoutes(input: {
         '/v1/*',
         '/v1/public/*',
         '/oauth/*',
+        '/login',
         '/login.html',
         '/authorize.html',
         '/account',

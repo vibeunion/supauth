@@ -66,7 +66,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 4. 对 `SUPACLOUD_DATABASE_URL` 执行 migration：`bun run --filter '@supauth/auth-server' migrate`
 5. 将 `packages/auth-server/dist/supacloud-function/supacloud-function.js` 发布到 SupaCloud Functions
 6. 将 `packages/admin-console/build` 发布到 SupaCloud Pages/static hosting
-7. 按 manifest 将 `/api/*`（strip `/api`）、`/v1/public/*`、`/oauth/*`、`/login.html`、`/authorize.html`、`/claim`、`/claim.html` 路由到 Function
+7. 按 manifest 将 `/api/*`（strip `/api`）、`/v1/public/*`、`/oauth/*`、`/login`、`/login.html`、`/authorize.html`、`/claim`、`/claim.html` 路由到 Function
 8. 按 manifest 的 `supacloud_owned_management_domains` 确认 Applications、Users、Organizations、RBAC、Audit、Webhooks 等管理面由 SupaCloud Management API 提供，SupAuth Function 只做 BFF/facade 和 overlay。
 9. 按 manifest 的 `supacloud_managed_background_jobs` 确认 webhook 投递、重试、诊断和失败禁用由 SupaCloud 托管任务执行；SupAuth 不部署 webhook worker、cron 或 systemd/pm2 进程。
 10. 安装完成后运行 live verifier：
@@ -107,6 +107,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
     - /api/*
     - /v1/public/*
     - /oauth/*
+    - /login
     - /login.html
     - /authorize.html
     - /claim

@@ -73,7 +73,7 @@ as SupaCloud Functions/Pages from `supacloud-app-manifest.json`.
 For the current target, SupaCloud route bindings must preserve:
 - `/auth/v1/*` → SupaCloud managed GoTrue runtime
 - `/rest/v1/*`, `/storage/v1/*`, `/realtime/v1/*`, `/functions/v1/*` → SupaCloud managed runtime
-- `/api/*`, `/v1/public/*`, `/oauth/*`, `/login.html`, `/authorize.html`, `/claim`, `/claim.html` → SupAuth Function
+- `/api/*`, `/v1/public/*`, `/oauth/*`, `/login`, `/login.html`, `/authorize.html`, `/claim`, `/claim.html` → SupAuth Function
 - `/admin/*` → SupAuth Pages
 
 SupAuth does not require a standalone auth server or a separately managed
