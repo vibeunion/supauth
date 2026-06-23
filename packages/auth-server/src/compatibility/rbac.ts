@@ -30,15 +30,15 @@ export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
       results.push({
         check_id: 'rb-4-gotrue-jwt-role-safe',
         status: 'pass',
-        message: `In gotrue mode, JWT role claim remains 'authenticated'/'anon'. SupaOAuth does not write business roles into the top-level role claim.`,
+        message: `In gotrue mode, JWT role claim remains a Supabase runtime role ('anon'/'authenticated'/'service_role'). SupaOAuth does not write business roles into the top-level role claim.`,
         details: { runtime_mode: 'gotrue', signing_alg: defaultAlg || 'unknown' },
       });
     } else {
       results.push({
         check_id: 'rb-4-external-oidc-role-claim',
         status: 'warn',
-        message: 'In external_oidc mode, JWT may contain custom claims. Verify that business roles use supaoauth:roles namespace, not top-level role.',
-        details: { runtime_mode: 'external_oidc', expected_namespace: 'supaoauth:roles' },
+        message: 'In external_oidc mode, JWT may contain externally issued claims. Verify that business roles preserve the app_metadata.supaoauth shape and never replace the top-level Supabase role claim.',
+        details: { runtime_mode: 'external_oidc', expected_namespace: 'app_metadata.supaoauth' },
       });
     }
   } catch {

@@ -4,7 +4,7 @@
 
 ## 概述
 
-OAuth 2.0 授权流程中，用户需对应用请求的 scopes 做出同意（consent）决策。SupaOAuth 作为 IdP，需在 GoTrue 默认 OAuth flow 基础上增加 consent 交互层。
+OAuth 2.0 授权流程中，用户需对应用请求的 scopes 做出同意（consent）决策。默认 `runtime_mode=gotrue` 下，SupaOAuth 不作为独立 token issuer；它在 GoTrue 默认 OAuth flow 之上提供 consent 策略、页面和审计层。
 
 ## Consent 类型
 
@@ -45,9 +45,9 @@ CREATE TABLE supaoauth.user_consents (
      → GoTrue 验证身份（login + MFA）
      → 重定向到 SupaOAuth /consent?client_id=...&scope=...&state=...
      → SupaOAuth 检查已有 consent
-        → 已有 consent 且未变更 → 直接回调 redirect_uri（透明授权）
+        → 已有 consent 且未变更 → 继续 GoTrue 授权回调（透明授权）
         → 新 scope 或无 consent → 显示 consent 页面
-        → 用户同意 → 记录 consent → 重定向到 redirect_uri?code=...
+        → 用户同意 → 记录 consent → 继续 GoTrue 授权回调
      → GoTrue /token 交换 code
 ```
 
@@ -55,7 +55,7 @@ CREATE TABLE supaoauth.user_consents (
 
 - GoTrue 原生 `/authorize` 流程不变，SupaOAuth 在 GoTrue 完成身份验证后介入
 - GoTrue 的 `redirect_uri` 指向 SupaOAuth consent endpoint，而非最终应用
-- 用户拒绝 consent 时，重定向到应用 `redirect_uri?error=access_denied`
+- 用户拒绝 consent 时，按 GoTrue/OAuth 错误回调语义返回 `access_denied`
 - 透明授权（已有 consent）不增加额外跳转延迟
 
 ## Admin Console 集成
@@ -79,4 +79,5 @@ CREATE TABLE supaoauth.user_consents (
 - SupaOAuth **不实现** OAuth 授权码/token 签发 — GoTrue 负责
 - SupaOAuth **自持** consent 记录和策略配置
 - SupaOAuth **通过 BFF** 代理 consent 页面渲染
+- SupaOAuth **不改变** Supabase OAuth access token 形态；token 仍应是可用于 RLS 的 Supabase JWT
 - M2M 应用的授权范围由 `application_bindings` 表控制，不需要 consent 流程

@@ -21,6 +21,20 @@ export interface AdapterTargetInfo {
   storageProjectScoped: boolean;
 }
 
+type GatewayRouteProbe = {
+  name: string;
+  path: string;
+  acceptedStatuses: readonly number[];
+};
+
+const SUPABASE_RUNTIME_ROUTE_PROBES = [
+  { name: 'gotrue_health', path: '/auth/v1/health', acceptedStatuses: [200] },
+  { name: 'postgrest_root', path: '/rest/v1/', acceptedStatuses: [200, 401, 406] },
+  { name: 'storage_buckets', path: '/storage/v1/bucket', acceptedStatuses: [200, 401] },
+  { name: 'realtime_ws', path: '/realtime/v1/websocket', acceptedStatuses: [200, 400, 403, 426] },
+  { name: 'functions_root', path: '/functions/v1/', acceptedStatuses: [200, 401, 404] },
+] as const satisfies readonly GatewayRouteProbe[];
+
 export class SupaCloudApiError extends Error {
   status: number;
   body: string;
@@ -146,17 +160,18 @@ export class SupaCloudAdapter {
     ok: boolean;
     probes: Array<{ name: string; path: string; status: number | null; ok: boolean; error?: string }>;
   }> {
-    const probes = await Promise.all([
-      this.probeRuntimeRoute('gotrue_health', '/auth/v1/health', (status) => status === 200),
-      this.probeRuntimeRoute('postgrest_root', '/rest/v1/', (status) => status >= 200 && status < 500),
-    ]);
+    const probes = await Promise.all(
+      SUPABASE_RUNTIME_ROUTE_PROBES.map((probe) =>
+        this.probeRuntimeRoute(probe.name, probe.path, probe.acceptedStatuses),
+      ),
+    );
     return { ok: probes.every((probe) => probe.ok), probes };
   }
 
   private async probeRuntimeRoute(
     name: string,
     path: string,
-    acceptsStatus: (status: number) => boolean,
+    acceptedStatuses: readonly number[],
   ): Promise<{ name: string; path: string; status: number | null; ok: boolean; error?: string }> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -165,13 +180,15 @@ export class SupaCloudAdapter {
       const body = await res.text().catch(() => '');
       const kongRouteMiss = body.includes('no Route matched with those values');
       const upstreamFailure = res.status === 502 || res.status === 503 || res.status === 504;
-      const ok = acceptsStatus(res.status) && !kongRouteMiss && !upstreamFailure;
+      const ok = acceptedStatuses.includes(res.status) && !kongRouteMiss && !upstreamFailure;
       return {
         name,
         path,
         status: res.status,
         ok,
-        error: ok ? undefined : body.slice(0, 300),
+        error: ok
+          ? undefined
+          : `expected HTTP status in [${acceptedStatuses.join(', ')}], got HTTP ${res.status}${body ? `: ${body.slice(0, 240)}` : ''}`,
       };
     } catch (e) {
       return {
@@ -309,11 +326,6 @@ export class SupaCloudAdapter {
     });
   }
 
-  /**
-   * P0-27: Safe merge update — reads existing app_metadata first,
-   * then patches only the `supaoauth` namespace without clobbering
-   * other fields like `role`, `provider`, etc.
-   */
   async updateUser(userId: string, data: Record<string, unknown>) {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}`, {
       method: 'PUT',

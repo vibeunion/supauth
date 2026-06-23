@@ -5,6 +5,7 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as consentRepo from '../repositories/consents.js';
 import * as auditRepo from '../repositories/audit.js';
+import { sanitizeSelfProfileUpdatePayload, userUpdateFailureBody } from './user-update-policy.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -38,9 +39,15 @@ export const myAccountRoutes = new Elysia({ prefix: '/v1/my-account' })
   }, {
     detail: { summary: 'Get current account profile', tags: ['Account Center'] },
   })
-  .patch('/profile', async ({ currentUserId, body }) => {
+  .patch('/profile', async ({ currentUserId, body, set }) => {
     if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    const result = await adapter.updateUser(currentUserId, body as Record<string, unknown>);
+    const payload = sanitizeSelfProfileUpdatePayload(body);
+    if (!payload.ok) {
+      set.status = payload.status;
+      return userUpdateFailureBody(payload);
+    }
+
+    const result = await adapter.updateUser(currentUserId, payload.data);
     await audit('my_account.profile.updated', currentUserId);
     return result;
   }, {
@@ -65,14 +72,6 @@ export const myAccountRoutes = new Elysia({ prefix: '/v1/my-account' })
     return result;
   }, {
     detail: { summary: 'Unlink current account identity', tags: ['Account Center'] },
-  })
-  .post('/mfa/:factorId/reset', async ({ currentUserId, params }) => {
-    if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    const result = await adapter.resetUserMfa(currentUserId, params.factorId);
-    await audit('my_account.mfa.reset', currentUserId, { factor_id: params.factorId });
-    return result;
-  }, {
-    detail: { summary: 'Reset current account MFA factor', tags: ['Account Center'] },
   })
   .get('/grants', async ({ currentUserId }) => {
     if (!currentUserId) return new Response('Missing account user id', { status: 401 });

@@ -5,7 +5,7 @@ SupaOAuth supports two runtime modes. The default `gotrue` mode uses GoTrue as t
 ## When to Use External OIDC Mode
 
 - You want SupaOAuth to be the primary IdP, not just a management layer over GoTrue
-- You need SupaOAuth-specific claims (roles, organizations, scopes) in the JWT itself
+- You need an external issuer that Supabase trusts while still preserving Supabase access-token claims
 - You want to integrate with an enterprise IdP (Okta, Azure AD, etc.) that SupaOAuth proxies
 - You need OIDC features that GoTrue doesn't support (e.g. custom grant types, resource indicators)
 
@@ -19,7 +19,7 @@ External OIDC mode has strict requirements to maintain Supabase compatibility:
 
 3. **JWKS Endpoint** — The issuer MUST expose `/.well-known/jwks.json` with public keys for JWT verification.
 
-4. **Required claims** — Tokens MUST include `sub`, `aud`, `iss`, and `exp` at minimum. For Supabase RLS compatibility, they SHOULD also include `role` and `app_metadata`.
+4. **Required claims** — Tokens that are meant to behave like Supabase access tokens MUST preserve the Supabase Auth required claim shape: `iss`, `aud`, `exp`, `iat`, `sub`, `role`, `aal`, `session_id`, `email`, `phone`, and `is_anonymous`. Authorization-safe metadata remains in `app_metadata` when present. The top-level `role` remains a Supabase runtime role (`anon`, `authenticated`, or `service_role`), not an enterprise business role.
 
 5. **Supabase third-party auth configuration** — The Supabase project must be configured to trust the external issuer via the `auth.third_party_auth` table or SupaCloud API.
 
@@ -35,7 +35,7 @@ external_oidc mode:
 
   App → supabase-js → GoTrue (third-party auth) → JWT (RS256, external JWKS)
                                                    → Supabase validates via JWKS
-                                                   → RLS policies access supaoauth: claims
+                                                   → RLS policies keep the app_metadata.supaoauth shape
 ```
 
 ## Configuration
@@ -81,14 +81,13 @@ gateway route layer.
 
 ## Token Flow
 
-1. App redirects to SupaOAuth authorization endpoint
-2. SupaOAuth authenticates the user (via configured connectors)
-3. SupaOAuth issues an authorization code
-4. App exchanges the code for tokens at SupaOAuth's token endpoint
-5. SupaOAuth signs the JWT with its private key
-6. App uses the JWT with `supabase-js` or directly against Supabase APIs
-7. GoTrue validates the JWT using the JWKS endpoint
-8. Supabase RLS policies can reference `supaoauth:*` claims in the JWT
+1. App authenticates with the configured external issuer.
+2. The issuer signs a token that preserves the Supabase access-token shape.
+3. Supabase/GoTrue validates the token using the configured third-party issuer and JWKS.
+4. App uses the resulting Supabase-compatible session with `supabase-js` or directly against Supabase APIs.
+5. RLS policies continue to use `auth.uid()`, `auth.jwt()`, and `app_metadata.supaoauth` where enterprise authorization is enabled.
+
+For Supabase compatibility, prefer `app_metadata.supaoauth` for roles, organization context, version markers, and bounded permission projection. Top-level `supaoauth:*` claims are a legacy/advanced escape hatch only; enabling them requires explicit project documentation, token-size review, and RLS policy review.
 
 ## Limitations
 

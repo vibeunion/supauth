@@ -4,6 +4,11 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
+import {
+  mergeAdminUserAppMetadata,
+  sanitizeAdminUserUpdatePayload,
+  userUpdateFailureBody,
+} from './user-update-policy.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -31,8 +36,17 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
   .get('/:userId', async ({ params }) => adapter.getUser(params.userId), {
     detail: { summary: 'Get user by ID', tags: ['Users'] },
   })
-  .put('/:userId', async ({ params, body }) => {
-    const updated = await adapter.updateUser(params.userId, body as Record<string, unknown>);
+  .put('/:userId', async ({ params, body, set }) => {
+    const payload = sanitizeAdminUserUpdatePayload(body);
+    if (!payload.ok) {
+      set.status = payload.status;
+      return userUpdateFailureBody(payload);
+    }
+
+    const updateData = 'app_metadata' in payload.data
+      ? mergeAdminUserAppMetadata(payload.data, await adapter.getUser(params.userId))
+      : payload.data;
+    const updated = await adapter.updateUser(params.userId, updateData);
     await audit('user.update', 'user', params.userId);
     await fireWebhook('user.updated', { user_id: params.userId });
     return updated;

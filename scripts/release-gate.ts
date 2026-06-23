@@ -83,6 +83,7 @@ if (runLive) {
       'tests/integration/supabase-compat/supacloud-contract.test.ts',
     ], {
       env: {
+        REQUIRE_SUPABASE_AUTH_COMPAT: '1',
         RUN_SUPABASE_RUNTIME_COMPAT: '1',
         OAUTH_RUNTIME_URL: process.env.OAUTH_RUNTIME_URL || installedRuntimeUrl,
         MANAGEMENT_URL: process.env.MANAGEMENT_URL || `${installedBaseUrl}/api`,
@@ -93,6 +94,7 @@ if (runLive) {
   if (runSupabaseOauth21Compat) {
     run(['bun', 'test', 'tests/integration/supabase-compat/oauth21.test.ts'], {
       env: {
+        REQUIRE_SUPABASE_AUTH_COMPAT: '1',
         RUN_SUPABASE_OAUTH21_COMPAT: '1',
         OAUTH_RUNTIME_URL: process.env.OAUTH_RUNTIME_URL || installedRuntimeUrl,
       },

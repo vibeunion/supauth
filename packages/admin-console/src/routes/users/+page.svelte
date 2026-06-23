@@ -14,6 +14,7 @@
     getUserRoles,
     getUserPermissions,
   } from '$lib/api/client.js';
+  import { permissionDescription, permissionLabel } from '$lib/permission-catalog.js';
 
   let users = $state([]);
   let loading = $state(true);
@@ -68,6 +69,17 @@
   function providerLabel(p) {
     const map = { email: 'Email', google: 'Google', github: 'GitHub', azure: 'Microsoft', apple: 'Apple', phone: 'Phone' };
     return map[p] || (p ? p[0].toUpperCase() + p.slice(1) : '-');
+  }
+
+  function normalizePermission(permission) {
+    if (typeof permission === 'string') return { name: permission };
+    const name = permission?.name || permission?.permission || permission?.id || '-';
+    return { ...permission, name };
+  }
+
+  function permissionKey(permission) {
+    const normalized = normalizePermission(permission);
+    return normalized.id || normalized.name;
   }
 
   function factorTypeLabel(type) {
@@ -464,12 +476,23 @@
           </section>
           <section>
             <h4 class="text-sm font-semibold text-surface-700 mb-2">{t('users.permissions')}</h4>
-            <p class="text-xs text-surface-400 mb-2">{t('users.permissionsHint')}</p>
+            <p class="text-xs text-surface-400 mb-1">{t('users.permissionsHint')}</p>
+            <p class="text-xs text-surface-500 mb-3">{t('users.permissionsSource')}</p>
             {#if permissions.length}
-              <div class="flex flex-wrap gap-1.5">
-                {#each permissions as perm (perm.id || perm.name)}
-                  {@const meta = perm.name}
-                  <span class="inline-flex items-center px-2.5 py-1 bg-brand-50 text-brand-700 rounded-full text-xs font-medium" title={perm.description || meta}>{perm.name}</span>
+              <div class="grid gap-2">
+                {#each permissions as perm (permissionKey(perm))}
+                  {@const item = normalizePermission(perm)}
+                  {@const label = permissionLabel(item, t)}
+                  {@const description = permissionDescription(item, t)}
+                  <div class="bg-white border border-surface-200 rounded-lg px-3 py-2">
+                    <div class="flex items-center justify-between gap-3">
+                      <span class="text-sm font-medium text-surface-900 truncate" title={item.name}>{label}</span>
+                      <code class="shrink-0 inline-block max-w-[12rem] truncate text-[11px] text-surface-400 bg-surface-50 border border-surface-100 rounded px-1.5 py-0.5">{item.name}</code>
+                    </div>
+                    {#if description}
+                      <p class="text-xs text-surface-500 mt-1">{description}</p>
+                    {/if}
+                  </div>
                 {/each}
               </div>
             {:else}

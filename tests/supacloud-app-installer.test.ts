@@ -78,8 +78,10 @@ describe('SupaCloud app installer', () => {
         return {
           reachable: true,
           authorizeExists: true,
+          hasPermissionExists: true,
           hasOrgPermissionExists: true,
           authorizeGranted: true,
+          hasPermissionGranted: true,
           hasOrgPermissionGranted: true,
           unsafePolicies: [],
         };
@@ -303,12 +305,35 @@ describe('SupaCloud app installer', () => {
       migrationVerifier: async () => ({
         reachable: true,
         authorizeExists: true,
+        hasPermissionExists: true,
         hasOrgPermissionExists: false,
         authorizeGranted: true,
+        hasPermissionGranted: true,
         hasOrgPermissionGranted: true,
         unsafePolicies: [],
       }),
       fetchImpl: async () => new Response('{}', { status: 200 }),
     })).rejects.toThrow('supaoauth.has_org_permission() is missing');
+  });
+
+  it('fails install when the generic RBAC permission helper alias is missing', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      migrationVerifier: async () => ({
+        reachable: true,
+        authorizeExists: true,
+        hasPermissionExists: false,
+        hasOrgPermissionExists: true,
+        authorizeGranted: true,
+        hasPermissionGranted: true,
+        hasOrgPermissionGranted: true,
+        unsafePolicies: [],
+      }),
+      fetchImpl: async () => new Response('{}', { status: 200 }),
+    })).rejects.toThrow('supaoauth.has_permission() is missing');
   });
 });

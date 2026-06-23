@@ -466,7 +466,7 @@
         <div id="social-divider" class="divider" style="display:none"><span id="or-text">or</span></div>
         <div id="social-section" class="social-buttons" style="display:none"></div>
 
-        <div id="footer" class="footer">SupaOAuth Identity Provider</div>
+        <div id="footer" class="footer">SupaOAuth User Center</div>
       </main>
     </div>
 
@@ -491,7 +491,7 @@
           password: 'Password',
           submit: 'Sign In',
           signingIn: 'Signing in...',
-          footer: 'SupaOAuth Identity Provider',
+          footer: 'SupaOAuth User Center',
           loginFailed: 'Login failed',
           loginSuccess: 'Login successful.',
           redirecting: 'Login successful. Redirecting...',
@@ -527,7 +527,7 @@
           password: '密码',
           submit: '登录',
           signingIn: '正在登录...',
-          footer: 'SupaOAuth 身份提供方',
+          footer: 'SupaOAuth 用户中心',
           loginFailed: '登录失败',
           loginSuccess: '登录成功。',
           redirecting: '登录成功，正在跳转...',
@@ -598,7 +598,7 @@
       function renderFooter() {
         // 系统名由 sign-in-experience.page_title 驱动；默认仍为 SupaOAuth。
         if (systemName === 'SupaOAuth') return t('footer');
-        return currentLocale === 'zh-CN' ? systemName + ' 身份提供方' : systemName + ' Identity Provider';
+        return currentLocale === 'zh-CN' ? systemName + ' 用户中心' : systemName + ' User Center';
       }
 
       function applyLocale(locale, persist = false) {

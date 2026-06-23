@@ -59,5 +59,6 @@
 
 - SupaOAuth **不重造** OIDC token signing、JWKS、session token — GoTrue runtime 负责
 - SupaOAuth **编排** GoTrue 配置：auth config、MFA policy、provider enable/disable
+- Account Center 的 TOTP 绑定、验证、解绑只通过当前用户的 GoTrue Bearer token 调用 `/auth/v1/factors*`；BFF 和 route 层都必须过滤 enrollment payload 中的 raw `totp.secret`。用户自助入口不暴露管理面 reset；管理员重置 MFA 因子属于 Admin Console 治理能力。
 - SupaOAuth **自持** organization-level 和 role-level 的安全策略 metadata
 - SupaOAuth **通过 BFF** 代理 GoTrue WebAuthn endpoint，浏览器不直接访问 GoTrue

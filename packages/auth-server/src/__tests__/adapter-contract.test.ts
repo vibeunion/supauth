@@ -104,6 +104,81 @@ describe('SupaCloudAdapter contract', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('verifyGatewayRoutes accepts Supabase-compatible unauthenticated runtime statuses', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith('/auth/v1/health')) {
+        return Promise.resolve(new Response('{"status":"ok"}', { status: 200 }));
+      }
+      if (url.endsWith('/rest/v1/')) {
+        return Promise.resolve(new Response('{"message":"JWT missing"}', { status: 401 }));
+      }
+      if (url.endsWith('/storage/v1/bucket')) {
+        return Promise.resolve(new Response('{"message":"JWT missing"}', { status: 401 }));
+      }
+      if (url.endsWith('/realtime/v1/websocket')) {
+        return Promise.resolve(new Response('upgrade required', { status: 426 }));
+      }
+      if (url.endsWith('/functions/v1/')) {
+        return Promise.resolve(new Response('not found', { status: 404 }));
+      }
+      return Promise.resolve(new Response('unexpected', { status: 500 }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      const verification = await adapter.verifyGatewayRoutes();
+
+      expect(verification.ok).toBe(true);
+      expect(verification.probes.map((probe) => probe.name)).toEqual([
+        'gotrue_health',
+        'postgrest_root',
+        'storage_buckets',
+        'realtime_ws',
+        'functions_root',
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('verifyGatewayRoutes rejects missing preserved PostgREST, Storage, and Realtime routes', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith('/auth/v1/health')) {
+        return Promise.resolve(new Response('{"status":"ok"}', { status: 200 }));
+      }
+      if (url.endsWith('/functions/v1/')) {
+        return Promise.resolve(new Response('not found', { status: 404 }));
+      }
+      return Promise.resolve(new Response('missing route', { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      const verification = await adapter.verifyGatewayRoutes();
+
+      expect(verification.ok).toBe(false);
+      expect(verification.probes.find((probe) => probe.name === 'postgrest_root')?.ok).toBe(false);
+      expect(verification.probes.find((probe) => probe.name === 'storage_buckets')?.ok).toBe(false);
+      expect(verification.probes.find((probe) => probe.name === 'realtime_ws')?.ok).toBe(false);
+      expect(verification.probes.find((probe) => probe.name === 'functions_root')?.ok).toBe(true);
+      expect(verification.probes.find((probe) => probe.name === 'postgrest_root')?.error).toContain(
+        'expected HTTP status in [200, 401, 406], got HTTP 404',
+      );
+      expect(verification.probes.find((probe) => probe.name === 'storage_buckets')?.error).toContain(
+        'expected HTTP status in [200, 401], got HTTP 404',
+      );
+      expect(verification.probes.find((probe) => probe.name === 'realtime_ws')?.error).toContain(
+        'expected HTTP status in [200, 400, 403, 426], got HTTP 404',
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   // P0-26: projectRef override tests
   it('uses env PROJECT_REF by default', () => {
     const adapter = new SupaCloudAdapter();

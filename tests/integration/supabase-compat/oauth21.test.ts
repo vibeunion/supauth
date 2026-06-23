@@ -13,6 +13,8 @@
  *   OAUTH_RUNTIME_URL=http://localhost:9999 \
  *   OAUTH21_CLIENT_ID=<registered-client-id> \
  *   OAUTH21_REDIRECT_URI=http://localhost:3000/oauth/callback \
+ *   OAUTH21_ACCESS_TOKEN=<oauth-access-token> \
+ *   OAUTH21_REFRESH_TOKEN=<oauth-refresh-token> \
  *   bun test tests/integration/supabase-compat/oauth21.test.ts
  *
  * Strict CI checks:
@@ -28,6 +30,14 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import {
+  SUPABASE_METADATA_CLAIMS,
+  SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS,
+  SUPABASE_OAUTH_STANDARD_SCOPES,
+  SUPABASE_REQUIRED_CLAIMS,
+  SUPABASE_RUNTIME_ROLES,
+  SUPAOAUTH_CLAIM_KEYS,
+} from '../../../packages/shared/src/index.js';
 
 const STRICT_COMPAT = process.env.REQUIRE_SUPABASE_AUTH_COMPAT === '1';
 const RUN_LIVE = STRICT_COMPAT || process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
@@ -45,6 +55,8 @@ if (STRICT_COMPAT) {
     'OAUTH_RUNTIME_URL',
     'OAUTH21_CLIENT_ID',
     'OAUTH21_REDIRECT_URI',
+    'OAUTH21_ACCESS_TOKEN',
+    'OAUTH21_REFRESH_TOKEN',
   ]);
   if (TOKEN_AUTH_METHOD === 'client_secret_basic' || TOKEN_AUTH_METHOD === 'client_secret_post') {
     assertRequiredEnv(['OAUTH21_CLIENT_SECRET']);
@@ -173,15 +185,7 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     const metadata = await getOAuthMetadata();
     const jwks = await fetch(metadata.jwks_uri).then((res) => res.json()) as { keys?: JsonObject[] };
 
-    expect(payload.sub).toBeDefined();
-    expect(payload.role).toBeDefined();
-    expect(payload.exp).toBeDefined();
-    expect(payload.iss).toBe(metadata.issuer);
-    expect(payload.client_id).toBeDefined();
-
-    if (CLIENT_ID) {
-      expect(payload.client_id).toBe(CLIENT_ID);
-    }
+    expectSupabaseOAuthAccessTokenPayload(payload, metadata.issuer);
 
     if (header.kid && Array.isArray(jwks.keys)) {
       expect(jwks.keys.some((key) => key.kid === header.kid)).toBe(true);
@@ -217,6 +221,10 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     expect(body.access_token).toBeDefined();
     expect(body.token_type).toBe('bearer');
     expect(body.expires_in).toBeDefined();
+    expectGrantedOAuthScope(body);
+
+    const { payload } = decodeJwt(String(body.access_token));
+    expectSupabaseOAuthAccessTokenPayload(payload, metadata.issuer);
   });
 });
 
@@ -261,6 +269,42 @@ function tokenAuthHeaders(): HeadersInit {
   return {
     authorization: `Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`,
   };
+}
+
+function expectSupabaseOAuthAccessTokenPayload(payload: JsonObject, issuer: string): void {
+  expect(payload.sub).toBeDefined();
+  expect(SUPABASE_RUNTIME_ROLES).toContain(payload.role as (typeof SUPABASE_RUNTIME_ROLES)[number]);
+  expect(payload.exp).toBeDefined();
+  expect(payload.iss).toBe(issuer);
+  for (const claim of SUPABASE_REQUIRED_CLAIMS) {
+    expect(payload).toHaveProperty(claim);
+  }
+  for (const claim of SUPABASE_METADATA_CLAIMS) {
+    if (claim in payload) expect(payload[claim]).toBeDefined();
+  }
+  for (const claim of SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS) {
+    expect(payload).toHaveProperty(claim);
+  }
+  for (const claim of SUPAOAUTH_CLAIM_KEYS) {
+    expect(payload).not.toHaveProperty(claim);
+  }
+
+  if (CLIENT_ID) {
+    expect(payload.client_id).toBe(CLIENT_ID);
+  }
+
+  if (typeof payload.sub === 'string') {
+    expect(payload.user_id).toBe(payload.sub);
+  }
+}
+
+function expectGrantedOAuthScope(body: JsonObject): void {
+  expect(typeof body.scope).toBe('string');
+  const grantedScopes = String(body.scope).split(/\s+/).filter(Boolean);
+  expect(grantedScopes.length).toBeGreaterThan(0);
+  for (const scope of grantedScopes) {
+    expect(SUPABASE_OAUTH_STANDARD_SCOPES).toContain(scope as (typeof SUPABASE_OAUTH_STANDARD_SCOPES)[number]);
+  }
 }
 
 function decodeJwt(token: string): { header: JsonObject; payload: JsonObject } {

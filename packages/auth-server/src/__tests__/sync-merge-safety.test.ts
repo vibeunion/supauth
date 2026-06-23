@@ -3,6 +3,11 @@
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { loadConfig } from '../config/index.js';
+import {
+  buildSupaoauthRbacProjection,
+  MAX_JWT_PERMISSION_PROJECTION,
+  MAX_JWT_ROLE_PROJECTION,
+} from '../sync/index.js';
 
 // We test the merge logic by verifying the behavior inline
 // since the actual sync requires DB + adapter
@@ -97,5 +102,54 @@ describe('P0-27: app_metadata merge safety', () => {
     const merged = { ...(existing || {}), supaoauth: newSupaoauth };
 
     expect(merged.supaoauth).toEqual(newSupaoauth);
+  });
+
+  it('adds version markers and keeps bounded permissions for RLS helpers', () => {
+    const projection = buildSupaoauthRbacProjection({
+      roles: ['admin', 'admin', 'operator'],
+      permissions: ['users.read', 'users.read', 'reports.export'],
+      version: 123,
+      currentOrgId: 'org-one',
+      currentOrgRole: 'owner',
+    });
+
+    expect(projection.roles).toEqual(['admin', 'operator']);
+    expect(projection.permissions).toEqual(['users.read', 'reports.export']);
+    expect(projection.permissions_count).toBe(2);
+    expect(projection.rbac_version).toBe(123);
+    expect(projection.permissions_version).toBe(123);
+    expect(projection.current_org_id).toBe('org-one');
+    expect(projection.current_org_role).toBe('owner');
+    expect(projection.permissions_truncated).toBeUndefined();
+  });
+
+  it('does not project an unbounded permission array into app_metadata', () => {
+    const permissions = Array.from({ length: MAX_JWT_PERMISSION_PROJECTION + 1 }, (_, index) => `perm.${index}`);
+    const projection = buildSupaoauthRbacProjection({
+      roles: ['admin'],
+      permissions,
+      version: 456,
+    });
+
+    expect(projection.permissions).toEqual([]);
+    expect(projection.permissions_count).toBe(MAX_JWT_PERMISSION_PROJECTION + 1);
+    expect(projection.permissions_truncated).toBe(true);
+    expect(projection.permissions_projection_limit).toBe(MAX_JWT_PERMISSION_PROJECTION);
+    expect(projection.permissions_version).toBe(456);
+  });
+
+  it('does not project an unbounded role array into app_metadata', () => {
+    const roles = Array.from({ length: MAX_JWT_ROLE_PROJECTION + 1 }, (_, index) => `role-${index}`);
+    const projection = buildSupaoauthRbacProjection({
+      roles,
+      permissions: ['reports.read'],
+      version: 789,
+    });
+
+    expect(projection.roles).toEqual([]);
+    expect(projection.roles_count).toBe(MAX_JWT_ROLE_PROJECTION + 1);
+    expect(projection.roles_truncated).toBe(true);
+    expect(projection.roles_projection_limit).toBe(MAX_JWT_ROLE_PROJECTION);
+    expect(projection.rbac_version).toBe(789);
   });
 });

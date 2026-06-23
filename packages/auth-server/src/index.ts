@@ -65,7 +65,7 @@ const app = new Elysia()
   .use(swagger({
     path: '/swagger',
     documentation: {
-      info: { title: 'SupaOAuth Management API', version: '0.2.0', description: 'SupaOAuth is a SupaCloud-hosted Identity Provider (IdP) surface that orchestrates GoTrue as the OIDC runtime and provides product RBAC, organizations, connectors, and sign-in experience management.' },
+      info: { title: 'SupaOAuth Management API', version: '0.2.0', description: 'SupaOAuth is a SupaCloud-hosted enterprise IAM and user-center control plane. In gotrue mode, GoTrue remains the OAuth/OIDC runtime and token issuer; SupaOAuth provides hosted UI, product RBAC, organizations, connectors, audit, configuration, and compatibility tooling.' },
       tags: [
         { name: 'Health', description: 'Server health and project info' },
         { name: 'Project', description: 'Project-level metadata' },

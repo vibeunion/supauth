@@ -14,6 +14,7 @@ import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 type ProbeExpectation = 'exact-200' | 'route-exists' | 'runtime-preserved';
+type ProbeSpec = [string, string, ProbeExpectation, number[]?];
 
 interface ProbeResult {
   name: string;
@@ -60,13 +61,15 @@ function sha256File(path: string) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-function isExpectedStatus(status: number, expectation: ProbeExpectation) {
+function isExpectedStatus(status: number, expectation: ProbeExpectation, allowedStatuses?: number[]) {
+  if (allowedStatuses) return allowedStatuses.includes(status);
   if (expectation === 'exact-200') return status === 200;
   if (expectation === 'route-exists') return status >= 200 && status < 500 && status !== 404;
   return status >= 200 && status < 500;
 }
 
-function describeExpectation(expectation: ProbeExpectation) {
+function describeExpectation(expectation: ProbeExpectation, allowedStatuses?: number[]) {
+  if (allowedStatuses) return `expected HTTP status in [${allowedStatuses.join(', ')}]`;
   if (expectation === 'exact-200') return 'expected HTTP 200';
   if (expectation === 'route-exists') return 'expected a non-404, non-5xx route response';
   return 'expected preserved Supabase runtime route to avoid upstream 5xx';
@@ -84,17 +87,17 @@ function isHostedGoTrueAuthorizeLocation(location: string, baseUrl: string) {
   }
 }
 
-async function probe(fetchImpl: FetchLike, name: string, url: string, expectation: ProbeExpectation): Promise<ProbeResult> {
+async function probe(fetchImpl: FetchLike, name: string, url: string, expectation: ProbeExpectation, allowedStatuses?: number[]): Promise<ProbeResult> {
   try {
     const response = await fetchImpl(url, { method: 'GET', redirect: 'manual' });
-    const ok = isExpectedStatus(response.status, expectation);
+    const ok = isExpectedStatus(response.status, expectation, allowedStatuses);
     return {
       name,
       url,
       expectation,
       ok,
       status: response.status,
-      error: ok ? undefined : `${describeExpectation(expectation)}, got HTTP ${response.status}`,
+      error: ok ? undefined : `${describeExpectation(expectation, allowedStatuses)}, got HTTP ${response.status}`,
     };
   } catch (error) {
     return {
@@ -205,7 +208,7 @@ export async function verifySupacloudInstalledApp(input: {
   }
 
   const fetchImpl = input.fetchImpl || fetch;
-  const requiredSupauthProbes: Array<[string, string, ProbeExpectation]> = [
+  const requiredSupauthProbes: ProbeSpec[] = [
     ['supauth_health_api_strip_prefix', joinUrl(baseUrl, '/api/v1/health'), 'exact-200'],
     ['supauth_management_api', joinUrl(baseUrl, '/v1/auth-config'), 'route-exists'],
     ['public_sign_in_experience', joinUrl(baseUrl, '/v1/public/sign-in-experience/resolve'), 'route-exists'],
@@ -220,16 +223,16 @@ export async function verifySupacloudInstalledApp(input: {
     ['account_claim_html', joinUrl(baseUrl, '/claim.html'), 'exact-200'],
     ['favicon', joinUrl(baseUrl, '/favicon.ico'), 'exact-200'],
   ];
-  const requiredRuntimeProbes: Array<[string, string, ProbeExpectation]> = [
+  const requiredRuntimeProbes: ProbeSpec[] = [
     ['gotrue_health_preserved', joinUrl(runtimeUrl, '/auth/v1/health'), 'exact-200'],
-    ['postgrest_preserved', joinUrl(runtimeUrl, '/rest/v1/'), 'runtime-preserved'],
-    ['storage_preserved', joinUrl(runtimeUrl, '/storage/v1/bucket'), 'runtime-preserved'],
-    ['realtime_preserved', joinUrl(runtimeUrl, '/realtime/v1/websocket'), 'runtime-preserved'],
-    ['functions_preserved', joinUrl(runtimeUrl, '/functions/v1/'), 'runtime-preserved'],
+    ['postgrest_preserved', joinUrl(runtimeUrl, '/rest/v1/'), 'runtime-preserved', [200, 401, 406]],
+    ['storage_preserved', joinUrl(runtimeUrl, '/storage/v1/bucket'), 'runtime-preserved', [200, 401]],
+    ['realtime_preserved', joinUrl(runtimeUrl, '/realtime/v1/websocket'), 'runtime-preserved', [200, 400, 403, 426]],
+    ['functions_preserved', joinUrl(runtimeUrl, '/functions/v1/'), 'runtime-preserved', [200, 401, 404]],
   ];
 
-  for (const [name, url, expectation] of requiredSupauthProbes) {
-    result.probes.push(await probe(fetchImpl, name, url, expectation));
+  for (const [name, url, expectation, allowedStatuses] of requiredSupauthProbes) {
+    result.probes.push(await probe(fetchImpl, name, url, expectation, allowedStatuses));
   }
 
   const oauthProbe = await probeAny(fetchImpl, 'oauth_authorize_route', [
@@ -245,8 +248,8 @@ export async function verifySupacloudInstalledApp(input: {
     result.probes.push(await probeSsoAuthorizeRedirect(fetchImpl, input.ssoAuthorizeProbeUrl, baseUrl));
   }
 
-  for (const [name, url, expectation] of requiredRuntimeProbes) {
-    result.probes.push(await probe(fetchImpl, name, url, expectation));
+  for (const [name, url, expectation, allowedStatuses] of requiredRuntimeProbes) {
+    result.probes.push(await probe(fetchImpl, name, url, expectation, allowedStatuses));
   }
 
   for (const failedProbe of result.probes.filter((item) => !item.ok)) {

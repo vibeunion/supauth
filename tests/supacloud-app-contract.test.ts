@@ -96,6 +96,40 @@ describe('SupAuth SupaCloud app contract', () => {
     expect(PROJECT_ROLE_GRANTS_SQL).not.toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA auth');
   });
 
+  it('creates Supabase-compatible RBAC helper aliases without replacing auth.uid/auth.jwt patterns', () => {
+    expect(MIGRATION_SQL).toContain('CREATE OR REPLACE FUNCTION supaoauth.authorize(permission_name TEXT, target_organization_id UUID DEFAULT NULL)');
+    expect(MIGRATION_SQL).toContain('CREATE OR REPLACE FUNCTION supaoauth.has_permission(permission_name TEXT, target_organization_id UUID DEFAULT NULL)');
+    expect(MIGRATION_SQL).toContain('SELECT supaoauth.authorize(permission_name, target_organization_id)');
+    expect(MIGRATION_SQL).toContain('CREATE OR REPLACE FUNCTION supaoauth.has_org_permission(organization_id UUID, permission_name TEXT)');
+    expect(MIGRATION_SQL).toContain('GRANT EXECUTE ON FUNCTION supaoauth.has_permission(TEXT, UUID) TO authenticated');
+    expect(MIGRATION_SQL).toContain("auth.jwt() -> 'app_metadata' -> 'supaoauth'");
+    expect(MIGRATION_SQL).not.toContain("auth.jwt() ->> 'role' = 'admin'");
+  });
+
+  it('keeps RLS helpers fail-closed when JWT permission projection is truncated', () => {
+    const helperSql = MIGRATION_SQL.slice(
+      MIGRATION_SQL.indexOf('CREATE OR REPLACE FUNCTION supaoauth.authorize'),
+      MIGRATION_SQL.indexOf('REVOKE ALL ON FUNCTION supaoauth.authorize'),
+    );
+
+    expect(helperSql).toContain("supaoauth_claims -> 'permissions_truncated'");
+    expect(helperSql.match(/permissions_truncated/g) || []).toHaveLength(2);
+  });
+
+  it('verifies RBAC helper grants without turning missing helper signatures into DB reachability failures', () => {
+    const verifier = readFileSync('packages/auth-server/src/compatibility/rbac-verify.ts', 'utf8');
+
+    expect(verifier).toContain("to_regprocedure('supaoauth.authorize(text, uuid)')");
+    expect(verifier).toContain("to_regprocedure('supaoauth.has_permission(text, uuid)')");
+    expect(verifier).toContain("to_regprocedure('supaoauth.has_org_permission(uuid, text)')");
+    expect(verifier).toContain('WHEN authorize_oid IS NULL THEN NULL');
+    expect(verifier).toContain('WHEN has_permission_oid IS NULL THEN NULL');
+    expect(verifier).toContain('WHEN has_org_permission_oid IS NULL THEN NULL');
+    expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.authorize(TEXT, UUID)'");
+    expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.has_permission(TEXT, UUID)'");
+    expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.has_org_permission(UUID, TEXT)'");
+  });
+
   it('legacy management repositories are SupaCloud facades, not local source-of-truth writes', () => {
     const repositoryContracts = [
       {

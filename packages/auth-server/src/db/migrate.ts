@@ -295,7 +295,8 @@ CREATE INDEX IF NOT EXISTS idx_account_provisioning_user_id ON supaoauth.account
 --
 -- SupaCloud owns RBAC. SupAuth sync projects effective permissions into
 -- auth.users.app_metadata.supaoauth.permissions. RLS helpers read the JWT copy
--- so new projects do not need duplicated local RBAC tables.
+-- so new projects do not need duplicated local RBAC tables. If the projection is
+-- truncated, helpers fail closed and callers should use Management API lookups.
 CREATE OR REPLACE FUNCTION supaoauth.authorize(permission_name TEXT, target_organization_id UUID DEFAULT NULL)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -308,6 +309,7 @@ AS $$
   )
   SELECT
     COALESCE((supaoauth_claims -> 'permissions') ? permission_name, false)
+    AND COALESCE(supaoauth_claims -> 'permissions_truncated', 'false'::jsonb) <> 'true'::jsonb
     AND (
       target_organization_id IS NULL
       OR supaoauth_claims ->> 'current_org_id' = target_organization_id::text
@@ -326,6 +328,16 @@ AS $$
   SELECT supaoauth.authorize(permission_name, organization_id);
 $$;
 
+CREATE OR REPLACE FUNCTION supaoauth.has_permission(permission_name TEXT, target_organization_id UUID DEFAULT NULL)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = supaoauth, public, auth
+AS $$
+  SELECT supaoauth.authorize(permission_name, target_organization_id);
+$$;
+
 CREATE OR REPLACE FUNCTION supaoauth.app_has_org_permission(client_id TEXT, organization_id UUID, permission_name TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -338,6 +350,7 @@ AS $$
   )
   SELECT
     COALESCE((supaoauth_claims -> 'permissions') ? permission_name, false)
+    AND COALESCE(supaoauth_claims -> 'permissions_truncated', 'false'::jsonb) <> 'true'::jsonb
     AND (
       supaoauth_claims ->> 'application_id' = client_id
       OR auth.jwt() ->> 'client_id' = client_id
@@ -351,10 +364,12 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION supaoauth.authorize(TEXT, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION supaoauth.has_permission(TEXT, UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION supaoauth.app_has_org_permission(TEXT, UUID, TEXT) FROM PUBLIC;
 GRANT USAGE ON SCHEMA supaoauth TO authenticated;
 GRANT EXECUTE ON FUNCTION supaoauth.authorize(TEXT, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION supaoauth.has_permission(TEXT, UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION supaoauth.app_has_org_permission(TEXT, UUID, TEXT) TO authenticated;
 

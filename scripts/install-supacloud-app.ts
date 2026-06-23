@@ -445,8 +445,10 @@ function rbacMigrationVerificationErrors(result: RbacDbVerification) {
     return errors;
   }
   if (!result.authorizeExists) errors.push('supaoauth.authorize() is missing');
+  if (!result.hasPermissionExists) errors.push('supaoauth.has_permission() is missing');
   if (!result.hasOrgPermissionExists) errors.push('supaoauth.has_org_permission() is missing');
   if (!result.authorizeGranted) errors.push('authenticated lacks EXECUTE on supaoauth.authorize(TEXT, UUID)');
+  if (!result.hasPermissionGranted) errors.push('authenticated lacks EXECUTE on supaoauth.has_permission(TEXT, UUID)');
   if (!result.hasOrgPermissionGranted) errors.push('authenticated lacks EXECUTE on supaoauth.has_org_permission(UUID, TEXT)');
   const unsafePolicyCount = result.unsafePolicies?.length ?? 0;
   if (unsafePolicyCount > 0) errors.push(`${unsafePolicyCount} RLS policy/policies still use JWT role claim for business authorization`);

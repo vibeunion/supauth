@@ -118,8 +118,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+export const AUTH_HOOK_TOP_LEVEL_SUPAOAUTH_CLAIM_KEYS = [
+  'supaoauth',
+  'supaoauth:roles',
+  'supaoauth:org_id',
+  'supaoauth:org_role',
+  'supaoauth:scopes',
+  'supaoauth:permissions',
+] as const;
+
+function removeTopLevelSupaOAuthClaims(claims: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...claims };
+  for (const claim of AUTH_HOOK_TOP_LEVEL_SUPAOAUTH_CLAIM_KEYS) {
+    delete next[claim];
+  }
+  return next;
+}
+
 export function handleCustomAccessToken(payload: CustomAccessTokenPayload): { claims: Record<string, unknown> } {
-  const claims = isRecord(payload.claims) ? payload.claims : {};
+  const claims = removeTopLevelSupaOAuthClaims(isRecord(payload.claims) ? payload.claims : {});
   const appMetadata = isRecord(claims.app_metadata) ? claims.app_metadata : {};
   const existingSupaOAuth = isRecord(appMetadata.supaoauth) ? appMetadata.supaoauth : {};
 

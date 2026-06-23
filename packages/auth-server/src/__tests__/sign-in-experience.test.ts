@@ -136,6 +136,8 @@ describe('Sign-in experience repository — module structure', () => {
     process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'central-idp-project';
 
     try {
+      const { loadConfig } = await import('../config/index.js');
+      loadConfig();
       const { oauthAuthorizationProjectRef } = await import('../repositories/sign-in-experience.js');
       expect(oauthAuthorizationProjectRef()).toBe('central-idp-project');
     } finally {
@@ -145,6 +147,8 @@ describe('Sign-in experience repository — module structure', () => {
       else process.env.SUPACLOUD_PROJECT_REF = previousSupacloudProjectRef;
       if (previousAuthorizationProjectRef === undefined) delete process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
       else process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = previousAuthorizationProjectRef;
+      const { loadConfig } = await import('../config/index.js');
+      loadConfig();
     }
   });
 });

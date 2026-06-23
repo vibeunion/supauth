@@ -90,6 +90,168 @@ describe('SupaCloud Management API facade routes', () => {
     ]);
   });
 
+  it('proxies safe user profile updates while preserving SupaOAuth metadata', async () => {
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        url,
+        method: init?.method || 'GET',
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+      const pathname = new URL(url).pathname;
+      if ((init?.method || 'GET') === 'GET' && pathname.endsWith('/auth/users/user-one')) {
+        return Promise.resolve(Response.json({
+          id: 'user-one',
+          app_metadata: {
+            provider: 'old-provider',
+            supaoauth: { roles: ['viewer'], permissions_count: 1 },
+          },
+        }));
+      }
+      return Promise.resolve(Response.json({ id: 'one' }));
+    }) as unknown as typeof fetch;
+
+    const { userRoutes } = await import('../routes/users.js');
+    const app = new Elysia().use(userRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/users/user-one', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'safe@example.test',
+        user_metadata: { name: 'Safe User' },
+        app_metadata: { provider: 'email', providers: ['email'] },
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    const readCalls = calls.filter((call) => {
+      const path = new URL(call.url).pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}');
+      return call.method === 'GET' && path === '/v1/projects/{projectRef}/auth/users/user-one';
+    });
+    const updateCalls = calls.filter((call) => {
+      const path = new URL(call.url).pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}');
+      return call.method === 'PUT' && path === '/v1/projects/{projectRef}/auth/users/user-one';
+    });
+    expect(readCalls).toHaveLength(1);
+    expect(updateCalls).toHaveLength(1);
+    expect(new URL(updateCalls[0]?.url || '').pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')).toBe(
+      '/v1/projects/{projectRef}/auth/users/user-one',
+    );
+    expect(JSON.parse(updateCalls[0]?.body || '{}')).toEqual({
+      email: 'safe@example.test',
+      user_metadata: { name: 'Safe User' },
+      app_metadata: {
+        provider: 'email',
+        providers: ['email'],
+        supaoauth: { roles: ['viewer'], permissions_count: 1 },
+      },
+    });
+  });
+
+  it('rejects generic user updates that try to write roles or SupaOAuth claims', async () => {
+    const { userRoutes } = await import('../routes/users.js');
+    const app = new Elysia().use(userRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/users/user-one', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'attacker@example.test',
+        role: 'admin',
+        app_metadata: {
+          role: 'admin',
+          supaoauth: {
+            roles: ['admin'],
+            permissions: Array.from({ length: 300 }, (_, index) => `permission.${index}`),
+          },
+        },
+      }),
+    }));
+    const payload = await response.json() as {
+      success: boolean;
+      error: { code: string; fields?: string[] };
+    };
+
+    expect(response.status).toBe(400);
+    expect(payload.success).toBe(false);
+    expect(payload.error.code).toBe('reserved_user_update_field');
+    expect(payload.error.fields).toEqual(['role', 'app_metadata.role', 'app_metadata.supaoauth']);
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps self-service profile updates inside safe user metadata', async () => {
+    const { myAccountRoutes } = await import('../routes/my-account.js');
+    const app = new Elysia().use(myAccountRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/my-account/profile', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-supaoauth-user-id': 'user-one',
+      },
+      body: JSON.stringify({
+        data: {
+          name: 'Safe User',
+          locale: 'zh-CN',
+          email: 'attacker@example.test',
+          role: 'admin',
+          app_metadata: { supaoauth: { roles: ['admin'] } },
+          nested: { ignored: true },
+        },
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    const updateCalls = calls.filter((call) => {
+      const path = new URL(call.url).pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}');
+      return call.method === 'PUT' && path === '/v1/projects/{projectRef}/auth/users/user-one';
+    });
+    expect(updateCalls).toHaveLength(1);
+    expect(new URL(updateCalls[0]?.url || '').pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')).toBe(
+      '/v1/projects/{projectRef}/auth/users/user-one',
+    );
+    expect(JSON.parse(updateCalls[0]?.body || '{}')).toEqual({
+      user_metadata: {
+        name: 'Safe User',
+        locale: 'zh-CN',
+      },
+    });
+  });
+
+  it('does not expose self-service MFA reset through the my-account route', async () => {
+    const { myAccountRoutes } = await import('../routes/my-account.js');
+    const app = new Elysia().use(myAccountRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/my-account/mfa/factor-one/reset', {
+      method: 'POST',
+      headers: {
+        'x-supaoauth-user-id': 'user-one',
+      },
+    }));
+
+    expect(response.status).toBe(404);
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps administrator MFA reset in the user governance route', async () => {
+    const { userRoutes } = await import('../routes/users.js');
+    const app = new Elysia().use(userRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/users/user-one/mfa/factor-one/reset', {
+      method: 'POST',
+    }));
+
+    expect(response.status).toBe(200);
+    expect(calls.map((call) => {
+      const url = new URL(call.url);
+      return [call.method, url.pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')];
+    })).toContainEqual([
+      'POST',
+      '/v1/projects/{projectRef}/auth/users/user-one/mfa/factor-one/reset',
+    ]);
+  });
+
   it('falls back to the current SupaCloud global organizations API when project-scoped organizations are absent', async () => {
     globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;

@@ -119,6 +119,29 @@ describe('SupaCloud installed app verifier', () => {
     expect(result.errors).toContain('supauth_health_api_strip_prefix failed: expected HTTP 200, got HTTP 404');
   });
 
+  it('rejects missing PostgREST, Storage, or Realtime runtime routes instead of accepting generic 404s', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({
+        '/rest/v1/': 404,
+        '/storage/v1/bucket': 404,
+        '/realtime/v1/websocket': 404,
+        '/functions/v1/': 404,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('postgrest_preserved failed: expected HTTP status in [200, 401, 406], got HTTP 404');
+    expect(result.errors).toContain('storage_preserved failed: expected HTTP status in [200, 401], got HTTP 404');
+    expect(result.errors).toContain('realtime_preserved failed: expected HTTP status in [200, 400, 403, 426], got HTTP 404');
+    expect(result.errors.some((error) => error.includes('functions_preserved'))).toBe(false);
+  });
+
   it('rejects a manifest hash mismatch', async () => {
     const { root, artifactDir } = createFixture();
 

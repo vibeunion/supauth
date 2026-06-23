@@ -40,12 +40,19 @@ Responsibilities:
   - `/storage/v1/*`
   - `/realtime/v1/*`
   - `/.well-known/*`
-- JWT claims required by RLS and Supabase clients:
+- JWT claims required by Supabase Auth Hooks, RLS, and Supabase clients:
+  - `iss`
+  - `aud`
+  - `exp`
+  - `iat`
   - `sub`
   - `role`
-  - `aud`
-  - `iss`
-  - `exp`
+  - `aal`
+  - `session_id`
+  - `email`
+  - `phone`
+  - `is_anonymous`
+- Supabase metadata claims preserved when present:
   - `app_metadata`
   - `user_metadata`
 
@@ -182,4 +189,5 @@ Orchestration APIs:
 - Any feature that requires replacing GoTrue token semantics must be isolated behind `runtime_mode=external_oidc`.
 - Claims added by SupaOAuth should use stable namespacing and must not break existing RLS policies.
 - In `runtime_mode=gotrue`, RBAC should be read from SupaCloud and projected into `app_metadata.supaoauth` / RLS helper functions, not by changing the JWT `role` claim or writing local RBAC source tables.
+- OAuth response `scope` is consent/UserInfo metadata, not a database permission source; database authorization remains in RLS, helper functions, and versioned RBAC lookups.
 - See `docs/rbac-supabase-compatibility.md` for the RBAC migration baseline.

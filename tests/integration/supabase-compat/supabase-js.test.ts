@@ -17,6 +17,12 @@
 
 import { describe, it, expect } from 'bun:test';
 import { createClient } from '@supabase/supabase-js';
+import {
+  SUPABASE_METADATA_CLAIMS,
+  SUPABASE_REQUIRED_CLAIMS,
+  SUPABASE_RUNTIME_ROLES,
+  SUPAOAUTH_CLAIM_KEYS,
+} from '../../../packages/shared/src/index.js';
 
 const RUNTIME_URL = trimTrailingSlash(process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999');
 const MANAGEMENT_PORT = parseInt(process.env.PORT || '4010', 10);
@@ -133,16 +139,38 @@ describe('Supabase runtime compatibility', () => {
     const token = signIn.data.session?.access_token || '';
     const payload = decodeJwtPayload(token);
     expect(payload.sub).toBe(user.data.user?.id);
-    expect(payload.role).toBeDefined();
-    expect(payload.iss).toBeDefined();
-    expect(payload.app_metadata).toBeDefined();
+    expect(SUPABASE_RUNTIME_ROLES).toContain(payload.role as (typeof SUPABASE_RUNTIME_ROLES)[number]);
+    for (const claim of SUPABASE_REQUIRED_CLAIMS) {
+      expect(payload).toHaveProperty(claim);
+    }
+    for (const claim of SUPABASE_METADATA_CLAIMS) {
+      expect(payload).toHaveProperty(claim);
+    }
+    expect(payload.supaoauth).toBeUndefined();
+    for (const claim of SUPAOAUTH_CLAIM_KEYS) {
+      expect(payload).not.toHaveProperty(claim);
+    }
   });
 
   it('GoTrue JWT required claims are defined in compatibility spec', () => {
-    const requiredClaims = ['sub', 'role', 'aud', 'iss', 'exp', 'app_metadata', 'user_metadata'];
-    for (const claim of requiredClaims) {
-      expect(claim).toBeDefined();
+    const expectedClaims = [
+      'iss',
+      'aud',
+      'exp',
+      'iat',
+      'sub',
+      'role',
+      'aal',
+      'session_id',
+      'email',
+      'phone',
+      'is_anonymous',
+    ];
+    for (const claim of SUPABASE_REQUIRED_CLAIMS) {
+      expect(expectedClaims).toContain(claim);
     }
+    expect(SUPABASE_METADATA_CLAIMS).toEqual(['app_metadata', 'user_metadata']);
+    expect(SUPABASE_RUNTIME_ROLES).toEqual(['anon', 'authenticated', 'service_role']);
   });
 });
 

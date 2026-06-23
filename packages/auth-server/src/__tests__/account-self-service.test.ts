@@ -731,7 +731,11 @@ describe('account self-service API', () => {
               type: 'totp',
               status: 'unverified',
               friendly_name: input.friendly_name,
-              totp: { qr_code: 'data:image/svg+xml;base64,abc', uri: 'otpauth://totp/SupAuth:user@example.test' },
+              totp: {
+                qr_code: 'data:image/svg+xml;base64,abc',
+                uri: 'otpauth://totp/SupAuth:user@example.test',
+                secret: 'RAW-TOTP-SECRET',
+              },
             },
           };
         },
@@ -770,14 +774,24 @@ describe('account self-service API', () => {
           Authorization: 'Bearer user-access-token',
         },
       }));
+      const resetResponse = await app.handle(new Request('http://localhost/v1/public/account/mfa/factor-1/reset', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer user-access-token',
+        },
+      }));
 
       expect(enrollResponse.status).toBe(200);
       expect(verifyResponse.status).toBe(200);
       expect(unenrollResponse.status).toBe(200);
-      expect(await enrollResponse.json()).toMatchObject({
+      expect(resetResponse.status).toBe(404);
+      const enrollBody = await enrollResponse.json();
+      expect(enrollBody).toMatchObject({
         success: true,
         enrollment: { factor_id: 'factor-1', totp: { qr_code: 'data:image/svg+xml;base64,abc' } },
       });
+      expect(JSON.stringify(enrollBody)).not.toContain('RAW-TOTP-SECRET');
+      expect(JSON.stringify(enrollBody)).not.toContain('"secret"');
       expect(await verifyResponse.json()).toEqual({
         success: true,
         result: { id: 'factor-1', status: 'verified' },

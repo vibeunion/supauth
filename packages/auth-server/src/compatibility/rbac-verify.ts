@@ -14,8 +14,10 @@ export interface UnsafePolicyRow {
 export interface RbacDbVerification {
   reachable: boolean;
   authorizeExists?: boolean;
+  hasPermissionExists?: boolean;
   hasOrgPermissionExists?: boolean;
   authorizeGranted?: boolean;
+  hasPermissionGranted?: boolean;
   hasOrgPermissionGranted?: boolean;
   unsafePolicies?: UnsafePolicyRow[];
   error?: string;
@@ -32,26 +34,53 @@ async function probe(sql: ReturnType<typeof postgres>): Promise<RbacDbVerificati
   await sql`select 1`;
   result.reachable = true;
 
-  // RB-1 / RB-2：supaoauth schema 下两个授权辅助函数是否存在。
-  const fns = await sql`
-    SELECT p.proname
-    FROM pg_proc p
-    JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'supaoauth'
-      AND p.proname IN ${sql(['authorize', 'has_org_permission'])}`;
-  const fnRows = fns as unknown as Array<{ proname: string }>;
-  const names = new Set(fnRows.map((row) => row.proname));
-  result.authorizeExists = names.has('authorize');
-  result.hasOrgPermissionExists = names.has('has_org_permission');
-
-  // RB-3：authenticated 角色是否被授予 EXECUTE（函数缺失时返回 NULL，视为未授权）。
-  const grants = await sql`
+  // RB-1 / RB-2 / RB-3：用 to_regprocedure 做签名级探测。
+  // 直接把缺失函数签名传给 has_function_privilege 会抛错，导致 helper 缺失被误报成数据库不可达。
+  const helperState = await sql`
+    WITH helpers AS (
+      SELECT
+        to_regprocedure('supaoauth.authorize(text, uuid)') AS authorize_oid,
+        to_regprocedure('supaoauth.has_permission(text, uuid)') AS has_permission_oid,
+        to_regprocedure('supaoauth.has_org_permission(uuid, text)') AS has_org_permission_oid
+    )
     SELECT
-      has_function_privilege('authenticated', 'supaoauth.authorize(TEXT, UUID)', 'EXECUTE')  AS authorize,
-      has_function_privilege('authenticated', 'supaoauth.has_org_permission(UUID, TEXT)', 'EXECUTE') AS has_org_permission`;
-  const grantRow = ((grants as unknown as Array<{ authorize: boolean | null; has_org_permission: boolean | null }>)[0] ?? { authorize: null, has_org_permission: null });
-  result.authorizeGranted = grantRow.authorize === true;
-  result.hasOrgPermissionGranted = grantRow.has_org_permission === true;
+      authorize_oid IS NOT NULL AS authorize_exists,
+      has_permission_oid IS NOT NULL AS has_permission_exists,
+      has_org_permission_oid IS NOT NULL AS has_org_permission_exists,
+      CASE
+        WHEN authorize_oid IS NULL THEN NULL
+        ELSE has_function_privilege('authenticated', authorize_oid, 'EXECUTE')
+      END AS authorize_granted,
+      CASE
+        WHEN has_permission_oid IS NULL THEN NULL
+        ELSE has_function_privilege('authenticated', has_permission_oid, 'EXECUTE')
+      END AS has_permission_granted,
+      CASE
+        WHEN has_org_permission_oid IS NULL THEN NULL
+        ELSE has_function_privilege('authenticated', has_org_permission_oid, 'EXECUTE')
+      END AS has_org_permission_granted
+    FROM helpers`;
+  const helperRow = ((helperState as unknown as Array<{
+    authorize_exists: boolean | null;
+    has_permission_exists: boolean | null;
+    has_org_permission_exists: boolean | null;
+    authorize_granted: boolean | null;
+    has_permission_granted: boolean | null;
+    has_org_permission_granted: boolean | null;
+  }>)[0] ?? {
+    authorize_exists: null,
+    has_permission_exists: null,
+    has_org_permission_exists: null,
+    authorize_granted: null,
+    has_permission_granted: null,
+    has_org_permission_granted: null,
+  });
+  result.authorizeExists = helperRow.authorize_exists === true;
+  result.hasPermissionExists = helperRow.has_permission_exists === true;
+  result.hasOrgPermissionExists = helperRow.has_org_permission_exists === true;
+  result.authorizeGranted = helperRow.authorize_granted === true;
+  result.hasPermissionGranted = helperRow.has_permission_granted === true;
+  result.hasOrgPermissionGranted = helperRow.has_org_permission_granted === true;
 
   // RB-7：扫描 RLS 策略，发现把 JWT role claim 当作业务权限的不安全模式。
   const pattern = String.raw`request\.jwt\.claim\.role|auth\.jwt\(\)\s*->>\s*'role'`;

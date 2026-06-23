@@ -19,8 +19,10 @@ describe('Authorization compiler', () => {
     expect(result.sql.tables).toContain('supaoauth.has_org_permission("org_id", \'project.read\')');
     expect(result.sql.tables).toContain('FOR SELECT');
     expect(result.sql.tables).toContain('FOR UPDATE');
+    expect(result.sql.helpers).toContain('supaoauth.has_permission(permission_name text, target_organization_id uuid default null)');
     expect(result.sql.rollback).toContain('DROP POLICY IF EXISTS "supaoauth_projects_read"');
     expect(result.negative_tests).toContain('User without project.read is denied');
+    expect(result.negative_tests).toContain('JWT role remains a Supabase runtime role (anon/authenticated/service_role) and business roles are not written to the top-level role claim');
   });
 
   it('preserves owner fallback when owner_column is provided', () => {

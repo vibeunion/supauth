@@ -15,6 +15,17 @@ export interface SyncResult {
   error?: string;
 }
 
+export const MAX_JWT_PERMISSION_PROJECTION = 256;
+export const MAX_JWT_ROLE_PROJECTION = 64;
+
+export interface SupaOAuthRbacProjectionInput {
+  roles: string[];
+  permissions: string[];
+  version?: number;
+  currentOrgId?: string;
+  currentOrgRole?: string;
+}
+
 function getItems(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
@@ -43,6 +54,44 @@ function getNames(value: unknown, key: string): string[] {
     .filter((name): name is string => typeof name === 'string' && name.length > 0);
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))];
+}
+
+export function buildSupaoauthRbacProjection(input: SupaOAuthRbacProjectionInput): Record<string, unknown> {
+  const roles = uniqueStrings(input.roles);
+  const permissions = uniqueStrings(input.permissions);
+  const version = input.version ?? Date.now();
+  const roleProjectionFits = roles.length <= MAX_JWT_ROLE_PROJECTION;
+  const permissionProjectionFits = permissions.length <= MAX_JWT_PERMISSION_PROJECTION;
+
+  const supaoauth: Record<string, unknown> = {
+    roles: roleProjectionFits ? roles : [],
+    rbac_version: version,
+    roles_count: roles.length,
+    permissions_version: version,
+    permissions_count: permissions.length,
+    permissions: permissionProjectionFits ? permissions : [],
+  };
+
+  if (!roleProjectionFits) {
+    supaoauth.roles_truncated = true;
+    supaoauth.roles_projection_limit = MAX_JWT_ROLE_PROJECTION;
+  }
+
+  if (!permissionProjectionFits) {
+    supaoauth.permissions_truncated = true;
+    supaoauth.permissions_projection_limit = MAX_JWT_PERMISSION_PROJECTION;
+  }
+
+  if (input.currentOrgId) {
+    supaoauth.current_org_id = input.currentOrgId;
+    supaoauth.current_org_role = input.currentOrgRole || 'member';
+  }
+
+  return supaoauth;
+}
+
 /** Build the supaoauth namespace value from resolved roles/org. */
 async function buildSupaoauthNamespace(
   userId: string,
@@ -50,12 +99,7 @@ async function buildSupaoauthNamespace(
 ): Promise<Record<string, unknown>> {
   const adapter = getSupaCloudAdapter();
   const resolved = await adapter.resolveUserPermissions(userId, orgId);
-
-  const supaoauth: Record<string, unknown> = {
-    roles: getNames(resolved, 'roles'),
-    permissions: getNames(resolved, 'permissions'),
-    rbac_version: Date.now(),
-  };
+  let currentOrgRole: string | undefined;
 
   if (orgId) {
     const assignments = getItems(await adapter.getOrgRoleAssignments(orgId)) as Array<Record<string, unknown>>;
@@ -63,11 +107,19 @@ async function buildSupaoauthNamespace(
     const role = userAssignment?.role && typeof userAssignment.role === 'object'
       ? userAssignment.role as Record<string, unknown>
       : null;
-    supaoauth.current_org_id = orgId;
-    supaoauth.current_org_role = role?.name || userAssignment?.role_name || 'member';
+    currentOrgRole = typeof role?.name === 'string'
+      ? role.name
+      : typeof userAssignment?.role_name === 'string'
+        ? userAssignment.role_name
+        : 'member';
   }
 
-  return supaoauth;
+  return buildSupaoauthRbacProjection({
+    roles: getNames(resolved, 'roles'),
+    permissions: getNames(resolved, 'permissions'),
+    currentOrgId: orgId,
+    currentOrgRole,
+  });
 }
 
 /**

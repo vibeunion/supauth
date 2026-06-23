@@ -742,12 +742,6 @@ async function revokeCurrentUserPasskey(userId: string, passkeyId: string) {
   return result;
 }
 
-async function resetCurrentUserMfa(userId: string, factorId: string) {
-  const result = await adapter.resetUserMfa(userId, factorId);
-  await auditAccountEvent('my_account.mfa.reset', userId, { factor_id: factorId });
-  return result;
-}
-
 async function deleteCurrentUserAccount(userId: string) {
   const result = await adapter.deleteUser(userId);
   await auditAccountEvent('my_account.deleted', userId);
@@ -767,7 +761,6 @@ export function createPublicAccountRoutes(options?: {
   listPasskeys?: (userId: string) => Promise<ListResult>;
   renamePasskey?: (userId: string, passkeyId: string, name: string) => Promise<unknown | AccountFailure>;
   revokePasskey?: (userId: string, passkeyId: string) => Promise<unknown | AccountFailure>;
-  resetMfa?: (userId: string, factorId: string) => Promise<unknown>;
   enrollTotpMfa?: (accessToken: string, input: { friendly_name: string; issuer?: string }) => Promise<MfaOperationResult>;
   verifyTotpMfa?: (accessToken: string, factorId: string, input: { code: string; challengeId?: string | null }) => Promise<MfaOperationResult>;
   unenrollMfa?: (accessToken: string, factorId: string) => Promise<MfaOperationResult>;
@@ -786,7 +779,6 @@ export function createPublicAccountRoutes(options?: {
   const listPasskeys = options?.listPasskeys || listCurrentUserPasskeys;
   const renamePasskey = options?.renamePasskey || renameCurrentUserPasskey;
   const revokePasskey = options?.revokePasskey || revokeCurrentUserPasskey;
-  const resetMfa = options?.resetMfa || resetCurrentUserMfa;
   const enrollTotpMfa = options?.enrollTotpMfa || enrollTotpMfaWithGoTrue;
   const verifyTotpMfa = options?.verifyTotpMfa || verifyTotpMfaWithGoTrue;
   const unenrollMfa = options?.unenrollMfa || unenrollMfaFactorWithGoTrue;
@@ -1129,8 +1121,9 @@ export function createPublicAccountRoutes(options?: {
           set.status = result.status;
           return { success: false, error: { code: result.code, message: result.message } };
         }
-        await auditEvent('my_account.mfa.totp.enrolled', account.userId, { factor_id: result.data.factor_id || null });
-        return { success: true, enrollment: result.data };
+        const enrollment = publicMfaEnrollmentPayload(result.data);
+        await auditEvent('my_account.mfa.totp.enrolled', account.userId, { factor_id: enrollment.factor_id || null });
+        return { success: true, enrollment };
       }, {
         detail: { summary: 'Enroll current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
       })
@@ -1163,20 +1156,6 @@ export function createPublicAccountRoutes(options?: {
       }, {
         detail: { summary: 'Verify current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
       })
-      .post('/mfa/:factorId/reset', async ({ headers, params, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
-      if (!account.ok) return account.response;
-      const feature = await requireFeature(
-        set,
-        (config) => config.security.mfa,
-        'mfa_disabled',
-        'MFA management is disabled for this account center.',
-      );
-      if (!feature.ok) return feature.response;
-      return { success: true, result: await resetMfa(account.userId, params.factorId) };
-    }, {
-      detail: { summary: 'Reset current account MFA factor with user access token', tags: ['Public', 'Account Center'] },
-    })
     .delete('/mfa/:factorId', async ({ headers, params, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);
       if (!account.ok) return account.response;

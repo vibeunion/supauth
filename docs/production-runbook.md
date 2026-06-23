@@ -5,7 +5,7 @@ This runbook covers release, rollback, restore, and incident triage for SupaOAut
 ## Release Gate
 
 1. Run local gate: `bun run release:gate`.
-2. For live cutover, set `RUN_LIVE_RELEASE_GATE=1`, `SUPAUTH_PUBLIC_URL`, and `SUPAUTH_INSTALLED_RUNTIME_URL`; this runs the installed SupaCloud Function/Pages verifier. `SUPAUTH_INSTALLED_BASE_URL` remains supported for existing SupaCloud installs.
+2. For live cutover, set `RUN_LIVE_RELEASE_GATE=1`, `SUPAUTH_PUBLIC_URL`, and `SUPAUTH_INSTALLED_RUNTIME_URL`; this runs the installed SupaCloud Function/Pages verifier. `SUPAUTH_INSTALLED_BASE_URL` remains supported for existing SupaCloud installs. If `RUN_SUPABASE_RUNTIME_COMPAT=1` or `RUN_SUPABASE_OAUTH21_COMPAT=1` is also set, the release gate runs those suites in strict mode, so missing live Auth credentials, OAuth access/refresh tokens, or skipped token-shape checks fail the release.
 3. CI branch protection must require the `Supabase Auth Compatibility` job. It runs `REQUIRE_SUPABASE_AUTH_COMPAT=1 bun run test:supabase-auth-compat`, so missing live Auth secrets or broken `supabase-js` auth coverage fail the build instead of passing as a smoke-only run. Set `LIVE_SUPABASE_AUTH_URL` to the public GoTrue/Auth origin that serves `/auth/v1/.well-known/openid-configuration` and `/auth/v1/.well-known/jwks.json`; the project runtime route preservation checks stay in `scripts/verify-supacloud-installed-app.ts`.
 4. Confirm the generated `artifacts/<release>/release-manifest.json` contains commit, OpenAPI hash, SupaCloud app manifest hash, installed app verification path, and live gate status.
 5. Deploy the artifact through SupaCloud using `artifacts/<release>/supacloud-app-manifest.json`.
@@ -32,7 +32,7 @@ This runbook covers release, rollback, restore, and incident triage for SupaOAut
 - Auth timeouts: check SupaCloud runtime health, GoTrue health, Postgres active connections, memory, and swap.
 - `supabase-js` session failures: run `tests/integration/supabase-compat/supabase-js.test.ts` with live env and inspect `/auth/v1/token`, `/auth/v1/user`, JWKS, and issuer alignment.
 - OAuth consent issues: inspect `supaoauth.user_consents`, application bindings, and audit events `consent.grant` / `consent.revoke`.
-- RBAC/RLS issues: verify `supaoauth.authorize(...)` and `supaoauth.has_org_permission(...)` grants, then run the RLS migration assistant.
+- RBAC/RLS issues: verify `supaoauth.has_permission(...)`, `supaoauth.authorize(...)`, and `supaoauth.has_org_permission(...)` grants, then run the RLS migration assistant.
 - Storage asset failures: verify `branding` is public, `avatars` is private, and signed URLs are generated on demand.
 
 ## Recovery Objectives

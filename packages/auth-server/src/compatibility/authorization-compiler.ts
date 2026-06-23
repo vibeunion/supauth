@@ -188,6 +188,7 @@ function buildEdgeFunctionMiddleware(target: EdgeFunctionTarget): string {
 const HELPER_SQL = `-- SupaOAuth helper functions are installed by the main auth-server migration.
 -- Verify these functions exist before applying generated policies:
 --   supaoauth.authorize(permission_name text, target_organization_id uuid default null)
+--   supaoauth.has_permission(permission_name text, target_organization_id uuid default null)
 --   supaoauth.has_org_permission(organization_id uuid, permission_name text)
 -- Install SupAuth through SupaCloud hosted migrations first: bun run install:supacloud`;
 
@@ -270,7 +271,7 @@ export function compileAuthorizationPlan(request: AuthorizationCompileRequest = 
   const negativeTests = [
     ...uniquePermissions.map(permission => `User without ${permission} is denied`),
     ...uniquePermissions.map(permission => `Revoking ${permission} takes effect without waiting for JWT refresh`),
-    'JWT role=authenticated is preserved and business roles are not written to the top-level role claim',
+    'JWT role remains a Supabase runtime role (anon/authenticated/service_role) and business roles are not written to the top-level role claim',
   ];
 
   return {

@@ -4,9 +4,16 @@
 
 ## English
 
-SupaOAuth is a SupaCloud-hosted Identity Provider (IdP) surface comparable to Logto. It orchestrates authentication, authorization, and user management for business applications while remaining compatible with the Supabase ecosystem.
+SupaOAuth is a SupaCloud-hosted enterprise IAM and user-center surface comparable to Logto. In the default `runtime_mode=gotrue`, it enhances Supabase Auth instead of replacing it: GoTrue keeps the OAuth/OIDC protocol runtime, JWT signing, refresh tokens, MFA, sessions, and `auth.users`, while SupaOAuth provides hosted UI, Admin Console, organization/RBAC governance, audit, configuration, and compatibility tooling.
 
 It is not a thin admin panel for GoTrue environment variables.
+
+The default product contract is upstream-compatible enhancement: a SupaOAuth
+installation must run against the stock upstream GoTrue/Supabase Auth runtime
+managed by SupaCloud. It may use documented GoTrue/Supabase extension points,
+SupaCloud Management API, SupaCloud Functions/Pages, and official Supabase SDKs,
+but must not require a SupaOAuth-patched GoTrue binary, custom `/auth/v1/*`
+semantics, or forked `@supabase/supabase-js` / Auth UI packages.
 
 ### Architecture
 
@@ -26,7 +33,7 @@ Compatibility is a hard requirement. SupaOAuth must not break:
 
 - `supabase-js` auth flows
 - `auth.users` as primary identity (gotrue mode)
-- JWT claims needed by RLS (`sub`, `role`, `aud`, `iss`, `exp`, `app_metadata`, `user_metadata`)
+- JWT claims needed by RLS and Supabase Auth hooks (`iss`, `aud`, `exp`, `iat`, `sub`, `role`, `aal`, `session_id`, `email`, `phone`, `is_anonymous`) plus preserved metadata claims (`app_metadata`, `user_metadata`)
 - OIDC discovery and JWKS endpoints
 - Supabase API paths (`/auth/v1/*`, `/rest/v1/*`, `/storage/v1/*`, `/realtime/v1/*`)
 - Self-hosted deployment via SupaCloud
@@ -184,9 +191,16 @@ AUTH_SERVER_PROXY_TARGET=http://localhost:4010
 
 ## 中文
 
-SupaOAuth 是一个独立身份提供方（IdP），定位是类似 Logto 的独立用户中心。它为业务应用编排认证、授权和用户管理，同时保持对 Supabase 生态的兼容。
+SupaOAuth 是一个部署在 SupaCloud 上的企业 IAM 和用户中心产品表面，定位接近 Logto。默认 `runtime_mode=gotrue` 下，它增强 Supabase Auth，而不是替换 Supabase Auth：OAuth/OIDC 协议 runtime、JWT 签名、refresh token、MFA、会话和 `auth.users` 仍由 GoTrue 负责；SupaOAuth 提供 hosted UI、Admin Console、组织/RBAC 治理、审计、配置和兼容性工具。
 
 它不是 GoTrue 环境变量的轻量管理面板。
+
+默认产品契约是“基于上游 Supabase Auth 增强”：SupaOAuth 安装后必须能运行在
+SupaCloud 管理的未 fork 上游 GoTrue/Supabase Auth runtime 之上。它可以使用
+GoTrue/Supabase 已文档化的扩展点、SupaCloud Management API、SupaCloud
+Functions/Pages 和官方 Supabase SDK，但不能要求 SupaOAuth patched GoTrue
+二进制、自定义 `/auth/v1/*` 语义，或 fork 版 `@supabase/supabase-js` / Auth UI
+包。
 
 ### 架构
 
@@ -206,7 +220,7 @@ SupaOAuth 不重新实现 OIDC token 签名或 authorization code 签发。协�
 
 - `supabase-js` auth flows
 - `auth.users` 作为主身份表（gotrue mode）
-- RLS 所需的 JWT claims（`sub`、`role`、`aud`、`iss`、`exp`、`app_metadata`、`user_metadata`）
+- RLS 和 Supabase Auth hooks 所需的 JWT claims（`iss`、`aud`、`exp`、`iat`、`sub`、`role`、`aal`、`session_id`、`email`、`phone`、`is_anonymous`）以及需要保留的 metadata claims（`app_metadata`、`user_metadata`）
 - OIDC discovery 和 JWKS endpoints
 - Supabase API 路径（`/auth/v1/*`、`/rest/v1/*`、`/storage/v1/*`、`/realtime/v1/*`）
 - 通过 SupaCloud 支持 self-hosted 部署
