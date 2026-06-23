@@ -16,10 +16,18 @@
     background_url: '',
     button_label: '',
     custom_css: '',
+    illustration: '',
     content: '',
   });
+  const illustrationOptions = [
+    { value: '', label: 'No Illustration' },
+    { value: 'security', label: 'Security Illustration' },
+    { value: 'identity', label: 'Identity Illustration' },
+    { value: 'cloud', label: 'Cloud Illustration' },
+  ];
   const structuredContentPlaceholder = JSON.stringify({
     layout: 'features',
+    illustration: 'security',
     items: [
       { icon: 'shield', title: '标准认证协议', desc: 'OAuth 2.0 · OIDC' },
       { icon: 'users', title: '统一身份体系', desc: '人 · AI 服务 · 设备账号' },
@@ -30,8 +38,17 @@
   let savingTheme = $state(false);
   let themeSaved = $state(false);
 
+  function resolveIllustration(content) {
+    if (!content || typeof content !== 'object' || Array.isArray(content)) return '';
+    const illustration = typeof content.illustration === 'string' ? content.illustration : '';
+    return illustrationOptions.some((option) => option.value === illustration) ? illustration : '';
+  }
+
   function syncThemeDraft(experience) {
     const branding = experience?.branding || {};
+    const contentObject = branding.content && typeof branding.content === 'object' && !Array.isArray(branding.content)
+      ? branding.content
+      : null;
     const content = branding.content
       ? (typeof branding.content === 'string' ? branding.content : JSON.stringify(branding.content, null, 2))
       : '';
@@ -41,6 +58,7 @@
       background_url: branding.background_url || '',
       button_label: branding.button_label || '',
       custom_css: branding.custom_css || '',
+      illustration: resolveIllustration(contentObject),
       content,
     };
   }
@@ -55,6 +73,26 @@
     }
   }
 
+  function buildStructuredContent() {
+    const content = parseStructuredContent(themeDraft.content);
+    const illustration = themeDraft.illustration.trim();
+
+    if (Array.isArray(content)) {
+      return illustration ? { illustration, items: content } : content;
+    }
+    if (!content || typeof content !== 'object') {
+      return illustration ? { illustration } : content;
+    }
+
+    const nextContent = { ...content };
+    if (illustration) {
+      nextContent.illustration = illustration;
+    } else {
+      delete nextContent.illustration;
+    }
+    return nextContent;
+  }
+
   async function saveTheme() {
     savingTheme = true;
     themeSaved = false;
@@ -66,7 +104,7 @@
           background_url: themeDraft.background_url.trim() || null,
           button_label: themeDraft.button_label.trim() || null,
           custom_css: themeDraft.custom_css.trim() || null,
-          content: parseStructuredContent(themeDraft.content),
+          content: buildStructuredContent(),
         },
       });
       signInExp = await getSignInExperience();
@@ -235,6 +273,15 @@
           <div class="lg:col-span-2">
             <label for="login-background-url" class="block text-sm font-medium text-surface-700 mb-1">{t('Background URL')}</label>
             <input id="login-background-url" bind:value={themeDraft.background_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://...">
+          </div>
+          <div class="lg:col-span-2">
+            <label for="login-illustration" class="block text-sm font-medium text-surface-700 mb-1">{t('Illustration Theme')}</label>
+            <p class="text-xs text-surface-400 mb-2">{t('Optional built-in illustration rendered by the hosted login template. Stored as branding.content.illustration.')}</p>
+            <select id="login-illustration" bind:value={themeDraft.illustration} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm bg-white">
+              {#each illustrationOptions as option (option.value)}
+                <option value={option.value}>{t(option.label)}</option>
+              {/each}
+            </select>
           </div>
           <div class="lg:col-span-2">
             <label for="login-description" class="block text-sm font-medium text-surface-700 mb-1">{t('Login Page Intro')}</label>

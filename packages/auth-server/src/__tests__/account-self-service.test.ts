@@ -81,6 +81,61 @@ describe('account self-service API', () => {
     expect(calls[0].init?.headers).toMatchObject({ Authorization: 'Bearer user-access-token' });
   });
 
+  test('falls back to raw GoTrue user endpoint when internal auth/v1 route is unavailable', async () => {
+    const calls: string[] = [];
+    const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push(String(url));
+      expect(init?.headers).toMatchObject({ Authorization: 'Bearer user-access-token' });
+      if (String(url) === 'http://127.0.0.1:9999/auth/v1/user') {
+        return Response.json({ error: 'not_found' }, { status: 404 });
+      }
+      return Response.json({
+        id: 'user-1',
+        email: 'user@example.test',
+        role: 'authenticated',
+        user_metadata: {},
+      });
+    };
+
+    const result = await getAccountWithGoTrue('user-access-token', {
+      fetchImpl: fetchImpl as typeof fetch,
+      runtimeBaseUrls: ['http://127.0.0.1:9999'],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      user: {
+        id: 'user-1',
+        email: 'user@example.test',
+      },
+    });
+    expect(calls).toEqual([
+      'http://127.0.0.1:9999/auth/v1/user',
+      'http://127.0.0.1:9999/user',
+    ]);
+  });
+
+  test('does not fall back to a raw public GoTrue user endpoint after an invalid token response', async () => {
+    const calls: string[] = [];
+    const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push(String(url));
+      expect(init?.headers).toMatchObject({ Authorization: 'Bearer invalid-token' });
+      return Response.json({ code: 'bad_jwt', message: 'invalid token' }, { status: 403 });
+    };
+
+    const result = await getAccountWithGoTrue('invalid-token', {
+      fetchImpl: fetchImpl as typeof fetch,
+      runtimeBaseUrls: ['https://auth.example.test'],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 401,
+      code: 'invalid_token',
+    });
+    expect(calls).toEqual(['https://auth.example.test/auth/v1/user']);
+  });
+
   test('updates profile metadata with the user bearer token only', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {

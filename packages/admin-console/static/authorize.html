@@ -70,6 +70,19 @@
         max-height: 76px;
         margin: 0 0 28px;
       }
+      .brand-mark {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 64px;
+        height: 64px;
+        margin: 0 0 26px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(129, 140, 248, 0.22), rgba(56, 189, 248, 0.10));
+        border: 1px solid rgba(129, 140, 248, 0.32);
+        box-shadow: 0 10px 30px rgba(49, 46, 129, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        color: #c7d2fe;
+      }
       .brand-panel h1 {
         margin: 0 0 14px;
         text-align: left;
@@ -108,6 +121,17 @@
         line-height: 1.75;
         font-size: 14px;
         color: #cbd5e1;
+      }
+      .brand-illustration {
+        display: none;
+        width: min(100%, 420px);
+        margin: 0 0 26px;
+        color: #a5b4fc;
+      }
+      .brand-illustration svg {
+        display: block;
+        width: 100%;
+        height: auto;
       }
       .feature-grid {
         display: grid;
@@ -311,10 +335,24 @@
     <div class="split-layout">
       <aside class="brand-panel">
         <div class="brand-inner">
+          <div id="brand-mark" class="brand-mark" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2.4 L20 5.5 V11.2 C20 16.3 16.4 20.5 12 21.8 C7.6 20.5 4 16.3 4 11.2 V5.5 Z" fill="url(#bm-shield)" stroke="rgba(199,210,254,0.6)" stroke-width="0.7"/>
+              <circle cx="12" cy="10.2" r="2" fill="#0b1220"/>
+              <path d="M12 12.1 V15.6 M10.7 15.6 H13.3" stroke="#0b1220" stroke-width="1.5" stroke-linecap="round"/>
+              <defs>
+                <linearGradient id="bm-shield" x1="4" y1="2.4" x2="20" y2="21.8" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#c7d2fe"/>
+                  <stop offset="1" stop-color="#818cf8"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
           <img id="logo" class="logo" alt="">
           <h1 id="title">SupaOAuth</h1>
           <p id="subtitle" class="subtitle">Sign in to continue</p>
           <p id="intro" class="intro" style="display:none"></p>
+          <div id="brand-illustration" class="brand-illustration" aria-hidden="true"></div>
           <div id="custom-content"></div>
         </div>
       </aside>
@@ -566,6 +604,30 @@
         return data.msg || data.error_description || data.error || fallback;
       }
 
+      function apiErrorCode(data) {
+        if (!data || typeof data !== 'object') return '';
+        const code = data.error || data.error_code || data.code;
+        return typeof code === 'string' ? code : '';
+      }
+
+      function createApiError(data, fallback) {
+        const error = new Error(responseMessage(data, fallback));
+        error.code = apiErrorCode(data);
+        return error;
+      }
+
+      function isAuthorizationNotFoundError(error) {
+        return !!(error && error.code === 'authorization_not_found');
+      }
+
+      async function completeStandaloneLogin(accessToken) {
+        try {
+          sessionStorage.setItem('supaoauth.account.access_token', accessToken);
+        } catch {}
+        setMessage('ok', t('redirecting'));
+        window.location.href = `/account#access_token=${encodeURIComponent(accessToken)}`;
+      }
+
       function normalizeEmailInput(value) {
         return String(value || '')
           .normalize('NFKC')
@@ -641,7 +703,7 @@
         });
         const data = await res.json().catch(() => null);
         if (!res.ok) {
-          throw new Error(responseMessage(data, t('authorizationFailed')));
+          throw createApiError(data, t('authorizationFailed'));
         }
         return data && typeof data === 'object' ? data.redirect_url || null : null;
       }
@@ -718,7 +780,28 @@
         users: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.1" stroke="currentColor" stroke-width="1.5"/><circle cx="16.2" cy="10" r="2.3" stroke="currentColor" stroke-width="1.5" opacity="0.72"/><path d="M3.6 19 C3.6 15.6 6 13.7 9 13.7 C12 13.7 14.4 15.6 14.4 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M14.6 17.8 C14.6 15.3 16.4 13.9 18.6 13.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.72"/></svg>',
         key: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="8.5" cy="12" r="3.5" stroke="currentColor" stroke-width="1.5"/><path d="M12 12 H20 M17 12 V15 M14.8 12 V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
         audit: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="3.5" width="14" height="17" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 8 H16 M8 12 H15 M8 16 H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        lock: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 10.5 V7.5 C8 5.6 9.8 4 12 4 C14.2 4 16 5.6 16 7.5 V10.5" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="15" r="1.4" fill="currentColor"/></svg>',
+        globe: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 12 H20.5 M12 3.5 C14.8 6 14.8 18 12 20.5 C9.2 18 9.2 6 12 3.5 Z" stroke="currentColor" stroke-width="1.5"/></svg>',
+        cloud: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M7.5 17.5 H16.5 C18.7 17.5 20.5 15.8 20.5 13.7 C20.5 11.7 19 10.1 17 9.8 C16.6 7.1 14.3 5 11.5 5 C8.5 5 6 7.4 6 10.4 C3.8 10.6 3.5 12.6 3.5 13.8 C3.5 15.9 5.3 17.5 7.5 17.5 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+        bolt: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M13 2.5 L5 13.5 H11 L10 21.5 L19 9.5 H13 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+        fingerprint: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 4.5 C7.8 4.5 4.5 7.8 4.5 12 V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 7.8 C9.1 7 10.5 6.5 12 6.5 C15.6 6.5 18.5 9.4 18.5 13 V17 C18.5 18.4 18.2 19.7 17.6 20.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 13 C8 10.8 9.8 9 12 9 C14.2 9 16 10.8 16 13 V16.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12 13 V16 C12 17.8 11.6 19.4 11 20.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        mail: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5.5" width="17" height="13" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M4 7 L12 12.5 L20 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        device: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="5.5" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M3 17.5 H21 L19.5 15 H4.5 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+        database: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6" rx="7" ry="2.8" stroke="currentColor" stroke-width="1.5"/><path d="M5 6 V12 C5 13.5 8.1 14.8 12 14.8 C15.9 14.8 19 13.5 19 12 V6" stroke="currentColor" stroke-width="1.5"/><path d="M5 12 V18 C5 19.5 8.1 20.8 12 20.8 C15.9 20.8 19 19.5 19 18 V12" stroke="currentColor" stroke-width="1.5"/></svg>',
+        chart: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 20 H20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="6" y="12" width="3" height="6" rx="0.5" stroke="currentColor" stroke-width="1.5"/><rect x="10.5" y="8" width="3" height="10" rx="0.5" stroke="currentColor" stroke-width="1.5"/><rect x="15" y="5" width="3" height="13" rx="0.5" stroke="currentColor" stroke-width="1.5"/></svg>',
       };
+
+      const illustrationThemes = {
+        identity: '<svg viewBox="0 0 420 260" fill="none"><rect x="62" y="44" width="296" height="172" rx="24" fill="rgba(15,23,42,0.34)" stroke="rgba(199,210,254,0.18)"/><circle cx="146" cy="116" r="34" fill="rgba(199,210,254,0.20)" stroke="rgba(199,210,254,0.46)"/><path d="M94 188 C105 158 126 144 146 144 C166 144 187 158 198 188" stroke="rgba(199,210,254,0.72)" stroke-width="8" stroke-linecap="round"/><rect x="226" y="86" width="94" height="12" rx="6" fill="rgba(199,210,254,0.62)"/><rect x="226" y="116" width="118" height="10" rx="5" fill="rgba(129,140,248,0.42)"/><rect x="226" y="144" width="78" height="10" rx="5" fill="rgba(56,189,248,0.34)"/><path d="M104 54 L82 74 L104 94 M316 166 L338 186 L316 206" stroke="rgba(56,189,248,0.58)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="331" cy="66" r="8" fill="rgba(56,189,248,0.72)"/><circle cx="70" cy="194" r="6" fill="rgba(129,140,248,0.82)"/></svg>',
+        cloud: '<svg viewBox="0 0 420 260" fill="none"><path d="M132 164 H298 C331 164 358 139 358 108 C358 80 337 57 309 53 C299 27 274 12 244 18 C218 23 199 42 191 66 C184 63 176 62 168 62 C132 62 103 91 103 127 C79 131 62 150 62 173 C62 199 84 220 112 220 H306" fill="rgba(15,23,42,0.34)" stroke="rgba(199,210,254,0.34)" stroke-width="3"/><rect x="138" y="126" width="144" height="46" rx="14" fill="rgba(199,210,254,0.14)" stroke="rgba(199,210,254,0.34)"/><path d="M164 149 H218 M238 149 H258" stroke="rgba(199,210,254,0.68)" stroke-width="7" stroke-linecap="round"/><path d="M142 198 H278" stroke="rgba(56,189,248,0.58)" stroke-width="8" stroke-linecap="round"/><circle cx="308" cy="128" r="10" fill="rgba(56,189,248,0.68)"/><circle cx="120" cy="91" r="7" fill="rgba(129,140,248,0.78)"/></svg>',
+        security: '<svg viewBox="0 0 420 260" fill="none"><path d="M210 26 L326 72 V142 C326 194 278 232 210 246 C142 232 94 194 94 142 V72 Z" fill="rgba(15,23,42,0.38)" stroke="rgba(199,210,254,0.42)" stroke-width="3"/><path d="M210 58 L288 90 V140 C288 176 257 205 210 217 C163 205 132 176 132 140 V90 Z" fill="rgba(129,140,248,0.16)" stroke="rgba(129,140,248,0.34)"/><rect x="168" y="126" width="84" height="58" rx="16" fill="rgba(199,210,254,0.18)" stroke="rgba(199,210,254,0.56)" stroke-width="3"/><path d="M184 126 V108 C184 92 196 80 210 80 C224 80 236 92 236 108 V126" stroke="rgba(199,210,254,0.68)" stroke-width="8" stroke-linecap="round"/><circle cx="210" cy="154" r="9" fill="rgba(56,189,248,0.76)"/><path d="M62 92 H108 M312 196 H360 M70 178 H110" stroke="rgba(56,189,248,0.46)" stroke-width="8" stroke-linecap="round"/><circle cx="342" cy="82" r="8" fill="rgba(129,140,248,0.78)"/></svg>',
+      };
+
+      function normalizeIllustration(content) {
+        if (!content || typeof content !== 'object' || Array.isArray(content)) return '';
+        const illustration = String(content.illustration || '').trim();
+        return illustrationThemes[illustration] ? illustration : '';
+      }
 
       function normalizeContentItems(content) {
         if (Array.isArray(content)) return content;
@@ -763,9 +846,22 @@
       }
 
       function renderBrandingContent(content) {
+        renderBrandIllustration(content);
         const container = document.getElementById('custom-content');
         container.replaceChildren();
         renderFeatureCards(container, normalizeContentItems(content));
+      }
+
+      function renderBrandIllustration(content) {
+        const container = document.getElementById('brand-illustration');
+        const illustration = normalizeIllustration(content);
+        container.replaceChildren();
+        if (!illustration) {
+          container.style.display = 'none';
+          return;
+        }
+        container.innerHTML = illustration;
+        container.style.display = 'block';
       }
 
       // ─── Load phrases from API ────────────────────────────────────────
@@ -823,6 +919,7 @@
             const logo = document.getElementById('logo');
             logo.src = branding.logo_url;
             logo.style.display = 'block';
+            document.getElementById('brand-mark').style.display = 'none';
           }
           if (branding.favicon_url) {
             const icon = document.createElement('link');
@@ -918,7 +1015,16 @@
             setMessage('error', t('loginFailed'));
             return;
           }
-          const approvedRedirectUrl = await approveAuthorization(data.access_token);
+          let approvedRedirectUrl = null;
+          try {
+            approvedRedirectUrl = await approveAuthorization(data.access_token);
+          } catch (error) {
+            if (isAuthorizationNotFoundError(error)) {
+              await completeStandaloneLogin(data.access_token);
+              return;
+            }
+            throw error;
+          }
           const redirectUrl = approvedRedirectUrl
             ? safeRedirectUrl(approvedRedirectUrl, true)
             : safeRedirectUrl(authorizationRedirectUrl);
@@ -926,11 +1032,7 @@
             setMessage('ok', t('redirecting'));
             window.location.href = redirectUrl;
           } else {
-            try {
-              sessionStorage.setItem('supaoauth.account.access_token', data.access_token);
-            } catch {}
-            setMessage('ok', t('redirecting'));
-            window.location.href = `/account#access_token=${encodeURIComponent(data.access_token)}`;
+            await completeStandaloneLogin(data.access_token);
           }
         } catch (error) {
           setMessage('error', error && error.message ? error.message : t('networkError'));

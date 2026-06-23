@@ -85,8 +85,11 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('branding.button_label');
     expect(body).toContain('branding.custom_css');
     expect(body).toContain('id="custom-style"');
+    expect(body).toContain('id="brand-illustration"');
     expect(body).toContain('id="custom-content"');
     expect(body).toContain('branding.content');
+    expect(body).toContain('const illustrationThemes = {');
+    expect(body).toContain('function renderBrandIllustration(content)');
     expect(body).toContain('function renderBrandingContent(content)');
     expect(body).toContain('function renderFeatureCards(container, items)');
     expect(body).toContain('renderBrandingContent(branding.content);');
@@ -216,8 +219,12 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain("setMessage('error', t('emailInvalid'))");
     expect(body).toContain("setMessage('error', t('passwordRequired'))");
     expect(body).toContain("setMessage('error', error && error.message ? error.message : t('networkError'))");
-    expect(body).toContain("sessionStorage.setItem('supaoauth.account.access_token', data.access_token)");
-    expect(body).toContain('window.location.href = `/account#access_token=${encodeURIComponent(data.access_token)}`;');
+    expect(body).toContain('function completeStandaloneLogin(accessToken)');
+    expect(body).toContain("sessionStorage.setItem('supaoauth.account.access_token', accessToken)");
+    expect(body).toContain('window.location.href = `/account#access_token=${encodeURIComponent(accessToken)}`;');
+    expect(body).toContain('function isAuthorizationNotFoundError(error)');
+    expect(body).toContain("error.code === 'authorization_not_found'");
+    expect(body).toContain('await completeStandaloneLogin(data.access_token);');
     expect(body).toContain('function safeRedirectUrl(value, allowExternal = false)');
     expect(body).toContain("url.protocol !== 'http:' && url.protocol !== 'https:'");
     expect(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");

@@ -161,6 +161,42 @@ function buildGoTrueApiUrl(baseUrl: string, routePath: string) {
   return base.toString();
 }
 
+function buildRawGoTrueApiUrl(baseUrl: string, routePath: string) {
+  const base = new URL(baseUrl);
+  base.pathname = base.pathname.replace(/\/+$/, '');
+  const normalizedPath = routePath.startsWith('/') ? routePath : `/${routePath}`;
+  base.pathname = `${base.pathname}${normalizedPath}`.replace(/\/+/g, '/');
+  base.search = '';
+  base.hash = '';
+  return base.toString();
+}
+
+function normalizeBaseUrl(value?: string) {
+  return value ? value.replace(/\/+$/, '') : '';
+}
+
+function shouldUseRawGoTrueFallback(baseUrl: string) {
+  const base = new URL(baseUrl);
+  if (base.pathname.replace(/\/+$/, '').endsWith('/auth/v1')) return false;
+
+  const config = getConfig();
+  const normalizedBase = normalizeBaseUrl(baseUrl);
+  const internalBase = normalizeBaseUrl(config.oauthRuntimeInternalUrl);
+  const runtimeBase = normalizeBaseUrl(config.oauthRuntimeUrl);
+  const publicBase = normalizeBaseUrl(config.publicBaseUrl);
+  if (internalBase && normalizedBase === internalBase && normalizedBase !== runtimeBase && normalizedBase !== publicBase) {
+    return true;
+  }
+
+  return ['127.0.0.1', '::1', 'localhost'].includes(base.hostname);
+}
+
+function goTrueRequestUrls(baseUrl: string, routePath: string) {
+  const urls = [buildGoTrueApiUrl(baseUrl, routePath)];
+  if (shouldUseRawGoTrueFallback(baseUrl)) urls.push(buildRawGoTrueApiUrl(baseUrl, routePath));
+  return urls.filter((url, index) => urls.indexOf(url) === index);
+}
+
 function goTrueBaseCandidates(runtimeBaseUrls?: string[]) {
   if (runtimeBaseUrls?.length) return runtimeBaseUrls;
   const config = getConfig();
@@ -407,36 +443,43 @@ async function fetchGoTrueJsonWithUserToken(
   if (bases.length === 0) return accountUnavailable('Authentication runtime is not configured.');
 
   let lastError: unknown = null;
+  let responseFailure: AccountFailure | null = null;
   for (const base of bases) {
-    try {
-      const response = await fetchImpl(buildGoTrueApiUrl(base, routePath), {
-        ...init,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          ...(init.headers || {}),
-        },
-        signal: init.signal || AbortSignal.timeout(5000),
-      });
-      const payload = await readJson(response);
-      if (response.status === 401 || response.status === 403) return invalidToken();
-      if (response.ok && !isRecord(payload) && options.emptySuccessData) {
-        return { ok: true, data: options.emptySuccessData };
+    for (const url of goTrueRequestUrls(base, routePath)) {
+      try {
+        const response = await fetchImpl(url, {
+          ...init,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+            ...(init.headers || {}),
+          },
+          signal: init.signal || AbortSignal.timeout(5000),
+        });
+        const payload = await readJson(response);
+        if (response.status === 401 || response.status === 403) {
+          return invalidToken();
+        }
+        if (response.ok && !isRecord(payload) && options.emptySuccessData) {
+          return { ok: true, data: options.emptySuccessData };
+        }
+        if (!response.ok || !isRecord(payload)) {
+          responseFailure ??= {
+            ok: false,
+            status: response.status,
+            code: failureCode,
+            message: typeof payload?.message === 'string' ? payload.message : fallbackMessage,
+          };
+          continue;
+        }
+        return { ok: true, data: payload };
+      } catch (error) {
+        lastError = error;
       }
-      if (!response.ok || !isRecord(payload)) {
-        return {
-          ok: false,
-          status: response.status,
-          code: failureCode,
-          message: typeof payload?.message === 'string' ? payload.message : fallbackMessage,
-        };
-      }
-      return { ok: true, data: payload };
-    } catch (error) {
-      lastError = error;
     }
   }
 
+  if (responseFailure) return responseFailure;
   return accountUnavailable(lastError instanceof Error ? lastError.message : undefined);
 }
 
@@ -476,35 +519,16 @@ export async function getAccountWithGoTrue(
     runtimeBaseUrls?: string[];
   } = {},
 ): Promise<AccountResult> {
-  const fetchImpl = options.fetchImpl || fetch;
-  const bases = goTrueBaseCandidates(options.runtimeBaseUrls);
-  if (bases.length === 0) return accountUnavailable('Authentication runtime is not configured.');
-
-  let lastError: unknown = null;
-  for (const base of bases) {
-    try {
-      const response = await fetchImpl(buildGoTrueApiUrl(base, '/user'), {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        signal: AbortSignal.timeout(5000),
-      });
-      const payload = await readJson(response);
-      if (response.status === 401 || response.status === 403) return invalidToken();
-      if (!response.ok || !isRecord(payload)) {
-        return {
-          ok: false,
-          status: response.status,
-          code: 'account_lookup_failed',
-          message: typeof payload?.message === 'string' ? payload.message : 'Account lookup failed.',
-        };
-      }
-      return { ok: true, user: sanitizeUser(payload) };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  return accountUnavailable(lastError instanceof Error ? lastError.message : undefined);
+  const result = await fetchGoTrueJsonWithUserToken(
+    accessToken,
+    '/user',
+    { method: 'GET' },
+    'account_lookup_failed',
+    'Account lookup failed.',
+    options,
+  );
+  if (!result.ok) return result;
+  return { ok: true, user: sanitizeUser(result.data) };
 }
 
 export async function updateAccountProfileWithGoTrue(
@@ -516,43 +540,23 @@ export async function updateAccountProfileWithGoTrue(
     audit?: boolean;
   } = {},
 ): Promise<AccountResult> {
-  const fetchImpl = options.fetchImpl || fetch;
-  const bases = goTrueBaseCandidates(options.runtimeBaseUrls);
-  if (bases.length === 0) return accountUnavailable('Authentication runtime is not configured.');
-
-  let lastError: unknown = null;
-  for (const base of bases) {
-    try {
-      const response = await fetchImpl(buildGoTrueApiUrl(base, '/user'), {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ data }),
-        signal: AbortSignal.timeout(5000),
-      });
-      const payload = await readJson(response);
-      if (response.status === 401 || response.status === 403) return invalidToken();
-      if (!response.ok || !isRecord(payload)) {
-        return {
-          ok: false,
-          status: response.status,
-          code: 'profile_update_failed',
-          message: typeof payload?.message === 'string' ? payload.message : 'Profile update failed.',
-        };
-      }
-      const user = sanitizeUser(payload);
-      if (options.audit !== false) {
-        await auditProfileUpdate(user, Object.keys(data));
-      }
-      return { ok: true, user };
-    } catch (error) {
-      lastError = error;
-    }
+  const result = await fetchGoTrueJsonWithUserToken(
+    accessToken,
+    '/user',
+    {
+      method: 'PUT',
+      body: JSON.stringify({ data }),
+    },
+    'profile_update_failed',
+    'Profile update failed.',
+    options,
+  );
+  if (!result.ok) return result;
+  const user = sanitizeUser(result.data);
+  if (options.audit !== false) {
+    await auditProfileUpdate(user, Object.keys(data));
   }
-
-  return accountUnavailable(lastError instanceof Error ? lastError.message : undefined);
+  return { ok: true, user };
 }
 
 export async function updateAccountContactWithGoTrue(
@@ -563,39 +567,19 @@ export async function updateAccountContactWithGoTrue(
     runtimeBaseUrls?: string[];
   } = {},
 ): Promise<AccountResult> {
-  const fetchImpl = options.fetchImpl || fetch;
-  const bases = goTrueBaseCandidates(options.runtimeBaseUrls);
-  if (bases.length === 0) return accountUnavailable('Authentication runtime is not configured.');
-
-  let lastError: unknown = null;
-  for (const base of bases) {
-    try {
-      const response = await fetchImpl(buildGoTrueApiUrl(base, '/user'), {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(data),
-        signal: AbortSignal.timeout(5000),
-      });
-      const payload = await readJson(response);
-      if (response.status === 401 || response.status === 403) return invalidToken();
-      if (!response.ok || !isRecord(payload)) {
-        return {
-          ok: false,
-          status: response.status,
-          code: 'contact_update_failed',
-          message: typeof payload?.message === 'string' ? payload.message : 'Contact update failed.',
-        };
-      }
-      return { ok: true, user: sanitizeUser(payload) };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  return accountUnavailable(lastError instanceof Error ? lastError.message : undefined);
+  const result = await fetchGoTrueJsonWithUserToken(
+    accessToken,
+    '/user',
+    {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    },
+    'contact_update_failed',
+    'Contact update failed.',
+    options,
+  );
+  if (!result.ok) return result;
+  return { ok: true, user: sanitizeUser(result.data) };
 }
 
 export async function enrollTotpMfaWithGoTrue(
