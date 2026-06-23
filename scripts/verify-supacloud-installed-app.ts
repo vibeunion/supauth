@@ -72,6 +72,18 @@ function describeExpectation(expectation: ProbeExpectation) {
   return 'expected preserved Supabase runtime route to avoid upstream 5xx';
 }
 
+function isHostedGoTrueAuthorizeLocation(location: string, baseUrl: string) {
+  try {
+    const actual = new URL(location, baseUrl);
+    const expected = new URL(baseUrl);
+    return actual.host === expected.host
+      && actual.pathname === '/auth/v1/oauth/authorize'
+      && (actual.protocol === 'https:' || actual.protocol === 'http:');
+  } catch {
+    return false;
+  }
+}
+
 async function probe(fetchImpl: FetchLike, name: string, url: string, expectation: ProbeExpectation): Promise<ProbeResult> {
   try {
     const response = await fetchImpl(url, { method: 'GET', redirect: 'manual' });
@@ -110,14 +122,27 @@ async function probeSsoAuthorizeRedirect(fetchImpl: FetchLike, url: string, base
     const response = await fetchImpl(url, { method: 'GET', redirect: 'manual' });
     const location = response.headers.get('location') || '';
     const expectedPrefix = joinUrl(baseUrl, '/auth/v1/oauth/authorize?');
-    const ok = response.status >= 300 && response.status < 400 && location.startsWith(expectedPrefix);
+    const redirectsToHostedAuth = response.status >= 300 && response.status < 400 && isHostedGoTrueAuthorizeLocation(location, baseUrl);
+    if (!redirectsToHostedAuth) {
+      return {
+        name: 'sso_authorize_redirect_origin',
+        url,
+        expectation: 'route-exists',
+        ok: false,
+        status: response.status,
+        error: `expected 3xx Location to stay on hosted GoTrue authorize path ${expectedPrefix}, got HTTP ${response.status} Location ${location || '<empty>'}`,
+      };
+    }
+
+    const authorizeResponse = await fetchImpl(location, { method: 'GET', redirect: 'manual' });
+    const ok = isExpectedStatus(authorizeResponse.status, 'route-exists');
     return {
       name: 'sso_authorize_redirect_origin',
       url,
       expectation: 'route-exists',
       ok,
-      status: response.status,
-      error: ok ? undefined : `expected 3xx Location to start with ${expectedPrefix}, got HTTP ${response.status} Location ${location || '<empty>'}`,
+      status: authorizeResponse.status,
+      error: ok ? undefined : `hosted GoTrue authorize target failed: expected a non-404, non-5xx route response, got HTTP ${authorizeResponse.status} at ${location}`,
     };
   } catch (error) {
     return {

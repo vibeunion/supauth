@@ -34,12 +34,13 @@ function createFixture() {
   return { root, artifactDir };
 }
 
-function mockFetch(overrides: Record<string, number> = {}) {
+function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?: string) {
   const defaultStatuses: Record<string, number> = {
     '/api/v1/health': 200,
     '/v1/auth-config': 401,
     '/v1/public/sign-in-experience/resolve': 200,
     '/admin/security': 200,
+    '/login': 200,
     '/login.html': 200,
     '/authorize.html': 200,
     '/account': 200,
@@ -49,6 +50,7 @@ function mockFetch(overrides: Record<string, number> = {}) {
     '/claim.html': 200,
     '/favicon.ico': 200,
     '/oauth/authorize': 400,
+    '/auth/v1/oauth/authorize': 302,
     '/auth/v1/health': 200,
     '/rest/v1/': 401,
     '/storage/v1/bucket': 401,
@@ -61,7 +63,7 @@ function mockFetch(overrides: Record<string, number> = {}) {
     const url = new URL(String(input));
     if (url.pathname === '/oauth/sso/authorize' && url.searchParams.has('client_id')) {
       const location = overrides['/oauth/sso/authorize'] === 302
-        ? 'https://auth.example.test/auth/v1/oauth/authorize?client_id=app_123'
+        ? ssoAuthorizeLocation || 'https://auth.example.test/auth/v1/oauth/authorize?client_id=app_123'
         : 'https://project.example.test/auth/v1/oauth/authorize?client_id=app_123';
       return new Response('redirect', { status: 302, headers: { location } });
     }
@@ -149,6 +151,25 @@ describe('SupaCloud installed app verifier', () => {
     expect(result.probes.find((probe) => probe.name === 'sso_authorize_redirect_origin')?.ok).toBe(true);
   });
 
+  it('accepts a live SSO authorize probe when the first hosted auth redirect uses http before HTTPS upgrade', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      ssoAuthorizeProbeUrl: 'https://auth.example.test/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback',
+      fetchImpl: mockFetch(
+        { '/oauth/sso/authorize': 302 },
+        'http://auth.example.test/auth/v1/oauth/authorize?client_id=app_123',
+      ),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.probes.find((probe) => probe.name === 'sso_authorize_redirect_origin')?.ok).toBe(true);
+  });
+
   it('rejects a live SSO authorize probe when the redirect leaks the project runtime domain', async () => {
     const { root, artifactDir } = createFixture();
 
@@ -162,6 +183,25 @@ describe('SupaCloud installed app verifier', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.errors.some((error) => error.includes('expected 3xx Location to start with https://auth.example.test/auth/v1/oauth/authorize?'))).toBe(true);
+    expect(result.errors.some((error) => error.includes('expected 3xx Location to stay on hosted GoTrue authorize path'))).toBe(true);
+  });
+
+  it('rejects a live SSO authorize probe when the hosted GoTrue authorize target is missing', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      ssoAuthorizeProbeUrl: 'https://auth.example.test/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback',
+      fetchImpl: mockFetch({
+        '/oauth/sso/authorize': 302,
+        '/auth/v1/oauth/authorize': 404,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.includes('hosted GoTrue authorize target failed'))).toBe(true);
   });
 });
