@@ -57,6 +57,7 @@ describe('SupaCloud app installer', () => {
     expect(result.steps).toEqual([
       expect.objectContaining({ name: 'artifact-verification', status: 'done' }),
       expect.objectContaining({ name: 'migration', status: 'planned' }),
+      expect.objectContaining({ name: 'migration-verification', status: 'planned' }),
       expect.objectContaining({ name: 'runtime-env', status: 'planned' }),
       expect.objectContaining({ name: 'function-deploy', status: 'planned' }),
       expect.objectContaining({ name: 'gateway-routes', status: 'skipped' }),
@@ -72,6 +73,17 @@ describe('SupaCloud app installer', () => {
       root,
       artifactDir,
       ...requiredOptions,
+      migrationVerifier: async (databaseUrl) => {
+        calls.push(`VERIFY ${databaseUrl}`);
+        return {
+          reachable: true,
+          authorizeExists: true,
+          hasOrgPermissionExists: true,
+          authorizeGranted: true,
+          hasOrgPermissionGranted: true,
+          unsafePolicies: [],
+        };
+      },
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
         calls.push(`${init?.method || 'GET'} ${url.pathname}`);
@@ -101,6 +113,7 @@ describe('SupaCloud app installer', () => {
 
     expect(result.ok).toBe(true);
     expect(calls[0]).toBe('POST /v1/projects/project_123/database/sql');
+    expect(calls).toContain(`VERIFY ${requiredOptions.databaseUrl}`);
     expect(calls).toContain('POST /v1/projects/project_123/secrets');
     expect(calls.slice(-3)).toEqual([
       'POST /v1/projects/project_123/functions/supauth/bundle',
@@ -108,10 +121,14 @@ describe('SupaCloud app installer', () => {
       'GET /functions/v1/supauth/api/v1/health',
     ]);
     expect(calls.indexOf('POST /v1/projects/project_123/database/sql')).toBeLessThan(
+      calls.indexOf(`VERIFY ${requiredOptions.databaseUrl}`),
+    );
+    expect(calls.indexOf(`VERIFY ${requiredOptions.databaseUrl}`)).toBeLessThan(
       calls.indexOf('POST /v1/projects/project_123/secrets'),
     );
     expect(calls).toEqual(expect.arrayContaining([
       'POST /v1/projects/project_123/database/sql',
+      `VERIFY ${requiredOptions.databaseUrl}`,
       'POST /v1/projects/project_123/secrets',
       'POST /v1/projects/project_123/functions/supauth/bundle',
       'PATCH /v1/projects/project_123/functions/supauth/config',
@@ -191,6 +208,7 @@ describe('SupaCloud app installer', () => {
       gatewayAdminToken: 'admin-token',
       baseUrl: 'https://auth.example.test',
       edgeRuntimeUpstream: '127.0.0.1:9000',
+      skipMigrationVerify: true,
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
@@ -214,6 +232,25 @@ describe('SupaCloud app installer', () => {
       rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       priority: 100,
     });
-    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+  });
+
+  it('fails install when migration verification does not pass', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      migrationVerifier: async () => ({
+        reachable: true,
+        authorizeExists: true,
+        hasOrgPermissionExists: false,
+        authorizeGranted: true,
+        hasOrgPermissionGranted: true,
+        unsafePolicies: [],
+      }),
+      fetchImpl: async () => new Response('{}', { status: 200 }),
+    })).rejects.toThrow('supaoauth.has_org_permission() is missing');
   });
 });

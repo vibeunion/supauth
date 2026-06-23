@@ -144,6 +144,7 @@ export function createSupacloudAppManifest(input: {
           { path: '/v1/public/*' },
           { path: '/oauth/*' },
           { path: '/login.html' },
+          { path: '/authorize.html' },
           { path: '/account' },
           { path: '/account.html' },
           { path: '/account/*' },

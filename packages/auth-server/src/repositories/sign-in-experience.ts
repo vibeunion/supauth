@@ -12,9 +12,11 @@ export interface SignInExperienceInput {
     favicon_url?: string | null;
     primary_color?: string | null;
     page_title?: string | null;
+    description?: string | null;
     background_url?: string | null;
     button_label?: string | null;
     custom_css?: string | null;
+    content?: Record<string, unknown> | null;
   };
   sign_in_methods?: string[];
   sign_up_enabled?: boolean;
@@ -34,6 +36,7 @@ export interface ApplicationSignInExperienceInput {
 }
 
 type Branding = NonNullable<SignInExperienceInput['branding']>;
+type StringBrandingKey = Exclude<keyof Branding, 'content'>;
 
 export interface SupaCloudSignInExperienceSource {
   project?: Record<string, unknown> | null;
@@ -60,6 +63,11 @@ function globalToResponse(row: typeof signInExperience.$inferSelect) {
       favicon_url: row.faviconUrl,
       primary_color: row.primaryColor,
       page_title: row.pageTitle,
+      description: row.description,
+      background_url: row.backgroundUrl,
+      button_label: row.buttonLabel,
+      custom_css: row.customCss,
+      content: row.content,
     },
     sign_in_methods: row.signInMethods || [],
     sign_up_enabled: row.signUpEnabled,
@@ -87,6 +95,7 @@ function appToResponse(row: typeof applicationSignInExperience.$inferSelect) {
       background_url: row.backgroundUrl,
       button_label: row.buttonLabel,
       custom_css: row.customCss,
+      content: row.content,
     },
     _meta: { id: row.id, created_at: row.createdAt, updated_at: row.updatedAt },
   };
@@ -168,7 +177,8 @@ function applicationBrandingDefaults(application?: Record<string, unknown> | nul
 
 function applyProjectFallback(branding: Branding, fallback: Branding) {
   const next = { ...branding };
-  for (const [key, value] of Object.entries(fallback) as Array<[keyof Branding, string | null | undefined]>) {
+  const entries = Object.entries(fallback).filter(([key]) => key !== 'content') as Array<[StringBrandingKey, string | null | undefined]>;
+  for (const [key, value] of entries) {
     if (!value) continue;
     if (key === 'page_title') {
       if (!next.page_title || STOCK_PAGE_TITLES.has(next.page_title)) next.page_title = value;
@@ -181,7 +191,8 @@ function applyProjectFallback(branding: Branding, fallback: Branding) {
 
 function applyApplicationFallback(branding: Branding, fallback: Branding) {
   const next = { ...branding };
-  for (const [key, value] of Object.entries(fallback) as Array<[keyof Branding, string | null | undefined]>) {
+  const entries = Object.entries(fallback).filter(([key]) => key !== 'content') as Array<[StringBrandingKey, string | null | undefined]>;
+  for (const [key, value] of entries) {
     if (!value) continue;
     if (key === 'custom_css' || key === 'background_url' || key === 'button_label') continue;
     // 系统名（page_title）：仅在全局未显式设置或仍为 stock 值时，才用 OAuth client 名回填。
@@ -226,6 +237,15 @@ export async function updateSignInExperience(data: SignInExperienceInput) {
     if (data.branding.favicon_url !== undefined) update.faviconUrl = data.branding.favicon_url;
     if (data.branding.primary_color !== undefined) update.primaryColor = data.branding.primary_color;
     if (data.branding.page_title !== undefined) update.pageTitle = data.branding.page_title;
+    if (data.branding.description !== undefined) {
+      update.description = typeof data.branding.description === 'string'
+        ? data.branding.description.trim() || null
+        : data.branding.description;
+    }
+    if (data.branding.background_url !== undefined) update.backgroundUrl = data.branding.background_url;
+    if (data.branding.button_label !== undefined) update.buttonLabel = data.branding.button_label;
+    if (data.branding.custom_css !== undefined) update.customCss = data.branding.custom_css;
+    if (data.branding.content !== undefined) update.content = data.branding.content;
   }
   if (data.sign_in_methods !== undefined) update.signInMethods = data.sign_in_methods;
   if (data.sign_up_enabled !== undefined) update.signUpEnabled = data.sign_up_enabled;
@@ -272,6 +292,7 @@ export async function upsertApplicationSignInExperience(applicationId: string, d
     if (data.branding.background_url !== undefined) values.backgroundUrl = data.branding.background_url;
     if (data.branding.button_label !== undefined) values.buttonLabel = data.branding.button_label;
     if (data.branding.custom_css !== undefined) values.customCss = data.branding.custom_css;
+    if (data.branding.content !== undefined) values.content = data.branding.content;
   }
 
   const [saved] = existing
@@ -288,6 +309,7 @@ export async function upsertApplicationSignInExperience(applicationId: string, d
       backgroundUrl: data.branding?.background_url ?? null,
       buttonLabel: data.branding?.button_label ?? null,
       customCss: data.branding?.custom_css ?? null,
+      content: data.branding?.content ?? null,
     }).returning();
 
   return appToResponse(saved);

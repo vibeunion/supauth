@@ -21,6 +21,7 @@
     "check": "bun run typecheck && bun run test && bun run --filter '@supauth/admin-console' build",
     "test:supabase-auth-compat": "bun test tests/integration/supabase-compat/oauth21.test.ts tests/integration/supabase-compat/supabase-js.test.ts",
     "release:gate": "bun run scripts/release-gate.ts",
+    "projects:describe": "bun run scripts/describe-live-projects.ts",
     "account:manifest": "bun run scripts/generate-account-provisioning-manifest.ts",
     "backup:drill": "bun run scripts/backup-restore-drill.ts backup",
     "capacity:baseline": "bun run scripts/capacity-baseline.ts"

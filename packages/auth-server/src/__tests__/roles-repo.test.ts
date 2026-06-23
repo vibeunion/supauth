@@ -23,7 +23,7 @@ describe('Roles repository — module structure', () => {
     const expectedFns = [
       'listRoles', 'getRole', 'createRole', 'updateRole', 'deleteRole',
       'createPermission', 'deletePermission', 'listRolePermissions',
-      'assignRole', 'revokeRole', 'getUserRoleAssignments',
+      'assignRole', 'listRoleAssignments', 'revokeRole', 'getUserRoleAssignments',
       'getOrgRoleAssignments', 'resolveUserPermissions',
     ];
     for (const fn of expectedFns) {

@@ -47,6 +47,14 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
   }, {
     detail: { summary: 'Suspend user through SupaCloud', tags: ['Users', 'Account Center'] },
   })
+  .post('/:userId/unsuspend', async ({ params }) => {
+    const result = await adapter.unsuspendUser(params.userId);
+    await audit('user.unsuspend', 'user', params.userId);
+    await fireWebhook('user.unsuspended', { user_id: params.userId });
+    return result;
+  }, {
+    detail: { summary: 'Restore (unsuspend) user through SupaCloud', tags: ['Users', 'Account Center'] },
+  })
   .delete('/:userId', async ({ params }) => {
     await adapter.deleteUser(params.userId);
     await audit('user.delete', 'user', params.userId);

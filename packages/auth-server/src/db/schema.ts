@@ -77,6 +77,11 @@ export const signInExperience = supaoauth.table('sign_in_experience', {
   faviconUrl: text('favicon_url'),
   primaryColor: varchar('primary_color', { length: 32 }),
   pageTitle: varchar('page_title', { length: 255 }),
+  description: text('description'),
+  backgroundUrl: text('background_url'),
+  buttonLabel: varchar('button_label', { length: 255 }),
+  customCss: text('custom_css'),
+  content: jsonb('content').$type<Record<string, unknown> | null>(),
   // Auth flow
   signInMethods: jsonb('sign_in_methods').$type<string[]>().default([]),
   signUpEnabled: boolean('sign_up_enabled').default(true).notNull(),
@@ -105,6 +110,7 @@ export const applicationSignInExperience = supaoauth.table('application_sign_in_
   backgroundUrl: text('background_url'),
   buttonLabel: varchar('button_label', { length: 255 }),
   customCss: text('custom_css'),
+  content: jsonb('content').$type<Record<string, unknown> | null>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [

@@ -87,7 +87,7 @@ After 3 distinct failed approaches on the same blocker, stop adding risk and esc
 - Triggers checked: `[risk/scope/domain/review-of-own-work]`
 - Subagents used: `[role + scope + result]` or `none`
 - Skip reason: `[why safe]` if none used
-- Request contract when used: `[role, exact scope, read/write ownership, allowed files, verification command, output schema, mailbox persistence]`
+- Request contract when used: `[role, exact scope, read/write ownership, allowed files, verification_command / verification commands, output schema, mailbox persistence]`
 
 ## Assumptions / Notes
 - Key assumptions made and how they were handled

@@ -186,6 +186,7 @@ export async function verifySupacloudInstalledApp(input: {
     ['public_sign_in_experience', joinUrl(baseUrl, '/v1/public/sign-in-experience/resolve'), 'route-exists'],
     ['admin_console_page', joinUrl(baseUrl, '/admin/security'), 'exact-200'],
     ['hosted_login_page', joinUrl(baseUrl, '/login.html'), 'exact-200'],
+    ['hosted_authorize_page', joinUrl(baseUrl, '/authorize.html'), 'exact-200'],
     ['account_center_page', joinUrl(baseUrl, '/account'), 'exact-200'],
     ['account_center_html', joinUrl(baseUrl, '/account.html'), 'exact-200'],
     ['change_password_page', joinUrl(baseUrl, '/account/password'), 'exact-200'],

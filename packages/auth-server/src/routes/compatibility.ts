@@ -10,7 +10,7 @@ export const compatibilityRoutes = new Elysia({ prefix: '/v1/compatibility' })
   }, {
     detail: {
       summary: 'Run Supabase compatibility checks',
-      description: 'Checks OIDC discovery, JWKS, endpoints, SupaCloud connectivity, scopes, and RBAC helpers',
+      description: 'Checks OIDC discovery, JWKS, endpoints, SupaCloud connectivity, scopes, and runtime RBAC claim strategy',
       tags: ['Compatibility'],
     },
   });

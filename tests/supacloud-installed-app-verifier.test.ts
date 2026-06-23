@@ -41,6 +41,7 @@ function mockFetch(overrides: Record<string, number> = {}) {
     '/v1/public/sign-in-experience/resolve': 200,
     '/admin/security': 200,
     '/login.html': 200,
+    '/authorize.html': 200,
     '/account': 200,
     '/account.html': 200,
     '/account/password': 200,

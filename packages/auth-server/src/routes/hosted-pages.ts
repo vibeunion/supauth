@@ -102,7 +102,10 @@ export function adminConsoleSpaCandidates(buildDirs: string[], sub: string) {
 async function loadAuthorizeHtml(): Promise<string | null> {
   // Custom UI takes priority
   const customFile = await findFirstExistingFile(
-    hostedPagePaths.customUiDirs.map(dir => path.join(dir, 'index.html')),
+    hostedPagePaths.customUiDirs.flatMap(dir => [
+      path.join(dir, 'login.html'),
+      path.join(dir, 'index.html'),
+    ]),
   );
   if (customFile) {
     return customFile.text();
@@ -116,6 +119,13 @@ async function loadAuthorizeHtml(): Promise<string | null> {
 }
 
 async function loadClaimHtml(): Promise<string | null> {
+  const customFile = await findFirstExistingFile(
+    hostedPagePaths.customUiDirs.map(dir => path.join(dir, 'claim.html')),
+  );
+  if (customFile) {
+    return customFile.text();
+  }
+
   const htmlFile = await findFirstExistingFile(hostedPagePaths.claimHtmlCandidates);
   if (htmlFile) {
     return htmlFile.text();
@@ -124,6 +134,13 @@ async function loadClaimHtml(): Promise<string | null> {
 }
 
 async function loadChangePasswordHtml(): Promise<string | null> {
+  const customFile = await findFirstExistingFile(
+    hostedPagePaths.customUiDirs.map(dir => path.join(dir, 'change-password.html')),
+  );
+  if (customFile) {
+    return customFile.text();
+  }
+
   const htmlFile = await findFirstExistingFile(hostedPagePaths.changePasswordHtmlCandidates);
   if (htmlFile) {
     return htmlFile.text();
@@ -132,6 +149,13 @@ async function loadChangePasswordHtml(): Promise<string | null> {
 }
 
 async function loadAccountHtml(): Promise<string | null> {
+  const customFile = await findFirstExistingFile(
+    hostedPagePaths.customUiDirs.map(dir => path.join(dir, 'account.html')),
+  );
+  if (customFile) {
+    return customFile.text();
+  }
+
   const htmlFile = await findFirstExistingFile(hostedPagePaths.accountHtmlCandidates);
   if (htmlFile) {
     return htmlFile.text();
@@ -160,7 +184,10 @@ const CACHE_TTL = 60_000; // 60 seconds
 async function getAuthorizeHtml() {
   // Check custom UI first (always fresh)
   const customFile = await findFirstExistingFile(
-    hostedPagePaths.customUiDirs.map(dir => path.join(dir, 'index.html')),
+    hostedPagePaths.customUiDirs.flatMap(dir => [
+      path.join(dir, 'login.html'),
+      path.join(dir, 'index.html'),
+    ]),
   );
   if (customFile) {
     return customFile.text();
@@ -228,6 +255,18 @@ export const hostedPageRoutes = new Elysia()
     return renderAuthorizeHtml(html);
   }, {
     detail: { summary: 'Serve hosted login page (alias for authorize)', tags: ['Public'] },
+  })
+
+  .get('/authorize.html', async ({ set }) => {
+    const html = await getAuthorizeHtml();
+    if (!html) {
+      set.status = 404;
+      return { error: 'authorize_page_missing' };
+    }
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+    return renderAuthorizeHtml(html);
+  }, {
+    detail: { summary: 'Serve hosted authorize page alias', tags: ['Public', 'Consent'] },
   })
 
   .get('/claim', async ({ set }) => {

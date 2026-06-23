@@ -8,13 +8,11 @@
     <style>
       * { box-sizing: border-box; }
       :root { --primary: #2563eb; }
+      html, body { height: 100%; }
       body {
         margin: 0;
         min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #f6f7f9;
+        background: #f1f5f9;
         color: #111827;
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
@@ -22,25 +20,144 @@
         background-position: center;
         background-size: cover;
       }
-      body.has-bg::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        background: rgba(255, 255, 255, 0.72);
+      /* Split layout: left brand/intro panel + right auth form panel */
+      .split-layout {
+        display: flex;
+        min-height: 100vh;
       }
-      .card {
+      .brand-panel {
+        flex: 1 1 0;
+        min-width: 0;
         position: relative;
-        width: min(420px, calc(100vw - 32px));
-        padding: 36px;
-        border: 1px solid #e5e7eb;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 64px 56px;
+        color: #e2e8f0;
+        background: linear-gradient(150deg, #0b1220 0%, #1e1b4b 55%, #312e81 100%);
+      }
+      .brand-panel::after {
+        content: "";
+        position: absolute;
+        width: 560px;
+        height: 560px;
+        right: -200px;
+        top: -160px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(129, 140, 248, 0.35), transparent 68%);
+        pointer-events: none;
+      }
+      .brand-panel::before {
+        content: "";
+        position: absolute;
+        width: 420px;
+        height: 420px;
+        left: -150px;
+        bottom: -140px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(56, 189, 248, 0.16), transparent 70%);
+        pointer-events: none;
+      }
+      .brand-inner {
+        position: relative;
+        z-index: 1;
+        max-width: 480px;
+      }
+      .brand-panel .logo {
+        display: none;
+        max-width: 200px;
+        max-height: 76px;
+        margin: 0 0 28px;
+      }
+      .brand-panel h1 {
+        margin: 0 0 14px;
+        text-align: left;
+        font-size: 32px;
+        font-weight: 800;
+        color: #ffffff;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
+      }
+      .brand-panel .subtitle {
+        margin: 0 0 28px;
+        text-align: left;
+        color: #a5b4fc;
+        font-size: 15px;
+        font-weight: 500;
+      }
+      .brand-panel .intro {
+        margin: 0 0 24px;
+        text-align: left;
+        color: #cbd5e1;
+        font-size: 14px;
+        line-height: 1.75;
+        white-space: pre-line;
+      }
+      .brand-panel #custom-content { margin: 0; }
+      .brand-panel #custom-content:empty { display: none; }
+      .brand-panel #custom-content img,
+      .brand-panel #custom-content svg {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 0 0 16px;
+      }
+      .brand-panel #custom-content p {
+        margin: 0 0 10px;
+        line-height: 1.75;
+        font-size: 14px;
+        color: #cbd5e1;
+      }
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .feature-card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 12px;
-        background: rgba(255, 255, 255, 0.96);
-        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .feature-icon {
+        display: flex;
+        flex: 0 0 auto;
+        color: #a5b4fc;
+      }
+      .feature-text {
+        min-width: 0;
+        line-height: 1.35;
+      }
+      .feature-title {
+        display: block;
+        color: #f8fafc;
+        font-size: 12.5px;
+        font-weight: 700;
+      }
+      .feature-desc {
+        display: block;
+        margin-top: 2px;
+        color: #94a3b8;
+        font-size: 11px;
+      }
+      .auth-panel {
+        flex: 0 0 500px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 48px 44px;
+        background: #ffffff;
+        position: relative;
       }
       .language-select {
         position: absolute;
-        top: 14px;
-        right: 14px;
+        top: 18px;
+        right: 18px;
         height: 30px;
         padding: 0 8px;
         border: 1px solid #d1d5db;
@@ -49,23 +166,17 @@
         color: #374151;
         font-size: 12px;
       }
-      .logo {
-        display: none;
-        max-width: 180px;
-        max-height: 72px;
-        margin: 0 auto 18px;
+      @media (max-width: 920px) {
+        .split-layout { flex-direction: column; }
+        .brand-panel { flex: 0 0 auto; padding: 44px 32px 32px; }
+        .brand-panel h1 { font-size: 26px; }
+        .auth-panel { flex: 1 1 auto; padding: 36px 28px 44px; }
       }
-      h1 {
-        margin: 0 0 8px;
-        text-align: center;
-        font-size: 24px;
-        font-weight: 700;
-      }
-      .subtitle {
-        margin: 0 0 24px;
-        text-align: center;
-        color: #6b7280;
-        font-size: 14px;
+      @media (max-width: 480px) {
+        .brand-panel { padding: 36px 24px 24px; }
+        .brand-panel h1 { font-size: 22px; }
+        .auth-panel { padding: 28px 22px 36px; }
+        .feature-grid { grid-template-columns: 1fr; }
       }
       label {
         display: block;
@@ -192,65 +303,75 @@
         cursor: pointer;
       }
       .forgot-link:hover { text-decoration: underline; }
+
     </style>
     <style id="custom-style"></style>
   </head>
   <body>
-    <main class="card">
-      <select id="language" class="language-select" aria-label="Language">
-        <option value="en">English</option>
-        <option value="zh-CN">中文</option>
-      </select>
-      <img id="logo" class="logo" alt="">
-      <h1 id="title">SupaOAuth</h1>
-      <p id="subtitle" class="subtitle">Sign in to continue</p>
-      <div id="message" class="message"></div>
+    <div class="split-layout">
+      <aside class="brand-panel">
+        <div class="brand-inner">
+          <img id="logo" class="logo" alt="">
+          <h1 id="title">SupaOAuth</h1>
+          <p id="subtitle" class="subtitle">Sign in to continue</p>
+          <p id="intro" class="intro" style="display:none"></p>
+          <div id="custom-content"></div>
+        </div>
+      </aside>
 
-      <!-- Tabs: sign-in / sign-up / forgot-password -->
-      <div id="tabs-nav" class="tabs">
-        <button type="button" class="tab-btn active" data-tab="signin" id="tab-signin">Sign In</button>
-        <button type="button" class="tab-btn" data-tab="signup" id="tab-signup" style="display:none">Sign Up</button>
-        <button type="button" class="tab-btn" data-tab="forgot" id="tab-forgot" style="display:none">Forgot Password</button>
-      </div>
+      <main class="auth-panel">
+        <select id="language" class="language-select" aria-label="Language">
+          <option value="en">English</option>
+          <option value="zh-CN">中文</option>
+        </select>
+        <div id="message" class="message"></div>
 
-      <!-- Sign In panel -->
-      <div id="panel-signin" class="tab-panel active">
-        <form id="login-form" novalidate>
-          <label id="email-label" for="email">Email</label>
-          <input id="email" name="email" type="email" autocomplete="email" required>
-          <a id="forgot-password-link" class="forgot-link" style="display:none">Forgot password?</a>
-          <label id="password-label" for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
-          <button id="submit" type="submit">Sign In</button>
-        </form>
-      </div>
+        <!-- Tabs: sign-in / sign-up / forgot-password -->
+        <div id="tabs-nav" class="tabs">
+          <button type="button" class="tab-btn active" data-tab="signin" id="tab-signin">Sign In</button>
+          <button type="button" class="tab-btn" data-tab="signup" id="tab-signup" style="display:none">Sign Up</button>
+          <button type="button" class="tab-btn" data-tab="forgot" id="tab-forgot" style="display:none">Forgot Password</button>
+        </div>
 
-      <!-- Sign Up panel -->
-      <div id="panel-signup" class="tab-panel">
-        <form id="signup-form">
-          <label id="signup-email-label" for="signup-email">Email</label>
-          <input id="signup-email" name="email" type="email" autocomplete="email" required>
-          <label id="signup-password-label" for="signup-password">Password</label>
-          <input id="signup-password" name="password" type="password" autocomplete="new-password" required minlength="6">
-          <button id="signup-submit" type="submit">Sign Up</button>
-        </form>
-      </div>
+        <!-- Sign In panel -->
+        <div id="panel-signin" class="tab-panel active">
+          <form id="login-form" novalidate>
+            <label id="email-label" for="email">Email</label>
+            <input id="email" name="email" type="email" autocomplete="email" required>
+            <a id="forgot-password-link" class="forgot-link" style="display:none">Forgot password?</a>
+            <label id="password-label" for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button id="submit" type="submit">Sign In</button>
+          </form>
+        </div>
 
-      <!-- Forgot Password panel -->
-      <div id="panel-forgot" class="tab-panel">
-        <form id="forgot-form">
-          <label id="forgot-email-label" for="forgot-email">Email</label>
-          <input id="forgot-email" name="email" type="email" autocomplete="email" required>
-          <button id="forgot-submit" type="submit">Send Reset Link</button>
-        </form>
-      </div>
+        <!-- Sign Up panel -->
+        <div id="panel-signup" class="tab-panel">
+          <form id="signup-form">
+            <label id="signup-email-label" for="signup-email">Email</label>
+            <input id="signup-email" name="email" type="email" autocomplete="email" required>
+            <label id="signup-password-label" for="signup-password">Password</label>
+            <input id="signup-password" name="password" type="password" autocomplete="new-password" required minlength="6">
+            <button id="signup-submit" type="submit">Sign Up</button>
+          </form>
+        </div>
 
-      <!-- Social login buttons -->
-      <div id="social-divider" class="divider" style="display:none"><span id="or-text">or</span></div>
-      <div id="social-section" class="social-buttons" style="display:none"></div>
+        <!-- Forgot Password panel -->
+        <div id="panel-forgot" class="tab-panel">
+          <form id="forgot-form">
+            <label id="forgot-email-label" for="forgot-email">Email</label>
+            <input id="forgot-email" name="email" type="email" autocomplete="email" required>
+            <button id="forgot-submit" type="submit">Send Reset Link</button>
+          </form>
+        </div>
 
-      <div id="footer" class="footer">SupaOAuth Identity Provider</div>
-    </main>
+        <!-- Social login buttons -->
+        <div id="social-divider" class="divider" style="display:none"><span id="or-text">or</span></div>
+        <div id="social-section" class="social-buttons" style="display:none"></div>
+
+        <div id="footer" class="footer">SupaOAuth Identity Provider</div>
+      </main>
+    </div>
 
     <script>
       const params = new URLSearchParams(window.location.search);
@@ -592,6 +713,61 @@
         divider.style.display = 'flex';
       }
 
+      const featureIcons = {
+        shield: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2.5 L20 6 V11.5 C20 16.4 16.5 20.4 12 21.5 C7.5 20.4 4 16.4 4 11.5 V6 Z" stroke="currentColor" stroke-width="1.5"/><path d="M8.8 12 L11 14.2 L15.2 9.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        users: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.1" stroke="currentColor" stroke-width="1.5"/><circle cx="16.2" cy="10" r="2.3" stroke="currentColor" stroke-width="1.5" opacity="0.72"/><path d="M3.6 19 C3.6 15.6 6 13.7 9 13.7 C12 13.7 14.4 15.6 14.4 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M14.6 17.8 C14.6 15.3 16.4 13.9 18.6 13.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.72"/></svg>',
+        key: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="8.5" cy="12" r="3.5" stroke="currentColor" stroke-width="1.5"/><path d="M12 12 H20 M17 12 V15 M14.8 12 V14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        audit: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="3.5" width="14" height="17" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 8 H16 M8 12 H15 M8 16 H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+      };
+
+      function normalizeContentItems(content) {
+        if (Array.isArray(content)) return content;
+        if (content && typeof content === 'object' && Array.isArray(content.items)) return content.items;
+        if (content && typeof content === 'object' && Array.isArray(content.features)) return content.features;
+        return [];
+      }
+
+      function renderFeatureCards(container, items) {
+        const grid = document.createElement('div');
+        grid.className = 'feature-grid';
+        items.slice(0, 8).forEach((item) => {
+          if (!item || typeof item !== 'object') return;
+          const title = String(item.title || item.name || '').trim();
+          const desc = String(item.desc || item.description || '').trim();
+          if (!title && !desc) return;
+
+          const card = document.createElement('div');
+          card.className = 'feature-card';
+
+          const icon = document.createElement('span');
+          icon.className = 'feature-icon';
+          const iconName = String(item.icon || 'shield').trim();
+          icon.innerHTML = featureIcons[iconName] || featureIcons.shield;
+
+          const text = document.createElement('span');
+          text.className = 'feature-text';
+          const titleEl = document.createElement('strong');
+          titleEl.className = 'feature-title';
+          titleEl.textContent = title;
+          const descEl = document.createElement('span');
+          descEl.className = 'feature-desc';
+          descEl.textContent = desc;
+
+          text.appendChild(titleEl);
+          if (desc) text.appendChild(descEl);
+          card.appendChild(icon);
+          card.appendChild(text);
+          grid.appendChild(card);
+        });
+        if (grid.childElementCount) container.appendChild(grid);
+      }
+
+      function renderBrandingContent(content) {
+        const container = document.getElementById('custom-content');
+        container.replaceChildren();
+        renderFeatureCards(container, normalizeContentItems(content));
+      }
+
       // ─── Load phrases from API ────────────────────────────────────────
       async function loadPhrases(locale) {
         try {
@@ -604,7 +780,7 @@
         } catch {}
       }
 
-      // ─── Load experience (branding + connectors + features) ───────────
+      // ─── Load experience (branding + connectors + custom content) ───────────
       async function loadExperience() {
         const url = authorizationId
           ? `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`
@@ -616,10 +792,6 @@
             return;
           }
           const experience = await res.json();
-          if (experience.authorization_error) {
-            if (authorizationId) disableUnavailableAuthorization();
-            return;
-          }
           if (authorizationId) {
             authorizationAvailable = !!experience.authorization;
             if (!authorizationAvailable) {
@@ -638,6 +810,11 @@
             document.title = branding.page_title;
             document.getElementById('title').textContent = branding.page_title;
             document.getElementById('footer').textContent = renderFooter();
+          }
+          if (branding.description && branding.description.trim()) {
+            const intro = document.getElementById('intro');
+            intro.textContent = branding.description.trim();
+            intro.style.display = 'block';
           }
           if (branding.primary_color) {
             document.documentElement.style.setProperty('--primary', branding.primary_color);
@@ -663,6 +840,13 @@
           }
           if (branding.custom_css) {
             document.getElementById('custom-style').textContent = branding.custom_css;
+          }
+
+          renderBrandingContent(branding.content);
+
+          if (experience.authorization_error) {
+            if (authorizationId) disableUnavailableAuthorization();
+            return;
           }
 
           // Social connectors

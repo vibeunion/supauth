@@ -36,6 +36,8 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 ## 域名与路径映射
 
+当前西谷线上环境有两个 SupaCloud project ref：`dglewlzugrtygzysqrce` 是业务生产项目，`vwsvexjelurvczfivgiz` 是 SupAuth 开源验证项目。数据库迁移、生产配置和线上验收前，先按 `docs/live-projects.md` 确认目标项目，避免把验证项目当作业务库操作。
+
 | 服务 | 路径 | 说明 |
 |------|------|------|
 | Admin Console | `/admin` | SvelteKit SPA，由 SupaCloud Pages/static hosting 托管 |
@@ -64,7 +66,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 4. 对 `SUPACLOUD_DATABASE_URL` 执行 migration：`bun run --filter '@supauth/auth-server' migrate`
 5. 将 `packages/auth-server/dist/supacloud-function/supacloud-function.js` 发布到 SupaCloud Functions
 6. 将 `packages/admin-console/build` 发布到 SupaCloud Pages/static hosting
-7. 按 manifest 将 `/api/*`（strip `/api`）、`/v1/public/*`、`/oauth/*`、`/login.html`、`/claim`、`/claim.html` 路由到 Function
+7. 按 manifest 将 `/api/*`（strip `/api`）、`/v1/public/*`、`/oauth/*`、`/login.html`、`/authorize.html`、`/claim`、`/claim.html` 路由到 Function
 8. 按 manifest 的 `supacloud_owned_management_domains` 确认 Applications、Users、Organizations、RBAC、Audit、Webhooks 等管理面由 SupaCloud Management API 提供，SupAuth Function 只做 BFF/facade 和 overlay。
 9. 按 manifest 的 `supacloud_managed_background_jobs` 确认 webhook 投递、重试、诊断和失败禁用由 SupaCloud 托管任务执行；SupAuth 不部署 webhook worker、cron 或 systemd/pm2 进程。
 10. 安装完成后运行 live verifier：
@@ -73,6 +75,15 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 `SUPAUTH_PUBLIC_URL` 是浏览器可见的 SupAuth/Auth 自定义域名，OAuth/SSO 跳转会优先使用它；`SUPACLOUD_RUNTIME_URL` 只用于 GoTrue/Supabase runtime 内部或保留路径探测。仅在反向代理会清洗并独占 `X-Forwarded-*` 请求头时，才设置 `TRUST_PROXY_HEADERS=1`。
 
 `bun run build` 是唯一构建入口。项目尚未发版，因此不保留额外兼容构建别名。
+
+### 托管页面自定义
+
+托管页面自定义分为两层：
+
+1. 轻量品牌配置存 `supaoauth.sign_in_experience`，包括 `page_title`、`primary_color`、`description`、`button_label`、`background_url`、`custom_css` 和 `content`。其中 `content` 是 JSONB 结构化配置，例如 `{ "layout": "features", "items": [{ "icon": "shield", "title": "标准认证协议", "desc": "OAuth 2.0 / OIDC" }] }`，由默认托管模板渲染为功能介绍。
+2. 完整页面替换使用 `custom-ui/` 静态目录。运行时会优先读取 `custom-ui/login.html` 或 `custom-ui/index.html` 覆盖登录页，也会读取 `custom-ui/claim.html`、`custom-ui/change-password.html`、`custom-ui/account.html` 分别覆盖领取、改密、账户中心页面；`/custom-ui/*` 用于引用同目录下的图片、SVG、字体和脚本。该目录通过部署流程同步到服务器，不提交到 git。
+
+仓库已忽略 `custom-ui/` 与 `packages/auth-server/custom-ui/`。默认开源模板只保留中性布局和渲染能力，具体业务文案、视觉和完整页面资源应来自数据库配置或部署目录。
 
 ## Admin Console
 
@@ -97,6 +108,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
     - /v1/public/*
     - /oauth/*
     - /login.html
+    - /authorize.html
     - /claim
     - /claim.html
   target: supacloud-function:supauth

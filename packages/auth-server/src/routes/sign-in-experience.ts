@@ -40,8 +40,18 @@ export function buildGoTrueApiUrl(baseUrl: string, path: string) {
   return base.toString();
 }
 
+export function buildRawGoTrueApiUrl(baseUrl: string, path: string) {
+  const base = new URL(baseUrl);
+  base.pathname = base.pathname.replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  base.pathname = `${base.pathname}${normalizedPath}`.replace(/\/+/g, '/');
+  base.search = '';
+  base.hash = '';
+  return base.toString();
+}
+
 function goTrueApiBaseCandidates() {
-  const values = [config.publicBaseUrl, config.oauthRuntimeInternalUrl, config.oauthRuntimeUrl].filter(Boolean);
+  const values = [config.oauthRuntimeInternalUrl, config.oauthRuntimeUrl, config.publicBaseUrl].filter(Boolean);
   const seen = new Set<string>();
   return values.filter((value) => {
     const normalized = value.replace(/\/+$/, '');
@@ -64,17 +74,29 @@ async function readJsonResponse(response: Response) {
 async function fetchGoTrueJson(path: string, init: RequestInit = {}, fetchImpl: typeof fetch = fetch) {
   let lastError: unknown = null;
   for (const base of goTrueApiBaseCandidates()) {
+    const directInternal = base === config.oauthRuntimeInternalUrl
+      && base !== config.oauthRuntimeUrl
+      && base !== config.publicBaseUrl;
+    const urls = directInternal
+      ? [buildRawGoTrueApiUrl(base, path), buildGoTrueApiUrl(base, path)]
+      : [buildGoTrueApiUrl(base, path)];
     try {
-      const response = await fetchImpl(buildGoTrueApiUrl(base, path), {
-        ...init,
-        signal: init.signal || AbortSignal.timeout(5000),
-      });
-      const payload = await readJsonResponse(response);
-      if (response.ok && !payload) {
-        lastError = new Error(`GoTrue ${path} returned an empty success response`);
-        continue;
+      for (const [index, url] of urls.entries()) {
+        const response = await fetchImpl(url, {
+          ...init,
+          signal: init.signal || AbortSignal.timeout(5000),
+        });
+        const payload = await readJsonResponse(response);
+        if (response.ok && !payload) {
+          lastError = new Error(`GoTrue ${path} returned an empty success response`);
+          continue;
+        }
+        if (directInternal && index === 0 && response.status === 404) {
+          lastError = new Error(`GoTrue ${path} returned 404 from raw internal route`);
+          continue;
+        }
+        return { response, payload };
       }
-      return { response, payload };
     } catch (error) {
       lastError = error;
     }

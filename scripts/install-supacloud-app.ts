@@ -11,8 +11,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { MIGRATION_SQL, PROJECT_ROLE_GRANTS_SQL } from '../packages/auth-server/src/db/migrate.js';
 import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
+import { verifyRbacAgainstDatabase } from '../packages/auth-server/src/compatibility/rbac-verify.js';
+import type { RbacDbVerification } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 
 type FetchImpl = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type MigrationVerifier = (databaseUrl: string) => Promise<RbacDbVerification>;
 
 type StepStatus = 'done' | 'planned' | 'skipped';
 
@@ -55,10 +58,12 @@ export interface InstallSupacloudAppOptions {
   databaseUrl?: string;
   dryRun?: boolean;
   skipMigration?: boolean;
+  skipMigrationVerify?: boolean;
   skipSecrets?: boolean;
   skipFunctionDeploy?: boolean;
   skipDirectVerify?: boolean;
   fetchImpl?: FetchImpl;
+  migrationVerifier?: MigrationVerifier;
 }
 
 interface ResolvedInstallConfig {
@@ -290,6 +295,7 @@ async function configureGatewayRoutes(input: {
         '/v1/public/*',
         '/oauth/*',
         '/login.html',
+        '/authorize.html',
         '/account',
         '/account.html',
         '/account/*',
@@ -419,6 +425,21 @@ async function runSupacloudMigration(client: SupacloudClient, projectRef: string
   return { name, statements: statements.length };
 }
 
+function rbacMigrationVerificationErrors(result: RbacDbVerification) {
+  const errors: string[] = [];
+  if (!result.reachable) {
+    errors.push(result.error ? `database unreachable: ${result.error}` : 'database unreachable');
+    return errors;
+  }
+  if (!result.authorizeExists) errors.push('supaoauth.authorize() is missing');
+  if (!result.hasOrgPermissionExists) errors.push('supaoauth.has_org_permission() is missing');
+  if (!result.authorizeGranted) errors.push('authenticated lacks EXECUTE on supaoauth.authorize(TEXT, UUID)');
+  if (!result.hasOrgPermissionGranted) errors.push('authenticated lacks EXECUTE on supaoauth.has_org_permission(UUID, TEXT)');
+  const unsafePolicyCount = result.unsafePolicies?.length ?? 0;
+  if (unsafePolicyCount > 0) errors.push(`${unsafePolicyCount} RLS policy/policies still use JWT role claim for business authorization`);
+  return errors;
+}
+
 async function directFunctionProbe(runtimeUrl: string, fetchImpl: FetchImpl) {
   const url = `${runtimeUrl}/functions/v1/supauth/api/v1/health`;
   const response = await fetchImpl(url, { method: 'GET' });
@@ -428,6 +449,7 @@ async function directFunctionProbe(runtimeUrl: string, fetchImpl: FetchImpl) {
 export async function installSupacloudApp(options: InstallSupacloudAppOptions = {}): Promise<SupacloudInstallResult> {
   const config = resolveConfig(options);
   const fetchImpl = options.fetchImpl || fetch;
+  const migrationVerifier = options.migrationVerifier || verifyRbacAgainstDatabase;
   const steps: InstallStep[] = [];
   const warnings: string[] = [];
 
@@ -457,6 +479,21 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
     await runSupacloudMigration(client, config.projectRef, 'supauth-overlay-schema', MIGRATION_SQL);
     await runSupacloudMigration(client, config.projectRef, 'supauth-overlay-project-role-grants', PROJECT_ROLE_GRANTS_SQL);
     steps.push({ name: 'migration', status: 'done', detail: 'supauth-overlay-schema + project role grants via SupaCloud Management API' });
+  }
+
+  if (options.skipMigration) {
+    steps.push({ name: 'migration-verification', status: 'skipped', detail: 'skipMigration=true' });
+  } else if (options.skipMigrationVerify) {
+    steps.push({ name: 'migration-verification', status: 'skipped', detail: 'skipMigrationVerify=true' });
+  } else if (config.dryRun) {
+    steps.push({ name: 'migration-verification', status: 'planned', detail: 'RBAC helper functions, grants, and unsafe RLS policy scan' });
+  } else {
+    const verification = await migrationVerifier(config.databaseUrl);
+    const errors = rbacMigrationVerificationErrors(verification);
+    if (errors.length > 0) {
+      throw new Error(`SupaCloud overlay migration verification failed: ${errors.join('; ')}`);
+    }
+    steps.push({ name: 'migration-verification', status: 'done', detail: 'RBAC helper functions, grants, and RLS policy scan passed' });
   }
 
   if (options.skipSecrets) {
@@ -557,6 +594,7 @@ if (import.meta.main) {
       databaseUrl: option('database-url'),
       dryRun: hasFlag('dry-run'),
       skipMigration: hasFlag('skip-migration'),
+      skipMigrationVerify: hasFlag('skip-migration-verify'),
       skipSecrets: hasFlag('skip-secrets'),
       skipFunctionDeploy: hasFlag('skip-function-deploy'),
       skipDirectVerify: hasFlag('skip-direct-verify'),

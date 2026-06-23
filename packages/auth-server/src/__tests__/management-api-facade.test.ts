@@ -62,6 +62,7 @@ describe('SupaCloud Management API facade routes', () => {
     const requests = [
       'http://supauth.local/v1/organizations',
       'http://supauth.local/v1/roles',
+      'http://supauth.local/v1/roles/role-one/assign',
       'http://supauth.local/v1/audit?resource_type=user&limit=5',
       'http://supauth.local/v1/webhooks',
       'http://supauth.local/v1/users/user-one/roles',
@@ -73,13 +74,14 @@ describe('SupaCloud Management API facade routes', () => {
       responses.push(await app.handle(new Request(request)));
     }
 
-    expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200, 200, 200]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200, 200, 200, 200, 200]);
     expect(calls.map((call) => {
       const url = new URL(call.url);
       return [call.method, `${url.pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')}${url.search}`];
     })).toEqual([
       ['GET', '/v1/projects/{projectRef}/organizations'],
       ['GET', '/v1/projects/{projectRef}/rbac/roles'],
+      ['GET', '/v1/projects/{projectRef}/rbac/roles/role-one/assign'],
       ['GET', '/v1/projects/{projectRef}/audit?resource_type=user&limit=5'],
       ['GET', '/v1/projects/{projectRef}/webhooks'],
       ['GET', '/v1/projects/{projectRef}/auth/users/user-one/roles'],

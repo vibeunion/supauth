@@ -31,7 +31,7 @@ Executors working from vague or incomplete plans waste time guessing, produce wr
    - **Completeness**: Is 90%+ of needed context provided?
    - **Big Picture**: Does executor understand WHY and HOW tasks connect?
    - **Delegation**: Does the plan use or explicitly justify skipping subagents when risk/scope/domain triggers apply?
-   - **Subagent Contract**: When delegation is required, does each request define role, exact scope, read/write ownership, allowed files, verification command, output schema, and mailbox persistence?
+   - **Subagent Contract**: When delegation is required, does each request define role, exact scope, read/write ownership, allowed files, `verification_command` / verification commands, output schema, and mailbox persistence?
 4. Simulate implementation of 2-3 representative tasks using actual files.
 5. Issue verdict: **OKAY** (actionable) or **REJECT** (gaps found, with specific improvements).
 

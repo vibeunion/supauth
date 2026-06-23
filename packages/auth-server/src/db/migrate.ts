@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS supaoauth.sign_in_experience (
   favicon_url TEXT,
   primary_color VARCHAR(32),
   page_title VARCHAR(255),
+  description TEXT,
+  background_url TEXT,
+  button_label VARCHAR(255),
+  custom_css TEXT,
+  content JSONB,
   sign_in_methods JSONB DEFAULT '[]'::jsonb,
   sign_up_enabled BOOLEAN NOT NULL DEFAULT true,
   mfa_required BOOLEAN NOT NULL DEFAULT false,
@@ -46,6 +51,43 @@ CREATE TABLE IF NOT EXISTS supaoauth.sign_in_experience (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Login page theme fields (config-driven tenant default).
+ALTER TABLE supaoauth.sign_in_experience ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE supaoauth.sign_in_experience ADD COLUMN IF NOT EXISTS background_url TEXT;
+ALTER TABLE supaoauth.sign_in_experience ADD COLUMN IF NOT EXISTS button_label VARCHAR(255);
+ALTER TABLE supaoauth.sign_in_experience ADD COLUMN IF NOT EXISTS custom_css TEXT;
+DO $$
+DECLARE
+  current_type TEXT;
+BEGIN
+  SELECT data_type INTO current_type
+  FROM information_schema.columns
+  WHERE table_schema = 'supaoauth'
+    AND table_name = 'sign_in_experience'
+    AND column_name = 'content';
+
+  IF current_type IS NULL THEN
+    ALTER TABLE supaoauth.sign_in_experience ADD COLUMN content JSONB;
+  ELSIF current_type <> 'jsonb' THEN
+    ALTER TABLE supaoauth.sign_in_experience RENAME COLUMN content TO content_legacy;
+    ALTER TABLE supaoauth.sign_in_experience ADD COLUMN content JSONB;
+    DROP FUNCTION IF EXISTS supaoauth.try_parse_jsonb(TEXT);
+    CREATE FUNCTION supaoauth.try_parse_jsonb(input TEXT) RETURNS JSONB
+    LANGUAGE plpgsql IMMUTABLE AS $fn$
+    BEGIN
+      RETURN input::jsonb;
+    EXCEPTION WHEN others THEN
+      RETURN NULL;
+    END;
+    $fn$;
+    UPDATE supaoauth.sign_in_experience
+    SET content = supaoauth.try_parse_jsonb(content_legacy)
+    WHERE content_legacy IS NOT NULL;
+    ALTER TABLE supaoauth.sign_in_experience DROP COLUMN content_legacy;
+    DROP FUNCTION supaoauth.try_parse_jsonb(TEXT);
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS supaoauth.application_sign_in_experience (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   application_id VARCHAR(255) NOT NULL,
@@ -57,9 +99,41 @@ CREATE TABLE IF NOT EXISTS supaoauth.application_sign_in_experience (
   background_url TEXT,
   button_label VARCHAR(255),
   custom_css TEXT,
+  content JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+DO $$
+DECLARE
+  current_type TEXT;
+BEGIN
+  SELECT data_type INTO current_type
+  FROM information_schema.columns
+  WHERE table_schema = 'supaoauth'
+    AND table_name = 'application_sign_in_experience'
+    AND column_name = 'content';
+
+  IF current_type IS NULL THEN
+    ALTER TABLE supaoauth.application_sign_in_experience ADD COLUMN content JSONB;
+  ELSIF current_type <> 'jsonb' THEN
+    ALTER TABLE supaoauth.application_sign_in_experience RENAME COLUMN content TO content_legacy;
+    ALTER TABLE supaoauth.application_sign_in_experience ADD COLUMN content JSONB;
+    DROP FUNCTION IF EXISTS supaoauth.try_parse_jsonb(TEXT);
+    CREATE FUNCTION supaoauth.try_parse_jsonb(input TEXT) RETURNS JSONB
+    LANGUAGE plpgsql IMMUTABLE AS $fn$
+    BEGIN
+      RETURN input::jsonb;
+    EXCEPTION WHEN others THEN
+      RETURN NULL;
+    END;
+    $fn$;
+    UPDATE supaoauth.application_sign_in_experience
+    SET content = supaoauth.try_parse_jsonb(content_legacy)
+    WHERE content_legacy IS NOT NULL;
+    ALTER TABLE supaoauth.application_sign_in_experience DROP COLUMN content_legacy;
+    DROP FUNCTION supaoauth.try_parse_jsonb(TEXT);
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_app_sie_app_id ON supaoauth.application_sign_in_experience (application_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_app_sie_app_id ON supaoauth.application_sign_in_experience (application_id);
 

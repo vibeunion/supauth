@@ -70,14 +70,21 @@ describe('Sign-in experience repository — module structure', () => {
       logo_url: null,
       favicon_url: null,
       primary_color: null,
+      background_url: 'https://assets.example.com/bg.png',
+      button_label: '进入枢鉴',
+      custom_css: 'body { color: #102019; }',
     }, {
       application: {
         client_name: 'SupAuth Admin Console',
+        button_label: 'App Login',
       },
     });
 
     // 显式租户系统名不应被 OAuth client 元数据覆盖
     expect(branding.page_title).toBe('西谷智灯枢鉴系统');
+    expect(branding.background_url).toBe('https://assets.example.com/bg.png');
+    expect(branding.button_label).toBe('进入枢鉴');
+    expect(branding.custom_css).toBe('body { color: #102019; }');
   });
 
   it('keeps third-party connectors closed by default for public sign-in', async () => {
@@ -106,12 +113,17 @@ describe('Sign-in experience repository — module structure', () => {
   });
 
   it('builds GoTrue API URLs with the /auth/v1 prefix exactly once', async () => {
-    const { buildGoTrueApiUrl } = await import('../routes/sign-in-experience.js');
+    const { buildGoTrueApiUrl, buildRawGoTrueApiUrl } = await import('../routes/sign-in-experience.js');
 
     expect(buildGoTrueApiUrl('https://auth.example.test', '/user')).toBe('https://auth.example.test/auth/v1/user');
     expect(buildGoTrueApiUrl('https://auth.example.test/auth/v1', '/user')).toBe('https://auth.example.test/auth/v1/user');
     expect(buildGoTrueApiUrl('https://auth.example.test/base/', 'oauth/authorizations/authz/consent')).toBe(
       'https://auth.example.test/base/auth/v1/oauth/authorizations/authz/consent',
+    );
+
+    expect(buildRawGoTrueApiUrl('http://127.0.0.1:3367', '/user')).toBe('http://127.0.0.1:3367/user');
+    expect(buildRawGoTrueApiUrl('http://127.0.0.1:3367/', 'oauth/authorizations/authz/consent')).toBe(
+      'http://127.0.0.1:3367/oauth/authorizations/authz/consent',
     );
   });
 });

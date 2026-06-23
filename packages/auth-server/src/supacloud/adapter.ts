@@ -569,6 +569,10 @@ export class SupaCloudAdapter {
     });
   }
 
+  async listRoleAssignments(roleId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/assign`);
+  }
+
   async revokeRole(roleId: string, assignmentId: string) {
     return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/assign/${pathSegment(assignmentId)}`, {
       method: 'DELETE',

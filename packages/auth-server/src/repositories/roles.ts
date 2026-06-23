@@ -78,6 +78,11 @@ export async function revokeRole(assignmentId: string, roleId?: string) {
   return getSupaCloudAdapter().revokeRole(roleId, assignmentId);
 }
 
+/** Get all role assignments for a role */
+export async function listRoleAssignments(roleId: string) {
+  return getSupaCloudAdapter().listRoleAssignments(roleId);
+}
+
 /** Get all role assignments for a user */
 export async function getUserRoleAssignments(userId: string) {
   return getSupaCloudAdapter().getUserRoleAssignments(userId);

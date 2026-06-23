@@ -38,7 +38,7 @@ describe('SupaOAuthClient — all public methods exist', () => {
     'listOrganizationApplications', 'upsertOrganizationApplication', 'removeOrganizationApplication',
     'listRoles', 'createRole', 'getRole', 'updateRole', 'deleteRole',
     'listRolePermissions', 'createRolePermission', 'deleteRolePermission',
-    'assignRole', 'revokeRole', 'getOrgRoleAssignments',
+    'assignRole', 'listRoleAssignments', 'revokeRole', 'getOrgRoleAssignments',
     'getSignInExperience', 'resolveSignInExperience', 'resolvePublicSignInExperience', 'getPublicPhrases', 'updateSignInExperience',
     'getAuthConfig', 'updateAuthConfig',
     'getCompatibilityReport',

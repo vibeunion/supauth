@@ -64,14 +64,14 @@ describe('Supabase Compatibility Inspector', () => {
     expect(checkIds).toContain('sc-6-supacloud-reachable');
     expect(checkIds).toContain('sc-7-scopes');
 
-    // RB checks
-    expect(checkIds).toContain('rb-1-authorize-function');
-    expect(checkIds).toContain('rb-2-has-org-permission-function');
-    expect(checkIds).toContain('rb-3-helper-grants');
+    // Runtime RB checks
     expect(checkIds.some(id => id.startsWith('rb-4-'))).toBe(true);
     expect(checkIds).toContain('rb-5-app-metadata-namespace');
     expect(checkIds).toContain('rb-6-schema-isolation');
-    expect(checkIds).toContain('rb-7-unsafe-rls-patterns');
+    expect(checkIds).not.toContain('rb-1-authorize-function');
+    expect(checkIds).not.toContain('rb-2-has-org-permission-function');
+    expect(checkIds).not.toContain('rb-3-helper-grants');
+    expect(checkIds).not.toContain('rb-7-unsafe-rls-patterns');
   });
 
   it('marks discovery pass when reachable', async () => {
@@ -201,27 +201,17 @@ describe('Supabase Compatibility Inspector', () => {
     expect(rb6?.status).toBe('pass');
   });
 
-  it('returns rb-7 as warn (requires live Postgres)', async () => {
+  it('does not include install-time database migration checks in runtime compatibility', async () => {
     globalThis.fetch = createMockFetch();
 
     const { runCompatibilityChecks } = await import('../compatibility/supabase.js');
     const results = await runCompatibilityChecks();
+    const checkIds = results.map(r => r.check_id);
 
-    const rb7 = results.find(r => r.check_id === 'rb-7-unsafe-rls-patterns');
-    expect(rb7?.status).toBe('warn');
-  });
-
-  it('returns rb-1 through rb-3 as warn (requires live Postgres)', async () => {
-    globalThis.fetch = createMockFetch();
-
-    const { runCompatibilityChecks } = await import('../compatibility/supabase.js');
-    const results = await runCompatibilityChecks();
-
-    for (const id of ['rb-1-authorize-function', 'rb-2-has-org-permission-function', 'rb-3-helper-grants']) {
-      const check = results.find(r => r.check_id === id);
-      expect(check?.status).toBe('warn');
-      expect(check?.details?.required_action || check?.details?.expected_grants).toBeDefined();
-    }
+    expect(checkIds).not.toContain('rb-1-authorize-function');
+    expect(checkIds).not.toContain('rb-2-has-org-permission-function');
+    expect(checkIds).not.toContain('rb-3-helper-grants');
+    expect(checkIds).not.toContain('rb-7-unsafe-rls-patterns');
   });
 });
 

@@ -81,11 +81,21 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
   })
 
   // ─── Role Assignments ───
+  .get('/:roleId/assign', async ({ params }) => {
+    return toListResponse(await adapter.listRoleAssignments(params.roleId));
+  }, {
+    detail: { summary: 'List role assignments for role', tags: ['RBAC', 'Assignments'] },
+  })
   .post('/:roleId/assign', async ({ params, body }) => {
     const data = body as { user_id?: string; organization_id?: string; application_id?: string };
     const assignment = await adapter.assignRole(params.roleId, data as Record<string, unknown>);
     const record = assignment as Record<string, unknown>;
-    await audit('role.assign', 'role_assignment', String(record.id || ''), { role_id: params.roleId, user_id: data.user_id });
+    await audit('role.assign', 'role', params.roleId, {
+      assignment_id: record.id,
+      user_id: data.user_id,
+      application_id: data.application_id,
+      organization_id: data.organization_id,
+    });
     await fireWebhook('role.assigned', { role_id: params.roleId, user_id: data.user_id });
     return assignment;
   }, {
@@ -93,7 +103,7 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
   })
   .delete('/:roleId/assign/:assignmentId', async ({ params }) => {
     await adapter.revokeRole(params.roleId, params.assignmentId);
-    await audit('role.revoke', 'role_assignment', params.assignmentId);
+    await audit('role.revoke', 'role', params.roleId, { assignment_id: params.assignmentId });
     await fireWebhook('role.revoked', { role_id: params.roleId, assignment_id: params.assignmentId });
   }, {
     detail: { summary: 'Revoke role assignment', tags: ['RBAC', 'Assignments'] },

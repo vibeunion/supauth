@@ -39,7 +39,7 @@ describe('SupaCloudAdapter contract', () => {
       'listOrganizationApplications', 'updateOrganizationApplication',
       'deleteOrganizationApplication', 'listRoles', 'createRole', 'getRole',
       'updateRole', 'deleteRole', 'listRolePermissions', 'createPermission',
-      'deletePermission', 'assignRole', 'revokeRole',
+      'deletePermission', 'assignRole', 'listRoleAssignments', 'revokeRole',
       'queryAuditLogs', 'getAuditLog', 'recordAuditEvent', 'listWebhooks', 'createWebhook',
       'getWebhook', 'updateWebhook', 'deleteWebhook', 'rotateWebhookSecret',
       'listWebhookLogs', 'testWebhook', 'replayWebhook', 'enqueueWebhookEvent',

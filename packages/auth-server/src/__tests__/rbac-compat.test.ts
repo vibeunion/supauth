@@ -41,13 +41,13 @@ describe('RBAC Compatibility Inspector', () => {
     const results = await runRBACCompatibilityChecks();
     const checkIds = results.map(r => r.check_id);
 
-    expect(checkIds).toContain('rb-1-authorize-function');
-    expect(checkIds).toContain('rb-2-has-org-permission-function');
-    expect(checkIds).toContain('rb-3-helper-grants');
     expect(checkIds.some(id => id.startsWith('rb-4-'))).toBe(true);
     expect(checkIds).toContain('rb-5-app-metadata-namespace');
     expect(checkIds).toContain('rb-6-schema-isolation');
-    expect(checkIds).toContain('rb-7-unsafe-rls-patterns');
+    expect(checkIds).not.toContain('rb-1-authorize-function');
+    expect(checkIds).not.toContain('rb-2-has-org-permission-function');
+    expect(checkIds).not.toContain('rb-3-helper-grants');
+    expect(checkIds).not.toContain('rb-7-unsafe-rls-patterns');
   });
 
   it('marks schema isolation as pass', async () => {
@@ -62,20 +62,6 @@ describe('RBAC Compatibility Inspector', () => {
     expect(nsCheck?.status).toBe('pass');
   });
 
-  it('includes details about required actions for offline checks', async () => {
-    const results = await runRBACCompatibilityChecks();
-    const authorizeCheck = results.find(r => r.check_id === 'rb-1-authorize-function');
-    expect(authorizeCheck?.details).toBeDefined();
-    expect(authorizeCheck?.details?.required_action).toContain('install:supacloud');
-  });
-
-  it('warns about unsafe RLS patterns', async () => {
-    const results = await runRBACCompatibilityChecks();
-    const unsafeCheck = results.find(r => r.check_id === 'rb-7-unsafe-rls-patterns');
-    expect(unsafeCheck?.status).toBe('warn');
-    expect(unsafeCheck?.details?.unsafe_patterns).toBeDefined();
-  });
-
   it('returns rb-4-gotrue-jwt-role-safe in gotrue mode with reachable discovery', async () => {
     const results = await runRBACCompatibilityChecks();
     const rb4 = results.find(r => r.check_id === 'rb-4-gotrue-jwt-role-safe');
@@ -84,24 +70,13 @@ describe('RBAC Compatibility Inspector', () => {
     expect(rb4?.details?.runtime_mode).toBe('gotrue');
   });
 
-  it('returns warn for rb-1 through rb-3 (require live Postgres)', async () => {
+  it('keeps install-time database checks out of runtime RBAC compatibility', async () => {
     const results = await runRBACCompatibilityChecks();
-    for (const id of ['rb-1-authorize-function', 'rb-2-has-org-permission-function', 'rb-3-helper-grants']) {
-      const check = results.find(r => r.check_id === id);
-      expect(check?.status).toBe('warn');
-    }
-  });
+    const checkIds = results.map(r => r.check_id);
 
-  it('includes expected grants in rb-3 details', async () => {
-    const results = await runRBACCompatibilityChecks();
-    const grants = results.find(r => r.check_id === 'rb-3-helper-grants');
-    expect(grants?.details?.expected_grants).toContain('supaoauth.authorize');
-    expect(grants?.details?.expected_grants).toContain('authenticated');
-  });
-
-  it('includes fix pattern in rb-7 details', async () => {
-    const results = await runRBACCompatibilityChecks();
-    const unsafe = results.find(r => r.check_id === 'rb-7-unsafe-rls-patterns');
-    expect(unsafe?.details?.fix_pattern).toContain('supaoauth.authorize');
+    expect(checkIds).not.toContain('rb-1-authorize-function');
+    expect(checkIds).not.toContain('rb-2-has-org-permission-function');
+    expect(checkIds).not.toContain('rb-3-helper-grants');
+    expect(checkIds).not.toContain('rb-7-unsafe-rls-patterns');
   });
 });

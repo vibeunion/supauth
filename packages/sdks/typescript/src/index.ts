@@ -857,6 +857,10 @@ export class SupaOAuthClient {
     });
   }
 
+  listRoleAssignments(roleId: string) {
+    return this.request<ListResponse<RoleAssignment>>(`/v1/roles/${roleId}/assign`);
+  }
+
   revokeRole(roleId: string, assignmentId: string) {
     return this.request<void>(`/v1/roles/${roleId}/assign/${assignmentId}`, {
       method: 'DELETE',

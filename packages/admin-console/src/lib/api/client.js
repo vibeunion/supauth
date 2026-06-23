@@ -225,6 +225,12 @@ export function suspendUser(userId, data = {}) {
   });
 }
 
+export function unsuspendUser(userId) {
+  return request(`/v1/users/${userId}/unsuspend`, {
+    method: 'POST',
+  });
+}
+
 export function deleteUser(userId) {
   return request(`/v1/users/${userId}`, {
     method: 'DELETE',
@@ -375,6 +381,10 @@ export function assignRole(roleId, data) {
   });
 }
 
+export function listRoleAssignments(roleId) {
+  return request(`/v1/roles/${roleId}/assign`);
+}
+
 export function revokeRole(roleId, assignmentId) {
   return request(`/v1/roles/${roleId}/assign/${assignmentId}`, {
     method: 'DELETE',
@@ -515,6 +525,10 @@ export function listAuditLogs(params = {}) {
   }
   const query = qs.toString();
   return request(`/v1/audit${query ? `?${query}` : ''}`);
+}
+
+export function getAuditLog(logId) {
+  return request(`/v1/audit/${logId}`);
 }
 
 // Storage

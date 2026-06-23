@@ -7,14 +7,23 @@
   <style>
     :root {
       color-scheme: light;
-      --ink: #18202f;
-      --muted: #647084;
-      --line: #d8dee8;
+      --ink: #1e293b;
+      --muted: #64748b;
+      --line: #e2e8f0;
       --panel: #ffffff;
-      --bg: #f4f7fb;
+      --bg: #f8fafc;
       --brand: #13736f;
       --brand-dark: #0d5855;
       --disabled: #94a3b8;
+      --success-bg: #f0fdf4;
+      --success-border: #bbf7d0;
+      --success-text: #166534;
+      --error-bg: #fef2f2;
+      --error-border: #fecaca;
+      --error-text: #991b1b;
+      --info-bg: #f0f9ff;
+      --info-border: #bae6fd;
+      --info-text: #075985;
     }
 
     * { box-sizing: border-box; }
@@ -25,8 +34,8 @@
       min-height: 100vh;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--ink);
-      background: var(--bg);
-      padding: 24px;
+      background: linear-gradient(180deg, #edf5f4 0%, var(--bg) 320px);
+      padding: 32px 16px;
     }
 
     body.has-bg {
@@ -38,74 +47,82 @@
       content: "";
       position: fixed;
       inset: 0;
-      background: rgba(255, 255, 255, 0.78);
+      background: rgba(255, 255, 255, 0.82);
+      z-index: 0;
     }
 
     main {
       position: relative;
-      width: min(100%, 760px);
-      margin: 36px auto;
+      z-index: 1;
+      width: min(100%, 780px);
+      margin: 20px auto;
     }
 
     .brand {
-      margin-bottom: 22px;
+      margin-bottom: 28px;
+      text-align: center;
     }
 
     .brand-mark {
-      width: 42px;
-      height: 42px;
+      width: 48px;
+      height: 48px;
       border-radius: 8px;
       background: var(--ink);
       color: #fff;
       display: grid;
       place-items: center;
       font-weight: 800;
-      letter-spacing: 0;
+      font-size: 18px;
+      margin: 0 auto 16px;
+      box-shadow: 0 4px 12px rgba(30, 41, 59, 0.15);
     }
 
     .logo {
       display: none;
       max-width: 180px;
       max-height: 72px;
-      margin-bottom: 18px;
+      margin: 0 auto 18px;
     }
 
     h1 {
-      margin: 16px 0 6px;
-      font-size: 30px;
-      line-height: 1.18;
-      letter-spacing: 0;
+      margin: 12px 0 8px;
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.2;
+      color: var(--ink);
+      letter-spacing: -0.02em;
     }
 
     .lead {
-      margin: 0;
+      margin: 0 auto;
       color: var(--muted);
       font-size: 14px;
-      line-height: 1.65;
-      max-width: 620px;
+      line-height: 1.6;
+      max-width: 580px;
     }
 
     .panel {
-      margin-bottom: 18px;
+      margin-bottom: 24px;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 18px;
-      box-shadow: 0 14px 36px rgba(17, 24, 39, .06);
+      padding: 24px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
     }
 
     .panel h2 {
-      margin: 0 0 7px;
-      font-size: 17px;
-      line-height: 1.3;
-      letter-spacing: 0;
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.4;
+      color: var(--ink);
     }
 
     .panel p {
-      margin: 0;
+      margin: 0 0 16px;
       color: var(--muted);
       font-size: 13px;
-      line-height: 1.55;
+      line-height: 1.5;
     }
 
     .token-row {
@@ -115,31 +132,91 @@
       margin-top: 14px;
     }
 
+    .account-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .button-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      border-radius: 6px;
+      padding: 0 16px;
+      color: #fff;
+      background: var(--brand);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+
+    .button-link:hover {
+      background: var(--brand-dark);
+      transform: translateY(-1px);
+    }
+
+    .advanced-token {
+      margin-top: 20px;
+      border-top: 1px solid var(--line);
+      padding-top: 16px;
+    }
+
+    .advanced-token summary {
+      width: fit-content;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      user-select: none;
+    }
+
+    .advanced-token summary:hover {
+      color: var(--brand);
+    }
+
+    .status-note {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 10px 14px;
+      background: #f1f5f9;
+      border-radius: 6px;
+      border-left: 3px solid #cbd5e1;
+    }
+
     input {
       width: 100%;
-      height: 42px;
+      height: 40px;
       border: 1px solid #cbd5e1;
-      border-radius: 7px;
+      border-radius: 6px;
       padding: 0 12px;
       color: var(--ink);
-      font-size: 14px;
+      font-size: 13.5px;
       outline: none;
       background: #fff;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
     input:focus {
       border-color: var(--brand);
-      box-shadow: 0 0 0 3px rgba(19, 115, 111, .14);
+      box-shadow: 0 0 0 3px rgba(19, 115, 111, .15);
     }
 
     button {
       border: 0;
-      border-radius: 7px;
+      border-radius: 6px;
       cursor: pointer;
       font: inherit;
-      font-size: 14px;
-      font-weight: 700;
+      font-size: 13.5px;
+      font-weight: 600;
       padding: 0 14px;
+      height: 40px;
+      transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
     }
 
     .primary {
@@ -147,39 +224,99 @@
       background: var(--brand);
     }
 
-    .primary:hover { background: var(--brand-dark); }
+    .primary:hover {
+      background: var(--brand-dark);
+      transform: translateY(-1px);
+    }
 
     .secondary {
       color: var(--ink);
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+    }
+
+    .secondary:hover {
       background: #e2e8f0;
     }
 
-    button:disabled { cursor: not-allowed; opacity: .62; }
+    button:disabled { cursor: not-allowed; opacity: .6; transform: none !important; }
 
     .message {
       display: none;
-      margin-top: 12px;
+      margin-top: 16px;
       font-size: 13px;
-      line-height: 1.55;
+      line-height: 1.5;
+      padding: 10px 14px;
+      border-radius: 6px;
+      border: 1px solid transparent;
     }
 
     .message.active { display: block; }
-    .message.error { color: #b42318; }
-    .message.ok { color: #067647; }
+    .message.info {
+      background-color: var(--info-bg);
+      border-color: var(--info-border);
+      color: var(--info-text);
+    }
+    .message.error {
+      background-color: var(--error-bg);
+      border-color: var(--error-border);
+      color: var(--error-text);
+    }
+    .message.ok {
+      background-color: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success-text);
+    }
 
     .profile-details {
       display: none;
-      grid-template-columns: 112px minmax(0, 1fr);
-      gap: 8px 12px;
-      margin: 16px 0 0;
-      padding-top: 16px;
+      grid-template-columns: auto;
+      gap: 12px;
+      margin: 20px 0 0;
+      padding-top: 20px;
       border-top: 1px solid var(--line);
-      font-size: 13px;
+      font-size: 13.5px;
     }
 
     .profile-details.active { display: grid; }
-    .profile-details dt { color: var(--muted); }
-    .profile-details dd { margin: 0; overflow-wrap: anywhere; }
+
+    .profile-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border-radius: 6px;
+      border: 1px solid #f1f5f9;
+    }
+
+    .profile-label {
+      font-weight: 600;
+      color: var(--muted);
+      min-width: 90px;
+    }
+
+    .profile-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: var(--ink);
+      overflow-wrap: anywhere;
+      flex-grow: 1;
+      margin-right: 12px;
+    }
+
+    .copy-btn {
+      height: 28px;
+      padding: 0 10px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--brand);
+      background: #edf5f4;
+      border: 1px solid rgba(19, 115, 111, 0.15);
+      border-radius: 4px;
+    }
+    .copy-btn:hover {
+      background: #dbebe8;
+    }
 
     .profile-form {
       display: none;
@@ -205,9 +342,9 @@
     .module-grid {
       display: none;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 16px;
-      padding-top: 16px;
+      gap: 16px;
+      margin-top: 20px;
+      padding-top: 20px;
       border-top: 1px solid var(--line);
     }
 
@@ -217,93 +354,125 @@
       min-height: 120px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 12px;
-      background: #f8fafc;
+      padding: 16px;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .module-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
     }
 
     .module-card h3 {
-      margin: 0 0 8px;
+      margin: 0 0 12px;
       font-size: 14px;
+      font-weight: 700;
       line-height: 1.3;
-      letter-spacing: 0;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
     .module-list {
       display: grid;
-      gap: 8px;
+      gap: 10px;
       margin: 0;
       padding: 0;
       list-style: none;
     }
 
     .module-list li {
-      display: grid;
-      gap: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
       color: var(--muted);
       font-size: 12px;
+      line-height: 1.4;
+      padding: 6px 8px;
+      background: #f8fafc;
+      border-radius: 5px;
+      border: 1px solid #f1f5f9;
+    }
+
+    .module-list button {
+      flex-shrink: 0;
+      height: 24px;
+      padding: 0 8px;
+      color: #ef4444;
+      background: #fef2f2;
+      border: 1px solid #fee2e2;
+      font-size: 11px;
+      border-radius: 4px;
+    }
+
+    .module-list button:hover {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .mfa-enroll {
+      display: none;
+      gap: 10px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .mfa-enroll.active { display: grid; }
+
+    .mfa-qr {
+      width: 100%;
+      max-width: 176px;
+      aspect-ratio: 1;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: #fff;
+      margin: 0 auto;
+    }
+
+    .mfa-uri {
+      max-height: 80px;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--muted);
+      background: #f8fafc;
+      font-size: 11px;
       line-height: 1.45;
       overflow-wrap: anywhere;
     }
-
-      .module-list button {
-        justify-self: start;
-        min-height: 28px;
-        padding: 0 10px;
-        color: var(--brand-dark);
-        background: #e2e8f0;
-        font-size: 12px;
-      }
-
-      .mfa-enroll {
-        display: none;
-        gap: 10px;
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid var(--line);
-      }
-
-      .mfa-enroll.active { display: grid; }
-
-      .mfa-qr {
-        width: 176px;
-        max-width: 100%;
-        aspect-ratio: 1;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 8px;
-        background: #fff;
-      }
-
-      .mfa-uri {
-        max-height: 80px;
-        overflow: auto;
-        padding: 8px;
-        border: 1px solid var(--line);
-        border-radius: 7px;
-        color: var(--muted);
-        background: #f8fafc;
-        font-size: 11px;
-        line-height: 1.45;
-        overflow-wrap: anywhere;
-      }
 
     .danger-card {
       border-color: #fecaca;
       background: #fff7f7;
     }
 
+    .danger-card:hover {
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.05);
+    }
+
     .danger-card button {
       color: #fff;
-      background: #b42318;
+      background: #ef4444;
     }
 
-    .grid {
+    .danger-card button:hover {
+      background: #dc2626;
+    }
+
+    .account-section-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
+      gap: 16px;
     }
 
-    .card {
+    .account-section-card {
       min-height: 132px;
       display: flex;
       flex-direction: column;
@@ -314,72 +483,89 @@
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 18px;
-      box-shadow: 0 14px 36px rgba(17, 24, 39, .06);
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
     }
 
-    .card.active:hover {
-      border-color: rgba(19, 115, 111, .42);
-      box-shadow: 0 16px 44px rgba(17, 24, 39, .09);
+    .account-section-card.active:hover {
+      border-color: rgba(19, 115, 111, .35);
+      box-shadow: 0 12px 24px -10px rgba(19, 115, 111, 0.12), 0 4px 12px rgba(0, 0, 0, 0.03);
+      transform: translateY(-1px);
     }
 
-    .card.disabled {
+    .account-section-card.disabled {
       color: var(--disabled);
       cursor: not-allowed;
       background: rgba(255, 255, 255, .64);
     }
 
-    .card h2 {
+    .account-section-card h2 {
       margin: 0;
-      font-size: 17px;
+      font-size: 16px;
+      font-weight: 700;
       line-height: 1.3;
-      letter-spacing: 0;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .card p {
-      margin: 7px 0 0;
+    .account-section-card p {
+      margin: 8px 0 0;
       color: var(--muted);
       font-size: 13px;
-      line-height: 1.55;
+      line-height: 1.5;
     }
 
     .disabled p { color: var(--disabled); }
 
     .tag {
       align-self: flex-start;
-      color: var(--brand-dark);
+      color: var(--brand);
       font-size: 12px;
       font-weight: 700;
+      border-bottom: 1.5px solid transparent;
+      transition: border-color 0.15s ease;
     }
 
-    .disabled .tag { color: var(--disabled); }
+    .account-section-card.active:hover .tag {
+      border-color: var(--brand);
+    }
+
+    .disabled .tag { color: var(--disabled); border: 0 !important; }
 
     .footer {
-      margin-top: 18px;
+      margin-top: 32px;
       color: var(--muted);
       font-size: 12px;
       line-height: 1.6;
+      text-align: center;
     }
 
     .link {
-      color: var(--brand-dark);
+      color: var(--brand);
       text-decoration: none;
-      font-weight: 650;
+      font-weight: 600;
     }
 
     .link:hover { text-decoration: underline; }
 
+    @media (max-width: 768px) {
+      .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
     @media (max-width: 640px) {
-      body { padding: 20px; }
-      main { margin: 16px auto; }
-      .grid { grid-template-columns: 1fr; }
+      body { padding: 16px 12px; }
+      main { margin: 8px auto; }
+      .account-section-grid { grid-template-columns: 1fr; }
       .module-grid { grid-template-columns: 1fr; }
+      .account-actions { display: grid; }
       .token-row,
       .profile-form,
       .inline-form { grid-template-columns: 1fr; }
-      h1 { font-size: 26px; }
+      h1 { font-size: 24px; }
     }
-  </style>
   <style id="custom-style"></style>
   <script>
     window.__SUPAOAUTH_PUBLIC_API_BASE__ = null;
@@ -396,48 +582,72 @@
 
     <section id="account-panel" class="panel">
       <h2>当前账号</h2>
-      <p>登录后会自动进入账号中心；如当前浏览器没有登录态，可从登录页重新登录。</p>
-      <div class="token-row">
-        <input id="access-token" type="password" autocomplete="off" spellcheck="false" placeholder="User access token">
-        <button id="load-account" class="primary" type="button">加载资料</button>
-        <button id="clear-token" class="secondary" type="button">清除</button>
+      <p>登录成功后会自动显示账号资料和可管理项目；如果页面没有自动加载，请重新登录或刷新资料。</p>
+      <div class="account-actions">
+        <a id="login-link" class="button-link" href="/login.html">登录 / 重新登录</a>
+        <button id="load-account" class="secondary" type="button">刷新资料</button>
+        <button id="clear-token" class="secondary" type="button">清除本地登录</button>
       </div>
+      <div id="account-status-card" style="display:flex;flex-direction:column;align-items:center;padding:28px 16px;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;margin-top:20px;">
+        <svg style="width:48px;height:48px;color:#94a3b8;margin-bottom:12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        <span id="account-status-note" style="font-size:13.5px;color:var(--muted);font-weight:550;line-height:1.5;">正在检查当前浏览器的登录状态。</span>
+      </div>
+      <details id="manual-token-panel" class="advanced-token">
+        <summary>高级：使用 access token 打开</summary>
+        <div class="token-row">
+          <input id="access-token" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴当前用户 access token">
+          <button id="load-account-token" class="primary" type="button">加载资料</button>
+          <button id="clear-token-field" class="secondary" type="button">清除</button>
+        </div>
+      </details>
       <div id="account-message" class="message" role="status"></div>
-      <dl id="profile-details" class="profile-details">
-        <dt data-profile-field="email">邮箱</dt>
-        <dd id="profile-email" data-profile-field="email">-</dd>
-        <dt data-profile-field="phone">手机号</dt>
-        <dd id="profile-phone" data-profile-field="phone">-</dd>
-        <dt data-profile-field="id">用户 ID</dt>
-        <dd id="profile-id" data-profile-field="id">-</dd>
-        <dt data-profile-field="name">显示名称</dt>
-        <dd id="profile-name" data-profile-field="name">-</dd>
-      </dl>
+      <div id="profile-details" class="profile-details">
+        <div class="profile-row" data-profile-field="email">
+          <span class="profile-label">邮箱</span>
+          <span id="profile-email" class="profile-value">-</span>
+          <button class="copy-btn" type="button" onclick="navigator.clipboard.writeText(document.getElementById('profile-email').textContent).then(() => { this.textContent = '已复制'; setTimeout(() => this.textContent = '复制', 1500); }).catch(() => {})" style="font-size: 11.5px; height: 28px; padding: 0 10px; border: 1px solid rgba(19, 115, 111, 0.15); border-radius: 4px; color: var(--brand); background: #edf5f4; cursor: pointer;">复制</button>
+        </div>
+        <div class="profile-row" data-profile-field="phone">
+          <span class="profile-label">手机号</span>
+          <span id="profile-phone" class="profile-value">-</span>
+          <button class="copy-btn" type="button" onclick="navigator.clipboard.writeText(document.getElementById('profile-phone').textContent).then(() => { this.textContent = '已复制'; setTimeout(() => this.textContent = '复制', 1500); }).catch(() => {})" style="font-size: 11.5px; height: 28px; padding: 0 10px; border: 1px solid rgba(19, 115, 111, 0.15); border-radius: 4px; color: var(--brand); background: #edf5f4; cursor: pointer;">复制</button>
+        </div>
+        <div class="profile-row" data-profile-field="id">
+          <span class="profile-label">用户 ID</span>
+          <span id="profile-id" class="profile-value">-</span>
+          <button class="copy-btn" type="button" onclick="navigator.clipboard.writeText(document.getElementById('profile-id').textContent).then(() => { this.textContent = '已复制'; setTimeout(() => this.textContent = '复制', 1500); }).catch(() => {})" style="font-size: 11.5px; height: 28px; padding: 0 10px; border: 1px solid rgba(19, 115, 111, 0.15); border-radius: 4px; color: var(--brand); background: #edf5f4; cursor: pointer;">复制</button>
+        </div>
+        <div class="profile-row" data-profile-field="name">
+          <span class="profile-label">显示名称</span>
+          <span id="profile-name" class="profile-value">-</span>
+          <button class="copy-btn" type="button" onclick="navigator.clipboard.writeText(document.getElementById('profile-name').textContent).then(() => { this.textContent = '已复制'; setTimeout(() => this.textContent = '复制', 1500); }).catch(() => {})" style="font-size: 11.5px; height: 28px; padding: 0 10px; border: 1px solid rgba(19, 115, 111, 0.15); border-radius: 4px; color: var(--brand); background: #edf5f4; cursor: pointer;">复制</button>
+        </div>
+      </div>
       <form id="profile-form" class="profile-form">
         <input id="profile-name-input" name="name" type="text" autocomplete="name" placeholder="显示名称">
         <button id="save-profile" class="primary" type="submit">保存资料</button>
       </form>
       <div id="module-grid" class="module-grid">
         <section class="module-card" aria-label="登录会话" data-module="sessions">
-          <h3>登录会话</h3>
+          <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>登录会话</h3>
           <ul id="sessions-list" class="module-list">
             <li>加载账号后显示。</li>
           </ul>
         </section>
         <section class="module-card" aria-label="应用授权" data-module="grants">
-          <h3>应用授权</h3>
+          <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>应用授权</h3>
           <ul id="grants-list" class="module-list">
             <li>加载账号后显示。</li>
           </ul>
         </section>
         <section class="module-card" aria-label="登录身份" data-module="identities">
-          <h3>登录身份</h3>
+          <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>登录身份</h3>
           <ul id="identities-list" class="module-list">
             <li>加载账号后显示。</li>
           </ul>
         </section>
         <section class="module-card" aria-label="联系信息" data-module="contact">
-          <h3>邮箱与手机号</h3>
+          <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>联系信息</h3>
           <div class="module-stack">
             <form id="email-form" class="inline-form">
               <input id="email-input" name="email" type="email" autocomplete="email" placeholder="新邮箱">
@@ -450,7 +660,7 @@
           </div>
         </section>
           <section class="module-card" aria-label="MFA" data-module="mfa">
-            <h3>MFA</h3>
+            <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>MFA 验证</h3>
             <ul id="mfa-list" class="module-list">
               <li>加载账号后显示。</li>
             </ul>
@@ -465,13 +675,13 @@
             </div>
           </section>
         <section class="module-card" aria-label="Passkey" data-module="passkeys">
-          <h3>Passkey</h3>
+          <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>Passkey</h3>
           <ul id="passkeys-list" class="module-list">
             <li>加载账号后显示。</li>
           </ul>
         </section>
         <section class="module-card danger-card" aria-label="注销账号" data-module="delete-account">
-          <h3>注销账号</h3>
+          <h3><svg style="width:16px;height:16px;color:#ef4444" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>注销账号</h3>
           <p>输入 DELETE 后注销当前账号。</p>
           <form id="delete-account-form" class="inline-form">
             <input id="delete-confirmation" name="confirmation" type="text" autocomplete="off" placeholder="DELETE">
@@ -482,66 +692,66 @@
       </div>
     </section>
 
-    <section class="grid" aria-label="Account center sections">
-      <a class="card active" href="#account-panel" data-section="profile">
+    <section class="account-section-grid" aria-label="Account center sections">
+      <a class="account-section-card active" href="#account-panel" data-section="profile">
         <span>
-          <h2>个人资料</h2>
-          <p>使用用户 access token 查看账号资料，并更新安全的 profile metadata。</p>
+          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>个人资料</h2>
+          <p>查看邮箱、手机号、用户 ID 和显示名称。</p>
         </span>
         <span class="tag">查看资料</span>
       </a>
 
-      <a class="card active" href="/account/password" data-section="security">
+      <a class="account-section-card active" href="/account/password" data-section="security">
         <span>
-          <h2>安全设置</h2>
+          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>安全设置</h2>
           <p>使用当前密码验证身份并更新登录密码。</p>
         </span>
         <span class="tag">修改密码</span>
       </a>
 
-      <a class="card active" href="#account-panel" data-section="sessions">
+      <a class="account-section-card active" href="#account-panel" data-section="sessions">
         <span>
-          <h2>登录会话</h2>
+          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>登录会话</h2>
           <p>查看当前账号的会话记录，并撤销不再使用的会话。</p>
         </span>
         <span class="tag">查看会话</span>
       </a>
 
-      <a class="card active" href="#account-panel" data-section="grants">
+      <a class="account-section-card active" href="#account-panel" data-section="grants">
         <span>
-          <h2>应用授权</h2>
+          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>应用授权</h2>
           <p>查看已授权应用、权限范围和访问时间。</p>
         </span>
         <span class="tag">管理授权</span>
       </a>
 
-      <a class="card active" href="#account-panel" data-section="identities">
+      <a class="account-section-card active" href="#account-panel" data-section="identities">
         <span>
-          <h2>登录身份</h2>
+          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>登录身份</h2>
           <p>查看邮箱、社交账号和企业 SSO 身份，并解绑不再使用的身份。</p>
         </span>
         <span class="tag">管理身份</span>
       </a>
 
-      <a class="card active" href="#account-panel" data-section="mfa">
+      <a class="account-section-card active" href="#account-panel" data-section="mfa">
         <span>
-          <h2>MFA / Passkey</h2>
+          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>MFA / Passkey</h2>
           <p>查看多因素认证和 Passkey，移除不再使用的认证方式。</p>
         </span>
         <span class="tag">管理安全因子</span>
       </a>
 
-      <a class="card active" href="#account-panel" data-section="contact">
+      <a class="account-section-card active" href="#account-panel" data-section="contact">
         <span>
-          <h2>邮箱和手机号</h2>
+          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>邮箱和手机号</h2>
           <p>发起邮箱或手机号变更，并交由认证运行时完成验证。</p>
         </span>
         <span class="tag">变更验证</span>
       </a>
 
-      <a class="card active" href="#account-panel" data-section="delete-account">
+      <a class="account-section-card active" href="#account-panel" data-section="delete-account">
         <span>
-          <h2>注销账号</h2>
+          <h2><svg style="width:16px;height:16px;color:#ef4444" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>注销账号</h2>
           <p>确认后删除当前登录账号。</p>
         </span>
         <span class="tag">危险操作</span>
@@ -559,7 +769,10 @@
     const lead = document.getElementById('account-lead');
     const tokenInput = document.getElementById('access-token');
     const loadAccountButton = document.getElementById('load-account');
+    const loadAccountTokenButton = document.getElementById('load-account-token');
     const clearTokenButton = document.getElementById('clear-token');
+    const clearTokenFieldButton = document.getElementById('clear-token-field');
+    const accountStatusNote = document.getElementById('account-status-note');
     const message = document.getElementById('account-message');
     const profileDetails = document.getElementById('profile-details');
     const profileForm = document.getElementById('profile-form');
@@ -663,7 +876,7 @@
       };
       if (!accountConfig.enabled) {
         document.getElementById('account-panel').hidden = true;
-        document.querySelector('.grid').hidden = true;
+        document.querySelector('.account-section-grid').hidden = true;
         setMessage('error', '账号中心当前未启用。');
         return;
       }
@@ -714,6 +927,26 @@
     function clearMessage() {
       message.className = 'message';
       message.textContent = '';
+    }
+
+    function resetAccountView() {
+      profileDetails.classList.remove('active');
+      profileForm.classList.remove('active');
+      moduleGrid.classList.remove('active');
+      resetTotpEnrollment();
+    }
+
+    function showSignedOutState() {
+      accountStatusNote.textContent = '未检测到登录状态。请先登录，登录完成后会自动回到账户中心。';
+      setMessage('info', '请先登录后再管理账号。');
+    }
+
+    function showLoadingState() {
+      accountStatusNote.textContent = '正在加载账号资料。';
+    }
+
+    function showLoadedState() {
+      accountStatusNote.textContent = '已加载当前账号，可在下方查看和管理资料。';
     }
 
     function readHashAccessToken() {
@@ -844,8 +1077,7 @@
     async function accountFetch(path, options = {}) {
       const token = tokenInput.value.trim();
       if (!token) {
-        setMessage('error', '请输入当前用户 access token。');
-        tokenInput.focus();
+        showSignedOutState();
         return null;
       }
       persistAccessToken(token);
@@ -869,16 +1101,20 @@
     async function loadAccount() {
       clearMessage();
       loadAccountButton.disabled = true;
+      loadAccountTokenButton.disabled = true;
+      showLoadingState();
       try {
         const data = await accountFetch('/account/me');
         if (!data) return;
         displayUser(data.user || {});
         await loadAccountModules();
+        showLoadedState();
         setMessage('ok', '账号资料已加载。');
       } catch {
         setMessage('error', '无法连接账号中心，请稍后重试。');
       } finally {
         loadAccountButton.disabled = false;
+        loadAccountTokenButton.disabled = false;
       }
     }
 
@@ -1069,13 +1305,17 @@
       .catch(() => {});
 
     loadAccountButton.addEventListener('click', loadAccount);
+    loadAccountTokenButton.addEventListener('click', loadAccount);
       clearTokenButton.addEventListener('click', () => {
         tokenInput.value = '';
         forgetAccessToken();
-        profileDetails.classList.remove('active');
-        profileForm.classList.remove('active');
-        moduleGrid.classList.remove('active');
-        resetTotpEnrollment();
+        resetAccountView();
+        showSignedOutState();
+      });
+      clearTokenFieldButton.addEventListener('click', () => {
+        tokenInput.value = '';
+        forgetAccessToken();
+        resetAccountView();
         setMessage('ok', '本地令牌已清除。');
       });
     profileForm.addEventListener('submit', saveProfile);
@@ -1092,6 +1332,8 @@
       if (initialToken && accountConfig.enabled) {
         tokenInput.value = initialToken;
         loadAccount();
+      } else if (accountConfig.enabled) {
+        showSignedOutState();
       }
     })();
   </script>

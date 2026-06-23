@@ -57,6 +57,49 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
+  test('GET /authorize.html serves the same authorize page', async () => {
+    const response = await request('http://localhost/authorize.html');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+  });
+
+  test('hosted login page supports config-driven intro text', async () => {
+    const response = await request('http://localhost/login.html');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('<p id="intro" class="intro" style="display:none"></p>');
+    expect(body).toContain('class="split-layout"');
+    expect(body).toContain('class="brand-panel"');
+    expect(body).toContain('class="auth-panel"');
+    expect(body).toContain("grid.className = 'feature-grid';");
+    expect(body).toContain("card.className = 'feature-card';");
+    expect(body).toContain('branding.description && branding.description.trim()');
+    expect(body).toContain('intro.textContent = branding.description.trim();');
+    expect(body).toContain("intro.style.display = 'block';");
+    expect(body).toContain('branding.background_url');
+    expect(body).toContain('document.body.style.backgroundImage');
+    expect(body).toContain('branding.button_label');
+    expect(body).toContain('branding.custom_css');
+    expect(body).toContain('id="custom-style"');
+    expect(body).toContain('id="custom-content"');
+    expect(body).toContain('branding.content');
+    expect(body).toContain('function renderBrandingContent(content)');
+    expect(body).toContain('function renderFeatureCards(container, items)');
+    expect(body).toContain('renderBrandingContent(branding.content);');
+    expect(body).not.toContain('function sanitizeLegacyHtml');
+    expect(body).not.toContain('JSON.parse(raw)');
+    expect(body).not.toContain("document.getElementById('custom-content').innerHTML = branding.content");
+
+    const brandingRenderIndex = body.indexOf('renderBrandingContent(branding.content);');
+    const authorizationErrorIndex = body.indexOf('if (experience.authorization_error) {');
+    expect(brandingRenderIndex).toBeGreaterThan(-1);
+    expect(authorizationErrorIndex).toBeGreaterThan(brandingRenderIndex);
+  });
+
   test('GET /claim serves the account claim page with same-origin public API base', async () => {
     const response = await request('https://auth.example.com/claim');
     const body = await response.text();
@@ -133,6 +176,14 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain("button.dataset.action === 'revoke-grant'");
       expect(body).toContain("button.dataset.action === 'unlink-identity'");
       expect(body).toContain("button.dataset.action === 'revoke-passkey'");
+      expect(body).toContain('class="account-actions"');
+      expect(body).toContain('id="manual-token-panel"');
+      expect(body).toContain('登录 / 重新登录');
+      expect(body).toContain('未检测到登录状态。请先登录，登录完成后会自动回到账户中心。');
+      expect(body).toContain('function showSignedOutState()');
+      expect(body).toContain('function resetAccountView()');
+      expect(body).toContain('class="account-section-card active"');
+      expect(body).toContain('document.querySelector(\'.account-section-grid\').hidden = true;');
       expect(body).toContain('href="/account/password" data-section="security"');
       expect(body).toContain('href="#account-panel" data-section="profile"');
       expect(body).toContain('data-section="profile"');
@@ -142,6 +193,7 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('data-section="mfa"');
       expect(body).toContain('data-section="contact"');
       expect(body).toContain('data-section="delete-account"');
+      expect(body).not.toContain('class="card active"');
       expect(body).not.toContain('/v1/my-account');
       expect(body).not.toContain('http://auth.example.com/v1/public');
       expect(body).not.toContain('Example User Center');

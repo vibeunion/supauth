@@ -24,6 +24,7 @@ const EXPECTED_FUNCTION_ROUTES = [
   '/v1/public/*',
   '/oauth/*',
   '/login.html',
+  '/authorize.html',
   '/account',
   '/account.html',
   '/account/*',

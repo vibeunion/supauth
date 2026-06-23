@@ -25,3 +25,7 @@ OPENCODE.md
 artifacts/
 # Release gate output (release-manifest.json, openapi.json)
 .agents/goal-forge/runs/
+
+# Tenant-specific hosted login page overrides are deployed out-of-band.
+custom-ui/
+packages/auth-server/custom-ui/

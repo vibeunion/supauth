@@ -1,7 +1,9 @@
 // RBAC compatibility inspector extensions (P1-8)
-// Checks: helper function existence, grants correctness, unsafe JWT role claims
+// Runtime compatibility checks only. Database migration verification lives in
+// scripts/install-supacloud-app.ts, where SUPACLOUD_DATABASE_URL is already a
+// required install-time secret.
 
-import { checkRuntimeHealth, getDiscovery } from '../runtime/index.js';
+import { getDiscovery } from '../runtime/index.js';
 import { getConfig } from '../config/index.js';
 
 // ─── RBAC-specific compatibility checks ────────────────────────────────
@@ -16,30 +18,6 @@ export interface RBACCheckResult {
 export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
   const results: RBACCheckResult[] = [];
   const config = getConfig();
-
-  // RB-1: Check supaoauth.authorize() function exists and is callable
-  results.push({
-    check_id: 'rb-1-authorize-function',
-    status: 'warn',
-    message: 'Cannot verify supaoauth.authorize() existence without a live Postgres connection. Install SupAuth through SupaCloud hosted migrations first, then re-check.',
-    details: { required_action: 'Run bun run install:supacloud so SupaCloud Management API creates supaoauth schema and helper functions' },
-  });
-
-  // RB-2: Check supaoauth.has_org_permission() function exists and is callable
-  results.push({
-    check_id: 'rb-2-has-org-permission-function',
-    status: 'warn',
-    message: 'Cannot verify supaoauth.has_org_permission() existence without a live Postgres connection. Install SupAuth through SupaCloud hosted migrations first.',
-    details: { required_action: 'Run bun run install:supacloud so SupaCloud Management API creates supaoauth schema and helper functions' },
-  });
-
-  // RB-3: Check GRANT EXECUTE on helpers to authenticated role
-  results.push({
-    check_id: 'rb-3-helper-grants',
-    status: 'warn',
-    message: 'Cannot verify EXECUTE grants on supaoauth.authorize / has_org_permission without live Postgres. Migration script includes explicit GRANT statements.',
-    details: { expected_grants: 'GRANT EXECUTE ON FUNCTION supaoauth.authorize(TEXT, UUID) TO authenticated; GRANT EXECUTE ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) TO authenticated;' },
-  });
 
   // RB-4: Check JWT role claim is not used for business RBAC
   try {
@@ -85,18 +63,6 @@ export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
     status: 'pass',
     message: 'SupaOAuth overlay metadata lives in supaoauth schema, separate from GoTrue auth schema. SupaCloud-owned Organizations/RBAC/Audit/Webhooks are not duplicated on new installs.',
     details: { overlay_tables: ['api_resources', 'scopes', 'sign_in_experience', 'application_sign_in_experience', 'connectors', 'application_bindings', 'user_consents', 'organization_templates', 'security_config', 'enterprise_sso_config', 'api_version_log', 'application_consent_settings', 'connector_factories', 'tenant_configs', 'account_provisioning_records'] },
-  });
-
-  // RB-7: Detect unsafe RLS patterns — policies using JWT role claim for business authorization
-  results.push({
-    check_id: 'rb-7-unsafe-rls-patterns',
-    status: 'warn',
-    message: 'Cannot scan existing RLS policies without live Postgres. Use the RLS migration assistant (P1-7) to inspect policies and generate wrapper patterns.',
-    details: { unsafe_patterns: [
-      'USING (current_setting(\'request.jwt.claim.role\') = \'admin\')',
-      'USING (auth.jwt() ->> \'role\' = \'owner\')',
-      'USING ((select auth.jwt()) ->> \'role\' IN (\'admin\', \'editor\'))',
-    ], fix_pattern: 'Replace with: USING (owner_id = auth.uid() OR supaoauth.authorize(\'resource.read\'))' },
   });
 
   return results;

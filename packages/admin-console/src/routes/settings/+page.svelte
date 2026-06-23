@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n.js';
-  import { getAuthConfig, getOAuthServerStatus, getSignInExperience, uploadBranding } from '$lib/api/client.js';
+  import { getAuthConfig, getOAuthServerStatus, getSignInExperience, updateSignInExperience, uploadBranding } from '$lib/api/client.js';
 
   let config = $state(null);
   let oauthStatus = $state(null);
@@ -10,6 +10,74 @@
   let error = $state(null);
   let uploadingLogo = $state(false);
   let uploadingFavicon = $state(false);
+  let themeDraft = $state({
+    primary_color: '',
+    description: '',
+    background_url: '',
+    button_label: '',
+    custom_css: '',
+    content: '',
+  });
+  const structuredContentPlaceholder = JSON.stringify({
+    layout: 'features',
+    items: [
+      { icon: 'shield', title: '标准认证协议', desc: 'OAuth 2.0 · OIDC' },
+      { icon: 'users', title: '统一身份体系', desc: '人 · AI 服务 · 设备账号' },
+      { icon: 'key', title: '细粒度权限', desc: '角色模板 · 策略级控权' },
+      { icon: 'audit', title: '全链路审计', desc: '身份事件证据流' },
+    ],
+  }, null, 2);
+  let savingTheme = $state(false);
+  let themeSaved = $state(false);
+
+  function syncThemeDraft(experience) {
+    const branding = experience?.branding || {};
+    const content = branding.content
+      ? (typeof branding.content === 'string' ? branding.content : JSON.stringify(branding.content, null, 2))
+      : '';
+    themeDraft = {
+      primary_color: branding.primary_color || '',
+      description: branding.description || '',
+      background_url: branding.background_url || '',
+      button_label: branding.button_label || '',
+      custom_css: branding.custom_css || '',
+      content,
+    };
+  }
+
+  function parseStructuredContent(value) {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      throw new Error(t('Structured login content must be valid JSON.'));
+    }
+  }
+
+  async function saveTheme() {
+    savingTheme = true;
+    themeSaved = false;
+    try {
+      await updateSignInExperience({
+        branding: {
+          primary_color: themeDraft.primary_color.trim() || null,
+          description: themeDraft.description.trim() || null,
+          background_url: themeDraft.background_url.trim() || null,
+          button_label: themeDraft.button_label.trim() || null,
+          custom_css: themeDraft.custom_css.trim() || null,
+          content: parseStructuredContent(themeDraft.content),
+        },
+      });
+      signInExp = await getSignInExperience();
+      syncThemeDraft(signInExp);
+      themeSaved = true;
+      setTimeout(() => { themeSaved = false; }, 2000);
+    } catch (e) {
+      error = e.message;
+    }
+    savingTheme = false;
+  }
 
   async function loadData() {
     loading = true;
@@ -19,6 +87,7 @@
         getOAuthServerStatus().catch(() => null),
         getSignInExperience().catch(() => null),
       ]);
+      syncThemeDraft(signInExp);
     } catch (e) {
       error = e.message;
     }
@@ -145,6 +214,52 @@
             </div>
           </div>
         {/if}
+      </div>
+
+      <!-- 登录页整页主题：由 sign-in-experience 全局配置驱动，应用级配置可继续覆盖。 -->
+      <div class="mt-6 pt-6 border-t border-surface-100">
+        <h4 class="text-sm font-semibold text-surface-800 mb-1">{t('Tenant Login Page Theme')}</h4>
+        <p class="text-xs text-surface-400 mb-4">{t('Controls the default hosted login page background, intro, button and CSS. Application overrides still take precedence.')}</p>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <label for="login-primary-color" class="block text-sm font-medium text-surface-700 mb-1">{t('Primary Color')}</label>
+            <div class="flex gap-2">
+              <input id="login-primary-color" bind:value={themeDraft.primary_color} class="flex-1 px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="#2563eb">
+              <div class="w-10 h-10 rounded-lg border border-surface-200" style:background-color={themeDraft.primary_color || '#ffffff'}></div>
+            </div>
+          </div>
+          <div>
+            <label for="login-button-label" class="block text-sm font-medium text-surface-700 mb-1">{t('Button Label')}</label>
+            <input id="login-button-label" bind:value={themeDraft.button_label} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('Sign In')}>
+          </div>
+          <div class="lg:col-span-2">
+            <label for="login-background-url" class="block text-sm font-medium text-surface-700 mb-1">{t('Background URL')}</label>
+            <input id="login-background-url" bind:value={themeDraft.background_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://...">
+          </div>
+          <div class="lg:col-span-2">
+            <label for="login-description" class="block text-sm font-medium text-surface-700 mb-1">{t('Login Page Intro')}</label>
+            <p class="text-xs text-surface-400 mb-2">{t('Short system intro shown on the login page under the title. Leave empty to hide.')}</p>
+            <textarea id="login-description" bind:value={themeDraft.description} rows="3" class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm font-sans resize-y" placeholder={t('Short system description...')}></textarea>
+          </div>
+          <div class="lg:col-span-2">
+            <label for="login-content-json" class="block text-sm font-medium text-surface-700 mb-1">{t('Structured Login Content')}</label>
+            <p class="text-xs text-surface-400 mb-2">{t('JSON feature items rendered by the hosted login template. Use custom-ui files for full-page custom HTML.')}</p>
+            <textarea id="login-content-json" bind:value={themeDraft.content} rows="8" class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm font-mono resize-y" placeholder={structuredContentPlaceholder}></textarea>
+          </div>
+          <div class="lg:col-span-2">
+            <label for="login-custom-css" class="block text-sm font-medium text-surface-700 mb-1">{t('Custom CSS')}</label>
+            <p class="text-xs text-surface-400 mb-2">{t('Optional CSS applied to hosted login, account, claim and password pages.')}</p>
+            <textarea id="login-custom-css" bind:value={themeDraft.custom_css} rows="6" class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm font-mono resize-y" placeholder={t('Custom CSS for the hosted login page')}></textarea>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 mt-2">
+          <button onclick={saveTheme} disabled={savingTheme} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60">
+            {savingTheme ? t('Saving...') : t('Save Login Experience')}
+          </button>
+          {#if themeSaved}
+            <span class="text-sm text-green-600">{t('Saved')}</span>
+          {/if}
+        </div>
       </div>
     </div>
   {/if}
