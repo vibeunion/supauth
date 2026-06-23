@@ -7,6 +7,7 @@ export interface ServerConfig {
   supacloudApiUrl: string;
   supacloudMasterToken: string;
   projectRef: string;
+  oauthAuthorizationProjectRef: string;
   oauthRuntimeUrl: string;
   oauthRuntimeInternalUrl: string;
   publicBaseUrl: string;
@@ -64,8 +65,13 @@ export function loadConfig(): ServerConfig {
     ),
     supacloudMasterToken: env('SUPACLOUD_MASTER_TOKEN', 'SUPACLOUD_INTERNAL_TOKEN', 'SUPACLOUD_SERVICE_TOKEN'),
     projectRef: env('PROJECT_REF', 'SUPACLOUD_PROJECT_REF', 'SUPABASE_PROJECT_REF'),
+    oauthAuthorizationProjectRef: env(
+      'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF',
+      'OAUTH_AUTHORIZATION_PROJECT_REF',
+      'GOTRUE_AUTHORIZATION_PROJECT_REF',
+    ),
     oauthRuntimeUrl: runtimeUrl,
-    oauthRuntimeInternalUrl: env('OAUTH_RUNTIME_INTERNAL_URL', 'GOTRUE_INTERNAL_URL', 'SUPACLOUD_RUNTIME_INTERNAL_URL') || runtimeUrl,
+    oauthRuntimeInternalUrl: env('SUPACLOUD_RUNTIME_INTERNAL_URL', 'OAUTH_RUNTIME_INTERNAL_URL', 'GOTRUE_INTERNAL_URL') || runtimeUrl,
     publicBaseUrl: env('SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL', 'OAUTH_PUBLIC_BASE_URL'),
     trustProxyHeaders: booleanEnv('TRUST_PROXY_HEADERS'),
     runtimeMode: (process.env.RUNTIME_MODE as ServerConfig['runtimeMode']) || 'gotrue',

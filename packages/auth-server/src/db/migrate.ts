@@ -424,6 +424,21 @@ BEGIN
 END $$;
 `;
 
+export function oauthAuthorizationProjectRoleGrantsSql(projectRef: string) {
+  const projectRole = `role_${projectRef.replace(/[^a-zA-Z0-9_]/g, '')}`;
+  return `
+DO $$
+DECLARE
+  project_role TEXT := '${projectRole}';
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = project_role) THEN
+    EXECUTE format('GRANT USAGE ON SCHEMA auth TO %I', project_role);
+    EXECUTE format('GRANT SELECT, UPDATE ON TABLE auth.oauth_authorizations TO %I', project_role);
+  END IF;
+END $$;
+`;
+}
+
 export const MIGRATION_V4_SQL = `
 -- Active consent uniqueness. This overlay table is still owned by SupAuth.
 UPDATE supaoauth.user_consents AS c

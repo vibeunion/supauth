@@ -16,6 +16,9 @@ describe('ServerConfig', () => {
     delete process.env.PROJECT_REF;
     delete process.env.SUPACLOUD_PROJECT_REF;
     delete process.env.SUPABASE_PROJECT_REF;
+    delete process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
+    delete process.env.OAUTH_AUTHORIZATION_PROJECT_REF;
+    delete process.env.GOTRUE_AUTHORIZATION_PROJECT_REF;
     delete process.env.OAUTH_RUNTIME_URL;
     delete process.env.SUPACLOUD_RUNTIME_URL;
     delete process.env.SUPABASE_URL;
@@ -160,5 +163,25 @@ describe('ServerConfig', () => {
     const config = loadConfig();
     expect(config.oauthRuntimeUrl).toBe('https://api.example.com/auth/v1');
     expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3210');
+  });
+
+  it('prefers SupaCloud internal runtime URL over stale legacy OAuth runtime URL', () => {
+    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
+    process.env.OAUTH_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3372';
+    process.env.SUPACLOUD_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3367';
+
+    const config = loadConfig();
+
+    expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3367');
+  });
+
+  it('uses a dedicated OAuth authorization project ref when configured', () => {
+    process.env.PROJECT_REF = 'business-project';
+    process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'central-idp-project';
+
+    const config = loadConfig();
+
+    expect(config.projectRef).toBe('business-project');
+    expect(config.oauthAuthorizationProjectRef).toBe('central-idp-project');
   });
 });

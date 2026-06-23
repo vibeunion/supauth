@@ -168,8 +168,12 @@ export function verifySupacloudAppArtifact(input: {
   }
   const tokenEnv = requiredEnv.find((entry) => entry.name === 'SUPACLOUD_INTERNAL_TOKEN');
   const databaseEnv = requiredEnv.find((entry) => entry.name === 'SUPACLOUD_DATABASE_URL');
+  const oauthAuthorizationProjectRefEnv = requiredEnv.find((entry) => entry.name === 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF');
   if (tokenEnv?.secret !== true) result.errors.push('SUPACLOUD_INTERNAL_TOKEN must be marked secret');
   if (databaseEnv?.secret !== true) result.errors.push('SUPACLOUD_DATABASE_URL must be marked secret');
+  if (oauthAuthorizationProjectRefEnv && oauthAuthorizationProjectRefEnv.optional !== true) {
+    result.errors.push('SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF must be marked optional');
+  }
 
   const artifacts = asRecord(manifest.artifacts);
   const functionBundle = String(artifacts.function_bundle || '');

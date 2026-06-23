@@ -123,6 +123,7 @@ export function createSupacloudAppManifest(input: {
       { name: 'SUPACLOUD_PROJECT_REF', secret: false, description: 'Current SupaCloud project ref.' },
       { name: 'SUPACLOUD_RUNTIME_URL', secret: false, description: 'Public Supabase-compatible runtime URL for the project.' },
       { name: 'SUPACLOUD_RUNTIME_INTERNAL_URL', secret: false, optional: true, description: 'Internal GoTrue/runtime URL when different from the public runtime URL.' },
+      { name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF', secret: false, optional: true, description: 'Center IdP project ref that owns GoTrue OAuth authorization rows when different from the business project.' },
       { name: 'SUPACLOUD_DATABASE_URL', secret: true, description: 'Project database URL for SupAuth overlay tables and migrations.' },
     ],
     pages: [

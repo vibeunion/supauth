@@ -136,6 +136,64 @@ describe('SupaCloud app installer', () => {
     ]));
   });
 
+  it('grants the business Function role on the center IdP OAuth authorization table', async () => {
+    const { root, artifactDir } = createFixture();
+    const calls: string[] = [];
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      oauthAuthorizationProjectRef: 'central_idp_project',
+      skipMigrationVerify: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const url = new URL(String(input));
+        calls.push(`${init?.method || 'GET'} ${url.pathname}`);
+        if (url.pathname === '/v1/projects/central_idp_project/database/sql') {
+          const body = JSON.parse(String(init?.body));
+          expect(body.sql).toContain('role_project_123');
+          expect(body.sql).toContain('GRANT SELECT, UPDATE ON TABLE auth.oauth_authorizations');
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toContain('POST /v1/projects/project_123/database/sql');
+    expect(calls).toContain('POST /v1/projects/central_idp_project/database/sql');
+  });
+
+  it('injects a center IdP OAuth authorization project ref when configured', async () => {
+    const { root, artifactDir } = createFixture();
+    const seenSecrets: Array<{ name: string; value: string }> = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      oauthAuthorizationProjectRef: 'central_idp_project',
+      skipMigration: true,
+      skipMigrationVerify: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/secrets') {
+          seenSecrets.push(...JSON.parse(String(init?.body)));
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(seenSecrets).toContainEqual({
+      name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF',
+      value: 'central_idp_project',
+    });
+  });
+
   it('prefers SupaCloud env-file values and refuses stale generic DATABASE_URL for function DB', async () => {
     const { root, artifactDir } = createFixture();
     const envFile = join(root, 'project.env');

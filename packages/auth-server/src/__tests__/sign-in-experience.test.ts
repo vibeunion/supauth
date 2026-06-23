@@ -126,4 +126,25 @@ describe('Sign-in experience repository — module structure', () => {
       'http://127.0.0.1:3367/oauth/authorizations/authz/consent',
     );
   });
+
+  it('uses the configured center IdP project for OAuth authorization storage', async () => {
+    const previousProjectRef = process.env.PROJECT_REF;
+    const previousSupacloudProjectRef = process.env.SUPACLOUD_PROJECT_REF;
+    const previousAuthorizationProjectRef = process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
+    process.env.PROJECT_REF = 'business-project';
+    delete process.env.SUPACLOUD_PROJECT_REF;
+    process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'central-idp-project';
+
+    try {
+      const { oauthAuthorizationProjectRef } = await import('../repositories/sign-in-experience.js');
+      expect(oauthAuthorizationProjectRef()).toBe('central-idp-project');
+    } finally {
+      if (previousProjectRef === undefined) delete process.env.PROJECT_REF;
+      else process.env.PROJECT_REF = previousProjectRef;
+      if (previousSupacloudProjectRef === undefined) delete process.env.SUPACLOUD_PROJECT_REF;
+      else process.env.SUPACLOUD_PROJECT_REF = previousSupacloudProjectRef;
+      if (previousAuthorizationProjectRef === undefined) delete process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
+      else process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = previousAuthorizationProjectRef;
+    }
+  });
 });

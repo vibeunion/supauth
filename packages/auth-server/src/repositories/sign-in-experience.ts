@@ -329,7 +329,12 @@ export async function resolveSignInExperience(
   if (!global) return global;
   const brandingWithSupaCloudDefaults = mergeSupaCloudBrandingDefaults(global.branding, supacloudSource);
   if (!applicationId) return { ...global, branding: brandingWithSupaCloudDefaults };
-  const app = await getApplicationSignInExperience(applicationId);
+  let app: Awaited<ReturnType<typeof getApplicationSignInExperience>> = null;
+  try {
+    app = await getApplicationSignInExperience(applicationId);
+  } catch (error) {
+    console.warn(`Application sign-in experience override unavailable for ${applicationId}: ${error instanceof Error ? error.message : String(error)}`);
+  }
   if (!app || !app.enabled) {
     return { ...global, branding: brandingWithSupaCloudDefaults, application: app };
   }
@@ -345,11 +350,20 @@ export async function getApplicationIdForAuthorization(authorizationId: string) 
   return authorization?.client_id || null;
 }
 
-export async function getOAuthAuthorizationContext(authorizationId: string): Promise<OAuthAuthorizationContext | null> {
+export function oauthAuthorizationProjectRef() {
+  const config = getConfig();
+  return config.oauthAuthorizationProjectRef || config.projectRef;
+}
+
+function oauthAuthorizationDatabaseUrl() {
   const config = getConfig();
   const tenantUrl = new URL(config.databaseUrl);
-  tenantUrl.pathname = `/supa_${config.projectRef}`;
-  const tenantSql = postgres(tenantUrl.toString(), { max: 1 });
+  tenantUrl.pathname = `/supa_${oauthAuthorizationProjectRef()}`;
+  return tenantUrl.toString();
+}
+
+export async function getOAuthAuthorizationContext(authorizationId: string): Promise<OAuthAuthorizationContext | null> {
+  const tenantSql = postgres(oauthAuthorizationDatabaseUrl(), { max: 1 });
   try {
     const result = await tenantSql<OAuthAuthorizationContext[]>`
       SELECT
@@ -376,10 +390,7 @@ export async function getOAuthAuthorizationContext(authorizationId: string): Pro
 }
 
 export async function bindAuthorizationToUser(authorizationId: string, userId: string) {
-  const config = getConfig();
-  const tenantUrl = new URL(config.databaseUrl);
-  tenantUrl.pathname = `/supa_${config.projectRef}`;
-  const tenantSql = postgres(tenantUrl.toString(), { max: 1 });
+  const tenantSql = postgres(oauthAuthorizationDatabaseUrl(), { max: 1 });
   try {
     const result = await tenantSql<{ authorization_id: string }[]>`
       UPDATE auth.oauth_authorizations

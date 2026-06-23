@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { MIGRATION_SQL, PROJECT_ROLE_GRANTS_SQL } from '../packages/auth-server/src/db/migrate.js';
+import { MIGRATION_SQL, PROJECT_ROLE_GRANTS_SQL, oauthAuthorizationProjectRoleGrantsSql } from '../packages/auth-server/src/db/migrate.js';
 import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 import { verifyRbacAgainstDatabase } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 import type { RbacDbVerification } from '../packages/auth-server/src/compatibility/rbac-verify.js';
@@ -53,6 +53,7 @@ export interface InstallSupacloudAppOptions {
   gatewayAdminToken?: string;
   runtimeUrl?: string;
   runtimeInternalUrl?: string;
+  oauthAuthorizationProjectRef?: string;
   baseUrl?: string;
   edgeRuntimeUpstream?: string;
   databaseUrl?: string;
@@ -76,6 +77,7 @@ interface ResolvedInstallConfig {
   gatewayAdminToken: string;
   runtimeUrl: string;
   runtimeInternalUrl: string;
+  oauthAuthorizationProjectRef: string;
   baseUrl: string;
   edgeRuntimeUpstream: string;
   databaseUrl: string;
@@ -125,6 +127,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     SUPACLOUD_GATEWAY_ADMIN_TOKEN: options.gatewayAdminToken,
     SUPACLOUD_RUNTIME_URL: options.runtimeUrl,
     SUPACLOUD_RUNTIME_INTERNAL_URL: options.runtimeInternalUrl,
+    SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF: options.oauthAuthorizationProjectRef,
     SUPAUTH_PUBLIC_URL: options.baseUrl,
     SUPACLOUD_EDGE_RUNTIME_UPSTREAM: options.edgeRuntimeUpstream,
     SUPACLOUD_DATABASE_URL: options.databaseUrl,
@@ -155,6 +158,11 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     'OAUTH_RUNTIME_INTERNAL_URL',
     'GOTRUE_INTERNAL_URL',
   ]);
+  const oauthAuthorizationProjectRef = firstValue(sources, [
+    'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF',
+    'OAUTH_AUTHORIZATION_PROJECT_REF',
+    'GOTRUE_AUTHORIZATION_PROJECT_REF',
+  ]);
   const databaseUrl = firstValue(sources, ['SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL']);
   const baseUrl = firstValue(sources, ['SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL']);
   const edgeRuntimeUpstream = firstValue(sources, ['SUPACLOUD_EDGE_RUNTIME_UPSTREAM', 'EDGE_RUNTIME_UPSTREAM']);
@@ -169,6 +177,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     gatewayAdminToken,
     runtimeUrl: stripTrailingSlash(runtimeUrl),
     runtimeInternalUrl: stripTrailingSlash(runtimeInternalUrl),
+    oauthAuthorizationProjectRef,
     baseUrl: stripTrailingSlash(baseUrl),
     edgeRuntimeUpstream: edgeRuntimeUpstream || '127.0.0.1:9000',
     databaseUrl,
@@ -245,6 +254,9 @@ function functionEnv(config: ResolvedInstallConfig) {
       : []),
     ...(config.runtimeInternalUrl
       ? [{ name: 'SUPACLOUD_RUNTIME_INTERNAL_URL', value: config.runtimeInternalUrl }]
+      : []),
+    ...(config.oauthAuthorizationProjectRef
+      ? [{ name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF', value: config.oauthAuthorizationProjectRef }]
       : []),
     { name: 'SUPACLOUD_DATABASE_URL', value: config.databaseUrl },
   ];
@@ -479,6 +491,14 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   } else {
     await runSupacloudMigration(client, config.projectRef, 'supauth-overlay-schema', MIGRATION_SQL);
     await runSupacloudMigration(client, config.projectRef, 'supauth-overlay-project-role-grants', PROJECT_ROLE_GRANTS_SQL);
+    if (config.oauthAuthorizationProjectRef && config.oauthAuthorizationProjectRef !== config.projectRef) {
+      await runSupacloudMigration(
+        client,
+        config.oauthAuthorizationProjectRef,
+        'supauth-oauth-authorization-project-role-grants',
+        oauthAuthorizationProjectRoleGrantsSql(config.projectRef),
+      );
+    }
     steps.push({ name: 'migration', status: 'done', detail: 'supauth-overlay-schema + project role grants via SupaCloud Management API' });
   }
 
@@ -590,6 +610,7 @@ if (import.meta.main) {
       gatewayAdminToken: option('gateway-admin-token'),
       runtimeUrl: option('runtime-url'),
       runtimeInternalUrl: option('runtime-internal-url'),
+      oauthAuthorizationProjectRef: option('oauth-authorization-project-ref'),
       baseUrl: option('base-url'),
       edgeRuntimeUpstream: option('edge-runtime-upstream'),
       databaseUrl: option('database-url'),
