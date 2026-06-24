@@ -100,4 +100,16 @@ describe('Auth module — guard and route structure', () => {
     const runtimeConsistency = await app.handle(new Request('http://localhost/v1/auth-config/runtime-consistency'));
     expect(runtimeConsistency.status).toBe(401);
   });
+
+  it('keeps the Admin SPA runtime SSO config public', async () => {
+    const { adminAuthGuard } = await import('../auth/index.js');
+    const app = new Elysia()
+      .use(adminAuthGuard)
+      .get('/v1/public/admin-sso-config', () => ({ enabled: true }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/admin-sso-config'));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ enabled: true });
+  });
 });

@@ -1,7 +1,8 @@
 // Application management routes with OpenAPI annotations
 
 import { Elysia, t } from 'elysia';
-import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
+import { getConfig } from '../config/index.js';
+import { getSupaCloudAdapter, getSupaCloudAdapterForProject, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as bindingRepo from '../repositories/bindings.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
@@ -9,6 +10,11 @@ import * as appControlRepo from '../repositories/application-control.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 
 const adapter = getSupaCloudAdapter();
+
+function oauthClientAdapter() {
+  const oauthProjectRef = getConfig().oauthAuthorizationProjectRef;
+  return oauthProjectRef ? getSupaCloudAdapterForProject(oauthProjectRef) : adapter;
+}
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
@@ -69,7 +75,7 @@ function unsupportedClientSecretsResponse() {
 
 export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   .get('/', async () => {
-    const res = await adapter.listOAuthClients();
+    const res = await oauthClientAdapter().listOAuthClients();
     await audit('application.list', 'application', 'all');
     return toListResponse(res);
   }, {
@@ -77,7 +83,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .post('/', async ({ body }) => {
-    const created = await adapter.createOAuthClient(body as Record<string, unknown>);
+    const created = await oauthClientAdapter().createOAuthClient(body as Record<string, unknown>);
     const clientId = String((created as Record<string, unknown>).client_id);
     await audit('application.create', 'application', clientId, { name: (body as Record<string, unknown>).client_name });
     await fireWebhook('application.created', { client_id: clientId });
@@ -86,12 +92,12 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     detail: { summary: 'Create OAuth application', tags: ['Applications'] },
   })
 
-  .get('/:appId', async ({ params }) => adapter.getOAuthClient(params.appId), {
+  .get('/:appId', async ({ params }) => oauthClientAdapter().getOAuthClient(params.appId), {
     detail: { summary: 'Get application by ID', tags: ['Applications'] },
   })
 
   .put('/:appId', async ({ params, body }) => {
-    const updated = await adapter.updateOAuthClient(params.appId, body as Record<string, unknown>);
+    const updated = await oauthClientAdapter().updateOAuthClient(params.appId, body as Record<string, unknown>);
     await audit('application.update', 'application', params.appId);
     await fireWebhook('application.updated', { client_id: params.appId });
     return updated;
@@ -100,7 +106,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .delete('/:appId', async ({ params }) => {
-    await adapter.deleteOAuthClient(params.appId);
+    await oauthClientAdapter().deleteOAuthClient(params.appId);
     await audit('application.delete', 'application', params.appId);
     await fireWebhook('application.deleted', { client_id: params.appId });
   }, {
@@ -108,7 +114,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .post('/:appId/rotate-secret', async ({ params }) => {
-    const result = await adapter.regenerateClientSecret(params.appId);
+    const result = await oauthClientAdapter().regenerateClientSecret(params.appId);
     await audit('application.rotate_secret', 'application', params.appId);
     return result;
   }, {
@@ -116,7 +122,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .get('/:appId/secrets', async ({ params }) => {
-    return toListResponse(await adapter.listClientSecrets(params.appId));
+    return toListResponse(await oauthClientAdapter().listClientSecrets(params.appId));
   }, {
     detail: { summary: 'List application client secrets', tags: ['Applications', 'Secrets'] },
   })
@@ -125,7 +131,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     const data = body as { name?: string; expires_at?: string };
     let secret: unknown;
     try {
-      secret = await adapter.createClientSecret(params.appId, {
+      secret = await oauthClientAdapter().createClientSecret(params.appId, {
         name: data.name,
         expires_at: data.expires_at,
       });
@@ -143,7 +149,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   .post('/:appId/secrets/:secretId/disable', async ({ params }) => {
     let secret: unknown;
     try {
-      secret = await adapter.disableClientSecret(params.appId, params.secretId);
+      secret = await oauthClientAdapter().disableClientSecret(params.appId, params.secretId);
     } catch (error) {
       if (isSupaCloudApiError(error, [404, 501])) return unsupportedClientSecretsResponse();
       throw error;
@@ -157,7 +163,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   .delete('/:appId/secrets/:secretId', async ({ params }) => {
     let secret: unknown;
     try {
-      secret = await adapter.deleteClientSecret(params.appId, params.secretId);
+      secret = await oauthClientAdapter().deleteClientSecret(params.appId, params.secretId);
     } catch (error) {
       if (isSupaCloudApiError(error, [404, 501])) return unsupportedClientSecretsResponse();
       throw error;

@@ -17,6 +17,7 @@ describe('application secret lifecycle', () => {
     delete process.env.PROJECT_REF;
     delete process.env.OAUTH_RUNTIME_URL;
     delete process.env.DATABASE_URL;
+    delete process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
     loadConfig();
 
     calls.length = 0;
@@ -108,6 +109,27 @@ describe('application secret lifecycle', () => {
       client_id: 'client-one',
       client_name: 'Client One',
     });
+  });
+
+  it('uses oauthAuthorizationProjectRef for OAuth client management when configured', async () => {
+    process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'central-auth-project';
+    loadConfig();
+
+    const { applicationRoutes } = await import('../routes/applications.js');
+    const app = new Elysia().use(applicationRoutes);
+
+    const listResponse = await app.handle(new Request('http://supauth.local/v1/applications'));
+    const secretsResponse = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets'));
+
+    expect(listResponse.status).toBe(200);
+    expect(secretsResponse.status).toBe(200);
+
+    const normalizedCalls = calls.map((call) => [
+      call.method,
+      new URL(call.url).pathname,
+    ]);
+    expect(normalizedCalls).toContainEqual(['GET', '/v1/projects/central-auth-project/auth/oauth-clients']);
+    expect(normalizedCalls).toContainEqual(['GET', '/v1/projects/central-auth-project/auth/oauth-clients/client-one/secrets']);
   });
 
   it('treats unsupported per-client secret listing as an empty tracked-secret list', async () => {

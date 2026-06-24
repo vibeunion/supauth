@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { Elysia } from 'elysia';
 import { loadConfig } from '../config/index.js';
 
 function setupConfig() {
@@ -260,5 +261,87 @@ describe('getJWKS', () => {
 
     const { getJWKS } = await import('../runtime/index.js');
     expect(getJWKS()).rejects.toThrow('JWKS fetch failed');
+  });
+});
+
+describe('public admin SSO config', () => {
+  beforeEach(() => {
+    setupConfig();
+    process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
+    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test';
+    process.env.ADMIN_SSO_ISSUER = 'https://auth.example.test/auth/v1/';
+    process.env.ADMIN_SSO_CLIENT_ID = 'supaoauth-admin-console';
+    delete process.env.ADMIN_SSO_REDIRECT_URI;
+    delete process.env.ADMIN_SSO_POST_LOGOUT_REDIRECT_URI;
+    delete process.env.ADMIN_SSO_AUDIENCE;
+    delete process.env.ADMIN_SSO_ALLOWED_EMAILS;
+    delete process.env.ADMIN_SSO_ALLOWED_DOMAINS;
+    delete process.env.ADMIN_TOKEN;
+    loadConfig();
+  });
+
+  it('exposes only public browser SSO metadata for the Admin SPA', async () => {
+    const { resolvePublicAdminSsoConfig } = await import('../routes/health.js');
+    const config = resolvePublicAdminSsoConfig();
+
+    expect(config).toEqual({
+      enabled: true,
+      issuer: 'https://auth.example.test/auth/v1',
+      client_id: 'supaoauth-admin-console',
+      redirect_uri: 'https://auth.example.test/admin',
+      post_logout_redirect_uri: 'https://auth.example.test/admin/login',
+      gotrue_logout_url: 'https://auth.example.test/auth/v1/logout',
+    });
+    expect(Object.keys(config)).not.toContain('audience');
+    expect(Object.keys(config)).not.toContain('allowed_emails');
+    expect(Object.keys(config)).not.toContain('allowed_domains');
+    expect(Object.keys(config)).not.toContain('token');
+  });
+
+  it('reports disabled when server-side admin SSO is incomplete', async () => {
+    delete process.env.ADMIN_SSO_CLIENT_ID;
+    const { resolvePublicAdminSsoConfig } = await import('../routes/health.js');
+    const config = resolvePublicAdminSsoConfig();
+
+    expect(config.enabled).toBe(false);
+    expect(config.issuer).toBe('https://auth.example.test/auth/v1');
+    expect(config.client_id).toBe('');
+  });
+});
+
+describe('runtime OAuth server status', () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; method: string }> = [];
+
+  beforeEach(() => {
+    setupConfig();
+    process.env.PROJECT_REF = 'business-project';
+    process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'central-auth-project';
+    loadConfig();
+    calls.length = 0;
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({ url, method: init?.method || 'GET' });
+      return Promise.resolve(Response.json({ enabled: true, project_ref: 'central-auth-project' }));
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('reads OAuth server status from the configured authorization project', async () => {
+    const { runtimeRoutes } = await import('../routes/health.js');
+    const app = new Elysia().use(runtimeRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/runtime/oauth-server'));
+    const payload = await response.json() as { enabled: boolean; project_ref: string };
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({ enabled: true, project_ref: 'central-auth-project' });
+    expect(calls.map((call) => [call.method, new URL(call.url).pathname])).toEqual([
+      ['GET', '/v1/projects/central-auth-project/auth/oauth-server'],
+    ]);
+    expect(calls[0]?.url).not.toContain('/v1/projects/business-project/');
   });
 });

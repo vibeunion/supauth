@@ -7,7 +7,7 @@
     setResources,
   } from '@svadmin/core';
   import { supaoauthDataProvider } from '$lib/providers/data.js';
-  import { adminSsoEnabled, supaoauthAuthProvider } from '$lib/providers/auth.js';
+  import { adminSsoEnabled, initializeAdminAuthProvider } from '$lib/providers/auth.js';
   import { supaoauthResources } from '$lib/providers/resources.js';
   import { t } from '$lib/i18n.js';
   import AdminLayout from '../layouts/AdminLayout.svelte';
@@ -20,11 +20,13 @@
 
   onMount(() => {
     setDataProvider(supaoauthDataProvider);
-    setAuthProvider(supaoauthAuthProvider);
     setResources(supaoauthResources);
 
     (async () => {
-      const result = await supaoauthAuthProvider.check();
+      const authProvider = await initializeAdminAuthProvider();
+      setAuthProvider(authProvider);
+
+      const result = await authProvider.check();
       if (result.authenticated) {
         initialized = true;
         checkingAuth = false;
@@ -37,7 +39,7 @@
         return;
       }
 
-      const loginResult = await supaoauthAuthProvider.login({});
+      const loginResult = await authProvider.login({});
       if (loginResult.redirectTo) {
         await goto(loginResult.redirectTo);
         return;

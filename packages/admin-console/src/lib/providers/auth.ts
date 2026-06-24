@@ -11,16 +11,33 @@ import {
 } from '../auth-token';
 
 const API_BASE = import.meta.env.VITE_AUTH_SERVER_URL || '/api';
-const SSO_ISSUER = import.meta.env.VITE_ADMIN_SSO_ISSUER || import.meta.env.VITE_SSO_ISSUER || '';
-const SSO_CLIENT_ID = import.meta.env.VITE_ADMIN_SSO_CLIENT_ID || import.meta.env.VITE_SSO_CLIENT_ID || '';
-const SSO_REDIRECT_URI = import.meta.env.VITE_ADMIN_SSO_REDIRECT_URI || defaultRedirectUri();
-const SSO_LOGOUT_REDIRECT_URI = import.meta.env.VITE_ADMIN_SSO_POST_LOGOUT_REDIRECT_URI || defaultLoginUri();
-const USE_SSO = Boolean(SSO_ISSUER && SSO_CLIENT_ID);
-export const adminSsoEnabled = USE_SSO;
-// GoTrue session logout endpoint — clears httpOnly session cookie on the auth domain.
-// GoTrue does not advertise this in OIDC discovery (no end_session_endpoint),
-// but it does expose POST /auth/v1/logout which revokes the session and clears the cookie.
-const GOTRUE_LOGOUT_URL = import.meta.env.VITE_GOTRUE_LOGOUT_URL || '';
+interface AdminSsoConfig {
+  issuer: string;
+  clientId: string;
+  redirectUri: string;
+  postLogoutRedirectUri: string;
+  gotrueLogoutUrl: string;
+}
+
+interface RuntimeAdminSsoConfigResponse {
+  enabled?: boolean;
+  issuer?: string;
+  client_id?: string;
+  redirect_uri?: string;
+  post_logout_redirect_uri?: string;
+  gotrue_logout_url?: string;
+}
+
+const COMPILED_SSO_CONFIG = normalizeAdminSsoConfig({
+  issuer: import.meta.env.VITE_ADMIN_SSO_ISSUER || import.meta.env.VITE_SSO_ISSUER || '',
+  client_id: import.meta.env.VITE_ADMIN_SSO_CLIENT_ID || import.meta.env.VITE_SSO_CLIENT_ID || '',
+  redirect_uri: import.meta.env.VITE_ADMIN_SSO_REDIRECT_URI || defaultRedirectUri(),
+  post_logout_redirect_uri: import.meta.env.VITE_ADMIN_SSO_POST_LOGOUT_REDIRECT_URI || defaultLoginUri(),
+  gotrue_logout_url: import.meta.env.VITE_GOTRUE_LOGOUT_URL || '',
+});
+let runtimeSsoConfigPromise: Promise<AdminSsoConfig | null> | null = null;
+let currentSsoProvider: SSOAuthProvider | null = null;
+export let adminSsoEnabled = Boolean(COMPILED_SSO_CONFIG);
 
 async function request(path: string, options: RequestInit = {}): Promise<unknown> {
   const url = `${API_BASE}${path}`;
@@ -43,6 +60,38 @@ function defaultRedirectUri(): string {
 function defaultLoginUri(): string {
   if (typeof window === 'undefined') return '/admin/login';
   return `${window.location.origin}/admin/login`;
+}
+
+function normalizeAdminSsoConfig(config: RuntimeAdminSsoConfigResponse): AdminSsoConfig | null {
+  if (!config.enabled && !(config.issuer && config.client_id)) return null;
+  const issuer = (config.issuer || '').replace(/\/+$/, '');
+  const clientId = config.client_id || '';
+  if (!issuer || !clientId) return null;
+
+  return {
+    issuer,
+    clientId,
+    redirectUri: config.redirect_uri || defaultRedirectUri(),
+    postLogoutRedirectUri: config.post_logout_redirect_uri || defaultLoginUri(),
+    gotrueLogoutUrl: config.gotrue_logout_url || '',
+  };
+}
+
+async function loadRuntimeAdminSsoConfig(): Promise<AdminSsoConfig | null> {
+  if (COMPILED_SSO_CONFIG) return COMPILED_SSO_CONFIG;
+  if (!runtimeSsoConfigPromise) {
+    runtimeSsoConfigPromise = fetch(`${API_BASE}/v1/public/admin-sso-config`, {
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const config = await res.json() as RuntimeAdminSsoConfigResponse;
+        return normalizeAdminSsoConfig(config);
+      })
+      .catch(() => null);
+  }
+  return runtimeSsoConfigPromise;
 }
 
 const tokenAuthProvider: AuthProvider = {
@@ -109,14 +158,17 @@ const tokenAuthProvider: AuthProvider = {
   },
 };
 
-function createSupaOAuthSSOProvider(): AuthProvider {
+export let supaoauthAuthProvider: AuthProvider = tokenAuthProvider;
+
+function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
   const ssoProvider: SSOAuthProvider = createSSOAuthProvider({
-    issuer: SSO_ISSUER,
-    clientId: SSO_CLIENT_ID,
-    redirectUri: SSO_REDIRECT_URI,
-    postLogoutRedirectUri: SSO_LOGOUT_REDIRECT_URI,
+    issuer: config.issuer,
+    clientId: config.clientId,
+    redirectUri: config.redirectUri,
+    postLogoutRedirectUri: config.postLogoutRedirectUri,
     scopes: ['openid', 'profile', 'email'],
   });
+  currentSsoProvider = ssoProvider;
 
   setAdminAccessTokenProvider(() => ssoProvider.getAccessToken());
 
@@ -127,9 +179,9 @@ function createSupaOAuthSSOProvider(): AuthProvider {
       // 1. 清除 GoTrue session cookie（GoTrue 不在 OIDC discovery 暴露 end_session_endpoint，
       //    但 POST /auth/v1/logout 会吊销 session 并清除 httpOnly cookie）。
       //    这是退出不彻底的根因：不清这个 cookie，GoTrue 下次 authorize 直接发 code。
-      if (GOTRUE_LOGOUT_URL) {
+      if (config.gotrueLogoutUrl) {
         try {
-          await fetch(GOTRUE_LOGOUT_URL, { method: 'POST', credentials: 'include' });
+          await fetch(config.gotrueLogoutUrl, { method: 'POST', credentials: 'include' });
         } catch {
           // GoTrue 不可达时仍继续清本地 token
         }
@@ -189,6 +241,17 @@ function createSupaOAuthSSOProvider(): AuthProvider {
   };
 }
 
-export const supaoauthAuthProvider: AuthProvider = USE_SSO
-  ? createSupaOAuthSSOProvider()
-  : tokenAuthProvider;
+export async function initializeAdminAuthProvider(): Promise<AuthProvider> {
+  if (currentSsoProvider) return supaoauthAuthProvider;
+
+  const ssoConfig = await loadRuntimeAdminSsoConfig();
+  if (!ssoConfig) {
+    adminSsoEnabled = false;
+    supaoauthAuthProvider = tokenAuthProvider;
+    return supaoauthAuthProvider;
+  }
+
+  adminSsoEnabled = true;
+  supaoauthAuthProvider = createSupaOAuthSSOProvider(ssoConfig);
+  return supaoauthAuthProvider;
+}
