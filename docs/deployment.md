@@ -85,6 +85,8 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 仓库已忽略 `custom-ui/` 与 `packages/auth-server/custom-ui/`。默认开源模板只保留中性布局和渲染能力，具体业务文案、视觉和完整页面资源应来自数据库配置或部署目录。
 
+西谷“枢鉴”这类部署品牌使用租户配置落地，不写入开源默认源码。示例配置见 `config/sign-in-experience/xigu-shujian.json`，边界说明见 `docs/xigu-shujian-config.md`。可通过 `bun run tenant:apply-sign-in -- --base-url <auth-origin> --config <preset.json>` 写入目标环境；先加 `--dry-run` 检查 payload，再使用管理员 Bearer token 执行真实写入。
+
 ## Admin Console
 
 - **技术栈**：SvelteKit + @svadmin/core + Tailwind v4

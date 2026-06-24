@@ -1,0 +1,65 @@
+{
+  "name": "xigu-shujian",
+  "description": "Deployment configuration for 西谷智灯枢鉴系统. This file is an example tenant preset; SupAuth source defaults remain neutral.",
+  "boundary": {
+    "supauth_owned": [
+      "GoTrue-backed OAuth/OIDC compatibility surface",
+      "Hosted page rendering and sign-in experience schema",
+      "Admin Console controls for applications, users, organizations, RBAC, audit and webhooks",
+      "RLS helper and compatibility verification tooling"
+    ],
+    "tenant_configured": [
+      "西谷智灯枢鉴系统 brand name and copy",
+      "Tenant logo, favicon, colors, background and feature introduction",
+      "Per-application branding overrides",
+      "Which connectors, roles, resources, scopes and service accounts are enabled for the 西谷 deployment"
+    ]
+  },
+  "sign_in_experience": {
+    "branding": {
+      "page_title": "西谷智灯枢鉴系统",
+      "description": "统一身份认证与授权中心。一枢通行，万鉴归一。",
+      "button_label": "进入枢鉴",
+      "primary_color": "#2563eb",
+      "content": {
+        "layout": "features",
+        "illustration": "security",
+        "items": [
+          {
+            "icon": "shield",
+            "title": "标准认证协议",
+            "desc": "OAuth 2.0 / OIDC 登录、令牌、刷新与验签"
+          },
+          {
+            "icon": "users",
+            "title": "统一账号体系",
+            "desc": "工程师、管理员、AI 服务账号和设备账号统一治理"
+          },
+          {
+            "icon": "key",
+            "title": "细粒度授权",
+            "desc": "角色模板、资源范围、设备与产线级权限策略"
+          },
+          {
+            "icon": "audit",
+            "title": "审计事件流",
+            "desc": "登录、授权、令牌和权限变更标准化输出给明御"
+          }
+        ]
+      }
+    },
+    "sign_in_methods": [
+      "password",
+      "sso"
+    ],
+    "sign_up_enabled": false,
+    "mfa_required": false,
+    "password_policy": {
+      "min_length": 10,
+      "require_uppercase": true,
+      "require_lowercase": true,
+      "require_numbers": true,
+      "require_symbols": false
+    }
+  }
+}
