@@ -52,7 +52,29 @@ OIDC_SIGNING_KEY_PATH=/etc/supaoauth/signing-key.pem
 
 ### Supabase / GoTrue
 
-Configure third-party auth through the SupaCloud adapter or directly:
+Configure Third-party Auth through the SupaCloud Management API apply tool. The
+tool validates discovery, issuer/JWKS agreement, and asymmetric signing keys,
+then performs a live read-back after the update:
+
+```bash
+bun run tenant:apply-third-party-auth -- \
+  --base-url http://127.0.0.1:9090 \
+  --project-ref your-project-id \
+  --config config/third-party-auth/tenant.json \
+  --dry-run
+
+SUPACLOUD_API_TOKEN=... bun run tenant:apply-third-party-auth -- \
+  --base-url http://127.0.0.1:9090 \
+  --project-ref your-project-id \
+  --config config/third-party-auth/tenant.json
+```
+
+Issuer, client ID, audience, upstream and claim mapping are tenant deployment
+configuration. They must not be compiled into SupaOAuth defaults. Do not put a
+shared JWT secret in this configuration or downgrade an asymmetric issuer to
+HS256.
+
+The equivalent underlying configuration is:
 
 ```sql
 INSERT INTO auth.third_party_auth (project_id, provider_type, issuer, authorized_client_ids)

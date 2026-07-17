@@ -22,6 +22,7 @@
     "test:supabase-auth-compat": "bun test tests/integration/supabase-compat/oauth21.test.ts tests/integration/supabase-compat/supabase-js.test.ts tests/integration/supabase-compat/supacloud-js.test.ts",
     "release:gate": "bun run scripts/release-gate.ts",
     "tenant:apply-sign-in": "bun run scripts/apply-sign-in-experience.ts",
+    "tenant:apply-third-party-auth": "bun run scripts/apply-third-party-auth.ts",
     "projects:describe": "bun run scripts/describe-live-projects.ts",
     "account:manifest": "bun run scripts/generate-account-provisioning-manifest.ts",
     "backup:drill": "bun run scripts/backup-restore-drill.ts backup",
