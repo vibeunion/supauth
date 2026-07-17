@@ -55,6 +55,8 @@ export interface InstallSupacloudAppOptions {
   runtimeInternalUrl?: string;
   oauthAuthorizationProjectRef?: string;
   baseUrl?: string;
+  apiUrl?: string;
+  corsOrigins?: string | string[];
   edgeRuntimeUpstream?: string;
   databaseUrl?: string;
   dryRun?: boolean;
@@ -79,6 +81,8 @@ interface ResolvedInstallConfig {
   runtimeInternalUrl: string;
   oauthAuthorizationProjectRef: string;
   baseUrl: string;
+  apiUrl: string;
+  corsOrigins: string[];
   edgeRuntimeUpstream: string;
   databaseUrl: string;
   dryRun: boolean;
@@ -116,6 +120,34 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, '');
 }
 
+function urlOrigin(rawUrl: string) {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch (error) {
+    if (error instanceof TypeError) throw new Error(`CORS origin must use http(s): ${rawUrl}`);
+    throw error;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`CORS origin must use http(s): ${rawUrl}`);
+  }
+  return url.origin;
+}
+
+function uniqueOrigins(rawOrigins: string[]) {
+  const origins: string[] = [];
+  const seen = new Set<string>();
+  for (const rawOrigin of rawOrigins) {
+    const trimmed = rawOrigin.trim();
+    if (!trimmed) continue;
+    const origin = urlOrigin(trimmed);
+    if (seen.has(origin)) continue;
+    seen.add(origin);
+    origins.push(origin);
+  }
+  return origins;
+}
+
 function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConfig {
   const root = resolve(options.root || new URL('..', import.meta.url).pathname);
   const artifactDir = resolve(root, options.artifactDir || 'artifacts/supacloud-app');
@@ -129,6 +161,8 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     SUPACLOUD_RUNTIME_INTERNAL_URL: options.runtimeInternalUrl,
     SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF: options.oauthAuthorizationProjectRef,
     SUPAUTH_PUBLIC_URL: options.baseUrl,
+    SUPAUTH_API_URL: options.apiUrl,
+    CORS_ORIGINS: Array.isArray(options.corsOrigins) ? options.corsOrigins.join(',') : options.corsOrigins,
     SUPACLOUD_EDGE_RUNTIME_UPSTREAM: options.edgeRuntimeUpstream,
     SUPACLOUD_DATABASE_URL: options.databaseUrl,
   };
@@ -165,6 +199,8 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
   ]);
   const databaseUrl = firstValue(sources, ['SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL']);
   const baseUrl = firstValue(sources, ['SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL']);
+  const apiUrl = firstValue(sources, ['SUPAUTH_API_URL', 'AUTH_API_URL']);
+  const configuredCorsOrigins = firstValue(sources, ['CORS_ORIGINS']);
   const edgeRuntimeUpstream = firstValue(sources, ['SUPACLOUD_EDGE_RUNTIME_UPSTREAM', 'EDGE_RUNTIME_UPSTREAM']);
 
   return {
@@ -179,6 +215,12 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     runtimeInternalUrl: stripTrailingSlash(runtimeInternalUrl),
     oauthAuthorizationProjectRef,
     baseUrl: stripTrailingSlash(baseUrl),
+    apiUrl: stripTrailingSlash(apiUrl),
+    corsOrigins: uniqueOrigins([
+      ...configuredCorsOrigins.split(','),
+      baseUrl,
+      apiUrl,
+    ]),
     edgeRuntimeUpstream: edgeRuntimeUpstream || '127.0.0.1:9000',
     databaseUrl,
     dryRun: options.dryRun === true,
@@ -258,6 +300,9 @@ function functionEnv(config: ResolvedInstallConfig) {
     ...(config.oauthAuthorizationProjectRef
       ? [{ name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF', value: config.oauthAuthorizationProjectRef }]
       : []),
+    ...(config.corsOrigins.length > 0
+      ? [{ name: 'CORS_ORIGINS', value: config.corsOrigins.join(',') }]
+      : []),
     { name: 'SUPACLOUD_DATABASE_URL', value: config.databaseUrl },
   ];
 }
@@ -287,46 +332,94 @@ async function deployFunction(input: {
   });
 }
 
+const hostedRoutePaths = [
+  '/api/*',
+  '/v1/*',
+  '/v1/public/*',
+  '/oauth/*',
+  '/login',
+  '/login.html',
+  '/authorize.html',
+  '/account',
+  '/account.html',
+  '/account/*',
+  '/change-password',
+  '/change-password.html',
+  '/claim',
+  '/claim.html',
+  '/favicon.ico',
+  '/favicon.svg',
+  '/admin/api/*',
+  '/admin/*',
+  '/',
+];
+
+const apiRoutePaths = ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*', '/'];
+
+async function upsertGatewayRoute(input: {
+  client: SupacloudClient;
+  projectRef: string;
+  id: string;
+  host: string;
+  path: string[];
+  corsOrigins: string[];
+  edgeRuntimeUpstream: string;
+  priority: number;
+}) {
+  await input.client.request(`/v1/projects/${input.projectRef}/gateway/routes`, {
+    method: 'POST',
+    body: JSON.stringify({
+      id: input.id,
+      hosts: [input.host],
+      path: input.path,
+      upstream: input.edgeRuntimeUpstream,
+      rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
+      priority: input.priority,
+      enabled: true,
+      cors: input.corsOrigins,
+    }),
+  });
+}
+
 async function configureGatewayRoutes(input: {
   client: SupacloudClient;
   projectRef: string;
   baseUrl: string;
+  apiUrl: string;
+  corsOrigins: string[];
   edgeRuntimeUpstream: string;
 }) {
   const host = hostnameFromUrl(input.baseUrl);
   if (!host) throw new Error('SUPAUTH_PUBLIC_URL or SUPAUTH_INSTALLED_BASE_URL is required for gateway route binding');
+  const routeDefaults = {
+    client: input.client,
+    projectRef: input.projectRef,
+    corsOrigins: input.corsOrigins,
+    edgeRuntimeUpstream: input.edgeRuntimeUpstream,
+  };
 
-  await input.client.request(`/v1/projects/${input.projectRef}/gateway/routes`, {
-    method: 'POST',
-    body: JSON.stringify({
-      id: 'supauth-function-hosted',
-      hosts: [host],
-      path: [
-        '/api/*',
-        '/v1/*',
-        '/v1/public/*',
-        '/oauth/*',
-        '/login',
-        '/login.html',
-        '/authorize.html',
-        '/account',
-        '/account.html',
-        '/account/*',
-        '/change-password',
-        '/change-password.html',
-        '/claim',
-        '/claim.html',
-        '/favicon.ico',
-        '/favicon.svg',
-        '/admin/api/*',
-        '/admin/*',
-        '/',
-      ],
-      upstream: input.edgeRuntimeUpstream,
-      rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
-      priority: 100,
-    }),
+  await upsertGatewayRoute({
+    ...routeDefaults,
+    id: 'supauth-function-hosted',
+    host,
+    path: hostedRoutePaths,
+    priority: 100,
   });
+
+  if (!input.apiUrl) return;
+
+  await upsertGatewayRoute({
+    ...routeDefaults,
+    id: 'supauth-api',
+    host: hostnameFromUrl(input.apiUrl),
+    path: apiRoutePaths,
+    priority: 110,
+  });
+}
+
+function gatewayRouteDetail(config: ResolvedInstallConfig) {
+  const hosts = [hostnameFromUrl(config.baseUrl), hostnameFromUrl(config.apiUrl)].filter(Boolean);
+  return `${hosts.join(', ')} -> /functions/v1/supauth`;
 }
 
 function splitSqlStatements(sql: string) {
@@ -547,15 +640,17 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
     steps.push({ name: 'gateway-routes', status: 'skipped', detail: 'SUPACLOUD_GATEWAY_ADMIN_TOKEN is not set' });
     warnings.push('Gateway hosted routes were not configured because an admin-scoped SupaCloud token is required.');
   } else if (config.dryRun) {
-    steps.push({ name: 'gateway-routes', status: 'planned', detail: `${hostnameFromUrl(config.baseUrl)} -> /functions/v1/supauth` });
+    steps.push({ name: 'gateway-routes', status: 'planned', detail: gatewayRouteDetail(config) });
   } else {
     await configureGatewayRoutes({
       client: gatewayClient,
       projectRef: config.projectRef,
       baseUrl: config.baseUrl,
+      apiUrl: config.apiUrl,
+      corsOrigins: config.corsOrigins,
       edgeRuntimeUpstream: config.edgeRuntimeUpstream,
     });
-    steps.push({ name: 'gateway-routes', status: 'done', detail: `${hostnameFromUrl(config.baseUrl)} -> /functions/v1/supauth` });
+    steps.push({ name: 'gateway-routes', status: 'done', detail: gatewayRouteDetail(config) });
   }
 
   let probe: SupacloudInstallResult['directFunctionProbe'];
@@ -614,6 +709,8 @@ if (import.meta.main) {
       runtimeInternalUrl: option('runtime-internal-url'),
       oauthAuthorizationProjectRef: option('oauth-authorization-project-ref'),
       baseUrl: option('base-url'),
+      apiUrl: option('api-url'),
+      corsOrigins: option('cors-origins'),
       edgeRuntimeUpstream: option('edge-runtime-upstream'),
       databaseUrl: option('database-url'),
       dryRun: hasFlag('dry-run'),

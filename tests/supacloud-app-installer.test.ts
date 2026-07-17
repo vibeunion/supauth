@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -41,6 +41,38 @@ const requiredOptions = {
   runtimeUrl: 'https://project.example.test',
   databaseUrl: 'postgres://secret-db',
 };
+
+const isolatedEnvKeys = [
+  'SUPACLOUD_GATEWAY_ADMIN_TOKEN',
+  'SUPACLOUD_ADMIN_TOKEN',
+  'SUPAUTH_PUBLIC_URL',
+  'AUTH_PUBLIC_URL',
+  'SUPAUTH_INSTALLED_BASE_URL',
+  'SUPAUTH_BASE_URL',
+  'SUPAUTH_API_URL',
+  'AUTH_API_URL',
+  'CORS_ORIGINS',
+  'SUPACLOUD_DATABASE_URL',
+  'SUPABASE_DB_URL',
+] as const;
+
+let isolatedEnv: Partial<Record<(typeof isolatedEnvKeys)[number], string>>;
+
+beforeEach(() => {
+  isolatedEnv = {};
+  for (const key of isolatedEnvKeys) {
+    if (process.env[key] !== undefined) isolatedEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+});
+
+afterEach(() => {
+  for (const key of isolatedEnvKeys) {
+    const value = isolatedEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
 
 describe('SupaCloud app installer', () => {
   it('keeps migration as an explicit install step in dry-run mode', async () => {
@@ -203,14 +235,19 @@ describe('SupaCloud app installer', () => {
       'SUPACLOUD_API_URL=https://api.from-file.test',
       'SUPACLOUD_PROJECT_REF=project_from_file',
       'SUPACLOUD_API_TOKEN=file-token',
+      'SUPACLOUD_GATEWAY_ADMIN_TOKEN=file-admin-token',
       'SUPACLOUD_RUNTIME_URL=https://runtime.from-file.test',
       'SUPACLOUD_DATABASE_URL=postgres://project-db',
+      'SUPAUTH_PUBLIC_URL=https://auth.from-file.test',
+      'SUPAUTH_API_URL=https://auth-api.from-file.test',
+      'CORS_ORIGINS=https://www.from-file.test',
     ].join('\n'));
 
     const previousDatabaseUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = 'postgres://stale-local-db';
     try {
       const seenSecrets: Array<{ name: string; value: string }> = [];
+      const routeIds: string[] = [];
       const result = await installSupacloudApp({
         root,
         artifactDir,
@@ -223,6 +260,9 @@ describe('SupaCloud app installer', () => {
           if (url.pathname === '/v1/projects/project_from_file/secrets') {
             seenSecrets.push(...JSON.parse(String(init?.body)));
           }
+          if (url.pathname === '/v1/projects/project_from_file/gateway/routes') {
+            routeIds.push(JSON.parse(String(init?.body)).id);
+          }
           return new Response('{}', { status: 200 });
         },
       });
@@ -231,6 +271,11 @@ describe('SupaCloud app installer', () => {
       expect(result.projectRef).toBe('project_from_file');
       expect(seenSecrets).toContainEqual({ name: 'SUPACLOUD_DATABASE_URL', value: 'postgres://project-db' });
       expect(seenSecrets).not.toContainEqual({ name: 'SUPACLOUD_DATABASE_URL', value: 'postgres://stale-local-db' });
+      expect(seenSecrets).toContainEqual({
+        name: 'CORS_ORIGINS',
+        value: 'https://www.from-file.test,https://auth.from-file.test,https://auth-api.from-file.test',
+      });
+      expect(routeIds).toEqual(['supauth-function-hosted', 'supauth-api']);
     } finally {
       if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previousDatabaseUrl;
@@ -281,9 +326,11 @@ describe('SupaCloud app installer', () => {
       },
     });
 
-    const gatewayCall = calls.find((call) => call.path === '/v1/projects/project_123/gateway/routes');
+    const gatewayCalls = calls.filter((call) => call.path === '/v1/projects/project_123/gateway/routes');
+    const gatewayCall = gatewayCalls[0];
     expect(result.ok).toBe(true);
     expect(result.steps).toContainEqual(expect.objectContaining({ name: 'gateway-routes', status: 'done' }));
+    expect(gatewayCalls).toHaveLength(1);
     expect(gatewayCall?.auth).toBe('Bearer admin-token');
     expect(gatewayCall?.body).toMatchObject({
       id: 'supauth-function-hosted',
@@ -291,8 +338,79 @@ describe('SupaCloud app installer', () => {
       upstream: '127.0.0.1:9000',
       rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       priority: 100,
+      cors: expect.arrayContaining(['https://auth.example.test']),
     });
     expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+  });
+
+  it('configures a separate API route and injects deduplicated Function CORS origins', async () => {
+    const { root, artifactDir } = createFixture();
+    const routeBodies: any[] = [];
+    const seenSecrets: Array<{ name: string; value: string }> = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      gatewayAdminToken: 'admin-token',
+      baseUrl: 'https://auth.example.test/',
+      apiUrl: 'https://auth-api.example.test/',
+      corsOrigins: [
+        'https://www.example.test',
+        'https://auth.example.test/path-is-normalized',
+        'https://www.example.test/',
+      ],
+      skipMigration: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/secrets') {
+          seenSecrets.push(...JSON.parse(String(init?.body)));
+        }
+        if (url.pathname === '/v1/projects/project_123/gateway/routes') {
+          routeBodies.push(JSON.parse(String(init?.body)));
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    const cors = [
+      'https://www.example.test',
+      'https://auth.example.test',
+      'https://auth-api.example.test',
+    ];
+    expect(result.ok).toBe(true);
+    expect(seenSecrets).toContainEqual({ name: 'CORS_ORIGINS', value: cors.join(',') });
+    expect(routeBodies).toHaveLength(2);
+    expect(routeBodies[0]).toMatchObject({
+      id: 'supauth-function-hosted',
+      hosts: ['auth.example.test'],
+      cors,
+    });
+    expect(routeBodies[1]).toMatchObject({
+      id: 'supauth-api',
+      hosts: ['auth-api.example.test'],
+      path: ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*', '/'],
+      rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
+      priority: 110,
+      enabled: true,
+      cors,
+    });
+    expect(routeBodies[1].path).not.toContain('/auth/v1/*');
+  });
+
+  it('rejects wildcard CORS when gateway credentials are enabled', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      baseUrl: 'https://auth.example.test',
+      corsOrigins: '*',
+      dryRun: true,
+    })).rejects.toThrow('CORS origin must use http(s): *');
   });
 
   it('fails install when migration verification does not pass', async () => {
