@@ -86,13 +86,13 @@ describe('Supabase claims compatibility contract', () => {
   it('tracks OAuth server access-token claims separately', () => {
     const oauthFixture = readFileSync('tests/integration/supabase-compat/oauth21.test.ts', 'utf8');
 
-    expect(SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS).toEqual(['user_id', 'client_id']);
+    expect(SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS).toEqual(['client_id', 'scope']);
     expect(oauthFixture).toContain('SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS');
     expect(oauthFixture).toContain('expectSupabaseOAuthAccessTokenPayload(payload, metadata.issuer)');
-    expect(oauthFixture).toContain('expect(payload.user_id).toBe(payload.sub)');
+    expect(oauthFixture).toContain('expectGrantedOAuthScope(payload)');
   });
 
-  it('tracks OAuth response scopes separately from JWT claims and enterprise permissions', () => {
+  it('tracks OAuth scope values separately from JWT claim names and enterprise permissions', () => {
     const oauthFixture = readFileSync('tests/integration/supabase-compat/oauth21.test.ts', 'utf8');
 
     expect(SUPABASE_OAUTH_STANDARD_SCOPES).toEqual(['openid', 'email', 'profile', 'phone']);
@@ -118,8 +118,9 @@ describe('Supabase claims compatibility contract', () => {
     const enterpriseBoundaryDocs = readFileSync('docs/enterprise-iam-supabase-boundary.md', 'utf8');
 
     expect(docs).toContain('SupaOAuth does not add top-level JWT claims');
-    expect(docs).toContain('OAuth 2.1 access tokens additionally carry `user_id` and `client_id`');
-    expect(docs).toContain('OAuth response `scope` is response metadata, not an enterprise permission claim');
+    expect(docs).toContain('OAuth 2.1 access tokens additionally carry `client_id` and `scope`');
+    expect(docs).toContain('The standard `sub` claim remains the user identifier');
+    expect(docs).toContain('OAuth `scope` is protocol metadata, not an enterprise permission claim');
     expect(docs).toContain('OAuth scopes, organizations, and permissions map to JWT metadata, Management API lookups, and Supabase RLS policies');
     expect(docs).toContain('app_metadata.supaoauth');
     expect(docs).toContain('permissions_truncated');
@@ -128,8 +129,9 @@ describe('Supabase claims compatibility contract', () => {
     expect(docs).toContain('additional claims such as `amr`, `app_metadata`, and `user_metadata`');
     expect(docs).toContain('The default external OIDC recommendation is still `app_metadata.supaoauth`');
     expect(compatibilityDocs).toContain('`anon` / `authenticated` / `service_role` runtime role switch');
-    expect(compatibilityDocs).toContain('OAuth 2.1 access tokens must also preserve `user_id` and `client_id`');
-    expect(compatibilityDocs).toContain('OAuth response `scope` must remain the granted standard scope string');
+    expect(compatibilityDocs).toContain('OAuth 2.1 access tokens must also preserve `client_id` and `scope`');
+    expect(compatibilityDocs).toContain('User identity remains in the standard `sub` claim');
+    expect(compatibilityDocs).toContain('OAuth `scope` must remain the granted standard scope string');
     expect(compatibilityDocs).toContain('do not confuse this with the OAuth token response `scope`');
     expect(architectureDocs).toContain('JWT claims required by Supabase Auth Hooks, RLS, and Supabase clients');
     expect(architectureDocs).toContain('Supabase metadata claims preserved when present');

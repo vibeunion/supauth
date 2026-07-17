@@ -221,7 +221,7 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     expect(body.access_token).toBeDefined();
     expect(body.token_type).toBe('bearer');
     expect(body.expires_in).toBeDefined();
-    expectGrantedOAuthScope(body);
+    if (body.scope !== undefined) expectGrantedOAuthScope(body);
 
     const { payload } = decodeJwt(String(body.access_token));
     expectSupabaseOAuthAccessTokenPayload(payload, metadata.issuer);
@@ -293,9 +293,7 @@ function expectSupabaseOAuthAccessTokenPayload(payload: JsonObject, issuer: stri
     expect(payload.client_id).toBe(CLIENT_ID);
   }
 
-  if (typeof payload.sub === 'string') {
-    expect(payload.user_id).toBe(payload.sub);
-  }
+  expectGrantedOAuthScope(payload);
 }
 
 function expectGrantedOAuthScope(body: JsonObject): void {

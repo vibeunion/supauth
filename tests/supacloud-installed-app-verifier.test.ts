@@ -34,7 +34,12 @@ function createFixture() {
   return { root, artifactDir };
 }
 
-function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?: string) {
+interface MockFetchRequest {
+  url: URL;
+  init?: RequestInit;
+}
+
+function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?: string, requestLog: MockFetchRequest[] = []) {
   const defaultStatuses: Record<string, number> = {
     '/api/v1/health': 200,
     '/v1/auth-config': 401,
@@ -55,12 +60,14 @@ function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?
     '/rest/v1/': 401,
     '/storage/v1/bucket': 401,
     '/realtime/v1/websocket': 400,
-    '/functions/v1/': 404,
+    '/functions/v1/': 400,
+    '/functions/v1/supauth/api/v1/health': 200,
     ...overrides,
   };
 
-  return async (input: string | URL) => {
+  return async (input: string | URL, init?: RequestInit) => {
     const url = new URL(String(input));
+    requestLog.push({ url, init });
     if (url.pathname === '/oauth/sso/authorize' && url.searchParams.has('client_id')) {
       const location = overrides['/oauth/sso/authorize'] === 302
         ? ssoAuthorizeLocation || 'https://auth.example.test/auth/v1/oauth/authorize?client_id=app_123'
@@ -75,19 +82,30 @@ function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?
 describe('SupaCloud installed app verifier', () => {
   it('accepts an installed SupAuth app with Function, Pages, and preserved runtime routes', async () => {
     const { root, artifactDir } = createFixture();
+    const requestLog: MockFetchRequest[] = [];
 
     const result = await verifySupacloudInstalledApp({
       root,
       artifactDir,
       baseUrl: 'https://auth.example.test',
       runtimeUrl: 'https://project.example.test',
-      fetchImpl: mockFetch(),
+      fetchImpl: mockFetch({}, undefined, requestLog),
     });
+
+    const realtimeRequest = requestLog.find(({ url }) => url.pathname === '/realtime/v1/websocket');
+    const realtimeHeaders = new Headers(realtimeRequest?.init?.headers);
 
     expect(result.ok).toBe(true);
     expect(result.offlineArtifactOk).toBe(true);
     expect(result.errors).toEqual([]);
     expect(result.probes.every((probe) => probe.ok)).toBe(true);
+    expect(result.probes.find((probe) => probe.name === 'functions_preserved')?.status).toBe(400);
+    expect(result.probes.find((probe) => probe.name === 'supauth_function_health_preserved')?.status).toBe(200);
+    expect(realtimeRequest?.url.searchParams.get('vsn')).toBe('1.0.0');
+    expect(realtimeHeaders.get('connection')).toBe('Upgrade');
+    expect(realtimeHeaders.get('upgrade')).toBe('websocket');
+    expect(realtimeHeaders.get('sec-websocket-version')).toBe('13');
+    expect(realtimeHeaders.get('sec-websocket-key')).toBe('dGhlIHNhbXBsZSBub25jZQ==');
   });
 
   it('fails instead of pretending live verification passed when deployed URLs are missing', async () => {
@@ -138,8 +156,23 @@ describe('SupaCloud installed app verifier', () => {
     expect(result.ok).toBe(false);
     expect(result.errors).toContain('postgrest_preserved failed: expected HTTP status in [200, 401, 406], got HTTP 404');
     expect(result.errors).toContain('storage_preserved failed: expected HTTP status in [200, 401], got HTTP 404');
-    expect(result.errors).toContain('realtime_preserved failed: expected HTTP status in [200, 400, 403, 426], got HTTP 404');
+    expect(result.errors).toContain('realtime_preserved failed: expected HTTP status in [400, 401, 403, 426], got HTTP 404');
     expect(result.errors.some((error) => error.includes('functions_preserved'))).toBe(false);
+  });
+
+  it('rejects a missing named SupAuth Function even when the empty slug response is valid', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ '/functions/v1/supauth/api/v1/health': 404 }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('supauth_function_health_preserved failed: expected HTTP 200, got HTTP 404');
   });
 
   it('rejects a manifest hash mismatch', async () => {

@@ -57,9 +57,10 @@ describe('Shared types', () => {
   });
 
   it('exports Supabase OAuth access-token claims separately from all JWT claims', () => {
-    expect(SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS).toEqual(['user_id', 'client_id']);
+    expect(SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS).toEqual(['client_id', 'scope']);
     expect(SUPABASE_REQUIRED_CLAIMS).not.toContain('user_id');
     expect(SUPABASE_REQUIRED_CLAIMS).not.toContain('client_id');
+    expect(SUPABASE_REQUIRED_CLAIMS).not.toContain('scope');
   });
 
   it('exports Supabase OAuth standard scopes separately from JWT claims', () => {

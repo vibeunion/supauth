@@ -36,8 +36,8 @@ export const SUPABASE_METADATA_CLAIMS = [
 export type SupabaseMetadataClaim = typeof SUPABASE_METADATA_CLAIMS[number];
 
 export const SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS = [
-  'user_id',
   'client_id',
+  'scope',
 ] as const;
 
 export type SupabaseOAuthAccessTokenClaim = typeof SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS[number];
@@ -77,9 +77,12 @@ export interface SupaOAuthJWTClaims {
   app_metadata?: Record<string, unknown>;
   user_metadata?: Record<string, unknown>;
 
-  // Supabase OAuth server access-token claims
-  user_id?: string;
+  // Supabase OAuth server access-token claims (stock GoTrue v2.191+)
   client_id?: string;
+  scope?: string;
+
+  /** @deprecated Stock GoTrue uses the standard `sub` claim for the user ID. */
+  user_id?: string;
 
   // SupaOAuth namespaced claims (legacy explicit external_oidc projection only)
   'supaoauth:roles'?: string[];

@@ -79,13 +79,20 @@ if (!tokenResponse.ok || !tokens?.access_token || !tokens.refresh_token) {
 const accessToken = tokens.access_token;
 const refreshToken = tokens.refresh_token;
 const payload = decodeJwtPayload(accessToken);
-if (payload.client_id !== clientId || payload.user_id !== payload.sub) {
+const grantedScopes = typeof payload.scope === 'string' ? payload.scope.split(/\s+/).filter(Boolean) : [];
+const expectedScopes = ['openid', 'email', 'profile'];
+if (
+  payload.client_id !== clientId
+  || typeof payload.sub !== 'string'
+  || expectedScopes.some((scope) => !grantedScopes.includes(scope))
+) {
   throw new Error([
     'SupAuth OAuth compatibility exchange returned an unexpected token shape',
     `client_id_present=${typeof payload.client_id === 'string'}`,
     `client_id_matches=${payload.client_id === clientId}`,
-    `user_id_present=${typeof payload.user_id === 'string'}`,
-    `user_id_matches_sub=${payload.user_id === payload.sub}`,
+    `sub_present=${typeof payload.sub === 'string'}`,
+    `scope_present=${typeof payload.scope === 'string'}`,
+    `scope_values=${grantedScopes.join(',') || '<empty>'}`,
   ].join('; '));
 }
 

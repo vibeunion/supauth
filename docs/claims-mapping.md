@@ -28,9 +28,9 @@ When GoTrue is the token issuer, the Supabase Custom Access Token Hook contract 
 
 **Rule**: SupaOAuth must never remove or alter these claims. They are required by Supabase RLS, PostgREST, Storage, and Realtime.
 
-OAuth 2.1 access tokens additionally carry `user_id` and `client_id`. Treat them as part of the OAuth token shape, including tokens returned from the refresh-token grant, but do not require them on every password/session access token. `user_id` should match `sub`, and `client_id` lets RLS and application APIs distinguish the OAuth client without changing Supabase's runtime `role`.
+OAuth 2.1 access tokens additionally carry `client_id` and `scope`. Treat them as part of the OAuth token shape, including tokens returned from the refresh-token grant, but do not require them on every password/session access token. The standard `sub` claim remains the user identifier; stock GoTrue v2.191 does not add a separate required `user_id` claim. `client_id` lets RLS and application APIs distinguish the OAuth client without changing Supabase's runtime `role`.
 
-OAuth response `scope` is response metadata, not an enterprise permission claim. Preserve the granted standard scope string (`openid`, `email`, `profile`, `phone`) on token responses so UserInfo and ID-token behavior stays Supabase-compatible, but keep database authorization in RLS using `auth.jwt() ->> 'client_id'`, `auth.uid()`, and SupaOAuth permission-version lookups.
+OAuth `scope` is protocol metadata, not an enterprise permission claim. Preserve the granted standard scope string (`openid`, `email`, `profile`, `phone`) in OAuth access tokens so UserInfo and ID-token behavior stays Supabase-compatible. The token endpoint response may omit `scope` when it is unchanged from the request, so compatibility checks validate the JWT claim and accept an optional matching response field. Keep database authorization in RLS using `auth.jwt() ->> 'client_id'`, `auth.uid()`, and SupaOAuth permission-version lookups.
 
 GoTrue tokens commonly include additional claims such as `amr`, `app_metadata`, and `user_metadata`. SupaOAuth preserves those claims when present, and enterprise authorization metadata is namespaced under `app_metadata.supaoauth` instead of top-level JWT claims.
 
