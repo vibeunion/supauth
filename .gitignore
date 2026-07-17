@@ -29,3 +29,4 @@ artifacts/
 # Tenant-specific hosted login page overrides are deployed out-of-band.
 custom-ui/
 packages/auth-server/custom-ui/
+CODEBUDDY.md

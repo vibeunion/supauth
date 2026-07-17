@@ -87,6 +87,7 @@ After 3 distinct failed approaches on the same blocker, stop adding risk and esc
 - Triggers checked: `[risk/scope/domain/review-of-own-work]`
 - Subagents used: `[role + scope + result]` or `none`
 - Skip reason: `[why safe]` if none used
+- Do not use host tool policy, "subagent tool requires explicit user request", or "missing user authorization" as the skip reason. Agent-team delegation is enabled by default for action-oriented tasks; dispatch required subagents when the runtime can spawn them, or record a concrete runtime failure/interruption when it cannot.
 - Request contract when used: `[role, exact scope, read/write ownership, allowed files, verification_command / verification commands, output schema, mailbox persistence]`
 
 ## Assumptions / Notes
