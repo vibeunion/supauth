@@ -86,6 +86,8 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('class="auth-panel"');
     expect(body).toContain("grid.className = 'feature-grid';");
     expect(body).toContain("card.className = 'feature-card';");
+    expect(body).toContain('#custom-content > .feature-grid {');
+    expect(body).toContain('grid-column: 1 / -1;');
     expect(body).toContain('branding.description && branding.description.trim()');
     expect(body).toContain('intro.textContent = branding.description.trim();');
     expect(body).toContain("intro.style.display = 'block';");
@@ -133,7 +135,8 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('title.textContent = branding.page_title;');
     expect(body).toContain('/account-claims/claim');
     expect(body).toContain('data.password_set');
-    expect(body).toContain('function claimErrorMessage(response)');
+    expect(body).toContain('function claimErrorMessage(response, data = {})');
+    expect(body).toContain("data.error.code === 'account_already_claimed'");
     expect(body).toContain("if (response.status >= 500) return t('serverError');");
     expect(body).not.toContain('http://auth.example.com/v1/public');
     expect(body).not.toContain('Example User Center');

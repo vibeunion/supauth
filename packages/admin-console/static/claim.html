@@ -311,7 +311,7 @@
         passwordMismatch: 'The two passwords do not match.',
         claimSuccessSetPassword: 'Account claimed. Your password has been set. Sign in with the new password.',
         claimSuccessInitial: 'Account claimed. Please sign in and change your password soon.',
-        alreadyClaimed: 'The initial password has already been claimed. Contact an administrator if you forgot it.',
+        alreadyClaimed: 'The account has already been claimed. Contact an administrator if you forgot the password.',
         passwordUnavailable: 'Account found, but the initial password is unavailable. Contact an administrator.',
         copiedEmail: 'Email copied.',
         copiedPassword: 'Password copied.',
@@ -344,7 +344,7 @@
         passwordMismatch: '两次输入的密码不一致。',
         claimSuccessSetPassword: '账号领取成功，密码已设置。请使用新密码登录。',
         claimSuccessInitial: '账号领取成功，请尽快登录并修改密码。',
-        alreadyClaimed: '初始密码已领取，如忘记密码请联系管理员重置。',
+        alreadyClaimed: '账号已领取，如忘记密码请联系管理员重置。',
         passwordUnavailable: '账号已找到，但初始密码不可用，请联系管理员。',
         copiedEmail: '邮箱已复制。',
         copiedPassword: '密码已复制。',
@@ -583,7 +583,8 @@
       setMessage('success', targetId === 'password' ? t('copiedPassword') : t('copiedEmail'));
     }
 
-    function claimErrorMessage(response) {
+    function claimErrorMessage(response, data = {}) {
+      if (data && data.error && data.error.code === 'account_already_claimed') return t('alreadyClaimed');
       if (response.status === 429) return t('tooManyAttempts');
       if (response.status >= 500) return t('serverError');
       if (response.status === 400) return t('invalidRequest');
@@ -627,7 +628,7 @@
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) {
-          setMessage('error', claimErrorMessage(response));
+          setMessage('error', claimErrorMessage(response, data));
           return;
         }
         showResult(data);

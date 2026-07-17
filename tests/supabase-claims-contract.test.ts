@@ -147,7 +147,6 @@ describe('Supabase claims compatibility contract', () => {
     const authServer = readFileSync('packages/auth-server/src/index.ts', 'utf8');
     const compatibilityDocs = readFileSync('docs/supabase-compatibility.md', 'utf8');
     const enterpriseBoundaryDocs = readFileSync('docs/enterprise-iam-supabase-boundary.md', 'utf8');
-    const xiguConfigDocs = readFileSync('docs/xigu-shujian-config.md', 'utf8');
     const adminI18n = readFileSync('packages/admin-console/src/lib/i18n.js', 'utf8');
     const hostedAuthorizeHtml = readFileSync('packages/admin-console/static/authorize.html', 'utf8');
     const generatedHostedPages = readFileSync('packages/auth-server/src/generated/hosted-pages.ts', 'utf8');
@@ -174,8 +173,6 @@ describe('Supabase claims compatibility contract', () => {
     expect(compatibilityDocs).toContain('forked `supabase-js`');
     expect(enterpriseBoundaryDocs).toContain('stock upstream GoTrue/Supabase Auth versions provided by SupaCloud');
     expect(enterpriseBoundaryDocs).toContain('not a product-local fork of GoTrue');
-    expect(xiguConfigDocs).toContain('“西谷智灯枢鉴系统”应作为西谷生产租户的部署配置和品牌呈现');
-    expect(xiguConfigDocs).toContain('不把“西谷智灯枢鉴系统”写入默认源码');
     expect(consentFlow).toContain('SupaOAuth 不作为独立 token issuer');
     expect(consentFlow).toContain('GoTrue /token 交换 code');
     expect(consentFlow).toContain('token 仍应是可用于 RLS 的 Supabase JWT');

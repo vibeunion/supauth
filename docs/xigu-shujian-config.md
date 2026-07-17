@@ -40,15 +40,45 @@ bun run scripts/apply-sign-in-experience.ts \
   --dry-run
 ```
 
-确认 payload 后，用管理员 Bearer token 执行：
+确认 payload 后，用管理员 Bearer token 执行。`SUPAUTH_ADMIN_TOKEN` 表示要放入 `Authorization: Bearer ...` 的管理会话 token，**不是**服务端配置的原始 `ADMIN_TOKEN`：
+
+- 开发模式：先用原始 `ADMIN_TOKEN` 调用 `POST /api/v1/auth/login`，再使用响应中由当前 Function 实例管理的 session token。
+- 生产模式：使用通过管理端 SSO 登录获得、且能被配置 issuer/JWKS 验证的 access token。生产环境不接受原始 `ADMIN_TOKEN` 换票。
+
+开发环境可用下列方式在当前 shell 中换取 session token。先通过安全的 secret source 把原始 token 注入当前进程环境；不要在命令历史里直接写 token。该示例不回显或持久化两种 token，执行前请确保未开启 shell trace：
 
 ```sh
-SUPAUTH_ADMIN_TOKEN=... bun run scripts/apply-sign-in-experience.ts \
+set +x
+: "${ADMIN_TOKEN:?Inject ADMIN_TOKEN through a secure secret source first}"
+SUPAUTH_ADMIN_TOKEN="$(
+  bun -e '
+    const baseUrl = process.argv[1].replace(/\/+$/, "");
+    const response = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: process.env.ADMIN_TOKEN }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body?.success || typeof body.token !== "string") {
+      throw new Error(body?.error?.message || `Admin login failed with HTTP ${response.status}`);
+    }
+    process.stdout.write(body.token);
+  ' https://auth.ai.xigu.team
+)"
+export SUPAUTH_ADMIN_TOKEN
+```
+
+不要把两种 token 写入 `.env`、shell profile、部署日志或提交到仓库。当前 shell 操作完成后应执行 `unset ADMIN_TOKEN SUPAUTH_ADMIN_TOKEN`。
+
+```sh
+bun run scripts/apply-sign-in-experience.ts \
   --base-url https://auth.ai.xigu.team \
   --config config/sign-in-experience/xigu-shujian.json
 ```
 
-默认写入 `/api/v1/sign-in-experience`。如果部署环境直接暴露 Function 路径，可显式传入：
+工具会把登录页 overlay 写入 `/api/v1/sign-in-experience`，并把 preset 中 GoTrue `auth-config` 可精确表达的安全字段同步到 `/api/v1/auth-config`：`sign_up_enabled` 映射为 `enable_signup` / `disable_signup`，`password_policy.min_length` 映射为 `password_min_length`，四项密码字符要求映射为 `password_required_characters`。无法精确映射的组合会在写入前被拒绝。`sign_in_methods` 与 `mfa_required` 仍只是 SupAuth overlay metadata；当前 preset 只声明密码登录，企业 SSO 必须通过已启用的 connector/SAML 配置接入，MFA 强制还需要 challenge 与 AAL2 授权策略。
+
+如果部署环境直接暴露 Function 路径，可显式传入 overlay 路径；工具会从该路径派生同前缀的 `/v1/auth-config`。直连示例也必须复用已换取的 `SUPAUTH_ADMIN_TOKEN`：
 
 ```sh
 bun run scripts/apply-sign-in-experience.ts \
@@ -57,8 +87,10 @@ bun run scripts/apply-sign-in-experience.ts \
   --config config/sign-in-experience/xigu-shujian.json
 ```
 
-写入后用公开接口确认最终展示：
+写入成功不等于 runtime 已生效。必须检查工具返回的 overlay 与 `auth-config` read-back，再用公开解析接口确认最终展示：
 
 ```sh
 curl https://auth.ai.xigu.team/v1/public/sign-in-experience/resolve
 ```
+
+对注册开关等 GoTrue runtime 安全项，还应将 `/api/v1/auth-config` 的已认证 read-back 与真实 `/auth/v1/settings` 结果交叉验证，不能只看登录页是否隐藏注册入口。

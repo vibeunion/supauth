@@ -21,6 +21,7 @@
       "description": "统一身份认证与授权中心。一枢通行，万鉴归一。",
       "button_label": "进入枢鉴",
       "primary_color": "#2563eb",
+      "custom_css": null,
       "content": {
         "layout": "features",
         "illustration": "security",
@@ -49,8 +50,7 @@
       }
     },
     "sign_in_methods": [
-      "password",
-      "sso"
+      "password"
     ],
     "sign_up_enabled": false,
     "mfa_required": false,

@@ -56,7 +56,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 - **本地开发端口**：4010，仅 `bun run dev:function` 的 Function emulator 使用
 - **环境变量**：见 `.env.example`
 - **数据库**：共享 SupaCloud 的 Postgres 实例，使用 `supaoauth` schema
-- **认证**：开发模式用 ADMIN_TOKEN，生产模式用 @svadmin/sso session
+- **认证**：开发模式先用原始 `ADMIN_TOKEN` 调用 `POST /api/v1/auth/login` 换取管理 session token；生产模式用 `@svadmin/sso` access token。原始 `ADMIN_TOKEN` 不能直接作为管理 API Bearer token
 
 ### 部署步骤
 
@@ -85,7 +85,9 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 仓库已忽略 `custom-ui/` 与 `packages/auth-server/custom-ui/`。默认开源模板只保留中性布局和渲染能力，具体业务文案、视觉和完整页面资源应来自数据库配置或部署目录。
 
-西谷“枢鉴”这类部署品牌使用租户配置落地，不写入开源默认源码。示例配置见 `config/sign-in-experience/xigu-shujian.json`，边界说明见 `docs/xigu-shujian-config.md`。可通过 `bun run tenant:apply-sign-in -- --base-url <auth-origin> --config <preset.json>` 写入目标环境；先加 `--dry-run` 检查 payload，再使用管理员 Bearer token 执行真实写入。
+西谷“枢鉴”这类部署品牌使用租户配置落地，不写入开源默认源码。示例配置见 `config/sign-in-experience/xigu-shujian.json`，边界说明见 `docs/xigu-shujian-config.md`。可通过 `bun run tenant:apply-sign-in -- --base-url <auth-origin> --config <preset.json>` 写入目标环境；先加 `--dry-run` 检查 payload，再使用已换取的管理 session token 或 SSO access token 执行真实写入，不得把原始 `ADMIN_TOKEN` 直接作为 Bearer。
+
+应用工具会同步 sign-in overlay，以及 preset 中可精确映射的 GoTrue `auth-config` 安全项，包括注册开关、密码最小长度和密码字符要求。`sign_in_methods` 与 `mfa_required` 仍是 overlay metadata，SSO 由 connector/SAML 配置启用，MFA 强制需要 challenge 与 AAL2 策略。部署验收必须检查工具返回的两类 read-back，并对注册开关等项交叉验证 GoTrue `/auth/v1/settings`；不能仅以托管页面显示结果作为安全策略生效证据。
 
 ## Admin Console
 

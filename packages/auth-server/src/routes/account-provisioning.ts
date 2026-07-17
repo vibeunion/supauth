@@ -1,7 +1,8 @@
 // Account provisioning and public self-service account claiming.
 
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import { getConfig } from '../config/index.js';
+import { getSupaCloudAdapter, getSupaCloudAdapterForProject, type SupaCloudAdapter } from '../supacloud/adapter.js';
 import * as accountProvisioning from '../repositories/account-provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
@@ -167,17 +168,53 @@ function unwrapUser(value: Record<string, unknown>): Record<string, unknown> {
   return value;
 }
 
-async function updateClaimedUserPassword(
+export function resolveAccountClaimPasswordProjectRefs(input: {
+  projectRef?: string;
+  oauthAuthorizationProjectRef?: string;
+  extraProjectRefs?: string;
+}) {
+  const refs = new Set<string>();
+  for (const value of [
+    input.projectRef,
+    input.oauthAuthorizationProjectRef,
+    ...(input.extraProjectRefs || '').split(','),
+  ]) {
+    const ref = String(value || '').trim();
+    if (ref) refs.add(ref);
+  }
+  return [...refs];
+}
+
+async function updateUserPasswordWithAdapter(
+  targetAdapter: SupaCloudAdapter,
   target: accountProvisioning.AccountClaimPasswordUpdateTarget,
   password: string,
 ) {
-  const existing = unwrapUser(await adapter.getUser(target.userId) as Record<string, unknown>);
-  await adapter.updateUser(target.userId, {
+  const existing = unwrapUser(await targetAdapter.getUser(target.userId) as Record<string, unknown>);
+  await targetAdapter.updateUser(target.userId, {
     email: typeof existing.email === 'string' ? existing.email : target.email,
     password,
     user_metadata: isRecord(existing.user_metadata) ? existing.user_metadata : {},
     app_metadata: isRecord(existing.app_metadata) ? existing.app_metadata : {},
   });
+}
+
+async function updateClaimedUserPassword(
+  target: accountProvisioning.AccountClaimPasswordUpdateTarget,
+  password: string,
+) {
+  const config = getConfig();
+  const projectRefs = resolveAccountClaimPasswordProjectRefs({
+    projectRef: config.projectRef,
+    oauthAuthorizationProjectRef: config.oauthAuthorizationProjectRef,
+    extraProjectRefs: process.env.SUPAUTH_ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS
+      || process.env.ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS,
+  });
+
+  for (const projectRef of projectRefs) {
+    const targetAdapter = projectRef === config.projectRef ? adapter : getSupaCloudAdapterForProject(projectRef);
+    await updateUserPasswordWithAdapter(targetAdapter, target, password);
+  }
 }
 
 function typedExternalIdMetadata(record: accountProvisioning.AccountProvisioningImportRecord) {
@@ -346,6 +383,16 @@ export function createPublicAccountClaimRoutes(options?: {
         return { success: false, error: { code: 'account_not_found', message: 'Account not found.' } };
       }
       if (result.status === 'already_claimed') {
+        if (passwordMode === 'set_on_claim') {
+          set.status = 409;
+          return {
+            success: false,
+            error: {
+              code: 'account_already_claimed',
+              message: 'Account has already been claimed.',
+            },
+          };
+        }
         return {
           success: true,
           status: result.status,
