@@ -13,6 +13,7 @@
     unlinkUserIdentity,
     getUserRoles,
     getUserPermissions,
+    listApplications,
   } from '$lib/api/client.js';
   import { permissionDescription, permissionLabel } from '$lib/permission-catalog.js';
 
@@ -32,6 +33,8 @@
   let roles = $state([]);
   let permissions = $state([]);
   let rolesPermissionsLoaded = $state(false);
+  let applications = $state([]);
+  let selectedApplicationId = $state('');
 
   function isSuspended(user) {
     const until = user?.banned_until;
@@ -113,8 +116,12 @@
   async function load() {
     loading = true;
     try {
-      const res = await listUsers();
-      users = Array.isArray(res) ? res : (res.users || res.items || res.data || []);
+      const [userRes, applicationRes] = await Promise.all([
+        listUsers(),
+        listApplications().catch(() => ({ items: [] })),
+      ]);
+      users = Array.isArray(userRes) ? userRes : (userRes.users || userRes.items || userRes.data || []);
+      applications = Array.isArray(applicationRes) ? applicationRes : (applicationRes.items || applicationRes.data || []);
     } catch (e) {
       error = e.message;
     }
@@ -148,10 +155,10 @@
     if (rolesPermissionsLoaded || !selectedUser) return;
     try {
       const [r, p] = await Promise.all([
-        getUserRoles(selectedUser.id).catch(() => ({ items: [] })),
-        getUserPermissions(selectedUser.id).catch(() => ({ items: [], permissions: [] })),
+        getUserRoles(selectedUser.id, selectedApplicationId).catch(() => ({ items: [] })),
+        getUserPermissions(selectedUser.id, undefined, selectedApplicationId).catch(() => ({ items: [], permissions: [] })),
       ]);
-      roles = r.items || r.data || (Array.isArray(r) ? r : []);
+      roles = (r.items || r.data || (Array.isArray(r) ? r : [])).map((item) => item.role || item);
       permissions = p.items || p.permissions || p.data || (Array.isArray(p) ? p : []);
     } catch (e) {
       error = e.message;
@@ -162,6 +169,21 @@
   function switchTab(tab) {
     activeTab = tab;
     if (tab === 'rolesPermissions') ensureRolesPermissions();
+  }
+
+  async function changeApplicationScope() {
+    rolesPermissionsLoaded = false;
+    roles = [];
+    permissions = [];
+    await ensureRolesPermissions();
+  }
+
+  function applicationId(application) {
+    return application?.id || application?.client_id || application?.clientId || application?.application_id || '';
+  }
+
+  function applicationLabel(application) {
+    return application?.name || application?.client_name || application?.clientName || applicationId(application);
   }
 
   async function handleToggleSuspend(user, evt) {
@@ -459,6 +481,16 @@
             {/each}
           </div>
         {:else if activeTab === 'rolesPermissions'}
+          <section>
+            <label for="user-permission-application" class="mb-1 block text-sm font-semibold text-surface-700">{t('users.applicationContext')}</label>
+            <select id="user-permission-application" bind:value={selectedApplicationId} onchange={changeApplicationScope} class="w-full rounded-xl border border-surface-300 bg-white px-3 py-2 text-sm">
+              <option value="">{t('users.projectWideContext')}</option>
+              {#each applications as application (applicationId(application))}
+                <option value={applicationId(application)}>{applicationLabel(application)} · {applicationId(application)}</option>
+              {/each}
+            </select>
+            <p class="mt-1 text-xs text-surface-500">{t('users.applicationContextHint')}</p>
+          </section>
           <section>
             <h4 class="text-sm font-semibold text-surface-700 mb-2">{t('users.assignedRoles')}</h4>
             <div class="bg-white rounded-xl border border-surface-200 divide-y divide-surface-100">

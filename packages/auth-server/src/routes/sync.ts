@@ -6,7 +6,8 @@ import { syncUserMetadata, syncOrgMetadata } from '../sync/index.js';
 export const syncRoutes = new Elysia({ prefix: '/v1/sync' })
   .post('/user/:userId', async ({ params, query }) => {
     const orgId = query.org_id as string | undefined;
-    return syncUserMetadata(params.userId, orgId);
+    const applicationId = query.application_id as string | undefined;
+    return syncUserMetadata(params.userId, orgId, applicationId);
   }, {
     detail: {
       summary: 'Sync user metadata to GoTrue app_metadata',

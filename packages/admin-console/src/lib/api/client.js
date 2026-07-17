@@ -237,13 +237,17 @@ export function deleteUser(userId) {
   });
 }
 
-export function getUserPermissions(userId, orgId) {
-  const qs = orgId ? `?org_id=${orgId}` : '';
-  return request(`/v1/users/${userId}/permissions${qs}`);
+export function getUserPermissions(userId, orgId, applicationId) {
+  const qs = new URLSearchParams();
+  if (orgId) qs.set('org_id', orgId);
+  if (applicationId) qs.set('application_id', applicationId);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return request(`/v1/users/${userId}/permissions${suffix}`);
 }
 
-export function getUserRoles(userId) {
-  return request(`/v1/users/${userId}/roles`);
+export function getUserRoles(userId, applicationId) {
+  const suffix = applicationId ? `?application_id=${encodeURIComponent(applicationId)}` : '';
+  return request(`/v1/users/${userId}/roles${suffix}`);
 }
 
 export function listUserSessions(userId) {

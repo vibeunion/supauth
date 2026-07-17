@@ -22,6 +22,7 @@ export interface SupaOAuthRbacProjectionInput {
   roles: string[];
   permissions: string[];
   version?: number;
+  applicationId?: string;
   currentOrgId?: string;
   currentOrgRole?: string;
 }
@@ -74,6 +75,10 @@ export function buildSupaoauthRbacProjection(input: SupaOAuthRbacProjectionInput
     permissions: permissionProjectionFits ? permissions : [],
   };
 
+  if (input.applicationId) {
+    supaoauth.application_id = input.applicationId;
+  }
+
   if (!roleProjectionFits) {
     supaoauth.roles_truncated = true;
     supaoauth.roles_projection_limit = MAX_JWT_ROLE_PROJECTION;
@@ -96,14 +101,20 @@ export function buildSupaoauthRbacProjection(input: SupaOAuthRbacProjectionInput
 async function buildSupaoauthNamespace(
   userId: string,
   orgId?: string,
+  applicationId?: string,
 ): Promise<Record<string, unknown>> {
   const adapter = getSupaCloudAdapter();
-  const resolved = await adapter.resolveUserPermissions(userId, orgId);
+  const resolved = await adapter.resolveUserPermissions(userId, orgId, applicationId);
   let currentOrgRole: string | undefined;
 
   if (orgId) {
     const assignments = getItems(await adapter.getOrgRoleAssignments(orgId)) as Array<Record<string, unknown>>;
-    const userAssignment = assignments.find((assignment) => assignment.userId === userId || assignment.user_id === userId);
+    const userAssignment = assignments.find((assignment) => {
+      const matchesUser = assignment.userId === userId || assignment.user_id === userId;
+      const assignedApplicationId = assignment.applicationId || assignment.application_id;
+      const matchesApplication = !applicationId || !assignedApplicationId || assignedApplicationId === applicationId;
+      return matchesUser && matchesApplication;
+    });
     const role = userAssignment?.role && typeof userAssignment.role === 'object'
       ? userAssignment.role as Record<string, unknown>
       : null;
@@ -117,6 +128,7 @@ async function buildSupaoauthNamespace(
   return buildSupaoauthRbacProjection({
     roles: getNames(resolved, 'roles'),
     permissions: getNames(resolved, 'permissions'),
+    applicationId,
     currentOrgId: orgId,
     currentOrgRole,
   });
@@ -129,7 +141,7 @@ async function buildSupaoauthNamespace(
  * 3. Write back the full merged app_metadata.
  * 4. Verify that non-supaoauth fields are preserved.
  */
-export async function syncUserMetadata(userId: string, orgId?: string): Promise<SyncResult> {
+export async function syncUserMetadata(userId: string, orgId?: string, applicationId?: string): Promise<SyncResult> {
   const config = getConfig();
   if (config.runtimeMode !== 'gotrue') {
     return { success: true, userId, appMetadataPatch: {} };
@@ -143,12 +155,32 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
     const existingAppMetadata = (existingUser.app_metadata as Record<string, unknown>) || {};
 
     // Step 2: Build the new supaoauth namespace
-    const newSupaoauth = await buildSupaoauthNamespace(userId, orgId);
+    const newSupaoauth = await buildSupaoauthNamespace(userId, orgId, applicationId);
+    const existingSupaoauth = existingAppMetadata.supaoauth && typeof existingAppMetadata.supaoauth === 'object'
+      ? existingAppMetadata.supaoauth as Record<string, unknown>
+      : {};
+    const existingApplications = existingSupaoauth.applications && typeof existingSupaoauth.applications === 'object'
+      ? existingSupaoauth.applications as Record<string, unknown>
+      : {};
+    const mergedSupaoauth = applicationId
+      ? {
+          ...existingSupaoauth,
+          applications: {
+            ...existingApplications,
+            [applicationId]: newSupaoauth,
+          },
+          rbac_synced_at: new Date().toISOString(),
+        }
+      : {
+          ...newSupaoauth,
+          ...(Object.keys(existingApplications).length > 0 ? { applications: existingApplications } : {}),
+          rbac_synced_at: new Date().toISOString(),
+        };
 
     // Step 3: Deep-merge — only replace `supaoauth` key, preserve everything else
     const mergedAppMetadata: Record<string, unknown> = {
       ...existingAppMetadata,
-      supaoauth: newSupaoauth,
+      supaoauth: mergedSupaoauth,
     };
 
     // Step 4: Verify critical fields are preserved
@@ -172,13 +204,13 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
       resourceType: 'user',
       resourceId: userId,
       actorType: 'system',
-      details: { orgId, roles: newSupaoauth.roles, preserved_fields: preservedFieldsPresent },
+      details: { orgId, applicationId, roles: newSupaoauth.roles, preserved_fields: preservedFieldsPresent },
     });
 
     return {
       success: true,
       userId,
-      appMetadataPatch: { supaoauth: newSupaoauth },
+      appMetadataPatch: { supaoauth: mergedSupaoauth },
       preservedFields: preservedFieldsPresent,
     };
   } catch (e) {
@@ -188,7 +220,7 @@ export async function syncUserMetadata(userId: string, orgId?: string): Promise<
       resourceType: 'user',
       resourceId: userId,
       actorType: 'system',
-      details: { orgId, error },
+      details: { orgId, applicationId, error },
     });
     return { success: false, userId, appMetadataPatch: {}, error };
   }

@@ -139,6 +139,24 @@ export function handleCustomAccessToken(payload: CustomAccessTokenPayload): { cl
   const claims = removeTopLevelSupaOAuthClaims(isRecord(payload.claims) ? payload.claims : {});
   const appMetadata = isRecord(claims.app_metadata) ? claims.app_metadata : {};
   const existingSupaOAuth = isRecord(appMetadata.supaoauth) ? appMetadata.supaoauth : {};
+  const clientId = typeof claims.client_id === 'string'
+    ? claims.client_id
+    : typeof claims.azp === 'string'
+      ? claims.azp
+      : '';
+  const applications = isRecord(existingSupaOAuth.applications) ? existingSupaOAuth.applications : {};
+  const applicationProjection = clientId && isRecord(applications[clientId])
+    ? applications[clientId] as Record<string, unknown>
+    : null;
+  const globalProjection = { ...existingSupaOAuth };
+  delete globalProjection.applications;
+  const tokenProjection = clientId
+    ? {
+        ...globalProjection,
+        ...(applicationProjection || {}),
+        application_id: clientId,
+      }
+    : existingSupaOAuth;
 
   return {
     claims: {
@@ -146,7 +164,7 @@ export function handleCustomAccessToken(payload: CustomAccessTokenPayload): { cl
       app_metadata: {
         ...appMetadata,
         supaoauth: {
-          ...existingSupaOAuth,
+          ...tokenProjection,
           hook: {
             version: 1,
             authentication_method: payload.authentication_method || 'unknown',

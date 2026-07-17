@@ -764,6 +764,7 @@ export function createPublicAccountRoutes(options?: {
   enrollTotpMfa?: (accessToken: string, input: { friendly_name: string; issuer?: string }) => Promise<MfaOperationResult>;
   verifyTotpMfa?: (accessToken: string, factorId: string, input: { code: string; challengeId?: string | null }) => Promise<MfaOperationResult>;
   unenrollMfa?: (accessToken: string, factorId: string) => Promise<MfaOperationResult>;
+  resolvePermissions?: (userId: string, orgId?: string, applicationId?: string) => Promise<unknown>;
   deleteAccount?: (userId: string) => Promise<unknown>;
   auditEvent?: (eventType: string, userId: string, details?: Record<string, unknown>) => Promise<void>;
   }) {
@@ -782,6 +783,8 @@ export function createPublicAccountRoutes(options?: {
   const enrollTotpMfa = options?.enrollTotpMfa || enrollTotpMfaWithGoTrue;
   const verifyTotpMfa = options?.verifyTotpMfa || verifyTotpMfaWithGoTrue;
   const unenrollMfa = options?.unenrollMfa || unenrollMfaFactorWithGoTrue;
+  const resolvePermissions = options?.resolvePermissions || ((userId: string, orgId?: string, applicationId?: string) =>
+    adapter.resolveUserPermissions(userId, orgId, applicationId));
     const deleteAccount = options?.deleteAccount || deleteCurrentUserAccount;
     const auditEvent = options?.auditEvent || auditAccountEvent;
 
@@ -840,6 +843,27 @@ export function createPublicAccountRoutes(options?: {
       return { success: true, user: account.user };
     }, {
       detail: { summary: 'Get current account profile with user access token', tags: ['Public', 'Account Center'] },
+    })
+    .get('/permissions', async ({ headers, query, set }) => {
+      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+      if (!account.ok) return account.response;
+      const applicationId = typeof query.application_id === 'string' ? query.application_id.trim() : '';
+      const orgId = typeof query.org_id === 'string' ? query.org_id.trim() : undefined;
+      if (!applicationId || applicationId.length > 255) {
+        set.status = 400;
+        return {
+          success: false,
+          error: { code: 'application_id_required', message: 'A valid application_id is required.' },
+        };
+      }
+      const resolved = await resolvePermissions(account.userId, orgId || undefined, applicationId);
+      return {
+        ...(isRecord(resolved) ? resolved : { data: resolved }),
+        success: true,
+        application_id: applicationId,
+      };
+    }, {
+      detail: { summary: 'Resolve current user permissions for one application', tags: ['Public', 'Account Center', 'RBAC'] },
     })
     .patch('/profile', async ({ headers, body, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);

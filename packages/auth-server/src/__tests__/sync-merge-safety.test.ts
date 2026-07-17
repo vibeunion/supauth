@@ -109,6 +109,7 @@ describe('P0-27: app_metadata merge safety', () => {
       roles: ['admin', 'admin', 'operator'],
       permissions: ['users.read', 'users.read', 'reports.export'],
       version: 123,
+      applicationId: 'fa-app',
       currentOrgId: 'org-one',
       currentOrgRole: 'owner',
     });
@@ -118,6 +119,7 @@ describe('P0-27: app_metadata merge safety', () => {
     expect(projection.permissions_count).toBe(2);
     expect(projection.rbac_version).toBe(123);
     expect(projection.permissions_version).toBe(123);
+    expect(projection.application_id).toBe('fa-app');
     expect(projection.current_org_id).toBe('org-one');
     expect(projection.current_org_role).toBe('owner');
     expect(projection.permissions_truncated).toBeUndefined();

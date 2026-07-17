@@ -17,7 +17,7 @@
   let customPermission = $state({ name: '', description: '' });
   let cloneRole = $state({ name: '', description: '' });
   let showClone = $state(false);
-  let assignmentForm = $state({ targetType: 'user', targetId: '', organizationId: '', assignmentId: '' });
+  let assignmentForm = $state({ targetType: 'user', targetId: '', applicationId: '', organizationId: '', assignmentId: '' });
   let assignments = $state([]);
   let assignmentsLoading = $state(false);
   let assignmentMessage = $state(null);
@@ -217,6 +217,11 @@
 
   function assignmentOrganization(assignment) {
     return assignment?.organization_id || assignment?.organizationId || '-';
+  }
+
+  function assignmentApplication(assignment) {
+    const userId = assignment?.user_id || assignment?.userId;
+    return userId ? (assignment?.application_id || assignment?.applicationId || t('roles.projectWide')) : '-';
   }
 
   function assignmentCreatedAt(assignment) {
@@ -492,14 +497,19 @@
     const targetId = assignmentForm.targetId.trim();
     if (!targetId) return;
     const payload = {
-      ...(assignmentForm.targetType === 'user' ? { user_id: targetId } : { application_id: targetId }),
+      ...(assignmentForm.targetType === 'user'
+        ? {
+            user_id: targetId,
+            ...(assignmentForm.applicationId.trim() ? { application_id: assignmentForm.applicationId.trim() } : {}),
+          }
+        : { application_id: targetId }),
       ...(assignmentForm.organizationId.trim() ? { organization_id: assignmentForm.organizationId.trim() } : {}),
     };
     if (!confirm(formatText('roles.confirmAssign', { role: role.name, target: targetId }))) return;
     saving = true;
     try {
       const assignment = await assignRole(role.id, payload);
-      assignmentForm = { ...assignmentForm, targetId: '' };
+      assignmentForm = { ...assignmentForm, targetId: '', applicationId: '' };
       assignmentMessage = formatText('roles.assignmentCreated', { id: assignmentIdOf(assignment) || t('common.notAvailable') });
       await loadRoleAssignments(role.id);
       error = null;
@@ -869,7 +879,7 @@
                     id="assignment-target-type"
                     bind:value={assignmentForm.targetType}
                     onchange={() => {
-                      assignmentForm = { ...assignmentForm, targetId: '' };
+                      assignmentForm = { ...assignmentForm, targetId: '', applicationId: '' };
                       targetSearch = '';
                     }}
                     class="w-full rounded-xl border border-surface-300 bg-white px-3 py-2 text-sm"
@@ -891,6 +901,15 @@
                         </button>
                       {/each}
                     </div>
+                  {/if}
+                  {#if assignmentForm.targetType === 'user'}
+                    <label for="assignment-application-id" class="mb-1 mt-3 block text-xs font-medium text-surface-600">{t('roles.applicationContextOptional')}</label>
+                    <select id="assignment-application-id" bind:value={assignmentForm.applicationId} class="w-full rounded-xl border border-surface-300 bg-white px-3 py-2 text-sm">
+                      <option value="">{t('roles.projectWide')}</option>
+                      {#each applications as application (applicationId(application))}
+                        <option value={applicationId(application)}>{applicationLabel(application)}</option>
+                      {/each}
+                    </select>
                   {/if}
                 </div>
                 <div>
@@ -935,12 +954,13 @@
               {:else if assignments.length === 0}
                 <div class="mt-3 rounded-xl border border-dashed border-surface-300 bg-surface-50 p-4 text-sm text-surface-500">{t('roles.noAssignments')}</div>
               {:else}
-                <div class="mt-3 overflow-hidden rounded-xl border border-surface-200">
+                <div class="mt-3 overflow-x-auto rounded-xl border border-surface-200">
                   <table class="w-full text-sm">
                     <thead class="bg-surface-50 text-xs font-semibold uppercase tracking-wide text-surface-500">
                       <tr>
                         <th class="px-3 py-2 text-left">{t('roles.targetType')}</th>
                         <th class="px-3 py-2 text-left">{t('roles.targetId')}</th>
+                        <th class="px-3 py-2 text-left">{t('roles.applicationContext')}</th>
                         <th class="px-3 py-2 text-left">{t('roles.organizationOptional')}</th>
                         <th class="px-3 py-2 text-left">{t('Created')}</th>
                         <th class="px-3 py-2 text-right">{t('roles.assignmentAction')}</th>
@@ -953,6 +973,7 @@
                         <tr class="border-t border-surface-100">
                           <td class="px-3 py-2 text-surface-700">{target.type}</td>
                           <td class="px-3 py-2"><code class="rounded bg-surface-100 px-1.5 py-0.5 text-xs text-surface-600">{target.id}</code></td>
+                          <td class="px-3 py-2 text-surface-500">{assignmentApplication(assignment)}</td>
                           <td class="px-3 py-2 text-surface-500">{assignmentOrganization(assignment)}</td>
                           <td class="px-3 py-2 text-xs text-surface-500">{assignmentCreatedAt(assignment)}</td>
                           <td class="px-3 py-2 text-right">

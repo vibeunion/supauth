@@ -109,6 +109,31 @@ describe('Auth Hooks bridge', () => {
     expect((result.claims.app_metadata as any).supaoauth.permissions_version).toBe(3);
   });
 
+  it('projects only the current application RBAC namespace into the access token', () => {
+    const result = handleCustomAccessToken({
+      authentication_method: 'oauth_provider/authorization_code',
+      claims: {
+        client_id: 'fa-app',
+        app_metadata: {
+          supaoauth: {
+            roles: ['project_viewer'],
+            permissions: ['project.read'],
+            applications: {
+              'fa-app': { roles: ['fa_engineer'], permissions: ['fa.rework.approve'] },
+              'other-app': { roles: ['other_admin'], permissions: ['other.manage'] },
+            },
+          },
+        },
+      },
+    });
+
+    const supaoauth = (result.claims.app_metadata as any).supaoauth;
+    expect(supaoauth.application_id).toBe('fa-app');
+    expect(supaoauth.roles).toEqual(['fa_engineer']);
+    expect(supaoauth.permissions).toEqual(['fa.rework.approve']);
+    expect(supaoauth.applications).toBeUndefined();
+  });
+
   it('removes legacy top-level SupaOAuth claims from custom access token output', () => {
     const result = handleCustomAccessToken({
       authentication_method: 'token_refresh',

@@ -65,8 +65,8 @@ describe('SupaCloud Management API facade routes', () => {
       'http://supauth.local/v1/roles/role-one/assign',
       'http://supauth.local/v1/audit?resource_type=user&limit=5',
       'http://supauth.local/v1/webhooks',
-      'http://supauth.local/v1/users/user-one/roles',
-      'http://supauth.local/v1/users/user-one/permissions?org_id=org-one',
+      'http://supauth.local/v1/users/user-one/roles?application_id=fa-app',
+      'http://supauth.local/v1/users/user-one/permissions?org_id=org-one&application_id=fa-app',
       'http://supauth.local/v1/passkeys/user-one',
     ];
     const responses = [];
@@ -84,8 +84,8 @@ describe('SupaCloud Management API facade routes', () => {
       ['GET', '/v1/projects/{projectRef}/rbac/roles/role-one/assign'],
       ['GET', '/v1/projects/{projectRef}/audit?resource_type=user&limit=5'],
       ['GET', '/v1/projects/{projectRef}/webhooks'],
-      ['GET', '/v1/projects/{projectRef}/auth/users/user-one/roles'],
-      ['GET', '/v1/projects/{projectRef}/auth/users/user-one/permissions?org_id=org-one'],
+      ['GET', '/v1/projects/{projectRef}/auth/users/user-one/roles?application_id=fa-app'],
+      ['GET', '/v1/projects/{projectRef}/auth/users/user-one/permissions?org_id=org-one&application_id=fa-app'],
       ['GET', '/v1/projects/{projectRef}/auth/users/user-one/passkeys'],
     ]);
   });

@@ -386,6 +386,48 @@ describe('account self-service API', () => {
     });
   });
 
+  test('resolves permissions only for the requested application context', async () => {
+    const app = new Elysia().use(routes({
+      getAccount: async () => ({ ok: true, user: { id: 'user-1', email: 'user@example.test' } }),
+      resolvePermissions: async (userId, orgId, applicationId) => {
+        expect(userId).toBe('user-1');
+        expect(orgId).toBe('org-one');
+        expect(applicationId).toBe('fa-app');
+        return { roles: ['fa_engineer'], permissions: ['fa.rework.approve'], scopes: [] };
+      },
+    }));
+
+    const response = await app.handle(new Request(
+      'http://localhost/v1/public/account/permissions?application_id=fa-app&org_id=org-one',
+      { headers: { Authorization: 'Bearer user-access-token' } },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: true,
+      application_id: 'fa-app',
+      roles: ['fa_engineer'],
+      permissions: ['fa.rework.approve'],
+      scopes: [],
+    });
+  });
+
+  test('rejects public permission resolution without an application context', async () => {
+    const app = new Elysia().use(routes({
+      getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
+    }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/account/permissions', {
+      headers: { Authorization: 'Bearer user-access-token' },
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: { code: 'application_id_required', message: 'A valid application_id is required.' },
+    });
+  });
+
   test('public config route does not require a token', async () => {
     const app = new Elysia().use(routes({
       getConfig: async () => sanitizeAccountCenterConfig({

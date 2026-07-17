@@ -347,20 +347,27 @@ SET search_path = supaoauth, public, auth
 AS $$
   WITH claims AS (
     SELECT COALESCE(auth.jwt() -> 'app_metadata' -> 'supaoauth', '{}'::jsonb) AS supaoauth_claims
+  ), scoped AS (
+    SELECT
+      CASE
+        WHEN jsonb_typeof(supaoauth_claims -> 'applications' -> client_id) = 'object'
+          THEN supaoauth_claims -> 'applications' -> client_id
+        WHEN supaoauth_claims ->> 'application_id' = client_id
+          OR auth.jwt() ->> 'client_id' = client_id
+          THEN supaoauth_claims
+        ELSE '{}'::jsonb
+      END AS application_claims
+    FROM claims
   )
   SELECT
-    COALESCE((supaoauth_claims -> 'permissions') ? permission_name, false)
-    AND COALESCE(supaoauth_claims -> 'permissions_truncated', 'false'::jsonb) <> 'true'::jsonb
-    AND (
-      supaoauth_claims ->> 'application_id' = client_id
-      OR auth.jwt() ->> 'client_id' = client_id
-    )
+    COALESCE((application_claims -> 'permissions') ? permission_name, false)
+    AND COALESCE(application_claims -> 'permissions_truncated', 'false'::jsonb) <> 'true'::jsonb
     AND (
       organization_id IS NULL
-      OR supaoauth_claims ->> 'current_org_id' = organization_id::text
-      OR COALESCE((supaoauth_claims -> 'organization_ids') ? organization_id::text, false)
+      OR application_claims ->> 'current_org_id' = organization_id::text
+      OR COALESCE((application_claims -> 'organization_ids') ? organization_id::text, false)
     )
-  FROM claims;
+  FROM scoped;
 $$;
 
 REVOKE ALL ON FUNCTION supaoauth.authorize(TEXT, UUID) FROM PUBLIC;

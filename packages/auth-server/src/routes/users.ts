@@ -108,12 +108,13 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
   })
   .get('/:userId/permissions', async ({ params, query }) => {
     const orgId = query.org_id as string | undefined;
-    return adapter.resolveUserPermissions(params.userId, orgId);
+    const applicationId = query.application_id as string | undefined;
+    return adapter.resolveUserPermissions(params.userId, orgId, applicationId);
   }, {
     detail: { summary: 'Resolve effective permissions for a user', tags: ['Users', 'RBAC'] },
   })
-  .get('/:userId/roles', async ({ params }) => {
-    return toListResponse(await adapter.getUserRoleAssignments(params.userId));
+  .get('/:userId/roles', async ({ params, query }) => {
+    return toListResponse(await adapter.getUserRoleAssignments(params.userId, query.application_id as string | undefined));
   }, {
     detail: { summary: 'Get role assignments for a user', tags: ['Users', 'RBAC'] },
   });
