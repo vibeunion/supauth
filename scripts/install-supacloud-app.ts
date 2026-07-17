@@ -163,7 +163,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     'OAUTH_AUTHORIZATION_PROJECT_REF',
     'GOTRUE_AUTHORIZATION_PROJECT_REF',
   ]);
-  const databaseUrl = firstValue(sources, ['SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL', 'DATABASE_URL']);
+  const databaseUrl = firstValue(sources, ['SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL']);
   const baseUrl = firstValue(sources, ['SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL']);
   const edgeRuntimeUpstream = firstValue(sources, ['SUPACLOUD_EDGE_RUNTIME_UPSTREAM', 'EDGE_RUNTIME_UPSTREAM']);
 
