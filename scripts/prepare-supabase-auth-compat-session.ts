@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { appendFileSync } from 'node:fs';
+import { createSupaCloudOAuthFetch } from '@supacloud/js';
 import { createClient } from '@supabase/supabase-js';
 
 const runtimeUrl = requiredEnv('OAUTH_RUNTIME_URL').replace(/\/auth\/v1\/?$/, '').replace(/\/+$/, '');
@@ -76,8 +77,28 @@ if (!tokenResponse.ok || !tokens?.access_token || !tokens.refresh_token) {
   throw new Error(`OAuth authorization-code exchange failed with status ${tokenResponse.status}: ${tokens?.error || 'missing tokens'}`);
 }
 
-const accessToken = tokens.access_token;
-const refreshToken = tokens.refresh_token;
+console.log(`::add-mask::${tokens.access_token}`);
+console.log(`::add-mask::${tokens.refresh_token}`);
+const oauthClient = createClient(runtimeUrl, anonKey, {
+  global: {
+    fetch: createSupaCloudOAuthFetch({
+      clientId,
+      tokenEndpoint: `${runtimeUrl}/auth/v1/oauth/token`,
+    }),
+  },
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+    detectSessionInUrl: false,
+  },
+});
+const refreshed = await oauthClient.auth.refreshSession({ refresh_token: tokens.refresh_token });
+if (refreshed.error || !refreshed.data.session) {
+  throw new Error(`SupAuth OAuth compatibility refresh failed: ${refreshed.error?.message || 'missing session'}`);
+}
+
+const accessToken = refreshed.data.session.access_token;
+const refreshToken = refreshed.data.session.refresh_token;
 const payload = decodeJwtPayload(accessToken);
 const grantedScopes = typeof payload.scope === 'string' ? payload.scope.split(/\s+/).filter(Boolean) : [];
 const expectedScopes = ['openid', 'email', 'profile'];
