@@ -80,7 +80,13 @@ const accessToken = tokens.access_token;
 const refreshToken = tokens.refresh_token;
 const payload = decodeJwtPayload(accessToken);
 if (payload.client_id !== clientId || payload.user_id !== payload.sub) {
-  throw new Error('SupAuth OAuth compatibility refresh returned an unexpected token shape');
+  throw new Error([
+    'SupAuth OAuth compatibility exchange returned an unexpected token shape',
+    `client_id_present=${typeof payload.client_id === 'string'}`,
+    `client_id_matches=${payload.client_id === clientId}`,
+    `user_id_present=${typeof payload.user_id === 'string'}`,
+    `user_id_matches_sub=${payload.user_id === payload.sub}`,
+  ].join('; '));
 }
 
 console.log(`::add-mask::${accessToken}`);
