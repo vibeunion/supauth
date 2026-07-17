@@ -1,4 +1,5 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
+import * as dbModule from '../db/index.js';
 
 const tenantRow = {
   id: 'tenant-sie',
@@ -23,29 +24,31 @@ const tenantRow = {
   updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
 
-mock.module('../db/index.js', () => ({
-  getDb: () => ({
-    select: () => ({
-      from: () => ({
-        limit: async () => [tenantRow],
-        where: () => ({
-          limit: async () => {
-            throw new Error('relation "supaoauth.application_sign_in_experience" does not exist');
-          },
-        }),
-      }),
-    }),
-  }),
-}));
-
 describe('Sign-in experience repository fallback behavior', () => {
   it('keeps OAuth login usable when application sign-in experience storage is unavailable', async () => {
-    const { resolveSignInExperience } = await import('../repositories/sign-in-experience.js');
+    const getDbSpy = spyOn(dbModule, 'getDb').mockReturnValue({
+      select: () => ({
+        from: () => ({
+          limit: async () => [tenantRow],
+          where: () => ({
+            limit: async () => {
+              throw new Error('relation "supaoauth.application_sign_in_experience" does not exist');
+            },
+          }),
+        }),
+      }),
+    } as unknown as ReturnType<typeof dbModule.getDb>);
 
-    const experience = await resolveSignInExperience('d2b37315-105f-4d50-96fc-aa6e7b891b11');
+    try {
+      const { resolveSignInExperience } = await import('../repositories/sign-in-experience.js');
 
-    expect(experience?.branding.page_title).toBe('西谷智灯枢鉴系统');
-    expect(experience?.branding.button_label).toBe('进入枢鉴');
-    expect((experience as { application?: unknown } | null)?.application).toBeNull();
+      const experience = await resolveSignInExperience('d2b37315-105f-4d50-96fc-aa6e7b891b11');
+
+      expect(experience?.branding.page_title).toBe('西谷智灯枢鉴系统');
+      expect(experience?.branding.button_label).toBe('进入枢鉴');
+      expect((experience as { application?: unknown } | null)?.application).toBeNull();
+    } finally {
+      getDbSpy.mockRestore();
+    }
   });
 });
