@@ -71,7 +71,8 @@ export function loadConfig(): ServerConfig {
       'GOTRUE_AUTHORIZATION_PROJECT_REF',
     ),
     oauthRuntimeUrl: runtimeUrl,
-    oauthRuntimeInternalUrl: env('SUPACLOUD_RUNTIME_INTERNAL_URL', 'OAUTH_RUNTIME_INTERNAL_URL', 'GOTRUE_INTERNAL_URL') || runtimeUrl,
+    // OAuth 专用内部地址必须优先，避免遗留的 SupaCloud 地址把已更新的 GoTrue 运行地址覆盖。
+    oauthRuntimeInternalUrl: env('OAUTH_RUNTIME_INTERNAL_URL', 'SUPACLOUD_RUNTIME_INTERNAL_URL', 'GOTRUE_INTERNAL_URL') || runtimeUrl,
     publicBaseUrl: env('SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL', 'OAUTH_PUBLIC_BASE_URL'),
     trustProxyHeaders: booleanEnv('TRUST_PROXY_HEADERS'),
     runtimeMode: (process.env.RUNTIME_MODE as ServerConfig['runtimeMode']) || 'gotrue',

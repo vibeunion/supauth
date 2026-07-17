@@ -165,14 +165,14 @@ describe('ServerConfig', () => {
     expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3210');
   });
 
-  it('prefers SupaCloud internal runtime URL over stale legacy OAuth runtime URL', () => {
+  it('prefers dedicated OAuth internal runtime URL over stale SupaCloud runtime URL', () => {
     process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
     process.env.OAUTH_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3372';
     process.env.SUPACLOUD_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3367';
 
     const config = loadConfig();
 
-    expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3367');
+    expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3372');
   });
 
   it('uses a dedicated OAuth authorization project ref when configured', () => {
