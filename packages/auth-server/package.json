@@ -10,7 +10,7 @@
     "migrate": "echo 'Direct DB migration is removed; deploy through the SupaCloud app installer so migrations are hosted by SupaCloud Management API.' && exit 1",
     "start": "echo 'SupAuth has no standalone start command. Deploy dist/supacloud-function/supacloud-function.js to SupaCloud Functions.' && exit 1",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test --isolate src/__tests__ ../admin-console/src/hosted/session-client.test.ts"
+    "test": "bun test --isolate src/__tests__ ../admin-console/src/hosted/session-client.test.ts ../admin-console/src/lib/admin-api.test.ts ../admin-console/src/lib/api/client.test.ts ../admin-console/src/lib/admin-auth-result.test.ts ../admin-console/src/lib/admin-sso-capability.test.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.3.1",

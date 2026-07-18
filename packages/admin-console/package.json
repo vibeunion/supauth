@@ -13,8 +13,8 @@
   "dependencies": {
     "@supabase/auth-js": "2.106.1",
     "@supauth/shared": "workspace:*",
-    "@svadmin/core": "^0.25.4",
-    "@svadmin/sso": "^0.9.0",
+    "@svadmin/core": "0.32.1",
+    "@svadmin/sso": "0.11.1",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/svelte-query": "^6.1.29",
     "tailwindcss": "^4.3.0"

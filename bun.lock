@@ -15,12 +15,12 @@
     },
     "packages/admin-console": {
       "name": "@supauth/admin-console",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@supabase/auth-js": "2.106.1",
         "@supauth/shared": "workspace:*",
-        "@svadmin/core": "^0.25.4",
-        "@svadmin/sso": "^0.9.0",
+        "@svadmin/core": "0.32.1",
+        "@svadmin/sso": "0.11.1",
         "@tailwindcss/vite": "^4.3.0",
         "@tanstack/svelte-query": "^6.1.29",
         "tailwindcss": "^4.3.0",
@@ -37,7 +37,7 @@
     },
     "packages/auth-server": {
       "name": "@supauth/auth-server",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "@elysiajs/cors": "^1.3.1",
         "@elysiajs/swagger": "^1.3.0",
@@ -68,7 +68,7 @@
     },
     "packages/sdks/typescript": {
       "name": "@supauth/sdk-typescript",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@supauth/shared": "workspace:*",
       },
@@ -241,9 +241,9 @@
 
     "@supauth/shared": ["@supauth/shared@workspace:packages/shared"],
 
-    "@svadmin/core": ["@svadmin/core@0.25.4", "https://registry.npmmirror.com/@svadmin/core/-/core-0.25.4.tgz", { "peerDependencies": { "@tanstack/svelte-query": "^6.1.29", "svelte": "^5.0.0" }, "optionalPeers": ["@tanstack/svelte-query", "svelte"] }, "sha512-03qBomsjrWNjS72J742SMFmxGIO6X/2KEeirA6cbERUt968r4+ClsbL7iDN/sPeW8zLUAJAbbp5wIfAJyBuHhg=="],
+    "@svadmin/core": ["@svadmin/core@0.32.1", "https://registry.npmmirror.com/@svadmin/core/-/core-0.32.1.tgz", { "peerDependencies": { "@tanstack/svelte-query": "^6.1.29", "svelte": "^5.0.0" }, "optionalPeers": ["@tanstack/svelte-query", "svelte"] }, "sha512-wqc6ndNpep6s3Tf/CHHd9Cp2N9m4p7SnYS+TWCWM+6yg0mmy1nslXJu8MNIHccCBz7OfZiUqtmoN4v0qqbCaAQ=="],
 
-    "@svadmin/sso": ["@svadmin/sso@0.9.0", "https://registry.npmmirror.com/@svadmin/sso/-/sso-0.9.0.tgz", { "peerDependencies": { "@svadmin/core": "^0.25.4" }, "optionalPeers": ["@svadmin/core"] }, "sha512-2MH/btS3jjEvVRp+gmlu3hNtVjZqIGROpBnZmJBkJ2T3jqvxWxiaGt7slC5LpDH/Sv2X0lIU9jxdR+MKvXr9Fg=="],
+    "@svadmin/sso": ["@svadmin/sso@0.11.1", "https://registry.npmmirror.com/@svadmin/sso/-/sso-0.11.1.tgz", { "peerDependencies": { "@svadmin/core": "^0.32.1" }, "optionalPeers": ["@svadmin/core"] }, "sha512-GGAzu6hSsA77LAn+Poyp9XUPR8Q/YB6flyJPFxCu7lhGZ9CqvBkwT2JUl/JP0uEt4s4HpsyASVW4MT9iVbymNQ=="],
 
     "@sveltejs/acorn-typescript": ["@sveltejs/acorn-typescript@1.0.10", "https://registry.npmmirror.com/@sveltejs/acorn-typescript/-/acorn-typescript-1.0.10.tgz", { "peerDependencies": { "acorn": "^8.9.0" } }, "sha512-4WfKk68eTih+MiJD4fSbxN7E8kVBmTMPWHUPYjvl2N0rMs53YLTT8/YjKU5Dtnz5LqDjl7LEw4U7lXR2W3J5WA=="],
 

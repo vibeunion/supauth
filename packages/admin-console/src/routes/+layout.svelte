@@ -33,6 +33,12 @@
         return;
       }
 
+      if (result.error) {
+        authError = result.error.message;
+        checkingAuth = false;
+        return;
+      }
+
       if (!adminSsoEnabled) {
         authError = t('auth.ssoNotConfigured');
         checkingAuth = false;

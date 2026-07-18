@@ -2,25 +2,12 @@
 // Maps @svadmin/core CRUD operations to the SupaOAuth Management API
 
 import type { DataProvider, GetListParams, GetListResult, GetOneParams, GetOneResult, CreateParams, CreateResult, UpdateParams, UpdateResult, DeleteParams, DeleteResult, BaseRecord, CustomParams, CustomResult } from '@svadmin/core';
-import { getAdminAccessToken } from '../auth-token';
+import { adminApiRequest } from '../admin-api';
 
 const API_BASE = import.meta.env.VITE_AUTH_SERVER_URL || '/api';
 
 async function request(path: string, options: RequestInit = {}): Promise<unknown> {
-  const url = `${API_BASE}${path}`;
-  const token = await getAdminAccessToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers as Record<string, string>),
-  };
-  const res = await fetch(url, { ...options, headers, credentials: 'include' });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
-  }
-  if (res.status === 204) return null;
-  return res.json();
+  return adminApiRequest(path, options);
 }
 
 // Map @svadmin/core resource names to API paths
