@@ -125,13 +125,6 @@
       line-height: 1.5;
     }
 
-    .token-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
-      gap: 10px;
-      margin-top: 14px;
-    }
-
     .account-actions {
       display: flex;
       flex-wrap: wrap;
@@ -157,25 +150,6 @@
     .button-link:hover {
       background: var(--brand-dark);
       transform: translateY(-1px);
-    }
-
-    .advanced-token {
-      margin-top: 20px;
-      border-top: 1px solid var(--line);
-      padding-top: 16px;
-    }
-
-    .advanced-token summary {
-      width: fit-content;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      user-select: none;
-    }
-
-    .advanced-token summary:hover {
-      color: var(--brand);
     }
 
     .status-note {
@@ -561,7 +535,6 @@
       .account-section-grid { grid-template-columns: 1fr; }
       .module-grid { grid-template-columns: 1fr; }
       .account-actions { display: grid; }
-      .token-row,
       .profile-form,
       .inline-form { grid-template-columns: 1fr; }
       h1 { font-size: 24px; }
@@ -586,20 +559,12 @@
       <div class="account-actions">
         <a id="login-link" class="button-link" href="/login.html">登录 / 重新登录</a>
         <button id="load-account" class="secondary" type="button">刷新资料</button>
-        <button id="clear-token" class="secondary" type="button">清除本地登录</button>
+        <button id="sign-out" class="secondary" type="button">退出登录</button>
       </div>
       <div id="account-status-card" style="display:flex;flex-direction:column;align-items:center;padding:28px 16px;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;margin-top:20px;">
         <svg style="width:48px;height:48px;color:#94a3b8;margin-bottom:12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
         <span id="account-status-note" style="font-size:13.5px;color:var(--muted);font-weight:550;line-height:1.5;">正在检查当前浏览器的登录状态。</span>
       </div>
-      <details id="manual-token-panel" class="advanced-token">
-        <summary>高级：使用 access token 打开</summary>
-        <div class="token-row">
-          <input id="access-token" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴当前用户 access token">
-          <button id="load-account-token" class="primary" type="button">加载资料</button>
-          <button id="clear-token-field" class="secondary" type="button">清除</button>
-        </div>
-      </details>
       <div id="account-message" class="message" role="status"></div>
       <div id="profile-details" class="profile-details">
         <div class="profile-row" data-profile-field="email">
@@ -761,17 +726,16 @@
     <p class="footer">需要登录或找回密码时，请返回 <a class="link" href="/login.html">登录页</a>。</p>
   </main>
 
+  <script src="/hosted-auth.js"></script>
   <script>
     const apiBase = (window.__SUPAOAUTH_PUBLIC_API_BASE__ || '/v1/public').replace(/\/$/, '');
+    const hostedAuth = window.SupaOAuthHostedAuth;
     const brandMark = document.getElementById('brand-mark');
     const logo = document.getElementById('logo');
     const title = document.getElementById('account-title');
     const lead = document.getElementById('account-lead');
-    const tokenInput = document.getElementById('access-token');
     const loadAccountButton = document.getElementById('load-account');
-    const loadAccountTokenButton = document.getElementById('load-account-token');
-    const clearTokenButton = document.getElementById('clear-token');
-    const clearTokenFieldButton = document.getElementById('clear-token-field');
+    const signOutButton = document.getElementById('sign-out');
     const accountStatusNote = document.getElementById('account-status-note');
     const message = document.getElementById('account-message');
     const profileDetails = document.getElementById('profile-details');
@@ -801,7 +765,6 @@
     const deleteConfirmationInput = document.getElementById('delete-confirmation');
     const deleteAccountLinkWrap = document.getElementById('delete-account-link-wrap');
     const deleteAccountLink = document.getElementById('delete-account-link');
-      const tokenStoreKey = 'supaoauth.account.access_token';
       let pendingTotpFactorId = '';
       let accountConfig = {
       enabled: true,
@@ -949,35 +912,14 @@
       accountStatusNote.textContent = '已加载当前账号，可在下方查看和管理资料。';
     }
 
-    function readHashAccessToken() {
-      if (!window.location.hash) return '';
-      const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      const token = params.get('access_token') || '';
-      if (token) {
-        history.replaceState(null, document.title, window.location.pathname + window.location.search);
-      }
-      return token;
+    function readableError(error, fallback) {
+      return error && typeof error.message === 'string' && error.message.trim()
+        ? error.message
+        : fallback;
     }
 
-    function storedAccessToken() {
-      try {
-        return sessionStorage.getItem(tokenStoreKey) || localStorage.getItem(tokenStoreKey) || '';
-      } catch {
-        return '';
-      }
-    }
-
-    function persistAccessToken(token) {
-      try {
-        sessionStorage.setItem(tokenStoreKey, token);
-      } catch {}
-    }
-
-    function forgetAccessToken() {
-      try {
-        sessionStorage.removeItem(tokenStoreKey);
-        localStorage.removeItem(tokenStoreKey);
-      } catch {}
+    function authErrorEndsSession(error) {
+      return error && ['session_missing', 'refresh_failed'].includes(error.code);
     }
 
     function displayUser(user) {
@@ -1075,21 +1017,35 @@
       }
 
     async function accountFetch(path, options = {}) {
-      const token = tokenInput.value.trim();
-      if (!token) {
-        showSignedOutState();
+      if (!hostedAuth) {
+        setMessage('error', '登录组件加载失败，请刷新页面后重试。');
         return null;
       }
-      persistAccessToken(token);
-      const response = await fetch(`${apiBase}${path}`, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          ...(options.headers || {}),
-        },
-      });
+      const headers = new Headers(options.headers || {});
+      if (options.body && !headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+      }
+      let response;
+      try {
+        response = await hostedAuth.authenticatedFetch(`${apiBase}${path}`, {
+          ...options,
+          headers,
+        });
+      } catch (error) {
+        if (authErrorEndsSession(error)) {
+          resetAccountView();
+          showSignedOutState();
+        }
+        setMessage('error', readableError(error, '账号认证请求失败，请稍后重试。'));
+        return null;
+      }
       const data = await response.json().catch(() => null);
+      if (response.status === 401) {
+        resetAccountView();
+        showSignedOutState();
+        setMessage('error', '登录状态已失效，请重新登录。');
+        return null;
+      }
       if (!response.ok || !data || data.success === false) {
         const apiMessage = data && data.error && data.error.message ? data.error.message : '账号请求失败。';
         setMessage('error', apiMessage);
@@ -1101,7 +1057,6 @@
     async function loadAccount() {
       clearMessage();
       loadAccountButton.disabled = true;
-      loadAccountTokenButton.disabled = true;
       showLoadingState();
       try {
         const data = await accountFetch('/account/me');
@@ -1110,11 +1065,10 @@
         await loadAccountModules();
         showLoadedState();
         setMessage('ok', '账号资料已加载。');
-      } catch {
-        setMessage('error', '无法连接账号中心，请稍后重试。');
+      } catch (error) {
+        setMessage('error', readableError(error, '无法连接账号中心，请稍后重试。'));
       } finally {
         loadAccountButton.disabled = false;
-        loadAccountTokenButton.disabled = false;
       }
     }
 
@@ -1286,12 +1240,44 @@
         body: JSON.stringify({ confirmation: 'DELETE' }),
       });
       if (data) {
-        forgetAccessToken();
-        tokenInput.value = '';
-        profileDetails.classList.remove('active');
-        profileForm.classList.remove('active');
-        moduleGrid.classList.remove('active');
-        setMessage('ok', '账号已注销。');
+        const { error } = await hostedAuth.signOut();
+        resetAccountView();
+        showSignedOutState();
+        setMessage(error ? 'error' : 'ok', error
+          ? `账号已注销；${readableError(error, '本地已退出，但服务端撤销失败。')}`
+          : '账号已注销并退出登录。');
+      }
+    }
+
+    async function signOutAccount() {
+      if (!hostedAuth) {
+        setMessage('error', '登录组件加载失败，请刷新页面后重试。');
+        return;
+      }
+      signOutButton.disabled = true;
+      try {
+        const { error } = await hostedAuth.signOut();
+        resetAccountView();
+        showSignedOutState();
+        if (error) {
+          setMessage('error', readableError(error, '本地已退出，但服务端撤销失败。'));
+          return;
+        }
+        setMessage('ok', '已安全退出登录。');
+      } catch (error) {
+        setMessage('error', `退出登录失败：${readableError(error, '未知错误')}`);
+      } finally {
+        signOutButton.disabled = false;
+      }
+    }
+
+    function handleAuthStateChange(event, session) {
+      if (event === 'TOKEN_REFRESHED' && session) {
+        accountStatusNote.textContent = '登录状态已自动续期，可继续管理账号。';
+      }
+      if (event === 'SIGNED_OUT') {
+        resetAccountView();
+        showSignedOutState();
       }
     }
 
@@ -1305,19 +1291,7 @@
       .catch(() => {});
 
     loadAccountButton.addEventListener('click', loadAccount);
-    loadAccountTokenButton.addEventListener('click', loadAccount);
-      clearTokenButton.addEventListener('click', () => {
-        tokenInput.value = '';
-        forgetAccessToken();
-        resetAccountView();
-        showSignedOutState();
-      });
-      clearTokenFieldButton.addEventListener('click', () => {
-        tokenInput.value = '';
-        forgetAccessToken();
-        resetAccountView();
-        setMessage('ok', '本地令牌已清除。');
-      });
+    signOutButton.addEventListener('click', signOutAccount);
     profileForm.addEventListener('submit', saveProfile);
       moduleGrid.addEventListener('click', handleModuleAction);
       startTotpEnrollButton.addEventListener('click', startTotpEnrollment);
@@ -1326,14 +1300,32 @@
     phoneForm.addEventListener('submit', updatePhone);
     deleteAccountForm.addEventListener('submit', deleteAccount);
 
+    if (hostedAuth) {
+      hostedAuth.onAuthStateChange(handleAuthStateChange);
+    }
+
     (async () => {
       await loadAccountConfig();
-      const initialToken = readHashAccessToken() || storedAccessToken();
-      if (initialToken && accountConfig.enabled) {
-        tokenInput.value = initialToken;
-        loadAccount();
-      } else if (accountConfig.enabled) {
-        showSignedOutState();
+      if (!accountConfig.enabled) return;
+      if (!hostedAuth) {
+        setMessage('error', '登录组件加载失败，请刷新页面后重试。');
+        return;
+      }
+      try {
+        const { data, error } = await hostedAuth.getSession();
+        if (error) {
+          resetAccountView();
+          setMessage('error', `无法恢复登录状态：${readableError(error, '未知错误')}`);
+          return;
+        }
+        if (data.session) {
+          await loadAccount();
+        } else {
+          showSignedOutState();
+        }
+      } catch (error) {
+        resetAccountView();
+        setMessage('error', `无法恢复登录状态：${readableError(error, '未知错误')}`);
       }
     })();
   </script>

@@ -475,7 +475,9 @@
       </main>
     </div>
 
+    <script src="/hosted-auth.js"></script>
     <script>
+      const hostedAuth = window.SupaOAuthHostedAuth;
       const params = new URLSearchParams(window.location.search);
       const authorizationId = params.get('authorization_id') || '';
       let authorizationRedirectUrl = params.get('redirect_to') || '';
@@ -665,7 +667,11 @@
 
       function responseMessage(data, fallback) {
         if (!data || typeof data !== 'object') return fallback;
-        return data.msg || data.error_description || data.error || fallback;
+        return data.msg
+          || data.error_description
+          || data.message
+          || (typeof data.error === 'string' ? data.error : '')
+          || fallback;
       }
 
       function apiErrorCode(data) {
@@ -684,12 +690,9 @@
         return !!(error && error.code === 'authorization_not_found');
       }
 
-      async function completeStandaloneLogin(accessToken) {
-        try {
-          sessionStorage.setItem('supaoauth.account.access_token', accessToken);
-        } catch {}
+      function completeStandaloneLogin() {
         setMessage('ok', t('redirecting'));
-        window.location.href = `/account#access_token=${encodeURIComponent(accessToken)}`;
+        window.location.href = '/account';
       }
 
       function normalizeEmailInput(value) {
@@ -821,7 +824,10 @@
           btn.type = 'button';
           btn.className = 'social-btn';
           const icon = icons[c.id] || '';
-          btn.innerHTML = `${icon}<span>${c.name}</span>`;
+          if (icon) btn.insertAdjacentHTML('afterbegin', icon);
+          const connectorLabel = document.createElement('span');
+          connectorLabel.textContent = String(c.name || c.id || 'SSO');
+          btn.appendChild(connectorLabel);
           btn.addEventListener('click', () => {
             const url = new URL(`${publicApiBase()}/connectors/${encodeURIComponent(c.id)}/authorize`, window.location.origin);
             // Forward current OAuth params so the flow continues after social login
@@ -1061,30 +1067,25 @@
         const originalText = button.textContent;
         button.textContent = t('signingIn');
         try {
-          const res = await fetch('/auth/v1/token?grant_type=password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              email,
-              password,
-            }),
-          });
-          const data = await res.json().catch(() => null);
-          if (!res.ok) {
-            setMessage('error', loginResponseMessage(data));
+          if (!hostedAuth) {
+            throw new Error('登录组件加载失败，请刷新页面后重试。');
+          }
+          const { data, error } = await hostedAuth.signInWithPassword({ email, password });
+          if (error) {
+            setMessage('error', loginResponseMessage(error));
             return;
           }
-          if (!data || typeof data !== 'object' || !data.access_token) {
+          const session = data && data.session;
+          if (!session || !session.access_token) {
             setMessage('error', t('loginFailed'));
             return;
           }
           let approvedRedirectUrl = null;
           try {
-            approvedRedirectUrl = await approveAuthorization(data.access_token);
+            approvedRedirectUrl = await approveAuthorization(session.access_token);
           } catch (error) {
             if (isAuthorizationNotFoundError(error)) {
-              await completeStandaloneLogin(data.access_token);
+              completeStandaloneLogin();
               return;
             }
             throw error;
@@ -1096,7 +1097,7 @@
             setMessage('ok', t('redirecting'));
             window.location.href = redirectUrl;
           } else {
-            await completeStandaloneLogin(data.access_token);
+            completeStandaloneLogin();
           }
         } catch (error) {
           setMessage('error', error && error.message ? error.message : t('networkError'));
