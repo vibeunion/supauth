@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import {
   ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE,
+  adminAuthorizationFailureResponse,
   resolveSsoAllowlistConfigurationError,
+  resolveSsoAdminAccess,
   resolveSsoAudiences,
   verifyAdminBearer,
 } from '../auth/index.js';
@@ -20,24 +22,24 @@ describe('Auth module — exported functions', () => {
   });
 
   describe('verifyAdminBearer', () => {
-    it('returns null when no authorization header', async () => {
+    it('returns unauthenticated when no authorization header', async () => {
       const result = await verifyAdminBearer({});
-      expect(result).toBeNull();
+      expect(result).toEqual({ status: 'unauthenticated' });
     });
 
-    it('returns null when authorization header has no Bearer prefix', async () => {
+    it('returns unauthenticated when authorization header has no Bearer prefix', async () => {
       const result = await verifyAdminBearer({ authorization: 'Basic abc123' });
-      expect(result).toBeNull();
+      expect(result).toEqual({ status: 'unauthenticated' });
     });
 
-    it('returns null when Bearer token is not a known session or SSO token', async () => {
+    it('returns unauthenticated when Bearer token is not a known session or SSO token', async () => {
       const result = await verifyAdminBearer({ authorization: 'Bearer unknown-token' });
-      expect(result).toBeNull();
+      expect(result).toEqual({ status: 'unauthenticated' });
     });
 
-    it('returns null for empty Bearer token', async () => {
+    it('returns unauthenticated for empty Bearer token', async () => {
       const result = await verifyAdminBearer({ authorization: 'Bearer ' });
-      expect(result).toBeNull();
+      expect(result).toEqual({ status: 'unauthenticated' });
     });
   });
 });
@@ -75,6 +77,14 @@ describe('Auth module — SSO audience resolution', () => {
 });
 
 describe('Auth module — SSO administrator allowlist', () => {
+  const verifiedSession = {
+    id: 'user-1',
+    email: 'member@example.test',
+    name: 'Member',
+    role: 'admin',
+    authenticated: true,
+  };
+
   it('fails closed with an explicit configuration error when enabled without an allowlist', () => {
     expect(resolveSsoAllowlistConfigurationError({
       enabled: true,
@@ -99,6 +109,33 @@ describe('Auth module — SSO administrator allowlist', () => {
       emails: [],
       domains: ['example.test'],
     })).toBeNull();
+  });
+
+  it('classifies a verified user outside the allowlist as forbidden', () => {
+    expect(resolveSsoAdminAccess(verifiedSession, {
+      emails: ['admin@example.test'],
+      domains: ['trusted.example.test'],
+    })).toEqual({ status: 'forbidden' });
+  });
+
+  it('accepts a verified user whose email is explicitly allowed', () => {
+    expect(resolveSsoAdminAccess(verifiedSession, {
+      emails: ['member@example.test'],
+      domains: [],
+    })).toEqual({ status: 'authenticated', session: verifiedSession });
+  });
+
+  it('returns a structured 403 response for a forbidden admin identity', async () => {
+    const response = await adminAuthorizationFailureResponse('forbidden');
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: {
+        code: 'admin_access_forbidden',
+        message: '当前账号没有访问管理控制台的权限。',
+      },
+    });
   });
 });
 

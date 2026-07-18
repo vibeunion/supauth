@@ -40,6 +40,16 @@ interface AdminSession {
   authenticated: boolean;
 }
 
+interface AdminAllowlist {
+  emails: string[];
+  domains: string[];
+}
+
+type AdminBearerAccess =
+  | { status: 'authenticated'; session: AdminSession }
+  | { status: 'unauthenticated' }
+  | { status: 'forbidden' };
+
 export const ADMIN_SSO_ALLOWLIST_ERROR_CODE = 'admin_sso_allowlist_not_configured';
 export const ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE = 'Admin SSO 已启用，但管理员白名单为空；请配置 ADMIN_SSO_ALLOWED_EMAILS 或 ADMIN_SSO_ALLOWED_DOMAINS。';
 
@@ -84,7 +94,7 @@ async function effectiveAdminAuthMode(): Promise<string> {
 }
 
 /** Resolve effective allowed emails/domains from DB, falling back to env. */
-async function effectiveAllowedAdmins(): Promise<{ emails: string[]; domains: string[] }> {
+async function effectiveAllowedAdmins(): Promise<AdminAllowlist> {
   const cfg = await getActiveSecurityConfig();
   if (cfg && (cfg.adminAllowedEmails.length > 0 || cfg.adminAllowedDomains.length > 0)) {
     return {
@@ -221,18 +231,21 @@ function sessionFromPayload(payload: JWTPayload): AdminSession {
   };
 }
 
-async function isAllowedSsoAdmin(session: AdminSession): Promise<boolean> {
-  const { emails, domains } = await effectiveAllowedAdmins();
-  if (emails.length === 0 && domains.length === 0) return false;
+export function resolveSsoAdminAccess(
+  session: AdminSession,
+  allowlist: AdminAllowlist,
+): AdminBearerAccess {
   const email = session.email.toLowerCase();
-  if (emails.includes(email)) return true;
+  if (allowlist.emails.includes(email)) return { status: 'authenticated', session };
   const domain = email.split('@')[1] || '';
-  return domains.includes(domain);
+  return allowlist.domains.includes(domain)
+    ? { status: 'authenticated', session }
+    : { status: 'forbidden' };
 }
 
-async function verifySsoToken(token: string): Promise<AdminSession | null> {
+async function verifySsoToken(token: string): Promise<AdminBearerAccess> {
   const mode = await effectiveAdminAuthMode();
-  if (mode === 'token' || !ENV_SSO_ISSUER || !jwks) return null;
+  if (mode === 'token' || !ENV_SSO_ISSUER || !jwks) return { status: 'unauthenticated' };
 
   try {
     const result = await jwtVerify(token, jwks, {
@@ -241,19 +254,18 @@ async function verifySsoToken(token: string): Promise<AdminSession | null> {
       algorithms: ['ES256', 'RS256'],
     });
     const session = sessionFromPayload(result.payload);
-    const allowed = await isAllowedSsoAdmin(session);
-    return allowed ? session : null;
+    return resolveSsoAdminAccess(session, await effectiveAllowedAdmins());
   } catch {
-    return null;
+    return { status: 'unauthenticated' };
   }
 }
 
-export async function verifyAdminBearer(headers: Record<string, string | undefined>): Promise<AdminSession | null> {
+export async function verifyAdminBearer(headers: Record<string, string | undefined>): Promise<AdminBearerAccess> {
   const token = bearerToken(headers);
-  if (!token) return null;
+  if (!token) return { status: 'unauthenticated' };
 
   const session = sessions.get(token);
-  if (session?.authenticated) return session;
+  if (session?.authenticated) return { status: 'authenticated', session };
 
   return verifySsoToken(token);
 }
@@ -266,6 +278,23 @@ function ssoConfigurationErrorResponse(message: string): Response {
       message,
     },
   }, { status: 503 });
+}
+
+export async function adminAuthorizationFailureResponse(
+  status: 'unauthenticated' | 'forbidden',
+): Promise<Response> {
+  const configurationError = await effectiveSsoAllowlistConfigurationError();
+  if (configurationError) return ssoConfigurationErrorResponse(configurationError);
+  if (status === 'forbidden') {
+    return Response.json({
+      success: false,
+      error: {
+        code: 'admin_access_forbidden',
+        message: '当前账号没有访问管理控制台的权限。',
+      },
+    }, { status: 403 });
+  }
+  return new Response('Unauthorized', { status: 401 });
 }
 
 function publicAdminPath(pathname: string): boolean {
@@ -288,12 +317,8 @@ export const adminAuthGuard = new Elysia()
     }
     if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) return;
 
-    const session = await verifyAdminBearer(headers as Record<string, string | undefined>);
-    if (!session) {
-      const configurationError = await effectiveSsoAllowlistConfigurationError();
-      if (configurationError) return ssoConfigurationErrorResponse(configurationError);
-      return new Response('Unauthorized', { status: 401 });
-    }
+    const access = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access.status);
   });
 
 export const authRoutes = new Elysia({ prefix: '/v1/auth' })
@@ -359,12 +384,9 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
     });
   })
   .get('/identity', async ({ headers }) => {
-    const session = await verifyAdminBearer(headers as Record<string, string | undefined>);
-    if (!session) {
-      const configurationError = await effectiveSsoAllowlistConfigurationError();
-      if (configurationError) return ssoConfigurationErrorResponse(configurationError);
-      return new Response('Unauthorized', { status: 401 });
-    }
+    const access = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access.status);
+    const { session } = access;
     return {
       id: session.id,
       name: session.name,

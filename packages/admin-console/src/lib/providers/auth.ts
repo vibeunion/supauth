@@ -156,6 +156,7 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
     redirectUri: config.redirectUri,
     postLogoutRedirectUri: config.postLogoutRedirectUri,
     scopes: ['openid', 'profile', 'email'],
+    legacyStorageKey: 'svadmin_sso',
   });
   const authenticatedFetch = requireAdminAuthenticatedFetch(ssoProvider);
 
