@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { resolveSsoAudiences, verifyAdminBearer } from '../auth/index.js';
+import {
+  ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE,
+  resolveSsoAllowlistConfigurationError,
+  resolveSsoAudiences,
+  verifyAdminBearer,
+} from '../auth/index.js';
 
 describe('Auth module — exported functions', () => {
   beforeEach(() => {
@@ -66,6 +71,34 @@ describe('Auth module — SSO audience resolution', () => {
       issuer: 'https://auth.example.test/auth/v1',
       clientId: 'admin-client',
     })).toEqual(['admin-client', 'authenticated']);
+  });
+});
+
+describe('Auth module — SSO administrator allowlist', () => {
+  it('fails closed with an explicit configuration error when enabled without an allowlist', () => {
+    expect(resolveSsoAllowlistConfigurationError({
+      enabled: true,
+      emails: [],
+      domains: [],
+    })).toBe(ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE);
+  });
+
+  it('does not affect token mode or configured SSO allowlists', () => {
+    expect(resolveSsoAllowlistConfigurationError({
+      enabled: false,
+      emails: [],
+      domains: [],
+    })).toBeNull();
+    expect(resolveSsoAllowlistConfigurationError({
+      enabled: true,
+      emails: ['admin@example.test'],
+      domains: [],
+    })).toBeNull();
+    expect(resolveSsoAllowlistConfigurationError({
+      enabled: true,
+      emails: [],
+      domains: ['example.test'],
+    })).toBeNull();
   });
 });
 

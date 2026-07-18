@@ -4,6 +4,7 @@ import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
 import { getSupaCloudAdapter, getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
 import { checkRuntimeHealth, getDiscovery, getJWKS } from '../runtime/index.js';
+import { resolveGoTrueLogoutUrl } from '../auth/gotrue-logout-url.js';
 
 const config = getConfig();
 const adapter = getSupaCloudAdapter();
@@ -22,15 +23,6 @@ function publicAdminUrl(path: string): string {
   return publicBaseUrl ? `${publicBaseUrl}${path}` : '';
 }
 
-function gotrueLogoutUrl(): string {
-  const configured = trimTrailingSlash(process.env.GOTRUE_LOGOUT_URL || '');
-  if (configured) return configured;
-
-  const runtimeUrl = trimTrailingSlash(process.env.OAUTH_RUNTIME_URL || process.env.SUPACLOUD_RUNTIME_URL || process.env.SUPABASE_URL || '');
-  if (!runtimeUrl) return '';
-  return runtimeUrl.endsWith('/auth/v1') ? `${runtimeUrl}/logout` : `${runtimeUrl}/auth/v1/logout`;
-}
-
 export function resolvePublicAdminSsoConfig() {
   const issuer = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
   const clientId = process.env.ADMIN_SSO_CLIENT_ID || '';
@@ -43,7 +35,7 @@ export function resolvePublicAdminSsoConfig() {
     client_id: clientId,
     redirect_uri: redirectUri,
     post_logout_redirect_uri: postLogoutRedirectUri,
-    gotrue_logout_url: gotrueLogoutUrl(),
+    gotrue_logout_url: resolveGoTrueLogoutUrl(),
   };
 }
 
