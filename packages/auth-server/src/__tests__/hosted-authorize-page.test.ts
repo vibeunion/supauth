@@ -75,6 +75,17 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
+  test('GET /hosted-auth.js serves the embedded session client without stale caching', async () => {
+    const response = await request('https://auth.example.com/hosted-auth.js');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('application/javascript');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(body).toContain('supaoauth.hosted.auth.session');
+    expect(body).toContain('/auth/v1');
+  });
+
   test('hosted login page supports config-driven intro text', async () => {
     const response = await request('http://localhost/login.html');
     const body = await response.text();
@@ -167,9 +178,10 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('<title>SupaOAuth Account Center</title>');
       expect(body).toContain('<h1 id="account-title">账户中心</h1>');
       expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
+      expect(body).toContain('<script src="/hosted-auth.js"></script>');
       expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
       expect(body).toContain('fetch(`${apiBase}/account/config`, { credentials: \'include\' })');
-      expect(body).toContain('fetch(`${apiBase}${path}`, {');
+      expect(body).toContain('hostedAuth.authenticatedFetch(`${apiBase}${path}`, {');
       expect(body).toContain("accountFetch('/account/me')");
       expect(body).toContain("accountFetch('/account/profile'");
       expect(body).toContain("load('sessions', '/account/sessions')");
@@ -192,8 +204,13 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain("button.dataset.action === 'unlink-identity'");
       expect(body).toContain("button.dataset.action === 'revoke-passkey'");
       expect(body).toContain('class="account-actions"');
-      expect(body).toContain('id="manual-token-panel"');
       expect(body).toContain('登录 / 重新登录');
+      expect(body).toContain('id="sign-out"');
+      expect(body).toContain('退出登录');
+      expect(body).toContain('hostedAuth.getSession()');
+      expect(body).toContain("event === 'TOKEN_REFRESHED'");
+      expect(body).toContain("event === 'SIGNED_OUT'");
+      expect(body).toContain('hostedAuth.signOut()');
       expect(body).toContain('未检测到登录状态。请先登录，登录完成后会自动回到账户中心。');
       expect(body).toContain('function showSignedOutState()');
       expect(body).toContain('function resetAccountView()');
@@ -210,6 +227,9 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('data-section="delete-account"');
       expect(body).not.toContain('class="card active"');
       expect(body).not.toContain('/v1/my-account');
+      expect(body).not.toContain('id="manual-token-panel"');
+      expect(body).not.toContain('supaoauth.account.access_token');
+      expect(body).not.toContain('#access_token');
       expect(body).not.toContain('http://auth.example.com/v1/public');
       expect(body).not.toContain('Example User Center');
     }
@@ -221,22 +241,23 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(body).toContain('<form id="login-form" novalidate>');
+    expect(body).toContain('<script src="/hosted-auth.js"></script>');
     expect(body).toContain('function normalizeEmailInput(value)');
     expect(body).toContain("invalidLoginCredentials: 'Account or password does not match. Please check and try again.'");
     expect(body).toContain("invalidLoginCredentials: '账号或密码不匹配，请检查后重试。'");
     expect(body).toContain("value.includes('invalid login credentials')");
     expect(body).toContain("value.includes('invalid_credentials')");
-    expect(body).toContain("setMessage('error', loginResponseMessage(data))");
+    expect(body).toContain("setMessage('error', loginResponseMessage(error))");
     expect(body).toContain('const email = normalizeEmailInput(emailInput.value);');
     expect(body).toContain("setMessage('error', t('emailInvalid'))");
     expect(body).toContain("setMessage('error', t('passwordRequired'))");
     expect(body).toContain("setMessage('error', error && error.message ? error.message : t('networkError'))");
-    expect(body).toContain('function completeStandaloneLogin(accessToken)');
-    expect(body).toContain("sessionStorage.setItem('supaoauth.account.access_token', accessToken)");
-    expect(body).toContain('window.location.href = `/account#access_token=${encodeURIComponent(accessToken)}`;');
+    expect(body).toContain('hostedAuth.signInWithPassword({ email, password })');
+    expect(body).toContain('function completeStandaloneLogin()');
+    expect(body).toContain("window.location.href = '/account';");
     expect(body).toContain('function isAuthorizationNotFoundError(error)');
     expect(body).toContain("error.code === 'authorization_not_found'");
-    expect(body).toContain('await completeStandaloneLogin(data.access_token);');
+    expect(body).toContain('completeStandaloneLogin();');
     expect(body).toContain('function safeRedirectUrl(value, allowExternal = false)');
     expect(body).toContain("url.protocol !== 'http:' && url.protocol !== 'https:'");
     expect(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");
@@ -247,6 +268,17 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('? `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`');
     expect(body).toContain(': `${publicApiBase()}/sign-in-experience/resolve`;');
     expect(body).not.toContain('if (!authorizationId) return;');
+    expect(body).not.toContain('grant_type=password');
+    expect(body).not.toContain('supaoauth.account.access_token');
+    expect(body).not.toContain('#access_token');
+  });
+
+  test('hosted login page renders connector names as text instead of executable HTML', async () => {
+    const response = await request('http://localhost/login.html');
+    const html = await response.text();
+
+    expect(html).toContain("connectorLabel.textContent = String(c.name || c.id || 'SSO')");
+    expect(html).not.toContain('`${icon}<span>${c.name}</span>`');
   });
 
   test('hosted login page places social sign-in below the credential panels', async () => {

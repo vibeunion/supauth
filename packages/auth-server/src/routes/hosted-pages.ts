@@ -4,7 +4,13 @@
 
 import { Elysia } from 'elysia';
 import path from 'node:path';
-import { EMBEDDED_ACCOUNT_HTML, EMBEDDED_AUTHORIZE_HTML, EMBEDDED_CHANGE_PASSWORD_HTML, EMBEDDED_CLAIM_HTML } from '../generated/hosted-pages.js';
+import {
+  EMBEDDED_ACCOUNT_HTML,
+  EMBEDDED_AUTHORIZE_HTML,
+  EMBEDDED_CHANGE_PASSWORD_HTML,
+  EMBEDDED_CLAIM_HTML,
+  EMBEDDED_HOSTED_SESSION_JS,
+} from '../generated/hosted-pages.js';
 
 function uniquePaths(paths: string[]) {
   return [...new Set(paths.map(candidate => path.normalize(candidate)))];
@@ -223,6 +229,15 @@ function serveFavicon() {
 }
 
 export const hostedPageRoutes = new Elysia()
+  .get('/hosted-auth.js', () => new Response(EMBEDDED_HOSTED_SESSION_JS, {
+    headers: {
+      'content-type': 'application/javascript; charset=utf-8',
+      'cache-control': 'no-store',
+    },
+  }), {
+    detail: { summary: 'Serve hosted authentication session client', tags: ['Public'] },
+  })
+
   .get('/favicon.ico', serveFavicon, {
     detail: { summary: 'Serve hosted favicon', tags: ['Public'] },
   })
