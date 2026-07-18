@@ -1,7 +1,7 @@
 // Bun executes this browser-bundle unit test directly; the Admin Svelte check does not include Bun's test globals.
 // @ts-nocheck
 import { describe, expect, mock, test } from 'bun:test';
-import { AuthApiError, AuthError, AuthRetryableFetchError, type Session } from '@supabase/auth-js';
+import { AuthApiError, AuthRetryableFetchError, type Session } from '@supabase/auth-js';
 import {
   clearLegacyAccountAccessToken,
   clearLegacyAccountTokensFromUrl,
@@ -245,6 +245,43 @@ describe('hosted session client', () => {
     expect(refreshSession).toHaveBeenCalledTimes(1);
   });
 
+  test('reuses a rotated session when a delayed 401 arrives after refresh', async () => {
+    const oldSession = session('access-old');
+    const refreshedSession = session('access-new');
+    let currentSession = oldSession;
+    let releaseDelayedUnauthorized!: () => void;
+    const delayedUnauthorized = new Promise<void>((resolve) => {
+      releaseDelayedUnauthorized = resolve;
+    });
+    const refreshSession = mock(async () => {
+      currentSession = refreshedSession;
+      releaseDelayedUnauthorized();
+      return { data: { user: refreshedSession.user, session: refreshedSession }, error: null };
+    });
+    const authClient = client({
+      getSession: mock(async () => ({ data: { session: currentSession }, error: null })),
+      refreshSession,
+    });
+    let oldTokenRequests = 0;
+    const fetchImpl = mock(async (request: Request) => {
+      if (request.headers.get('authorization') === 'Bearer access-old') {
+        oldTokenRequests += 1;
+        if (oldTokenRequests === 2) await delayedUnauthorized;
+        return new Response(null, { status: 401 });
+      }
+      return new Response(null, { status: 200 });
+    });
+    const api = createHostedAuthApi(authClient, fetchImpl as unknown as HostedFetch);
+
+    const responses = await Promise.all([
+      api.authenticatedFetch('https://auth.example.test/v1/public/account/me'),
+      api.authenticatedFetch('https://auth.example.test/v1/public/account/sessions'),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
   test('clears the local session after the retried request also returns 401', async () => {
     const refreshedSession = session('access-new');
     const signOut = mock(async () => ({ error: null }));
@@ -278,18 +315,14 @@ describe('hosted session client', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  test('falls back to local sign-out when remote revocation fails', async () => {
-    const remoteError = new AuthError('GoTrue unavailable', 503, 'service_unavailable');
-    const signOut = mock(async ({ scope }: { scope?: string } = {}) => ({
-      error: scope === 'global' ? remoteError : null,
-    }));
+  test('signs out only the current browser session', async () => {
+    const signOut = mock(async () => ({ error: null }));
     const api = createHostedAuthApi(client({ signOut: signOut as HostedAuthClient['signOut'] }));
 
     const result = await api.signOut();
 
-    expect(signOut).toHaveBeenNthCalledWith(1, { scope: 'global' });
-    expect(signOut).toHaveBeenNthCalledWith(2, { scope: 'local' });
-    expect(result.error).toMatchObject({ code: 'remote_sign_out_failed' });
-    expect(result.error?.message).toContain('本地已退出，服务端撤销失败');
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+    expect(result.error).toBeNull();
   });
 });
