@@ -1,5 +1,4 @@
 import {
-  AuthError,
   GoTrueClient,
   isAuthRetryableFetchError,
   type AuthChangeEvent,
@@ -198,47 +197,15 @@ export function createHostedAuthApi(
     return refreshPromise;
   }
 
-  async function signOutEverywhere(): ReturnType<GoTrueClient['signOut']> {
-    let remoteError: unknown = null;
-    try {
-      remoteError = (await client.signOut({ scope: 'global' })).error;
-    } catch (error) {
-      remoteError = error;
-    }
-
-    if (!remoteError) return { error: null };
-
-    let localError: unknown = null;
-    try {
-      localError = (await client.signOut({ scope: 'local' })).error;
-    } catch (error) {
-      localError = error;
-    }
-
-    if (localError) {
-      return {
-        error: new AuthError(
-          `服务端撤销失败，且本地登录状态清理失败：${errorMessage(remoteError)}；${errorMessage(localError)}`,
-          undefined,
-          'sign_out_cleanup_failed',
-        ),
-      };
-    }
-
-    return {
-      error: new AuthError(
-        `本地已退出，服务端撤销失败：${errorMessage(remoteError)}`,
-        undefined,
-        'remote_sign_out_failed',
-      ),
-    };
+  function signOutCurrentSession(): ReturnType<GoTrueClient['signOut']> {
+    return client.signOut({ scope: 'local' });
   }
 
   return Object.freeze({
     signInWithPassword: (credentials: SignInWithPasswordCredentials) => client.signInWithPassword(credentials),
     getSession: () => client.getSession(),
     onAuthStateChange: (callback: (event: AuthChangeEvent, session: Session | null) => void) => client.onAuthStateChange(callback),
-    signOut: signOutEverywhere,
+    signOut: signOutCurrentSession,
     async authenticatedFetch(input: RequestInfo | URL, init?: RequestInit) {
       const [initialRequest, retryRequest] = createReplayableRequests(input, init);
       const currentSession = await requireSession(client);
@@ -248,8 +215,11 @@ export function createHostedAuthApi(
         return response;
       }
 
-      const refreshedSession = await refreshSessionOnce();
-      const retryResponse = await fetchImpl(withAccessToken(retryRequest, refreshedSession.access_token));
+      const latestSession = await requireSession(client);
+      const retrySession = latestSession.access_token === currentSession.access_token
+        ? await refreshSessionOnce()
+        : latestSession;
+      const retryResponse = await fetchImpl(withAccessToken(retryRequest, retrySession.access_token));
       if (retryResponse.status === 401) {
         const cleanup = await client.signOut({ scope: 'local' });
         if (cleanup.error) {
