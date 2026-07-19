@@ -26,6 +26,10 @@ artifacts/
 # Release gate output (release-manifest.json, openapi.json)
 .agents/goal-forge/runs/
 
+# Local browser/diagnostic artifacts (playwright-cli runs, screenshots, diagnostics)
+.playwright-cli/
+output/
+
 # Tenant-specific hosted login page overrides are deployed out-of-band.
 custom-ui/
 packages/auth-server/custom-ui/
