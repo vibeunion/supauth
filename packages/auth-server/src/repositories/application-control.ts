@@ -1,61 +1,9 @@
-// Application runtime controls.
-//
-// SupaCloud owns OAuth client secret lifecycle. SupAuth keeps legacy local
-// secret helpers for compatibility, but the public lifecycle APIs below proxy
-// to SupaCloud client-secret management.
+// SupaOAuth application consent policy overlay.
 
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { applicationConsentSettings } from '../db/schema.js';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { logAudit } from './audit.js';
-export {
-  createLocalApplicationSecret,
-  deleteLocalApplicationSecret,
-  disableLocalApplicationSecret,
-  listLocalApplicationSecrets,
-  verifyApplicationSecret,
-} from './application-control-local.js';
-
-export async function listApplicationSecrets(applicationId: string) {
-  return getSupaCloudAdapter().listClientSecrets(applicationId);
-}
-
-export async function createApplicationSecret(applicationId: string, data: { name?: string; expiresAt?: Date | null }) {
-  const secret = await getSupaCloudAdapter().createClientSecret(applicationId, {
-    name: data.name,
-    expires_at: data.expiresAt?.toISOString() ?? null,
-  });
-  await logAudit({
-    eventType: 'application.secret.created',
-    resourceType: 'application',
-    resourceId: applicationId,
-    details: { name: data.name },
-  });
-  return secret;
-}
-
-export async function disableApplicationSecret(applicationId: string, secretId: string) {
-  const secret = await getSupaCloudAdapter().disableClientSecret(applicationId, secretId);
-  await logAudit({
-    eventType: 'application.secret.disabled',
-    resourceType: 'application',
-    resourceId: applicationId,
-    details: { secret_id: secretId },
-  });
-  return secret;
-}
-
-export async function deleteApplicationSecret(applicationId: string, secretId: string) {
-  const secret = await getSupaCloudAdapter().deleteClientSecret(applicationId, secretId);
-  await logAudit({
-    eventType: 'application.secret.deleted',
-    resourceType: 'application',
-    resourceId: applicationId,
-    details: { secret_id: secretId },
-  });
-  return secret;
-}
 
 export async function getApplicationConsentSettings(applicationId: string) {
   const db = getDb();

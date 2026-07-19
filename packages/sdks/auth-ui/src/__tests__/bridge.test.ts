@@ -16,7 +16,6 @@ describe('sdk-auth-ui bridge helpers', () => {
     },
     sign_in_methods: ['password'],
     sign_up_enabled: true,
-    mfa_required: false,
     password_policy: {
       min_length: 8,
       require_uppercase: false,
@@ -80,7 +79,6 @@ describe('resolveSupabaseAuthUiConfig', () => {
           branding: { primary_color: '#2563eb' },
           sign_in_methods: ['password'],
           sign_up_enabled: true,
-          mfa_required: false,
           password_policy: {
             min_length: 8,
             require_uppercase: false,

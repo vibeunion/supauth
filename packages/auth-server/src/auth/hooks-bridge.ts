@@ -1,6 +1,14 @@
 // Supabase Auth Hooks bridge.
 // HTTP endpoints call these helpers to keep hook behavior deterministic and testable.
 
+const SUPABASE_RUNTIME_ROLES = ['anon', 'authenticated', 'service_role'] as const;
+const SUPAOAUTH_APP_METADATA_SCHEMA_VERSION = 2 as const;
+const SUPAOAUTH_PROJECT_PROJECTION_BYTE_LIMIT = 16 * 1024;
+const SUPAOAUTH_NAMESPACE_PROJECTION_BYTE_LIMIT = 64 * 1024;
+const SUPAOAUTH_ORGANIZATION_MEMBERSHIP_LIMIT = 50;
+const SUPAOAUTH_ORGANIZATION_MEMBERSHIP_FIELD_LENGTH_LIMIT = 128;
+const utf8Encoder = new TextEncoder();
+
 export interface AuthHookError {
   error: {
     http_code: number;
@@ -27,18 +35,24 @@ export interface SignupPolicy {
   invite_only?: boolean;
 }
 
+export interface SignupContext {
+  invitation_verified?: boolean;
+}
+
 export interface CustomAccessTokenPayload {
   user_id?: string;
   claims?: Record<string, unknown>;
   authentication_method?: string;
 }
 
-export interface MfaVerificationPayload {
-  user_id?: string;
-  factor_id?: string;
-  verification_method?: string;
-  ip_address?: string;
-  metadata?: Record<string, unknown>;
+export interface OrganizationMembershipClaims {
+  items: Array<{
+    organization_id: string;
+    slug: string;
+    role: string;
+  }>;
+  total: number;
+  truncated: boolean;
 }
 
 function normalizeDomain(domain: string): string {
@@ -62,19 +76,6 @@ function getOAuthProvider(payload: BeforeUserCreatedPayload): string | null {
   return providers[0] || null;
 }
 
-function hasInvitation(payload: BeforeUserCreatedPayload): boolean {
-  const app = payload.user?.app_metadata || {};
-  const user = payload.user?.user_metadata || {};
-  return Boolean(
-    app.invitation_id ||
-    app.invitation_token ||
-    user.invitation_id ||
-    user.invitation_token ||
-    payload.metadata?.invitation_id ||
-    payload.metadata?.invitation_token,
-  );
-}
-
 function reject(httpCode: number, message: string, code?: string): AuthHookError {
   return { error: { http_code: httpCode, message, ...(code ? { code } : {}) } };
 }
@@ -82,6 +83,7 @@ function reject(httpCode: number, message: string, code?: string): AuthHookError
 export function handleBeforeUserCreated(
   payload: BeforeUserCreatedPayload,
   policy: SignupPolicy = {},
+  context: SignupContext = {},
 ): Record<string, never> | AuthHookError {
   const emailDomain = getEmailDomain(payload.user?.email);
   const allowedDomains = (policy.allowed_email_domains || []).map(normalizeDomain).filter(Boolean);
@@ -107,7 +109,7 @@ export function handleBeforeUserCreated(
     return reject(400, 'OAuth provider is not enabled for sign up.', 'oauth_provider_not_allowed');
   }
 
-  if (policy.invite_only && !hasInvitation(payload)) {
+  if (policy.invite_only && context.invitation_verified !== true) {
     return reject(403, 'An invitation is required to sign up.', 'invitation_required');
   }
 
@@ -135,35 +137,138 @@ function removeTopLevelSupaOAuthClaims(claims: Record<string, unknown>): Record<
   return next;
 }
 
-export function handleCustomAccessToken(payload: CustomAccessTokenPayload): { claims: Record<string, unknown> } {
-  const claims = removeTopLevelSupaOAuthClaims(isRecord(payload.claims) ? payload.claims : {});
-  const appMetadata = isRecord(claims.app_metadata) ? claims.app_metadata : {};
-  const existingSupaOAuth = isRecord(appMetadata.supaoauth) ? appMetadata.supaoauth : {};
+function schemaV2Projects(container: unknown): Record<string, unknown> {
+  if (!isRecord(container) || container.schema_version !== SUPAOAUTH_APP_METADATA_SCHEMA_VERSION) return {};
+  return isRecord(container.projects) ? container.projects : {};
+}
 
+function projectProjection(projects: Record<string, unknown>, projectRef: string): Record<string, unknown> {
+  if (!Object.hasOwn(projects, projectRef)) return {};
+  const projection = projects[projectRef];
+  return isRecord(projection) ? projection : {};
+}
+
+function projectWithOrganizations(
+  currentProject: Record<string, unknown>,
+  organizationMemberships: OrganizationMembershipClaims,
+) {
+  return {
+    ...currentProject,
+    organization_memberships: organizationMemberships.items,
+    organization_memberships_total: organizationMemberships.total,
+    organization_memberships_truncated: organizationMemberships.truncated,
+  };
+}
+
+function membershipFieldValid(field: string): boolean {
+  return field.trim().length > 0 && field.length <= SUPAOAUTH_ORGANIZATION_MEMBERSHIP_FIELD_LENGTH_LIMIT;
+}
+
+function organizationMembershipsValid(memberships: OrganizationMembershipClaims): boolean {
+  if (memberships.items.length > SUPAOAUTH_ORGANIZATION_MEMBERSHIP_LIMIT) return false;
+  if (!Number.isInteger(memberships.total) || memberships.total < memberships.items.length) return false;
+  if (memberships.truncated !== (memberships.total > memberships.items.length)) return false;
+  return memberships.items.every((membership) => (
+    membershipFieldValid(membership.organization_id)
+    && membershipFieldValid(membership.slug)
+    && membershipFieldValid(membership.role)
+  ));
+}
+
+function withinProjectProjectionBudget(projectProjection: Record<string, unknown>): boolean {
+  return utf8Encoder.encode(JSON.stringify(projectProjection)).byteLength <= SUPAOAUTH_PROJECT_PROJECTION_BYTE_LIMIT;
+}
+
+function withinNamespaceProjectionBudget(supaoauth: Record<string, unknown>): boolean {
+  return utf8Encoder.encode(JSON.stringify(supaoauth)).byteLength <= SUPAOAUTH_NAMESPACE_PROJECTION_BYTE_LIMIT;
+}
+
+function projectWithSafeMemberships(
+  currentProject: Record<string, unknown>,
+  organizationMemberships: OrganizationMembershipClaims,
+): Record<string, unknown> | null {
+  if (currentProject.projection_unavailable === true) {
+    return withinProjectProjectionBudget(currentProject) ? currentProject : null;
+  }
+  if (!organizationMembershipsValid(organizationMemberships)) return null;
+  const nextProject = projectWithOrganizations(currentProject, organizationMemberships);
+  return withinProjectProjectionBudget(nextProject) ? nextProject : null;
+}
+
+function hookMetadata(authenticationMethod: string) {
+  return {
+    version: 1,
+    authentication_method: authenticationMethod,
+    processed_at: new Date().toISOString(),
+  };
+}
+
+function customAccessTokenSupaoauth(
+  existingContainer: unknown,
+  organizationMemberships: OrganizationMembershipClaims,
+  projectRef: string,
+  authenticationMethod: string,
+) {
+  const existingProjects = schemaV2Projects(existingContainer);
+  const currentProject = projectProjection(existingProjects, projectRef);
+  const nextProject = projectWithSafeMemberships(currentProject, organizationMemberships);
+  if (!nextProject) return null;
+  const nextSupaoauth = {
+    schema_version: SUPAOAUTH_APP_METADATA_SCHEMA_VERSION,
+    projects: {
+      ...existingProjects,
+      [projectRef]: nextProject,
+    },
+    hook: hookMetadata(authenticationMethod),
+  };
+  return withinNamespaceProjectionBudget(nextSupaoauth) ? nextSupaoauth : null;
+}
+
+function customAccessTokenInputError(
+  claims: Record<string, unknown>,
+  projectRef: string,
+): AuthHookError | null {
+  if (!projectRef) {
+    return reject(500, 'The project claim context is not configured.', 'invalid_project_claim_context');
+  }
+  if (claims.role !== undefined && !SUPABASE_RUNTIME_ROLES.some((runtimeRole) => runtimeRole === claims.role)) {
+    return reject(400, 'The top-level Supabase role claim is invalid.', 'invalid_supabase_role');
+  }
+  return null;
+}
+
+function customAccessTokenOutput(
+  claims: Record<string, unknown>,
+  appMetadata: Record<string, unknown>,
+  supaoauth: Record<string, unknown>,
+) {
   return {
     claims: {
       ...claims,
-      app_metadata: {
-        ...appMetadata,
-        supaoauth: {
-          ...existingSupaOAuth,
-          hook: {
-            version: 1,
-            authentication_method: payload.authentication_method || 'unknown',
-            processed_at: new Date().toISOString(),
-          },
-        },
-      },
+      app_metadata: { ...appMetadata, supaoauth },
     },
   };
 }
 
-export function handleMfaVerificationAttempt(payload: MfaVerificationPayload): Record<string, never> | AuthHookError {
-  const risk = isRecord(payload.metadata) ? payload.metadata.risk : null;
-  if (risk === 'blocked' || risk === 'high') {
-    return reject(403, 'MFA verification attempt denied by tenant risk policy.', 'mfa_risk_denied');
+export function handleCustomAccessToken(
+  payload: CustomAccessTokenPayload,
+  organizationMemberships: OrganizationMembershipClaims,
+  projectRef: string,
+): { claims: Record<string, unknown> } | AuthHookError {
+  const claims = removeTopLevelSupaOAuthClaims(isRecord(payload.claims) ? payload.claims : {});
+  const inputError = customAccessTokenInputError(claims, projectRef);
+  if (inputError) return inputError;
+  const appMetadata = isRecord(claims.app_metadata) ? claims.app_metadata : {};
+  const supaoauth = customAccessTokenSupaoauth(
+    appMetadata.supaoauth,
+    organizationMemberships,
+    projectRef,
+    payload.authentication_method || 'unknown',
+  );
+  if (!supaoauth) {
+    return reject(500, 'The SupaOAuth claim projection exceeds its safe bounds.', 'claim_projection_overflow');
   }
-  return {};
+  return customAccessTokenOutput(claims, appMetadata, supaoauth);
 }
 
 export function buildHookRegistrationGuide(baseUrl: string) {
@@ -171,8 +276,8 @@ export function buildHookRegistrationGuide(baseUrl: string) {
   return {
     before_user_created: `${normalized}/v1/auth-hooks/before-user-created`,
     custom_access_token: `${normalized}/v1/auth-hooks/custom-access-token`,
-    mfa_verification_attempt: `${normalized}/v1/auth-hooks/mfa-verification-attempt`,
-    secret_header: 'x-supaoauth-hook-secret',
-    required_env: 'SUPAOAUTH_AUTH_HOOK_SECRET',
+    protocol: 'standard-webhooks-v1',
+    required_headers: ['webhook-id', 'webhook-timestamp', 'webhook-signature'],
+    secret_format: 'v1,whsec_<base64>',
   };
 }

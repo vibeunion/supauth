@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { MIGRATION_SQL, PROJECT_ROLE_GRANTS_SQL, oauthAuthorizationProjectRoleGrantsSql } from '../packages/auth-server/src/db/migrate.js';
+import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
 import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 import { verifyRbacAgainstDatabase } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 import type { RbacDbVerification } from '../packages/auth-server/src/compatibility/rbac-verify.js';
@@ -50,6 +50,7 @@ export interface InstallSupacloudAppOptions {
   supacloudApiUrl?: string;
   projectRef?: string;
   token?: string;
+  bffSigningSecret?: string;
   gatewayAdminToken?: string;
   runtimeUrl?: string;
   runtimeInternalUrl?: string;
@@ -59,6 +60,7 @@ export interface InstallSupacloudAppOptions {
   corsOrigins?: string | string[];
   edgeRuntimeUpstream?: string;
   databaseUrl?: string;
+  runtimeMode?: string;
   dryRun?: boolean;
   skipMigration?: boolean;
   skipMigrationVerify?: boolean;
@@ -76,6 +78,7 @@ interface ResolvedInstallConfig {
   supacloudApiUrl: string;
   projectRef: string;
   token: string;
+  bffSigningSecret: string;
   gatewayAdminToken: string;
   runtimeUrl: string;
   runtimeInternalUrl: string;
@@ -85,6 +88,7 @@ interface ResolvedInstallConfig {
   corsOrigins: string[];
   edgeRuntimeUpstream: string;
   databaseUrl: string;
+  runtimeMode: string;
   dryRun: boolean;
 }
 
@@ -156,6 +160,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     SUPACLOUD_API_URL: options.supacloudApiUrl,
     SUPACLOUD_PROJECT_REF: options.projectRef,
     SUPACLOUD_API_TOKEN: options.token,
+    SUPAOAUTH_BFF_SIGNING_SECRET: options.bffSigningSecret,
     SUPACLOUD_GATEWAY_ADMIN_TOKEN: options.gatewayAdminToken,
     SUPACLOUD_RUNTIME_URL: options.runtimeUrl,
     SUPACLOUD_RUNTIME_INTERNAL_URL: options.runtimeInternalUrl,
@@ -165,6 +170,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     CORS_ORIGINS: Array.isArray(options.corsOrigins) ? options.corsOrigins.join(',') : options.corsOrigins,
     SUPACLOUD_EDGE_RUNTIME_UPSTREAM: options.edgeRuntimeUpstream,
     SUPACLOUD_DATABASE_URL: options.databaseUrl,
+    RUNTIME_MODE: options.runtimeMode,
   };
   const sources = [cliEnv, fileEnv, process.env];
 
@@ -186,6 +192,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     'SUPACLOUD_GATEWAY_ADMIN_TOKEN',
     'SUPACLOUD_ADMIN_TOKEN',
   ]);
+  const bffSigningSecret = firstValue(sources, ['SUPAOAUTH_BFF_SIGNING_SECRET']);
   const runtimeUrl = firstValue(sources, ['SUPACLOUD_RUNTIME_URL', 'OAUTH_RUNTIME_URL', 'SUPABASE_URL']);
   const runtimeInternalUrl = firstValue(sources, [
     'OAUTH_RUNTIME_INTERNAL_URL',
@@ -198,6 +205,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     'GOTRUE_AUTHORIZATION_PROJECT_REF',
   ]);
   const databaseUrl = firstValue(sources, ['SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL']);
+  const runtimeMode = (firstValue(sources, ['RUNTIME_MODE']) || 'gotrue').trim();
   const baseUrl = firstValue(sources, ['SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL']);
   const apiUrl = firstValue(sources, ['SUPAUTH_API_URL', 'AUTH_API_URL']);
   const configuredCorsOrigins = firstValue(sources, ['CORS_ORIGINS']);
@@ -210,6 +218,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     supacloudApiUrl: stripTrailingSlash(supacloudApiUrl),
     projectRef,
     token,
+    bffSigningSecret,
     gatewayAdminToken,
     runtimeUrl: stripTrailingSlash(runtimeUrl),
     runtimeInternalUrl: stripTrailingSlash(runtimeInternalUrl),
@@ -223,6 +232,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     ]),
     edgeRuntimeUpstream: edgeRuntimeUpstream || '127.0.0.1:9000',
     databaseUrl,
+    runtimeMode,
     dryRun: options.dryRun === true,
   };
 }
@@ -232,10 +242,20 @@ function requireConfig(config: ResolvedInstallConfig) {
   if (!config.supacloudApiUrl) missing.push('SUPACLOUD_API_URL');
   if (!config.projectRef) missing.push('SUPACLOUD_PROJECT_REF');
   if (!config.token) missing.push('SUPACLOUD_API_TOKEN');
+  if (!config.bffSigningSecret) missing.push('SUPAOAUTH_BFF_SIGNING_SECRET');
   if (!config.runtimeUrl) missing.push('SUPACLOUD_RUNTIME_URL');
   if (!config.databaseUrl) missing.push('SUPACLOUD_DATABASE_URL');
   if (missing.length > 0) {
     throw new Error(`Missing required install configuration: ${missing.join(', ')}`);
+  }
+  if (config.bffSigningSecret.length < 32) {
+    throw new Error('SUPAOAUTH_BFF_SIGNING_SECRET must be at least 32 characters');
+  }
+  if (config.bffSigningSecret === config.token) {
+    throw new Error('SUPAOAUTH_BFF_SIGNING_SECRET must be independent from the SupaCloud token');
+  }
+  if (config.runtimeMode !== 'gotrue') {
+    throw new Error('RUNTIME_MODE must be "gotrue"; external OIDC runtimes are not supported');
   }
 }
 
@@ -265,6 +285,7 @@ class SupacloudClient {
     private readonly baseUrl: string,
     private readonly token: string,
     private readonly fetchImpl: FetchImpl,
+    private readonly redactedSecrets: string[],
   ) {}
 
   async request(path: string, init: RequestInit & { okStatuses?: number[] } = {}) {
@@ -276,7 +297,7 @@ class SupacloudClient {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...requestInit, headers });
     if (!response.ok && !okStatuses?.includes(response.status)) {
       const text = await response.text().catch(() => '');
-      throw new Error(`SupaCloud API ${init.method || 'GET'} ${path} failed with ${response.status}: ${redact(text, [this.token])}`);
+      throw new Error(`SupaCloud API ${init.method || 'GET'} ${path} failed with ${response.status}: ${redact(text, this.redactedSecrets)}`);
     }
     return response;
   }
@@ -286,6 +307,7 @@ function functionEnv(config: ResolvedInstallConfig) {
   return [
     { name: 'SUPACLOUD_INTERNAL_API_URL', value: config.supacloudApiUrl },
     { name: 'SUPACLOUD_INTERNAL_TOKEN', value: config.token },
+    { name: 'SUPAOAUTH_BFF_SIGNING_SECRET', value: config.bffSigningSecret },
     { name: 'SUPACLOUD_PROJECT_REF', value: config.projectRef },
     { name: 'SUPACLOUD_RUNTIME_URL', value: config.runtimeUrl },
     ...(config.baseUrl
@@ -340,6 +362,7 @@ const hostedRoutePaths = [
   '/login',
   '/login.html',
   '/authorize.html',
+  '/hosted-auth.js',
   '/account',
   '/account.html',
   '/account/*',
@@ -540,9 +563,17 @@ function rbacMigrationVerificationErrors(result: RbacDbVerification) {
   if (!result.authorizeExists) errors.push('supaoauth.authorize() is missing');
   if (!result.hasPermissionExists) errors.push('supaoauth.has_permission() is missing');
   if (!result.hasOrgPermissionExists) errors.push('supaoauth.has_org_permission() is missing');
+  if (!result.currentProjectClaimsExists) errors.push('supaoauth.current_project_claims() is missing');
   if (!result.authorizeGranted) errors.push('authenticated lacks EXECUTE on supaoauth.authorize(TEXT, UUID)');
   if (!result.hasPermissionGranted) errors.push('authenticated lacks EXECUTE on supaoauth.has_permission(TEXT, UUID)');
   if (!result.hasOrgPermissionGranted) errors.push('authenticated lacks EXECUTE on supaoauth.has_org_permission(UUID, TEXT)');
+  if (!result.currentProjectClaimsGranted) errors.push('authenticated lacks EXECUTE on supaoauth.current_project_claims()');
+  if (!result.legacyWebhookDeliveriesAbsent) {
+    errors.push('reason_code=legacy_webhook_table_present: supaoauth.webhook_deliveries must be retired; recreate and rotate webhooks in SupaCloud Secret Manager first');
+  }
+  if (!result.legacyWebhooksAbsent) {
+    errors.push('reason_code=legacy_webhook_table_present: supaoauth.webhooks must be retired; recreate and rotate webhooks in SupaCloud Secret Manager first');
+  }
   const unsafePolicyCount = result.unsafePolicies?.length ?? 0;
   if (unsafePolicyCount > 0) errors.push(`${unsafePolicyCount} RLS policy/policies still use JWT role claim for business authorization`);
   return errors;
@@ -574,27 +605,34 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   requireConfig(config);
   const manifest = readManifest(config.root, config.artifactDir, config.manifestPath);
   const functionBundlePath = artifactPath(config.root, manifest, 'function_bundle');
-  const client = new SupacloudClient(config.supacloudApiUrl, config.token, fetchImpl);
+  const clientSecrets = [config.token, config.bffSigningSecret];
+  const client = new SupacloudClient(config.supacloudApiUrl, config.token, fetchImpl, clientSecrets);
   const gatewayClient = config.gatewayAdminToken
-    ? new SupacloudClient(config.supacloudApiUrl, config.gatewayAdminToken, fetchImpl)
+    ? new SupacloudClient(
+      config.supacloudApiUrl,
+      config.gatewayAdminToken,
+      fetchImpl,
+      [config.gatewayAdminToken, config.bffSigningSecret],
+    )
     : null;
 
   if (options.skipMigration) {
     steps.push({ name: 'migration', status: 'skipped', detail: 'skipMigration=true' });
   } else if (config.dryRun) {
-    steps.push({ name: 'migration', status: 'planned', detail: 'supauth-overlay-schema via SupaCloud Management API' });
+    steps.push({
+      name: 'migration',
+      status: 'planned',
+      detail: `${HOSTED_MIGRATIONS.length} versioned supauth overlay migrations via SupaCloud Management API`,
+    });
   } else {
-    await runSupacloudMigration(client, config.projectRef, 'supauth-overlay-schema', MIGRATION_SQL);
-    await runSupacloudMigration(client, config.projectRef, 'supauth-overlay-project-role-grants', PROJECT_ROLE_GRANTS_SQL);
-    if (config.oauthAuthorizationProjectRef && config.oauthAuthorizationProjectRef !== config.projectRef) {
-      await runSupacloudMigration(
-        client,
-        config.oauthAuthorizationProjectRef,
-        'supauth-oauth-authorization-project-role-grants',
-        oauthAuthorizationProjectRoleGrantsSql(config.projectRef),
-      );
+    for (const migration of HOSTED_MIGRATIONS) {
+      await runSupacloudMigration(client, config.projectRef, migration.name, migration.sql);
     }
-    steps.push({ name: 'migration', status: 'done', detail: 'supauth-overlay-schema + project role grants via SupaCloud Management API' });
+    steps.push({
+      name: 'migration',
+      status: 'done',
+      detail: `${HOSTED_MIGRATIONS.length} versioned overlay migrations via SupaCloud Management API`,
+    });
   }
 
   if (options.skipMigration) {
@@ -602,14 +640,14 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   } else if (options.skipMigrationVerify) {
     steps.push({ name: 'migration-verification', status: 'skipped', detail: 'skipMigrationVerify=true' });
   } else if (config.dryRun) {
-    steps.push({ name: 'migration-verification', status: 'planned', detail: 'RBAC helper functions, grants, and unsafe RLS policy scan' });
+    steps.push({ name: 'migration-verification', status: 'planned', detail: 'RBAC helpers, grants, retired webhook tables, and unsafe RLS policies' });
   } else {
     const verification = await migrationVerifier(config.databaseUrl);
     const errors = rbacMigrationVerificationErrors(verification);
     if (errors.length > 0) {
       throw new Error(`SupaCloud overlay migration verification failed: ${errors.join('; ')}`);
     }
-    steps.push({ name: 'migration-verification', status: 'done', detail: 'RBAC helper functions, grants, and RLS policy scan passed' });
+    steps.push({ name: 'migration-verification', status: 'done', detail: 'RBAC helpers, grants, retired webhook tables, and RLS policies passed' });
   }
 
   if (options.skipSecrets) {
@@ -704,6 +742,7 @@ if (import.meta.main) {
       supacloudApiUrl: option('supacloud-api-url'),
       projectRef: option('project-ref'),
       token: option('token'),
+      bffSigningSecret: option('bff-signing-secret'),
       gatewayAdminToken: option('gateway-admin-token'),
       runtimeUrl: option('runtime-url'),
       runtimeInternalUrl: option('runtime-internal-url'),
@@ -734,10 +773,12 @@ if (import.meta.main) {
   } catch (error) {
     const secrets = [
       option('token'),
+      option('bff-signing-secret'),
       option('database-url'),
       process.env.SUPACLOUD_API_TOKEN,
       process.env.SUPACLOUD_MASTER_TOKEN,
       process.env.SUPACLOUD_INTERNAL_TOKEN,
+      process.env.SUPAOAUTH_BFF_SIGNING_SECRET,
       process.env.SUPACLOUD_GATEWAY_ADMIN_TOKEN,
       process.env.SUPACLOUD_ADMIN_TOKEN,
       process.env.SUPABASE_SERVICE_ROLE_KEY,

@@ -3,7 +3,6 @@
 
 import { checkRuntimeHealth, getDiscovery } from '../runtime/index.js';
 import { SupaCloudAdapter } from '../supacloud/adapter.js';
-import { getConfig } from '../config/index.js';
 import { runRBACCompatibilityChecks } from './rbac.js';
 
 export interface CompatibilityCheckResult {
@@ -15,8 +14,6 @@ export interface CompatibilityCheckResult {
 
 export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult[]> {
   const results: CompatibilityCheckResult[] = [];
-  const config = getConfig();
-
   // ─── SC checks (Supabase runtime compatibility) ───
 
   // SC-1: Discovery endpoint reachable
@@ -56,17 +53,9 @@ export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult
       : 'Issuer not found in discovery document',
   });
 
-  // SC-5: Signing algorithm is asymmetric in external_oidc mode
-  if (config.runtimeMode === 'external_oidc') {
-    const asymmetricAlgs = ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512', 'PS256', 'PS384', 'PS512'];
-    results.push({
-      check_id: 'sc-5-external-oidc-signing',
-      status: health.signing_alg && asymmetricAlgs.includes(health.signing_alg) ? 'pass' : 'fail',
-      message: health.signing_alg && asymmetricAlgs.includes(health.signing_alg)
-        ? `External OIDC mode uses asymmetric signing: ${health.signing_alg}`
-        : `External OIDC mode requires asymmetric signing, got: ${health.signing_alg || 'unknown'}`,
-    });
-  }
+  // SC-5: Signing is owned by the GoTrue runtime. SupaOAuth never creates a
+  // second issuer or signing-key configuration, so compatibility is proven by
+  // the discovery/JWKS checks above.
 
   // SC-6: SupaCloud adapter can reach management API
   try {

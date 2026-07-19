@@ -1,462 +1,642 @@
 <script>
-  import { onMount } from 'svelte';
-  import { t } from '$lib/i18n.js';
-  import { page } from '$app/state';
-  import { getApplication, updateApplication, deleteApplication, rotateApplicationSecret, listApplicationBindings, createApplicationBinding, deleteApplicationBinding, listResources, listApplicationSecrets, createApplicationSecret, disableApplicationSecret, getApplicationConsent, updateApplicationConsent, getApplicationSignInExperience, updateApplicationSignInExperience, deleteApplicationSignInExperience } from '$lib/api/client.js';
-  import { goto } from '$app/navigation';
-  import { resolve } from '$app/paths';
+  import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
+  import { page } from "$app/state";
+  import DetailTabs from "$lib/components/DetailTabs.svelte";
+  import RequestState from "$lib/components/RequestState.svelte";
+  import { AdminApiError } from "$lib/admin-api.js";
+  import { t } from "$lib/i18n.js";
+  import {
+    GOTRUE_OAUTH_GRANT_TYPES,
+    supportedOAuthGrantTypes,
+  } from "$lib/oauth-grant-types.js";
+  import {
+    applicationDetailTabValues,
+    collectionItems,
+    tabFromRoute,
+  } from "$lib/resource-page.js";
+  import {
+    createApplicationBinding,
+    deleteApplication,
+    deleteApplicationBinding,
+    deleteApplicationSignInExperience,
+    getApplication,
+    getApplicationAccessControl,
+    getApplicationConsent,
+    getApplicationSignInExperience,
+    listApplicationBindings,
+    listApplicationLogs,
+    listApplicationOrganizations,
+    listApplicationRoles,
+    listResources,
+    rotateApplicationSecret,
+    updateApplication,
+    updateApplicationAccessControl,
+    updateApplicationConsent,
+    updateApplicationSignInExperience,
+  } from "$lib/api/client.js";
 
-  const CONFIDENTIAL_AUTH_METHODS = [
-    { value: 'client_secret_basic', label: 'client_secret_basic' },
-    { value: 'client_secret_post', label: 'client_secret_post' },
+  const allTabs = [
+    { value: "settings", labelKey: "detail.settings" },
+    { value: "roles", labelKey: "detail.roles" },
+    { value: "logs", labelKey: "detail.logs" },
+    { value: "branding", labelKey: "detail.branding" },
+    { value: "permissions", labelKey: "detail.permissions" },
+    { value: "rules", labelKey: "detail.rules" },
+    { value: "organizations", labelKey: "detail.organizations" },
   ];
+  const confidentialAuthMethods = ["client_secret_basic", "client_secret_post"];
 
-  let appId = $derived(page.params.appId);
-  let app = $state(null);
+  let application = $state(null);
+  let roles = $state([]);
+  let logs = $state([]);
+  let organizations = $state([]);
   let bindings = $state([]);
   let resources = $state([]);
-  let loading = $state(true);
-  let error = $state(null);
-  let editing = $state(false);
-  let editForm = $state({ name: '', redirect_uris: '', grant_types: '', token_endpoint_auth_method: 'client_secret_basic' });
-  let revealedSecret = $state(null);
-  let applicationSecrets = $state([]);
-  let newSecretName = $state('');
-  let consent = $state({ user_scopes: '', organization_scopes: '', allowed_organization_ids: '', require_explicit_consent: true });
-  let signInExperience = $state({
-    enabled: false,
-    page_title: '',
-    primary_color: '',
-    logo_url: '',
-    favicon_url: '',
-    background_url: '',
-    button_label: '',
-    custom_css: '',
+  let applicationForm = $state({
+    client_name: "",
+    redirect_uris: "",
+    grant_types: [],
+    token_endpoint_auth_method: "client_secret_basic",
   });
-  let showBinding = $state(false);
-  let newBinding = $state({ resource_id: '', scope_id: '' });
+  let branding = $state({
+    enabled: false,
+    page_title: "",
+    primary_color: "",
+    logo_url: "",
+    favicon_url: "",
+    background_url: "",
+    button_label: "",
+    custom_css: "",
+  });
+  let consent = $state({
+    user_scopes: "",
+    organization_scopes: "",
+    allowed_organization_ids: "",
+    require_explicit_consent: true,
+  });
+  let accessControl = $state({
+    enabled: false,
+    organization_required: false,
+    allowed_organization_ids: [],
+  });
+  let newBinding = $state({ resource_id: "", scope_id: "" });
+  let revealedSecret = $state("");
+  let loading = $state(true);
+  let saving = $state(false);
+  let error = $state(null);
+  let appId = $derived(page.params.appId);
+  let requestedTab = $derived(page.params.tab || "settings");
+  let tabs = $derived(applicationTabs());
+  let activeTab = $derived(
+    tabFromRoute(
+      requestedTab,
+      tabs.map((tab) => tab.value),
+      "settings",
+    ),
+  );
+  let tabError = $derived(
+    application && activeTab !== requestedTab
+      ? new AdminApiError(t("state.notFoundDescription"), 404, "not_found")
+      : null,
+  );
 
-  function formatClientType(type) {
-    if (type === 'public') return t('Public client');
-    if (type === 'confidential') return t('Confidential client');
-    return type || t('Confidential client');
+  function applicationTabs() {
+    if (!application) return allTabs.filter((tab) => tab.value === "settings");
+    const availableTabs = new Set(applicationDetailTabValues(application));
+    return allTabs.filter((tab) => availableTabs.has(tab.value));
   }
 
-  function formatSecretStatus(status) {
-    if (status === 'active') return t('Active');
-    if (status === 'disabled') return t('Disabled');
-    return status || t('common.notAvailable');
+  function timestamp(value) {
+    return value ? new Date(value).toLocaleString() : t("common.notAvailable");
   }
 
-  async function load() {
+  function stringList(rawValues) {
+    return rawValues
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  function initializeApplicationForm() {
+    applicationForm = {
+      client_name: application.client_name || "",
+      redirect_uris: (application.redirect_uris || []).join(", "),
+      grant_types: supportedOAuthGrantTypes(application.grant_types),
+      token_endpoint_auth_method:
+        application.token_endpoint_auth_method || "client_secret_basic",
+    };
+  }
+
+  function initializeConsent(consentResponse) {
+    consent = {
+      user_scopes: (
+        consentResponse.userScopes ||
+        consentResponse.user_scopes ||
+        []
+      ).join(", "),
+      organization_scopes: (
+        consentResponse.organizationScopes ||
+        consentResponse.organization_scopes ||
+        []
+      ).join(", "),
+      allowed_organization_ids: (
+        consentResponse.allowedOrganizationIds ||
+        consentResponse.allowed_organization_ids ||
+        []
+      ).join(", "),
+      require_explicit_consent:
+        consentResponse.requireExplicitConsent ??
+        consentResponse.require_explicit_consent ??
+        true,
+    };
+  }
+
+  function initializeBranding(brandingResponse) {
+    branding = {
+      ...branding,
+      enabled: brandingResponse.enabled ?? false,
+      ...(brandingResponse.branding || {}),
+    };
+  }
+
+  function initializeAccessControl(accessControlResponse) {
+    accessControl = { ...accessControl, ...accessControlResponse };
+  }
+
+  function resetRelatedData() {
+    roles = [];
+    logs = [];
+    organizations = [];
+    bindings = [];
+    resources = [];
+  }
+
+  async function loadActiveTab() {
+    if (activeTab === "roles") {
+      roles = collectionItems(await listApplicationRoles(appId));
+    } else if (activeTab === "logs") {
+      logs = collectionItems(await listApplicationLogs(appId, { limit: 50 }));
+    } else if (activeTab === "organizations") {
+      organizations = collectionItems(
+        await listApplicationOrganizations(appId),
+      );
+    } else if (activeTab === "branding") {
+      initializeBranding(await getApplicationSignInExperience(appId));
+    } else if (activeTab === "rules") {
+      initializeAccessControl(await getApplicationAccessControl(appId));
+    } else if (activeTab === "permissions") {
+      const [bindingResponse, resourceResponse, consentResponse] =
+        await Promise.all([
+          listApplicationBindings(appId),
+          listResources(),
+          getApplicationConsent(appId),
+        ]);
+      bindings = collectionItems(bindingResponse);
+      resources = collectionItems(resourceResponse);
+      initializeConsent(consentResponse);
+    }
+  }
+
+  async function loadApplication() {
     loading = true;
+    error = null;
     try {
-      const [appData, bindingData, resData, secretData, consentData, signInData] = await Promise.all([
-        getApplication(appId).catch(() => null),
-        listApplicationBindings(appId).catch(() => ({ items: [] })),
-        listResources().catch(() => ({ items: [] })),
-        listApplicationSecrets(appId).catch(() => ({ items: [] })),
-        getApplicationConsent(appId).catch(() => null),
-        getApplicationSignInExperience(appId).catch(() => null),
-      ]);
-      app = appData;
-      bindings = bindingData.items || [];
-      resources = resData.items || [];
-      applicationSecrets = secretData.items || [];
-      if (consentData) {
-        consent = {
-          user_scopes: (consentData.userScopes || consentData.user_scopes || []).join(', '),
-          organization_scopes: (consentData.organizationScopes || consentData.organization_scopes || []).join(', '),
-          allowed_organization_ids: (consentData.allowedOrganizationIds || consentData.allowed_organization_ids || []).join(', '),
-          require_explicit_consent: consentData.requireExplicitConsent ?? consentData.require_explicit_consent ?? true,
-        };
-      }
-      if (signInData) {
-        signInExperience = {
-          enabled: signInData.enabled ?? false,
-          page_title: signInData.branding?.page_title || '',
-          primary_color: signInData.branding?.primary_color || '',
-          logo_url: signInData.branding?.logo_url || '',
-          favicon_url: signInData.branding?.favicon_url || '',
-          background_url: signInData.branding?.background_url || '',
-          button_label: signInData.branding?.button_label || '',
-          custom_css: signInData.branding?.custom_css || '',
-        };
-      }
-      if (app) {
-        editForm = {
-          name: app.client_name || '',
-          redirect_uris: (app.redirect_uris || []).join(', '),
-          grant_types: (app.grant_types || []).join(', '),
-          token_endpoint_auth_method: app.token_endpoint_auth_method || 'client_secret_basic',
-        };
-      }
-    } catch (e) {
-      error = e.message;
+      application = await getApplication(appId);
+      initializeApplicationForm();
+      resetRelatedData();
+      await loadActiveTab();
+    } catch (requestError) {
+      error = requestError;
     }
     loading = false;
   }
 
-  async function handleUpdate() {
+  async function runMutation(command) {
+    saving = true;
+    error = null;
     try {
-      await updateApplication(appId, {
-        client_name: editForm.name,
-        redirect_uris: editForm.redirect_uris.split(',').map(s => s.trim()).filter(Boolean),
-        grant_types: editForm.grant_types.split(',').map(s => s.trim()).filter(Boolean),
-        token_endpoint_auth_method: app.client_type === 'public' ? 'none' : editForm.token_endpoint_auth_method,
-      });
-      editing = false;
-      await load();
-    } catch (e) {
-      error = e.message;
+      await command();
+      await loadApplication();
+    } catch (requestError) {
+      error = requestError;
     }
+    saving = false;
   }
 
-  async function handleDelete() {
-    if (!confirm(t('Delete this application permanently?'))) return;
+  function saveApplication() {
+    return runMutation(() =>
+      updateApplication(appId, {
+        client_name: applicationForm.client_name,
+        redirect_uris: stringList(applicationForm.redirect_uris),
+        grant_types: applicationForm.grant_types,
+        token_endpoint_auth_method:
+          application.client_type === "public"
+            ? "none"
+            : applicationForm.token_endpoint_auth_method,
+      }),
+    );
+  }
+
+  function saveConsent() {
+    return runMutation(() =>
+      updateApplicationConsent(appId, {
+        user_scopes: stringList(consent.user_scopes),
+        organization_scopes: stringList(consent.organization_scopes),
+        allowed_organization_ids: stringList(consent.allowed_organization_ids),
+        require_explicit_consent: consent.require_explicit_consent,
+      }),
+    );
+  }
+
+  function saveBranding() {
+    const { enabled, ...brandingValues } = branding;
+    return runMutation(() =>
+      updateApplicationSignInExperience(appId, {
+        enabled,
+        branding: brandingValues,
+      }),
+    );
+  }
+
+  async function rotateSecret() {
+    saving = true;
+    error = null;
+    try {
+      const response = await rotateApplicationSecret(appId);
+      revealedSecret = response.client_secret || response.secret || "";
+    } catch (requestError) {
+      error = requestError;
+    }
+    saving = false;
+  }
+
+  async function removeApplication() {
+    if (!confirm(t("Delete this application permanently?"))) return;
     try {
       await deleteApplication(appId);
-      goto(resolve('/applications'));
-    } catch (e) {
-      error = e.message;
+      await goto(resolve("/applications"));
+    } catch (requestError) {
+      error = requestError;
     }
   }
 
-  async function handleRotate() {
-    if (!confirm(t('Rotate client secret? The old secret will be invalidated immediately.'))) return;
-    try {
-      const res = await rotateApplicationSecret(appId);
-      if (res.client_secret) revealedSecret = res.client_secret;
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleCreateSecret() {
-    try {
-      const res = await createApplicationSecret(appId, { name: newSecretName || 'Client secret' });
-      revealedSecret = res.secret;
-      newSecretName = '';
-      await load();
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleDisableSecret(secretId) {
-    if (!confirm(t('Disable this client secret?'))) return;
-    try {
-      await disableApplicationSecret(appId, secretId);
-      await load();
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleSaveConsent() {
-    try {
-      await updateApplicationConsent(appId, {
-        user_scopes: consent.user_scopes.split(',').map(s => s.trim()).filter(Boolean),
-        organization_scopes: consent.organization_scopes.split(',').map(s => s.trim()).filter(Boolean),
-        allowed_organization_ids: consent.allowed_organization_ids.split(',').map(s => s.trim()).filter(Boolean),
-        require_explicit_consent: consent.require_explicit_consent,
-      });
-      await load();
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleSaveSignInExperience() {
-    try {
-      await updateApplicationSignInExperience(appId, {
-        enabled: signInExperience.enabled,
-        branding: {
-          page_title: signInExperience.page_title || null,
-          primary_color: signInExperience.primary_color || null,
-          logo_url: signInExperience.logo_url || null,
-          favicon_url: signInExperience.favicon_url || null,
-          background_url: signInExperience.background_url || null,
-          button_label: signInExperience.button_label || null,
-          custom_css: signInExperience.custom_css || null,
-        },
-      });
-      await load();
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleClearSignInExperience() {
-    if (!confirm(t('Clear application-specific sign-in experience?'))) return;
-    try {
-      await deleteApplicationSignInExperience(appId);
-      signInExperience = {
-        enabled: false,
-        page_title: '',
-        primary_color: '',
-        logo_url: '',
-        favicon_url: '',
-        background_url: '',
-        button_label: '',
-        custom_css: '',
-      };
-      await load();
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleAddBinding() {
-    try {
-      await createApplicationBinding(appId, {
-        resource_id: newBinding.resource_id,
-        scope_id: newBinding.scope_id || undefined,
-      });
-      showBinding = false;
-      newBinding = { resource_id: '', scope_id: '' };
-      await load();
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleDeleteBinding(bindingId) {
-    try {
-      await deleteApplicationBinding(appId, bindingId);
-      await load();
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  onMount(load);
+  let lastLoadKey = "";
+  $effect(() => {
+    const loadKey = `${appId}:${activeTab}`;
+    if (!appId || loadKey === lastLoadKey) return;
+    lastLoadKey = loadKey;
+    void loadApplication();
+  });
 </script>
 
-<div class="mb-4">
-  <a href={resolve('/applications')} class="text-sm text-brand-600 hover:text-brand-800">&larr; {t('Back to Applications')}</a>
+<div class="mb-5">
+  <a
+    href={resolve("/applications")}
+    class="text-sm font-medium text-brand-700 hover:text-brand-900"
+    >← {t("Back to Applications")}</a
+  >
+  <div class="mt-4 flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h2 class="text-3xl font-bold text-surface-950">
+        {application?.client_name || appId}
+      </h2>
+      <p class="mt-1 font-mono text-xs text-surface-500">{appId}</p>
+    </div>
+    <button
+      disabled={saving}
+      onclick={removeApplication}
+      class="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+      >{t("Delete")}</button
+    >
+  </div>
 </div>
 
-{#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">{error}</div>
-{/if}
+<DetailTabs
+  {tabs}
+  {activeTab}
+  basePath={`/applications/${encodeURIComponent(appId)}`}
+/>
 
-{#if loading}
-  <p class="text-surface-400">{t('Loading...')}</p>
-{:else if !app}
-  <div class="bg-surface-50 rounded-xl border border-surface-200 p-8 text-center">
-    <p class="text-surface-500">{t('Application not found')}</p>
-  </div>
-{:else}
-  <div class="flex items-start justify-between mb-6">
-    <div>
-      <h2 class="text-2xl font-bold text-surface-900">{app.client_name || app.client_id}</h2>
-      <p class="text-sm font-mono text-surface-500 mt-1">{t('Client ID')}: {app.client_id}</p>
-    </div>
-    <div class="flex gap-2">
-      <button onclick={() => editing = !editing} class="px-3 py-1.5 text-sm bg-surface-100 text-surface-700 rounded-lg hover:bg-surface-200">
-        {editing ? t('Cancel') : t('Edit')}
-      </button>
-      <button onclick={handleRotate} class="px-3 py-1.5 text-sm bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100">{t('Rotate Secret')}</button>
-      <button onclick={handleDelete} class="px-3 py-1.5 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100">{t('Delete')}</button>
-    </div>
-  </div>
-
-  {#if revealedSecret}
-    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-      <p class="text-xs text-yellow-700 font-medium mb-1">{t('New Client Secret (shown only once)')}</p>
-      <code class="text-sm font-mono text-yellow-900 break-all">{revealedSecret}</code>
-      <button onclick={() => revealedSecret = null} class="ml-2 text-xs text-yellow-600">{t('Dismiss')}</button>
-    </div>
-  {/if}
-
-  {#if editing}
-    <div class="bg-white rounded-xl border border-surface-200 p-6 mb-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Edit Application')}</h3>
-      <div class="space-y-4">
-        <div>
-          <label for="application-name" class="block text-sm font-medium text-surface-700 mb-1">{t('Name')}</label>
-          <input id="application-name" bind:value={editForm.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
-        </div>
-        <div>
-          <label for="application-redirect-uris" class="block text-sm font-medium text-surface-700 mb-1">{t('Redirect URIs (comma-separated)')}</label>
-          <input id="application-redirect-uris" bind:value={editForm.redirect_uris} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
-        </div>
-        <div>
-          <label for="application-grant-types" class="block text-sm font-medium text-surface-700 mb-1">{t('Grant Types (comma-separated)')}</label>
-          <input id="application-grant-types" bind:value={editForm.grant_types} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
-        </div>
-        {#if app.client_type !== 'public'}
+<RequestState {loading} error={error || tabError} onRetry={loadApplication}>
+  {#if revealedSecret}<div
+      class="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4"
+    >
+      <p class="text-xs font-semibold text-amber-800">
+        {t("Client Secret (shown only once)")}
+      </p>
+      <code class="mt-2 block break-all text-sm text-amber-950"
+        >{revealedSecret}</code
+      >
+    </div>{/if}
+  {#if activeTab === "settings"}
+    <div class="space-y-5">
+      <section class="console-card p-6">
+        <h3 class="text-lg font-semibold text-surface-900">
+          {t("detail.settings")}
+        </h3>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
           <div>
-            <label for="application-auth-method" class="block text-sm font-medium text-surface-700 mb-1">{t('Token Endpoint Auth Method')}</label>
-            <select id="application-auth-method" bind:value={editForm.token_endpoint_auth_method} class="px-3 py-2 border border-surface-300 rounded-lg text-sm">
-              {#each CONFIDENTIAL_AUTH_METHODS as method (method.value)}
-                <option value={method.value}>{method.label}</option>
+            <label
+              for="app-name"
+              class="mb-1 block text-sm font-medium text-surface-700"
+              >{t("Name")}</label
+            ><input
+              id="app-name"
+              bind:value={applicationForm.client_name}
+              class="w-full"
+            />
+          </div>
+          <div>
+            <label
+              for="app-auth"
+              class="mb-1 block text-sm font-medium text-surface-700"
+              >{t("Token Endpoint Auth Method")}</label
+            ><select
+              id="app-auth"
+              disabled={application.client_type === "public"}
+              bind:value={applicationForm.token_endpoint_auth_method}
+              class="w-full"
+              >{#each confidentialAuthMethods as authMethod (authMethod)}<option
+                  value={authMethod}>{authMethod}</option
+                >{/each}</select
+            >
+          </div>
+          <div>
+            <label
+              for="app-redirects"
+              class="mb-1 block text-sm font-medium text-surface-700"
+              >{t("Redirect URIs (comma-separated)")}</label
+            ><input
+              id="app-redirects"
+              bind:value={applicationForm.redirect_uris}
+              class="w-full"
+            />
+          </div>
+          <div>
+            <span class="mb-1 block text-sm font-medium text-surface-700"
+              >{t("Grant Types")}</span
+            >
+            <div class="space-y-2 rounded-lg border border-surface-200 p-3">
+              {#each GOTRUE_OAUTH_GRANT_TYPES as grantType (grantType)}
+                <label class="flex items-center gap-2 text-sm text-surface-700">
+                  <input
+                    type="checkbox"
+                    value={grantType}
+                    bind:group={applicationForm.grant_types}
+                  />
+                  <code>{grantType}</code>
+                </label>
               {/each}
-            </select>
-            <p class="mt-2 text-xs text-surface-500">{t('Use')} <code>client_secret_post</code> {t('for clients like Better Auth that send client credentials in the token request body.')}</p>
+            </div>
           </div>
-        {/if}
-        <button onclick={handleUpdate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">{t('Save')}</button>
-      </div>
+        </div>
+        <button
+          disabled={
+            saving ||
+            !applicationForm.client_name.trim() ||
+            applicationForm.grant_types.length === 0
+          }
+          onclick={saveApplication}
+          class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >{saving ? t("Saving...") : t("Save")}</button
+        >
+      </section>
+      <section class="console-card p-6">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 class="font-semibold text-surface-900">
+              {t("Client Secret")}
+            </h3>
+            <p class="mt-1 text-sm text-surface-500">
+              {t(
+                "GoTrue exposes one current client secret and supports atomic rotation. SupaOAuth does not create a second secret store.",
+              )}
+            </p>
+          </div>
+          <button
+            disabled={saving}
+            onclick={rotateSecret}
+            class="text-sm font-semibold text-brand-700 disabled:opacity-50"
+            >{t("Rotate Secret")}</button
+          >
+        </div>
+      </section>
     </div>
+  {:else if activeTab === "roles"}
+    <RequestState empty={roles.length === 0} emptyTitle="users.noRoles"
+      ><div class="space-y-3">
+        {#each roles as role (role.id || role.role_id)}<a
+            href={resolve(
+              `/roles/${encodeURIComponent(role.id || role.role_id)}/general`,
+            )}
+            class="console-card console-card-hover block p-4"
+            ><p class="font-semibold text-surface-900">
+              {role.name || role.role_name || role.role_id}
+            </p>
+            <p class="mt-1 text-sm text-surface-500">
+              {role.description || ""}
+            </p></a
+          >{/each}
+      </div></RequestState
+    >
+  {:else if activeTab === "logs"}
+    <RequestState empty={logs.length === 0} emptyTitle="No audit log entries"
+      ><div class="console-card overflow-hidden">
+        <table>
+          <thead
+            ><tr
+              ><th>{t("Time")}</th><th>{t("Event")}</th><th>{t("Actor")}</th
+              ></tr
+            ></thead
+          ><tbody
+            >{#each logs as log (log.id)}<tr
+                ><td>{timestamp(log.created_at || log.createdAt)}</td><td
+                  >{log.event_type || log.eventType}</td
+                ><td>{log.actor_id || log.actorId || "-"}</td></tr
+              >{/each}</tbody
+          >
+        </table>
+      </div></RequestState
+    >
+  {:else if activeTab === "branding"}
+    <section class="console-card p-6">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-semibold text-surface-900">
+          {t("Application Login Experience")}
+        </h3>
+        <input type="checkbox" bind:checked={branding.enabled} />
+      </div>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div>
+          <label
+            for="branding-title"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Page Title")}</label
+          ><input
+            id="branding-title"
+            bind:value={branding.page_title}
+            class="w-full"
+          />
+        </div>
+        <div>
+          <label
+            for="branding-color"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Primary Color")}</label
+          ><input
+            id="branding-color"
+            bind:value={branding.primary_color}
+            class="w-full"
+          />
+        </div>
+        <div>
+          <label
+            for="branding-logo"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Logo URL")}</label
+          ><input
+            id="branding-logo"
+            bind:value={branding.logo_url}
+            class="w-full"
+          />
+        </div>
+        <div>
+          <label
+            for="branding-background"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Background URL")}</label
+          ><input
+            id="branding-background"
+            bind:value={branding.background_url}
+            class="w-full"
+          />
+        </div>
+      </div>
+      <button
+        disabled={saving}
+        onclick={saveBranding}
+        class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >{saving ? t("Saving...") : t("Save")}</button
+      ><button
+        disabled={saving}
+        onclick={() =>
+          runMutation(() => deleteApplicationSignInExperience(appId))}
+        class="ml-3 text-sm font-medium text-surface-600 disabled:opacity-50"
+        >{t("Clear Override")}</button
+      >
+    </section>
+  {:else if activeTab === "permissions"}
+    <div class="space-y-5">
+      <section class="console-card p-6">
+        <h3 class="font-semibold text-surface-900">{t("Consent Policy")}</h3>
+        <div class="mt-4 grid gap-3">
+          <input
+            bind:value={consent.user_scopes}
+            placeholder={t("User scopes, comma-separated")}
+          /><input
+            bind:value={consent.organization_scopes}
+            placeholder={t("Organization scopes, comma-separated")}
+          /><input
+            bind:value={consent.allowed_organization_ids}
+            placeholder={t("Allowed organization IDs, comma-separated")}
+          /><label class="flex items-center gap-2 text-sm text-surface-700"
+            ><input
+              type="checkbox"
+              bind:checked={consent.require_explicit_consent}
+            />{t("Require explicit consent")}</label
+          >
+        </div>
+        <button
+          disabled={saving}
+          onclick={saveConsent}
+          class="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >{t("Save")}</button
+        >
+      </section>
+      <section class="console-card p-6">
+        <h3 class="font-semibold text-surface-900">{t("Resource Bindings")}</h3>
+        <div class="mt-4 flex gap-3">
+          <select bind:value={newBinding.resource_id} class="min-w-0 flex-1"
+            ><option value="">{t("Select resource...")}</option
+            >{#each resources as resource (resource.id)}<option
+                value={resource.id}>{resource.name}</option
+              >{/each}</select
+          ><button
+            disabled={saving || !newBinding.resource_id}
+            onclick={() =>
+              runMutation(() => createApplicationBinding(appId, newBinding))}
+            class="rounded-lg border border-brand-300 px-3 py-2 text-sm text-brand-700 disabled:opacity-50"
+            >{t("Bind")}</button
+          >
+        </div>
+        <div class="mt-4 space-y-2">
+          {#each bindings as binding (binding.id)}<div
+              class="flex items-center justify-between rounded-lg bg-surface-50 px-3 py-2"
+            >
+              <span class="text-sm text-surface-700"
+                >{binding.resourceId || binding.resource_id}
+                {binding.scopeId || binding.scope_id || ""}</span
+              ><button
+                disabled={saving}
+                onclick={() =>
+                  runMutation(() =>
+                    deleteApplicationBinding(appId, binding.id),
+                  )}
+                class="text-xs text-red-600">{t("Unbind")}</button
+              >
+            </div>{/each}
+        </div>
+      </section>
+    </div>
+  {:else if activeTab === "rules"}
+    <section class="console-card p-6">
+      <h3 class="text-lg font-semibold text-surface-900">
+        {t("detail.rules")}
+      </h3>
+      <p class="mt-1 text-sm text-surface-500">
+        {t(
+          "Restrict this application to approved business organizations without changing GoTrue token ownership.",
+        )}
+      </p>
+      <label
+        class="mt-4 flex items-center justify-between rounded-lg border border-surface-200 p-4"
+        ><span class="font-medium text-surface-900"
+          >{t("Organization required")}</span
+        ><input
+          type="checkbox"
+          bind:checked={accessControl.organization_required}
+        /></label
+      ><button
+        disabled={saving}
+        onclick={() =>
+          runMutation(() =>
+            updateApplicationAccessControl(appId, accessControl),
+          )}
+        class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >{saving ? t("Saving...") : t("Save")}</button
+      >
+    </section>
   {:else}
-    <div class="bg-white rounded-xl border border-surface-200 p-6 mb-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Details')}</h3>
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <p class="text-sm text-surface-500">{t('Type')}</p>
-          <p class="font-medium text-surface-900">{formatClientType(app.client_type)}</p>
-        </div>
-        <div>
-          <p class="text-sm text-surface-500">{t('Auth Method')}</p>
-          <p class="font-medium text-surface-900">{app.token_endpoint_auth_method || 'client_secret_basic'}</p>
-        </div>
-      </div>
-      {#if app.redirect_uris?.length}
-        <div class="mt-4">
-          <p class="text-sm text-surface-500 mb-2">{t('Redirect URIs')}</p>
-          {#each app.redirect_uris as uri (uri)}
-            <code class="text-xs font-mono text-brand-700 bg-surface-50 px-2 py-0.5 rounded block mb-1">{uri}</code>
-          {/each}
-        </div>
-      {/if}
-    </div>
+    <RequestState
+      empty={organizations.length === 0}
+      emptyTitle="organizations.noData"
+      ><div class="space-y-3">
+        {#each organizations as organization (organization.id || organization.organization_id)}<a
+            href={resolve(
+              `/organizations/${encodeURIComponent(organization.id || organization.organization_id)}/settings`,
+            )}
+            class="console-card console-card-hover block p-4"
+            ><p class="font-semibold text-surface-900">
+              {organization.name ||
+                organization.organization_name ||
+                organization.organization_id}
+            </p>
+            <p class="mt-1 text-sm text-surface-500">
+              {organization.role || ""}
+            </p></a
+          >{/each}
+      </div></RequestState
+    >
   {/if}
-
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-    <div class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Client Secrets')}</h3>
-      <div class="flex gap-2 mb-4">
-        <input bind:value={newSecretName} class="flex-1 px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('Secret label')}>
-        <button onclick={handleCreateSecret} class="px-3 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700">{t('Create')}</button>
-      </div>
-      {#if applicationSecrets.length === 0}
-        <p class="text-sm text-surface-400">{t('No tracked client secrets yet.')}</p>
-      {:else}
-        <div class="space-y-2">
-          {#each applicationSecrets as secret (secret.id)}
-            <div class="flex items-center justify-between border-b border-surface-100 py-2">
-              <div>
-                <p class="text-sm font-medium text-surface-900">{secret.name}</p>
-                <p class="text-xs font-mono text-surface-400">{secret.secretId || secret.secret_id} · {formatSecretStatus(secret.status)}</p>
-              </div>
-              {#if secret.status === 'active'}
-                <button onclick={() => handleDisableSecret(secret.secretId || secret.secret_id)} class="text-xs text-red-600 hover:text-red-800">{t('Disable')}</button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </div>
-
-    <div class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Consent Policy')}</h3>
-      <div class="space-y-3">
-        <input bind:value={consent.user_scopes} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('User scopes, comma-separated')}>
-        <input bind:value={consent.organization_scopes} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('Organization scopes, comma-separated')}>
-        <input bind:value={consent.allowed_organization_ids} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('Allowed organization IDs, comma-separated')}>
-        <label class="flex items-center gap-2 text-sm text-surface-700">
-          <input type="checkbox" bind:checked={consent.require_explicit_consent}>
-          {t('Require explicit consent')}
-        </label>
-        <button onclick={handleSaveConsent} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">{t('Save Consent')}</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="bg-white rounded-xl border border-surface-200 p-6 mb-6">
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h3 class="text-lg font-semibold text-surface-800">{t('Application Login Experience')}</h3>
-        <p class="text-sm text-surface-500 mt-1">{t('Overrides the tenant default login branding for this OAuth client.')}</p>
-      </div>
-      <label class="flex items-center gap-2 text-sm text-surface-700">
-        <input type="checkbox" bind:checked={signInExperience.enabled}>
-        {t('Enabled')}
-      </label>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div>
-        <label for="app-login-title" class="block text-sm font-medium text-surface-700 mb-1">{t('Page Title')}</label>
-        <input id="app-login-title" bind:value={signInExperience.page_title} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={app.client_name || 'SupaOAuth'}>
-      </div>
-      <div>
-        <label for="app-login-button" class="block text-sm font-medium text-surface-700 mb-1">{t('Button Label')}</label>
-        <input id="app-login-button" bind:value={signInExperience.button_label} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('Sign In')}>
-      </div>
-      <div>
-        <label for="app-login-primary" class="block text-sm font-medium text-surface-700 mb-1">{t('Primary Color')}</label>
-        <div class="flex gap-2">
-          <input id="app-login-primary" bind:value={signInExperience.primary_color} class="flex-1 px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="#2563eb">
-          <div class="w-10 h-10 rounded-lg border border-surface-200" style:background-color={signInExperience.primary_color || '#ffffff'}></div>
-        </div>
-      </div>
-      <div>
-        <label for="app-login-logo" class="block text-sm font-medium text-surface-700 mb-1">{t('Logo URL')}</label>
-        <input id="app-login-logo" bind:value={signInExperience.logo_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://...">
-      </div>
-      <div>
-        <label for="app-login-favicon" class="block text-sm font-medium text-surface-700 mb-1">{t('Favicon URL')}</label>
-        <input id="app-login-favicon" bind:value={signInExperience.favicon_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://...">
-      </div>
-      <div>
-        <label for="app-login-background" class="block text-sm font-medium text-surface-700 mb-1">{t('Background URL')}</label>
-        <input id="app-login-background" bind:value={signInExperience.background_url} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder="https://...">
-      </div>
-    </div>
-
-    <div class="mt-4">
-      <label for="app-login-css" class="block text-sm font-medium text-surface-700 mb-1">{t('Custom CSS')}</label>
-      <textarea id="app-login-css" bind:value={signInExperience.custom_css} rows="4" class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm font-mono" placeholder={t('Custom CSS for the hosted login page')}></textarea>
-    </div>
-
-    <div class="flex gap-2 mt-4">
-      <button onclick={handleSaveSignInExperience} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">{t('Save Login Experience')}</button>
-      <button onclick={handleClearSignInExperience} class="px-4 py-2 bg-surface-100 text-surface-700 rounded-lg text-sm font-medium hover:bg-surface-200">{t('Clear Override')}</button>
-    </div>
-  </div>
-
-  <!-- Resource/Scope bindings -->
-  <div class="bg-white rounded-xl border border-surface-200 p-6">
-    <div class="flex items-center justify-between mb-4">
-      <h3 class="text-lg font-semibold text-surface-800">{t('Resource Bindings')}</h3>
-      <button onclick={() => showBinding = !showBinding} class="px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700">
-        {showBinding ? t('Cancel') : `+ ${t('Bind Resource')}`}
-      </button>
-    </div>
-
-    {#if showBinding}
-      <div class="border border-surface-200 rounded-lg p-4 mb-4">
-        <div class="flex gap-3">
-          <select bind:value={newBinding.resource_id} class="px-3 py-2 border border-surface-300 rounded-lg text-sm flex-1">
-            <option value="">{t('Select resource...')}</option>
-            {#each resources as res (res.id)}
-              <option value={res.id}>{res.name} ({res.indicator})</option>
-            {/each}
-          </select>
-          <button onclick={handleAddBinding} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">{t('Bind')}</button>
-        </div>
-      </div>
-    {/if}
-
-    {#if bindings.length === 0}
-      <p class="text-sm text-surface-400">{t('No resource bindings. Bind API resources to grant this application access to specific scopes.')}</p>
-    {:else}
-      <div class="space-y-2">
-        {#each bindings as b (b.id)}
-          <div class="flex items-center justify-between py-2 border-b border-surface-100">
-            <div>
-              <span class="text-sm font-medium text-surface-900">{b.resourceId}</span>
-              {#if b.scopeId}
-                <span class="ml-2 px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs">{b.scopeId}</span>
-              {/if}
-            </div>
-            <button onclick={() => handleDeleteBinding(b.id)} class="text-xs text-red-500 hover:text-red-700">{t('Unbind')}</button>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-{/if}
+</RequestState>

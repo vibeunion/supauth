@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Type check and test
+      - name: Check code and GoTrue-only OpenAPI compatibility
         run: bun run check
 
   supabase-auth-compat:
@@ -77,6 +77,10 @@ jobs:
           OAUTH21_TOKEN_AUTH_METHOD: ${{ secrets.LIVE_OAUTH21_TOKEN_AUTH_METHOD }}
           OAUTH21_CLIENT_SECRET: ${{ secrets.LIVE_OAUTH21_CLIENT_SECRET }}
           SUPABASE_ANON_KEY: ${{ secrets.LIVE_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_FULLSTACK_URL: ${{ secrets.LIVE_SUPABASE_FULLSTACK_URL }}
+          SUPABASE_FULLSTACK_ANON_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_ANON_KEY || secrets.LIVE_SUPABASE_ANON_KEY }}
+          SUPABASE_FULLSTACK_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_SERVICE_ROLE_KEY || secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
           SUPABASE_TEST_PASSWORD: ${{ secrets.LIVE_SUPABASE_TEST_PASSWORD }}
         run: |

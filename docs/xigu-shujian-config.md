@@ -6,7 +6,7 @@
 
 - GoTrue/Supabase Auth 兼容：OAuth/OIDC discovery、JWKS、授权码、refresh token、session、MFA 和 `auth.users` 仍由 GoTrue 负责。
 - 产品治理层：Admin Console、hosted pages、account center、Applications、Users、Organizations、RBAC、Audit、Webhooks、Connectors、tenant config 和 compatibility tooling。
-- 权限桥接：`app_metadata.supaoauth` 的有界投影、RLS helper、资源/scope/application binding、安装期 RBAC 验证。
+- 权限桥接：schema v2 `app_metadata.supaoauth.projects[projectRef]` 的有界投影、RLS helper、资源/scope/application binding、安装期 RBAC 验证。
 - 可配置登录体验：`supaoauth.sign_in_experience`、application-level sign-in override、branding bucket 和 `custom-ui/` 部署目录。
 - 审计输出：登录、授权、consent、应用、角色、权限、MFA、webhook 等事件的标准化 envelope 和 facade。
 
@@ -76,7 +76,7 @@ bun run scripts/apply-sign-in-experience.ts \
   --config config/sign-in-experience/xigu-shujian.json
 ```
 
-工具会把登录页 overlay 写入 `/api/v1/sign-in-experience`，并把 preset 中 GoTrue `auth-config` 可精确表达的安全字段同步到 `/api/v1/auth-config`：`sign_up_enabled` 映射为 `enable_signup` / `disable_signup`，`password_policy.min_length` 映射为 `password_min_length`，四项密码字符要求映射为 `password_required_characters`。无法精确映射的组合会在写入前被拒绝。`sign_in_methods` 与 `mfa_required` 仍只是 SupAuth overlay metadata；当前 preset 只声明密码登录，企业 SSO 必须通过已启用的 connector/SAML 配置接入，MFA 强制还需要 challenge 与 AAL2 授权策略。
+工具会把登录页 overlay 写入 `/api/v1/sign-in-experience`，并把 preset 中 GoTrue `auth-config` 可精确表达的安全字段同步到 `/api/v1/auth-config`：`sign_up_enabled` 映射为 `enable_signup` / `disable_signup`，`password_policy.min_length` 映射为 `password_min_length`，四项密码字符要求映射为 `password_required_characters`。无法精确映射的组合会在写入前被拒绝。`sign_in_methods` 只声明 GoTrue 已支持的登录方式；当前 preset 只声明密码登录，企业 SSO 必须通过已启用的 GoTrue/SupaCloud connector 接入。MFA 只使用 GoTrue TOTP 与真实 AAL，不写入无法生效的 overlay 强制开关。
 
 如果部署环境直接暴露 Function 路径，可显式传入 overlay 路径；工具会从该路径派生同前缀的 `/v1/auth-config`。直连示例也必须复用已换取的 `SUPAUTH_ADMIN_TOKEN`：
 

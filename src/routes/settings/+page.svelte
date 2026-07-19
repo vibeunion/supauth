@@ -66,10 +66,6 @@
           <p class="font-medium text-surface-900">{signInExp.sign_up_enabled ? 'Open' : 'Closed'}</p>
         </div>
         <div>
-          <p class="text-sm text-surface-500">MFA Required</p>
-          <p class="font-medium text-surface-900">{signInExp.mfa_required ? 'Yes' : 'No'}</p>
-        </div>
-        <div>
           <p class="text-sm text-surface-500">Password Min Length</p>
           <p class="font-medium text-surface-900">{signInExp.password_policy?.min_length || 8}</p>
         </div>

@@ -51,25 +51,23 @@ The SDK provides methods for all SupaOAuth Management API endpoints:
 |---|---|
 | Health / Project | `health()`, `getProject()` |
 | Runtime | `getRuntimeHealth()`, `getOAuthServerStatus()`, `getDiscovery()`, `getJWKS()` |
-| Applications | `listApplications()`, `createApplication()`, `getApplication()`, `updateApplication()`, `deleteApplication()`, `rotateApplicationSecret()`, `listApplicationSecrets()`, `createApplicationSecret()`, `disableApplicationSecret()`, `deleteApplicationSecret()` |
+| Applications | `listApplications()`, `createApplication()`, `getApplication()`, `updateApplication()`, `deleteApplication()`, `rotateApplicationSecret()`, `getApplicationConsentSettings()`, `updateApplicationConsentSettings()` |
 | Application Bindings | `listApplicationBindings()`, `createApplicationBinding()`, `deleteApplicationBinding()`, `listApplicationScopes()` |
 | Connectors | `listConnectors()`, `getConnector()`, `updateConnector()`, `testConnector()`, `getConnectorAuthorizationUri()`, `listConnectorFactories()`, `upsertConnectorFactory()` |
 | API Resources | `listResources()`, `createResource()`, `getResource()`, `updateResource()`, `deleteResource()` |
 | Scopes | `addScope()`, `removeScope()` |
-| Users | `listUsers()`, `getUser()`, `updateUser()`, `suspendUser()`, `deleteUser()`, `listUserSessions()`, `revokeUserSession()`, `unlinkUserIdentity()`, `resetUserMfa()` |
-| Account Center | `getMyAccountProfile()`, `updateMyAccountProfile()`, `listMyAccountSessions()`, `revokeMyAccountSession()`, `listMyAccountGrants()`, `revokeMyAccountGrant()` |
-| Organizations | `listOrganizations()`, `createOrganization()`, `getOrganization()`, `updateOrganization()`, `deleteOrganization()`, `addOrganizationMember()`, `removeOrganizationMember()`, `updateOrganizationMemberRole()`, `listOrganizationInvitations()`, `createOrganizationInvitation()`, `updateOrganizationInvitationStatus()`, `getOrganizationJitSettings()`, `updateOrganizationJitSettings()`, `listOrganizationApplications()`, `upsertOrganizationApplication()`, `removeOrganizationApplication()` |
+| Users | `listUsers()`, `getUser()`, `updateUser()`, `suspendUser()`, `deleteUser()`, `resetUserMfa()` |
+| Organizations | `listOrganizations()`, `createOrganization()`, `getOrganization()`, `updateOrganization()`, `deleteOrganization()`, `addOrganizationMember()`, `removeOrganizationMember()`, `updateOrganizationMemberRole()`, `listOrganizationInvitations()`, `createOrganizationInvitation()`, `acceptOrganizationInvitation()`, `revokeOrganizationInvitation()`, `getOrganizationJitSettings()`, `updateOrganizationJitSettings()`, `listOrganizationApplications()`, `bindOrganizationApplication()`, `removeOrganizationApplication()` |
 | Roles | `listRoles()`, `createRole()`, `getRole()`, `updateRole()`, `deleteRole()` |
 | Permissions | `listRolePermissions()`, `createRolePermission()`, `deleteRolePermission()`, `assignRole()`, `revokeRole()`, `getOrgRoleAssignments()` |
 | Sign-in Experience | `getSignInExperience()`, `resolveSignInExperience()`, `resolvePublicSignInExperience()`, `getPublicPhrases()`, `updateSignInExperience()`, `getApplicationSignInExperience()`, `updateApplicationSignInExperience()`, `deleteApplicationSignInExperience()` |
 | Auth Config | `getAuthConfig()`, `updateAuthConfig()` |
-| Consents | `listUserConsents()`, `grantConsent()`, `revokeConsent()`, `listApplicationConsents()` |
 | Organization Templates | `listOrgTemplates()`, `createOrgTemplate()`, `instantiateOrgTemplate()` |
 | Webhooks | `listWebhooks()`, `createWebhook()`, `getWebhook()`, `updateWebhook()`, `deleteWebhook()`, `rotateWebhookSecret()`, `listWebhookLogs()`, `testWebhook()`, `replayWebhook()`, `listWebhookEvents()` |
 | Audit | `listAuditLogs()` |
 | Sync | `syncUserMetadata()`, `syncOrgMetadata()` |
 | Tenant Config | `listTenantConfigs()`, `getTenantConfig()`, `upsertTenantConfig()`, `deleteTenantConfig()`, `checkTenantDomain()` |
-| Enterprise SSO / Passkeys | `listEnterpriseSSOConfigs()`, `createEnterpriseSSOConfig()`, `listUserPasskeys()` |
+| Enterprise SSO | `listEnterpriseSSOConfigs()`, `createEnterpriseSSOConfig()` |
 | Security / Provisioning | `getSecurityStatus()`, `getProvisioningStatus()`, `reconcileProject()`, `getCompatibilityReport()` |
 | Auth Hooks | `getAuthHookRegistrationGuide()` |
 | Admin Tools | `compileAuthorizationPlan()`, `getAuthorizationCompilerDemo()`, `generateRLSMigration()`, `getRLSMigrationDemo()` |

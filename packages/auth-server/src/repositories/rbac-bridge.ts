@@ -241,12 +241,14 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
 }
 
 /**
- * Generate a helper SQL snippet that bridges app_metadata.supaoauth.roles
- * for apps that still read app_metadata.role. This can be applied to the
- * tenant DB to create a compatibility view.
+ * Generate a helper SQL snippet that bridges the current project's
+ * app_metadata.supaoauth.projects[projectRef].roles for apps that still read
+ * app_metadata.role. This can be applied to the tenant DB as a compatibility view.
  */
 export function generateCompatibilityHelper(projectRef: string): string {
-  return `-- P0-28 RBAC Compatibility Helper for project ${projectRef}
+  const sqlProjectRef = projectRef.replace(/'/g, "''");
+  const commentProjectRef = projectRef.replace(/[\r\n]/g, ' ');
+  return `-- P0-28 RBAC Compatibility Helper for project ${commentProjectRef}
 -- This function bridges SupaOAuth roles to legacy app_metadata.role
 -- for backward compatibility with existing SupaCloud business apps.
 
@@ -259,7 +261,10 @@ export function generateCompatibilityHelper(projectRef: string): string {
 	  -- Read the SupaCloud-owned RBAC projection synced into GoTrue metadata.
 	  SELECT COALESCE(array_agg(value), ARRAY[]::TEXT[]) INTO supaoauth_roles
 	  FROM auth.users u,
-	       jsonb_array_elements_text(COALESCE(u.raw_app_meta_data -> 'supaoauth' -> 'roles', '[]'::jsonb)) AS value
+	       jsonb_array_elements_text(COALESCE(
+	         u.raw_app_meta_data -> 'supaoauth' -> 'projects' -> '${sqlProjectRef}' -> 'roles',
+	         '[]'::jsonb
+	       )) AS value
 	  WHERE u.id = legacy_role_for_user.user_id;
 
   -- Map supaoauth roles to legacy role priority

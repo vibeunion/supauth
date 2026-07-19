@@ -1,11 +1,12 @@
 // API Resources and Scopes routes with OpenAPI annotations
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import * as resourceRepo from '../repositories/resources.js';
 import * as auditRepo from '../repositories/audit.js';
+import { ApiContractError, pagedResponse } from '../utils/api-contract.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
-  try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
+  await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
 export const resourceRoutes = new Elysia({ prefix: '/v1/resources' })
@@ -38,6 +39,12 @@ export const resourceRoutes = new Elysia({ prefix: '/v1/resources' })
     detail: { summary: 'Update API resource', tags: ['Resources'] },
   })
   .delete('/:resourceId', async ({ params }) => {
+    const bindings = await resourceRepo.resourceBindings(params.resourceId);
+    if (bindings.length > 0) {
+      throw new ApiContractError(409, 'resource_in_use', 'API resource is bound to one or more applications', {
+        binding_count: bindings.length,
+      });
+    }
     await resourceRepo.deleteResource(params.resourceId);
     await audit('resource.delete', 'resource', params.resourceId);
   }, {
@@ -50,9 +57,28 @@ export const resourceRoutes = new Elysia({ prefix: '/v1/resources' })
   }, {
     detail: { summary: 'Add scope to resource', tags: ['Resources', 'Scopes'] },
   })
+  .put('/:resourceId/scopes/:scopeId', async ({ params, body }) => {
+    const resource = await resourceRepo.getResource(params.resourceId);
+    if (!resource || !resource.scopes.some((scope) => scope.id === params.scopeId)) {
+      throw new ApiContractError(404, 'scope_not_found', 'Scope was not found under this API resource');
+    }
+    const scope = await resourceRepo.updateScope(params.scopeId, body as { name?: string; description?: string });
+    await audit('scope.update', 'scope', params.scopeId, { resource_id: params.resourceId });
+    return scope;
+  }, {
+    detail: { summary: 'Update scope under a resource', tags: ['Resources', 'Scopes'] },
+  })
   .delete('/:resourceId/scopes/:scopeId', async ({ params }) => {
+    if (await resourceRepo.scopeHasBindings(params.scopeId)) {
+      throw new ApiContractError(409, 'scope_in_use', 'Scope is bound to one or more applications');
+    }
     await resourceRepo.removeScope(params.scopeId);
     await audit('scope.delete', 'scope', params.scopeId);
   }, {
     detail: { summary: 'Remove scope from resource', tags: ['Resources', 'Scopes'] },
+  })
+  .get('/:resourceId/applications', async ({ params }) => {
+    return pagedResponse(await resourceRepo.resourceBindings(params.resourceId));
+  }, {
+    detail: { summary: 'List application bindings for a resource', tags: ['Resources', 'Applications'] },
   });

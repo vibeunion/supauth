@@ -7,8 +7,15 @@ import {
   SUPABASE_REQUIRED_CLAIMS,
   SUPABASE_RUNTIME_ROLES,
   SUPAOAUTH_APP_METADATA_KEY,
+  SUPAOAUTH_APP_METADATA_SCHEMA_VERSION,
   SUPAOAUTH_CLAIM_KEYS,
   SUPAOAUTH_CLAIMS_NAMESPACE,
+  SUPAOAUTH_PERMISSION_PROJECTION_LIMIT,
+  SUPAOAUTH_ORGANIZATION_MEMBERSHIP_FIELD_LENGTH_LIMIT,
+  SUPAOAUTH_ORGANIZATION_MEMBERSHIP_LIMIT,
+  SUPAOAUTH_NAMESPACE_PROJECTION_BYTE_LIMIT,
+  SUPAOAUTH_PROJECT_PROJECTION_BYTE_LIMIT,
+  SUPAOAUTH_ROLE_PROJECTION_LIMIT,
 } from '../index.js';
 
 describe('Shared types', () => {
@@ -48,12 +55,30 @@ describe('Shared types', () => {
 
   it('uses app_metadata.supaoauth as gotrue-mode namespace', () => {
     expect(SUPAOAUTH_APP_METADATA_KEY).toBe('supaoauth');
-    expect(GOTRUE_CLAIMS_STRATEGY.roles.key).toBe('app_metadata.supaoauth.roles');
-    expect(GOTRUE_CLAIMS_STRATEGY.organization.key).toBe('app_metadata.supaoauth.current_org_id');
+    expect(SUPAOAUTH_APP_METADATA_SCHEMA_VERSION).toBe(2);
+    expect(GOTRUE_CLAIMS_STRATEGY.roles.key)
+      .toBe('app_metadata.supaoauth.projects.{projectRef}.roles');
+    expect(GOTRUE_CLAIMS_STRATEGY.organization.key)
+      .toBe('app_metadata.supaoauth.projects.{projectRef}.current_org_id');
+    expect(GOTRUE_CLAIMS_STRATEGY.scopes.key)
+      .toBe('app_metadata.supaoauth.projects.{projectRef}.scopes');
+    expect(GOTRUE_CLAIMS_STRATEGY.permissions.key)
+      .toBe('app_metadata.supaoauth.projects.{projectRef}.permissions');
+    expect(GOTRUE_CLAIMS_STRATEGY.applications.key)
+      .toBe('app_metadata.supaoauth.projects.{projectRef}.applications');
   });
 
   it('keeps Supabase runtime roles intact', () => {
     expect(SUPABASE_RUNTIME_ROLES).toEqual(['anon', 'authenticated', 'service_role']);
+  });
+
+  it('exports bounded SupaOAuth metadata projection limits', () => {
+    expect(SUPAOAUTH_ROLE_PROJECTION_LIMIT).toBe(64);
+    expect(SUPAOAUTH_PERMISSION_PROJECTION_LIMIT).toBe(256);
+    expect(SUPAOAUTH_PROJECT_PROJECTION_BYTE_LIMIT).toBe(16 * 1024);
+    expect(SUPAOAUTH_NAMESPACE_PROJECTION_BYTE_LIMIT).toBe(64 * 1024);
+    expect(SUPAOAUTH_ORGANIZATION_MEMBERSHIP_LIMIT).toBe(50);
+    expect(SUPAOAUTH_ORGANIZATION_MEMBERSHIP_FIELD_LENGTH_LIMIT).toBe(128);
   });
 
   it('exports Supabase OAuth access-token claims separately from all JWT claims', () => {

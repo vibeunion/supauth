@@ -1,180 +1,144 @@
 <script>
-  import { onMount } from 'svelte';
-  import { listOrganizations, createOrganization, deleteOrganization, listOrganizationInvitations, createOrganizationInvitation, getOrganizationJit, updateOrganizationJit, listOrganizationApplications, upsertOrganizationApplication } from '$lib/api/client.js';
-  import { t } from '$lib/i18n.js';
+  import { onMount } from "svelte";
+  import { resolve } from "$app/paths";
+  import RequestState from "$lib/components/RequestState.svelte";
+  import {
+    createOrganization,
+    deleteOrganization,
+    listOrganizations,
+  } from "$lib/api/client.js";
+  import { t } from "$lib/i18n.js";
+  import { collectionItems } from "$lib/resource-page.js";
 
   let organizations = $state([]);
   let loading = $state(true);
   let error = $state(null);
   let showCreate = $state(false);
-  let newOrg = $state({ name: '', description: '' });
-  let selectedOrg = $state(null);
-  let orgControls = $state({ invitations: [], applications: [], jit: null });
-  let inviteEmail = $state('');
-  let jitDomains = $state('');
-  let appAccess = $state({ app_id: '', role_ids: '' });
+  let newOrganization = $state({ name: "", description: "" });
 
-  async function load() {
+  async function loadOrganizations() {
     loading = true;
+    error = null;
     try {
-      const res = await listOrganizations();
-      organizations = res.items || res.data || (Array.isArray(res) ? res : []);
-    } catch (e) {
-      error = e.message;
+      organizations = collectionItems(await listOrganizations());
+    } catch (requestError) {
+      error = requestError;
     }
     loading = false;
   }
 
-  async function handleCreate() {
+  async function createNewOrganization() {
     try {
-      await createOrganization({ name: newOrg.name, description: newOrg.description });
+      await createOrganization(newOrganization);
+      newOrganization = { name: "", description: "" };
       showCreate = false;
-      newOrg = { name: '', description: '' };
-      await load();
-    } catch (e) {
-      error = e.message;
+      await loadOrganizations();
+    } catch (requestError) {
+      error = requestError;
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm(t('organizations.deleteConfirm'))) return;
+  async function removeOrganization(organizationId) {
+    if (!confirm(t("organizations.deleteConfirm"))) return;
     try {
-      await deleteOrganization(id);
-      await load();
-    } catch (e) {
-      error = e.message;
+      await deleteOrganization(organizationId);
+      await loadOrganizations();
+    } catch (requestError) {
+      error = requestError;
     }
   }
 
-  async function loadControls(org) {
-    selectedOrg = org;
-    const [invites, jit, apps] = await Promise.all([
-      listOrganizationInvitations(org.id).catch(() => ({ items: [] })),
-      getOrganizationJit(org.id).catch(() => null),
-      listOrganizationApplications(org.id).catch(() => ({ items: [] })),
-    ]);
-    orgControls = { invitations: invites.items || [], applications: apps.items || [], jit };
-    jitDomains = (jit?.emailDomains || jit?.email_domains || []).join(', ');
-  }
-
-  async function handleInvite() {
-    try {
-      await createOrganizationInvitation(selectedOrg.id, { email: inviteEmail });
-      inviteEmail = '';
-      await loadControls(selectedOrg);
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleSaveJit() {
-    try {
-      await updateOrganizationJit(selectedOrg.id, {
-        email_domains: jitDomains.split(',').map(s => s.trim()).filter(Boolean),
-        enabled: true,
-      });
-      await loadControls(selectedOrg);
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  async function handleGrantApp() {
-    try {
-      await upsertOrganizationApplication(selectedOrg.id, appAccess.app_id, {
-        role_ids: appAccess.role_ids.split(',').map(s => s.trim()).filter(Boolean),
-        enabled: true,
-      });
-      appAccess = { app_id: '', role_ids: '' };
-      await loadControls(selectedOrg);
-    } catch (e) {
-      error = e.message;
-    }
-  }
-
-  onMount(load);
+  onMount(loadOrganizations);
 </script>
 
-<div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t('organizations.title')}</h2>
-  <button onclick={() => showCreate = !showCreate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">
-    {showCreate ? t('common.cancel') : `+ ${t('organizations.new')}`}
-  </button>
+<div class="mb-6 flex items-start justify-between gap-4">
+  <div>
+    <h2 class="text-3xl font-bold text-surface-950">
+      {t("organizations.title")}
+    </h2>
+    <p class="mt-2 text-sm text-surface-500">{t("organizations.noDataHint")}</p>
+  </div>
+  <button
+    onclick={() => (showCreate = !showCreate)}
+    class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+    >{showCreate ? t("common.cancel") : `+ ${t("organizations.new")}`}</button
+  >
 </div>
 
-{#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">{error}</div>
-{/if}
-
 {#if showCreate}
-  <div class="bg-white rounded-xl border border-surface-200 p-6 mb-6">
-    <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('organizations.new')}</h3>
-    <div class="space-y-4">
+  <section class="console-card mb-6 p-6">
+    <h3 class="text-lg font-semibold text-surface-900">
+      {t("organizations.new")}
+    </h3>
+    <div class="mt-4 grid gap-4 md:grid-cols-2">
       <div>
-        <label for="org-name" class="block text-sm font-medium text-surface-700 mb-1">{t('organizations.name')}</label>
-        <input id="org-name" bind:value={newOrg.name} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('Acme Corp')}>
+        <label
+          for="org-name"
+          class="mb-1 block text-sm font-medium text-surface-700"
+          >{t("organizations.name")}</label
+        ><input
+          id="org-name"
+          bind:value={newOrganization.name}
+          class="w-full"
+        />
       </div>
       <div>
-        <label for="org-desc" class="block text-sm font-medium text-surface-700 mb-1">{t('organizations.description')}</label>
-        <input id="org-desc" bind:value={newOrg.description} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm" placeholder={t('organizations.optionalDescription')}>
+        <label
+          for="org-description"
+          class="mb-1 block text-sm font-medium text-surface-700"
+          >{t("organizations.description")}</label
+        ><input
+          id="org-description"
+          bind:value={newOrganization.description}
+          class="w-full"
+        />
       </div>
-      <button onclick={handleCreate} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">{t('organizations.create')}</button>
     </div>
-  </div>
+    <button
+      disabled={!newOrganization.name.trim()}
+      onclick={createNewOrganization}
+      class="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+      >{t("organizations.create")}</button
+    >
+  </section>
 {/if}
 
-{#if loading}
-  <p class="text-surface-400">{t('common.loading')}</p>
-{:else if organizations.length === 0}
-  <div class="bg-surface-50 rounded-xl border border-surface-200 p-8 text-center">
-    <p class="text-surface-500">{t('organizations.noData')}</p>
-    <p class="text-sm text-surface-400 mt-2">{t('organizations.noDataHint')}</p>
-  </div>
-{:else}
-  <div class="space-y-3">
-    {#each organizations as org (org.id)}
-      <div class="bg-white rounded-xl border border-surface-200 p-5">
-        <div class="flex items-start justify-between">
-          <div>
-            <h4 class="font-semibold text-surface-900">{org.name}</h4>
-            {#if org.description}
-              <p class="text-sm text-surface-500 mt-1">{org.description}</p>
-            {/if}
-          </div>
-          <div class="flex gap-3">
-            <button onclick={() => loadControls(org)} class="text-sm text-brand-600 hover:text-brand-800">{t('organizations.controls')}</button>
-            <button onclick={() => handleDelete(org.id)} class="text-sm text-red-500 hover:text-red-700">{t('organizations.delete')}</button>
-          </div>
+<RequestState
+  {loading}
+  {error}
+  empty={organizations.length === 0}
+  emptyTitle="organizations.noData"
+  emptyDescription="organizations.noDataHint"
+  onRetry={loadOrganizations}
+>
+  <div class="grid gap-4 lg:grid-cols-2">
+    {#each organizations as organization (organization.id)}
+      <article class="console-card console-card-hover p-5">
+        <div class="flex items-start justify-between gap-4">
+          <a
+            href={resolve(
+              `/organizations/${encodeURIComponent(organization.id)}/settings`,
+            )}
+            class="min-w-0"
+          >
+            <h3 class="truncate font-semibold text-surface-950">
+              {organization.name}
+            </h3>
+            <p class="mt-1 line-clamp-2 text-sm text-surface-500">
+              {organization.description ||
+                t("organizations.optionalDescription")}
+            </p>
+            <p class="mt-3 font-mono text-xs text-surface-400">
+              {organization.id}
+            </p>
+          </a>
+          <button
+            onclick={() => removeOrganization(organization.id)}
+            class="text-sm font-medium text-red-600 hover:text-red-800"
+            >{t("organizations.delete")}</button
+          >
         </div>
-        {#if selectedOrg?.id === org.id}
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5 border-t border-surface-100 pt-4">
-            <div>
-              <h5 class="text-sm font-semibold text-surface-700 mb-2">{t('organizations.invitations')}</h5>
-              <div class="flex gap-2 mb-2">
-                <input bind:value={inviteEmail} class="min-w-0 flex-1 px-2 py-1 border border-surface-300 rounded text-sm" placeholder="user@example.com">
-                <button onclick={handleInvite} class="px-2 py-1 bg-brand-600 text-white rounded text-xs">{t('organizations.invite')}</button>
-              </div>
-              {#each orgControls.invitations as invite (invite.id)}
-                <p class="text-xs text-surface-500">{invite.email} · {invite.status}</p>
-              {/each}
-            </div>
-            <div>
-              <h5 class="text-sm font-semibold text-surface-700 mb-2">{t('organizations.jitProvisioning')}</h5>
-              <input bind:value={jitDomains} class="w-full px-2 py-1 border border-surface-300 rounded text-sm mb-2" placeholder="example.com, corp.com">
-              <button onclick={handleSaveJit} class="px-2 py-1 bg-brand-600 text-white rounded text-xs">{t('organizations.enableSave')}</button>
-            </div>
-            <div>
-              <h5 class="text-sm font-semibold text-surface-700 mb-2">{t('organizations.applicationAccess')}</h5>
-              <input bind:value={appAccess.app_id} class="w-full px-2 py-1 border border-surface-300 rounded text-sm mb-2" placeholder="client_id">
-              <input bind:value={appAccess.role_ids} class="w-full px-2 py-1 border border-surface-300 rounded text-sm mb-2" placeholder={t('organizations.placeholderRoleIds')}>
-              <button onclick={handleGrantApp} class="px-2 py-1 bg-brand-600 text-white rounded text-xs">{t('organizations.grant')}</button>
-              {#each orgControls.applications as app (app.id)}
-                <p class="text-xs text-surface-500 mt-1">{app.applicationId || app.application_id} · {app.enabled ? t('organizations.enabled') : t('organizations.disabled')}</p>
-              {/each}
-            </div>
-          </div>
-        {/if}
-      </div>
+      </article>
     {/each}
   </div>
-{/if}
+</RequestState>

@@ -6,12 +6,14 @@
 
 import { Elysia } from 'elysia';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { getConfig } from '../config/index.js';
 import * as secRepo from '../repositories/security-config.js';
 import type { SecurityConfigRow } from '../repositories/security-config.js';
 import { resolveGoTrueLogoutUrl } from './gotrue-logout-url.js';
+import { principalHasAction, requiredAdminAction, type AdminPrincipal } from './admin-permissions.js';
+import { enterAdminRequestContext } from './request-context.js';
 
 // Env-var fallbacks: used before migration has run, or when DB is unreachable.
-const ENV_ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const ENV_ADMIN_AUTH_MODE = (process.env.ADMIN_AUTH_MODE || 'auto').toLowerCase();
 const ENV_SSO_ISSUER = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
 const ENV_SSO_CLIENT_ID = process.env.ADMIN_SSO_CLIENT_ID || '';
@@ -29,15 +31,19 @@ const ENV_LOGIN_LOCKOUT_SEC = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '9
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const SECURITY_CONFIG_CACHE_MS = 10_000;
+const ADMIN_CLAIM_PROJECTION_LIMITS = { roles: 64, permissions: 256 } as const;
 // GoTrue does not advertise end_session_endpoint in OIDC discovery.
 const GOTRUE_LOGOUT_URL = resolveGoTrueLogoutUrl();
 
-interface AdminSession {
+export interface AdminSession {
   id: string;
   email: string;
   name: string;
   role: string;
   authenticated: boolean;
+  roles?: string[];
+  permissions?: string[];
+  authorizationSource?: AdminPrincipal['authorization_source'];
 }
 
 interface AdminAllowlist {
@@ -214,8 +220,10 @@ function clearLoginFailures(ip: string): void {
   loginAttempts.delete(ip);
 }
 
-function sessionFromPayload(payload: JWTPayload): AdminSession {
+export function adminSessionFromPayload(payload: JWTPayload): AdminSession {
   const email = typeof payload.email === 'string' ? payload.email : '';
+  const roles = projectedAdminClaimStrings(payload, 'roles');
+  const permissions = projectedAdminClaimStrings(payload, 'permissions');
   const name =
     (typeof payload.name === 'string' && payload.name) ||
     (typeof payload.preferred_username === 'string' && payload.preferred_username) ||
@@ -228,6 +236,62 @@ function sessionFromPayload(payload: JWTPayload): AdminSession {
     name,
     role: 'admin',
     authenticated: true,
+    roles,
+    permissions,
+    authorizationSource: hasSupaoauthNamespace(payload) ? 'rbac_projection' : 'admin_allowlist',
+  };
+}
+
+function hasSupaoauthNamespace(payload: JWTPayload): boolean {
+  const appMetadata = claimRecord(payload.app_metadata);
+  return Boolean(appMetadata && Object.hasOwn(appMetadata, 'supaoauth'));
+}
+
+function claimRecord(claim: unknown): Record<string, unknown> | null {
+  return claim && typeof claim === 'object' && !Array.isArray(claim)
+    ? claim as Record<string, unknown>
+    : null;
+}
+
+function configuredProjectProjection(payload: JWTPayload): Record<string, unknown> | null {
+  const appMetadata = claimRecord(payload.app_metadata);
+  const supaoauth = claimRecord(appMetadata?.supaoauth);
+  if (!supaoauth) return null;
+  if (supaoauth.schema_version !== 2) return null;
+  const projects = claimRecord(supaoauth.projects);
+  if (!projects) return null;
+  const projectRef = getConfig().projectRef;
+  return Object.hasOwn(projects, projectRef) ? claimRecord(projects[projectRef]) : null;
+}
+
+function boundedProjectedStrings(values: unknown, field: 'roles' | 'permissions'): string[] {
+  if (!Array.isArray(values)) return [];
+  if (!values.every((entry): entry is string => typeof entry === 'string' && entry.length > 0)) return [];
+  if (new Set(values).size !== values.length) return [];
+  return values.length <= ADMIN_CLAIM_PROJECTION_LIMITS[field] ? values : [];
+}
+
+export function projectedAdminClaimStrings(
+  payload: JWTPayload,
+  field: 'roles' | 'permissions',
+): string[] {
+  const projectProjection = configuredProjectProjection(payload);
+  if (!projectProjection) return [];
+  if (projectProjection.projection_unavailable === true) return [];
+  if (projectProjection[`${field}_truncated`] === true) return [];
+  return boundedProjectedStrings(projectProjection[field], field);
+}
+
+export function adminPrincipalFromSession(session: AdminSession): AdminPrincipal {
+  const projectedPermissions = session.permissions || [];
+  const usesRbacProjection = session.authorizationSource === 'rbac_projection';
+  return {
+    id: session.id,
+    email: session.email,
+    name: session.name,
+    roles: session.roles?.length ? session.roles : usesRbacProjection ? [] : [session.role],
+    permissions: projectedPermissions.length ? projectedPermissions : usesRbacProjection ? [] : ['*'],
+    authorization_source: session.authorizationSource || 'admin_allowlist',
   };
 }
 
@@ -253,7 +317,7 @@ async function verifySsoToken(token: string): Promise<AdminBearerAccess> {
       audience: ENV_SSO_AUDIENCES.length > 0 ? ENV_SSO_AUDIENCES : undefined,
       algorithms: ['ES256', 'RS256'],
     });
-    const session = sessionFromPayload(result.payload);
+    const session = adminSessionFromPayload(result.payload);
     return resolveSsoAdminAccess(session, await effectiveAllowedAdmins());
   } catch {
     return { status: 'unauthenticated' };
@@ -308,7 +372,26 @@ function publicAdminPath(pathname: string): boolean {
 }
 
 export const adminAuthGuard = new Elysia()
-  .onBeforeHandle({ as: 'global' }, async ({ request, headers }) => {
+  .derive({ as: 'global' }, async ({ request, headers }) => {
+    const pathname = new URL(request.url).pathname;
+    const adminCorrelationId = request.headers.get('x-request-id') || generateSessionToken().slice(0, 16);
+    if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) {
+      return { adminAccess: null, adminPrincipal: null, adminCorrelationId };
+    }
+    const adminAccess = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    return {
+      adminAccess,
+      adminPrincipal: adminAccess.status === 'authenticated' ? adminPrincipalFromSession(adminAccess.session) : null,
+      adminCorrelationId,
+    };
+  })
+  .onBeforeHandle({ as: 'global' }, async ({
+    request,
+    headers,
+    adminAccess,
+    adminPrincipal,
+    adminCorrelationId,
+  }) => {
     const pathname = new URL(request.url).pathname;
     const ip = requestIp(headers as Record<string, string | undefined>);
     const allowed = await consumeRateLimit(ip);
@@ -317,9 +400,29 @@ export const adminAuthGuard = new Elysia()
     }
     if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) return;
 
-    const access = await verifyAdminBearer(headers as Record<string, string | undefined>);
-    if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access.status);
+    if (!adminAccess || adminAccess.status !== 'authenticated') {
+      return adminAuthorizationFailureResponse(adminAccess?.status || 'unauthenticated');
+    }
+    if (adminPrincipal) {
+      enterAdminRequestContext({ requestId: adminCorrelationId, principal: adminPrincipal });
+    }
+    const requiredAction = requiredAdminAction(request.method, pathname);
+    if (requiredAction && (!adminPrincipal || !principalHasAction(adminPrincipal, requiredAction))) {
+      return adminPermissionFailureResponse(requiredAction, adminCorrelationId);
+    }
   });
+
+export function adminPermissionFailureResponse(requiredAction: string, correlationId: string): Response {
+  return Response.json({
+    success: false,
+    error: {
+      code: 'insufficient_permissions',
+      message: '当前账号没有执行此操作的权限。',
+      correlation_id: correlationId,
+      details: { required_action: requiredAction },
+    },
+  }, { status: 403 });
+}
 
 export const authRoutes = new Elysia({ prefix: '/v1/auth' })
   .post('/login', async ({ body, headers }) => {
@@ -331,7 +434,8 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
     }
 
     const tokenOk = await tokenAuthAllowed();
-    if (tokenOk && ENV_ADMIN_TOKEN && token === ENV_ADMIN_TOKEN) {
+    const adminToken = process.env.ADMIN_TOKEN || '';
+    if (tokenOk && adminToken && token === adminToken) {
       const sessionToken = generateSessionToken();
       const session: AdminSession = {
         id: 'admin',
@@ -339,6 +443,9 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
         name: 'Admin',
         role: 'admin',
         authenticated: true,
+        roles: ['admin'],
+        permissions: ['*'],
+        authorizationSource: 'development_token',
       };
       sessions.set(sessionToken, session);
       clearLoginFailures(ip);
@@ -387,10 +494,9 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
     const access = await verifyAdminBearer(headers as Record<string, string | undefined>);
     if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access.status);
     const { session } = access;
+    const principal = adminPrincipalFromSession(session);
     return {
-      id: session.id,
-      name: session.name,
-      email: session.email,
+      ...principal,
       avatar: null,
     };
   })

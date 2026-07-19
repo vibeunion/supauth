@@ -13,12 +13,12 @@ export async function listOrganizationInvitations(organizationId: string) {
 export async function createOrganizationInvitation(organizationId: string, data: {
   email: string;
   role?: string;
-  expiresAt?: Date | null;
+  ttlHours?: number;
 }) {
   const invitation = await getSupaCloudAdapter().createOrganizationInvitation(organizationId, {
     email: data.email,
     role: data.role,
-    expires_at: data.expiresAt?.toISOString() ?? null,
+    ttl_hours: data.ttlHours,
   });
   await logAudit({
     eventType: 'organization.invitation.created',
@@ -29,41 +29,25 @@ export async function createOrganizationInvitation(organizationId: string, data:
   return invitation;
 }
 
-export async function updateOrganizationInvitationStatus(organizationId: string, invitationId: string, status: string) {
-  const invitation = await getSupaCloudAdapter().updateOrganizationInvitationStatus(organizationId, invitationId, status);
-  await logAudit({
-    eventType: `organization.invitation.${status}`,
-    resourceType: 'organization',
-    resourceId: organizationId,
-    details: { invitation_id: invitationId },
-  });
-  return invitation;
-}
-
 export async function getOrganizationJitSettings(organizationId: string) {
   return getSupaCloudAdapter().getOrganizationJitSettings(organizationId);
 }
 
 export async function upsertOrganizationJitSettings(organizationId: string, data: {
-  emailDomains?: string[];
-  ssoConnectorIds?: string[];
-  defaultRoleIds?: string[];
-  enabled?: boolean;
+  domains: string[];
+  enabled: boolean;
 }) {
   const settings = await getSupaCloudAdapter().updateOrganizationJitSettings(organizationId, {
-    email_domains: data.emailDomains ?? [],
-    sso_connector_ids: data.ssoConnectorIds ?? [],
-    default_role_ids: data.defaultRoleIds ?? [],
-    enabled: data.enabled ?? false,
+    domains: data.domains,
+    enabled: data.enabled,
   });
   await logAudit({
     eventType: 'organization.jit.updated',
     resourceType: 'organization',
     resourceId: organizationId,
     details: {
-      enabled: data.enabled ?? false,
-      email_domains: data.emailDomains ?? [],
-      sso_connector_ids: data.ssoConnectorIds ?? [],
+      enabled: data.enabled,
+      domains: data.domains,
     },
   });
   return settings;
@@ -73,19 +57,13 @@ export async function listOrganizationApplications(organizationId: string) {
   return getSupaCloudAdapter().listOrganizationApplications(organizationId);
 }
 
-export async function upsertOrganizationApplication(organizationId: string, applicationId: string, data: {
-  roleIds?: string[];
-  enabled?: boolean;
-}) {
-  const record = await getSupaCloudAdapter().updateOrganizationApplication(organizationId, applicationId, {
-    role_ids: data.roleIds ?? [],
-    enabled: data.enabled ?? true,
-  });
+export async function upsertOrganizationApplication(organizationId: string, applicationId: string) {
+  const record = await getSupaCloudAdapter().bindOrganizationApplication(organizationId, applicationId);
   await logAudit({
     eventType: 'organization.application.updated',
     resourceType: 'organization',
     resourceId: organizationId,
-    details: { application_id: applicationId, enabled: data.enabled ?? true, role_ids: data.roleIds ?? [] },
+    details: { application_id: applicationId },
   });
   return record;
 }

@@ -5,7 +5,7 @@ import * as secRepo from '../repositories/security-config.js';
 import * as auditRepo from '../repositories/audit.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
-  try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
+  await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
 export const securityConfigRoutes = new Elysia({ prefix: '/v1/security-config' })

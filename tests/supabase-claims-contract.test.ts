@@ -1,46 +1,40 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import {
-  EXTERNAL_OIDC_CLAIMS_STRATEGY,
   GOTRUE_CLAIMS_STRATEGY,
-  LEGACY_EXTERNAL_OIDC_TOP_LEVEL_CLAIMS_STRATEGY,
   SUPABASE_METADATA_CLAIMS,
   SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS,
   SUPABASE_OAUTH_STANDARD_SCOPES,
   SUPABASE_REQUIRED_CLAIMS,
   SUPABASE_RUNTIME_ROLES,
+  SUPAOAUTH_APP_METADATA_SCHEMA_VERSION,
   SUPAOAUTH_CLAIM_KEYS,
+  SUPAOAUTH_PERMISSION_PROJECTION_LIMIT,
+  SUPAOAUTH_ROLE_PROJECTION_LIMIT,
 } from '../packages/shared/src/index.js';
 
 describe('Supabase claims compatibility contract', () => {
-  it('keeps GoTrue mode on app_metadata.supaoauth instead of top-level business claims', () => {
+  it('keeps GoTrue mode on the schema-v2 project projection instead of top-level business claims', () => {
+    expect(SUPAOAUTH_APP_METADATA_SCHEMA_VERSION).toBe(2);
     expect(GOTRUE_CLAIMS_STRATEGY.roles).toEqual({
       location: 'app_metadata',
-      key: 'app_metadata.supaoauth.roles',
+      key: 'app_metadata.supaoauth.projects.{projectRef}.roles',
     });
     expect(GOTRUE_CLAIMS_STRATEGY.organization).toEqual({
       location: 'app_metadata',
-      key: 'app_metadata.supaoauth.current_org_id',
+      key: 'app_metadata.supaoauth.projects.{projectRef}.current_org_id',
     });
-    expect(GOTRUE_CLAIMS_STRATEGY.permissions.location).toBe('management_api');
-    expect(GOTRUE_CLAIMS_STRATEGY.scopes.location).toBe('management_api');
-  });
-
-  it('keeps external OIDC default claims compatible with Supabase app_metadata shape', () => {
-    expect(EXTERNAL_OIDC_CLAIMS_STRATEGY.roles).toEqual({
+    expect(GOTRUE_CLAIMS_STRATEGY.permissions).toEqual({
       location: 'app_metadata',
-      key: 'app_metadata.supaoauth.roles',
+      key: 'app_metadata.supaoauth.projects.{projectRef}.permissions',
     });
-    expect(EXTERNAL_OIDC_CLAIMS_STRATEGY.permissions).toEqual({
-      location: 'management_api',
-      key: '',
+    expect(GOTRUE_CLAIMS_STRATEGY.scopes).toEqual({
+      location: 'app_metadata',
+      key: 'app_metadata.supaoauth.projects.{projectRef}.scopes',
     });
-  });
-
-  it('keeps top-level supaoauth claims behind an explicit legacy external OIDC strategy', () => {
-    expect(LEGACY_EXTERNAL_OIDC_TOP_LEVEL_CLAIMS_STRATEGY.roles).toEqual({
-      location: 'jwt_claim',
-      key: 'supaoauth:roles',
+    expect(GOTRUE_CLAIMS_STRATEGY.applications).toEqual({
+      location: 'app_metadata',
+      key: 'app_metadata.supaoauth.projects.{projectRef}.applications',
     });
   });
 
@@ -111,6 +105,11 @@ describe('Supabase claims compatibility contract', () => {
     expect(SUPABASE_RUNTIME_ROLES).toEqual(['anon', 'authenticated', 'service_role']);
   });
 
+  it('keeps project projection bounds explicit and fail-closed', () => {
+    expect(SUPAOAUTH_ROLE_PROJECTION_LIMIT).toBe(64);
+    expect(SUPAOAUTH_PERMISSION_PROJECTION_LIMIT).toBe(256);
+  });
+
   it('documents gotrue mode as app_metadata-based and additive', () => {
     const docs = readFileSync('docs/claims-mapping.md', 'utf8');
     const compatibilityDocs = readFileSync('docs/supabase-compatibility.md', 'utf8');
@@ -122,12 +121,15 @@ describe('Supabase claims compatibility contract', () => {
     expect(docs).toContain('The standard `sub` claim remains the user identifier');
     expect(docs).toContain('OAuth `scope` is protocol metadata, not an enterprise permission claim');
     expect(docs).toContain('OAuth scopes, organizations, and permissions map to JWT metadata, Management API lookups, and Supabase RLS policies');
-    expect(docs).toContain('app_metadata.supaoauth');
+    expect(docs).toContain('app_metadata.supaoauth.projects[projectRef]');
+    expect(docs).toContain('schema_version');
+    expect(docs).toContain('projects[projectRef]');
+    expect(docs).toContain('Legacy root-level RBAC fields are never read or dual-written');
     expect(docs).toContain('permissions_truncated');
     expect(docs).toContain('supaoauth.has_permission');
     expect(docs).toContain('anon`, `authenticated`, or `service_role`');
     expect(docs).toContain('additional claims such as `amr`, `app_metadata`, and `user_metadata`');
-    expect(docs).toContain('The default external OIDC recommendation is still `app_metadata.supaoauth`');
+    expect(docs).not.toContain('external_oidc');
     expect(compatibilityDocs).toContain('`anon` / `authenticated` / `service_role` runtime role switch');
     expect(compatibilityDocs).toContain('OAuth 2.1 access tokens must also preserve `client_id` and `scope`');
     expect(compatibilityDocs).toContain('User identity remains in the standard `sub` claim');
@@ -161,8 +163,8 @@ describe('Supabase claims compatibility contract', () => {
     expect(readme).toContain('RLS and Supabase Auth hooks');
     expect(readme).not.toContain('SupaOAuth is a SupaCloud-hosted Identity Provider (IdP) surface');
     expect(readme).not.toContain('SupaOAuth 是一个独立身份提供方');
-    expect(adminI18n).toContain("'layout.subtitle': 'User Center'");
-    expect(adminI18n).toContain("'layout.subtitle': '用户中心'");
+    expect(adminI18n).toMatch(/["']layout\.subtitle["']\s*:\s*["']User Center["']/);
+    expect(adminI18n).toMatch(/["']layout\.subtitle["']\s*:\s*["']用户中心["']/);
     expect(hostedAuthorizeHtml).toContain('SupaOAuth User Center');
     expect(hostedAuthorizeHtml).toContain('SupaOAuth 用户中心');
     expect(hostedAuthorizeHtml).not.toContain('Identity Provider');
@@ -181,9 +183,7 @@ describe('Supabase claims compatibility contract', () => {
     expect(consentFlow).not.toContain('SupaOAuth 作为 IdP');
     expect(authServer).toContain('GoTrue remains the OAuth/OIDC runtime and token issuer');
     expect(authServer).not.toContain('Identity Provider (IdP) surface');
-    const externalOidcDocs = readFileSync('docs/external-oidc-mode.md', 'utf8');
-    expect(externalOidcDocs).toContain('prefer `app_metadata.supaoauth`');
-    expect(externalOidcDocs).not.toContain('RLS policies access supaoauth: claims');
+    expect(compatibilityDocs).not.toContain('external_oidc');
   });
 
   it('runs live Supabase Auth release gates in strict mode', () => {
@@ -192,6 +192,8 @@ describe('Supabase claims compatibility contract', () => {
 
     expect(releaseGate).toContain("RUN_SUPABASE_RUNTIME_COMPAT: '1'");
     expect(releaseGate).toContain("RUN_SUPABASE_OAUTH21_COMPAT: '1'");
+    expect(releaseGate).toContain("RELEASE_ENVIRONMENT === 'production'");
+    expect(releaseGate).toContain('live verification requires both Supabase runtime and OAuth 2.1 compatibility suites');
     expect(strictEnvCount).toBeGreaterThanOrEqual(2);
   });
 });

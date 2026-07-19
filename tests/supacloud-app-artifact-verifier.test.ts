@@ -59,4 +59,46 @@ describe('SupaCloud app artifact verifier', () => {
     expect(result.ok).toBe(false);
     expect(result.errors).toContain('Function route /auth/v1/* collides with preserved runtime route /auth/v1/*');
   });
+
+  it('rejects manifests that advertise removed local tables', () => {
+    const { root, manifest } = createFixture();
+    const tableOwnership = manifest.supaoauth_table_ownership as Record<string, unknown>;
+    tableOwnership.passkeys = { class: 'legacy-temporary' };
+    tableOwnership.account_sessions = { class: 'legacy-temporary' };
+    tableOwnership.webhooks = { class: 'legacy-temporary' };
+    tableOwnership.webhook_deliveries = { class: 'legacy-temporary' };
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('Removed local table must not be advertised: passkeys');
+    expect(result.errors).toContain('Removed local table must not be advertised: account_sessions');
+    expect(result.errors).toContain('Removed local table must not be advertised: webhooks');
+    expect(result.errors).toContain('Removed local table must not be advertised: webhook_deliveries');
+  });
+
+  it('rejects Function bundles that contain a local webhook worker', () => {
+    const { root } = createFixture();
+    writeFileSync(join(root, 'function/supacloud-function.js'), 'function processPendingDeliveries() {}');
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'Function bundle contains removed local webhook implementation: processPendingDeliveries',
+    );
+  });
+
+  it('requires the BFF signing secret to be declared as a secret', () => {
+    const { root, manifest } = createFixture();
+    const bffEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'SUPAOAUTH_BFF_SIGNING_SECRET')!;
+    bffEnv.secret = false;
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('SUPAOAUTH_BFF_SIGNING_SECRET must be marked secret');
+  });
 });

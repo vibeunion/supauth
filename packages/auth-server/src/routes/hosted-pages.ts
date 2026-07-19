@@ -105,6 +105,45 @@ export function adminConsoleSpaCandidates(buildDirs: string[], sub: string) {
   });
 }
 
+const LEGACY_ADMIN_REDIRECTS = new Map([
+  ['/admin', '/admin/get-started'],
+  ['/admin/audit', '/admin/audit-logs'],
+  ['/admin/settings', '/admin/tenant-settings/settings'],
+  ['/admin/account-center', '/admin/sign-in-experience/account-center'],
+  ['/admin/operations', '/admin/tenant-settings/diagnostics'],
+  ['/admin/consents', '/admin/applications'],
+  ['/admin/tenant-config', '/admin/tenant-settings/advanced'],
+  ['/admin/tenant-settings', '/admin/tenant-settings/settings'],
+  ['/admin/org-templates', '/admin/organization-template'],
+  ['/admin/resources', '/admin/api-resources'],
+  ['/admin/sign-in-experience', '/admin/sign-in-experience/branding'],
+  ['/admin/security', '/admin/security/password'],
+]);
+
+const ADMIN_DETAIL_DEFAULT_TABS = new Map([
+  ['applications', 'settings'],
+  ['users', 'settings'],
+  ['organizations', 'settings'],
+  ['roles', 'general'],
+  ['api-resources', 'general'],
+  ['webhooks', 'settings'],
+  ['enterprise-sso', 'connection'],
+]);
+
+export function adminConsoleRedirectLocation(requestUrl: URL) {
+  const pathname = requestUrl.pathname.replace(/\/$/, '') || '/';
+  const legacyTarget = LEGACY_ADMIN_REDIRECTS.get(pathname);
+  if (legacyTarget) return `${legacyTarget}${requestUrl.search}`;
+
+  const detailMatch = pathname.match(/^\/admin\/([^/]+)\/([^/]+)$/);
+  const defaultTab = detailMatch
+    ? ADMIN_DETAIL_DEFAULT_TABS.get(detailMatch[1])
+    : undefined;
+  return defaultTab
+    ? `${pathname}/${defaultTab}${requestUrl.search}`
+    : null;
+}
+
 async function loadAuthorizeHtml(): Promise<string | null> {
   // Custom UI takes priority
   const customFile = await findFirstExistingFile(
@@ -226,6 +265,19 @@ function serveFavicon() {
       'cache-control': 'public, max-age=86400',
     },
   });
+}
+
+function adminConsoleRedirectResponse(request: Request) {
+  const location = adminConsoleRedirectLocation(new URL(request.url));
+  return location
+    ? new Response(null, { status: 307, headers: { location } })
+    : null;
+}
+
+function serveAdminConsolePage(sub: string) {
+  return serveFirstStaticFile(
+    adminConsoleSpaCandidates(hostedPagePaths.adminConsoleBuildDirs, sub),
+  ) || new Response('Not Found', { status: 404 });
 }
 
 export const hostedPageRoutes = new Elysia()
@@ -413,14 +465,16 @@ export const hostedPageRoutes = new Elysia()
     return resp;
   })
 
+  .get('/admin', ({ request }) => (
+    adminConsoleRedirectResponse(request) || serveAdminConsolePage('')
+  ))
+
   // Admin console SPA pages: /admin/*
-  .get('/admin/*', ({ params }) => {
+  .get('/admin/*', ({ params, request }) => {
+    const redirectResponse = adminConsoleRedirectResponse(request);
+    if (redirectResponse) return redirectResponse;
     const sub = (params as Record<string, string>)['*'] || '';
-    const resp = serveFirstStaticFile(
-      adminConsoleSpaCandidates(hostedPagePaths.adminConsoleBuildDirs, sub),
-    );
-    if (!resp) return new Response('Not Found', { status: 404 });
-    return resp;
+    return serveAdminConsolePage(sub);
   })
 
   // robots.txt

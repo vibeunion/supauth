@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS supaoauth.api_resources (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_api_resources_indicator ON supaoauth.api_resources (indicator);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_api_resources_indicator ON supaoauth.api_resources (indicator);
 
 CREATE TABLE IF NOT EXISTS supaoauth.scopes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS supaoauth.scopes (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_scopes_resource_id ON supaoauth.scopes (resource_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scopes_resource_name ON supaoauth.scopes (resource_id, name);
 
 -- Hosted sign-in experience overlays. SupaCloud/GoTrue still own runtime auth.
 CREATE TABLE IF NOT EXISTS supaoauth.sign_in_experience (
@@ -41,7 +42,6 @@ CREATE TABLE IF NOT EXISTS supaoauth.sign_in_experience (
   content JSONB,
   sign_in_methods JSONB DEFAULT '[]'::jsonb,
   sign_up_enabled BOOLEAN NOT NULL DEFAULT true,
-  mfa_required BOOLEAN NOT NULL DEFAULT false,
   password_min_length INTEGER NOT NULL DEFAULT 8,
   password_require_uppercase BOOLEAN NOT NULL DEFAULT false,
   password_require_lowercase BOOLEAN NOT NULL DEFAULT false,
@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS supaoauth.connectors (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_connectors_provider_id ON supaoauth.connectors (provider_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_connectors_provider_id ON supaoauth.connectors (provider_id);
 
 CREATE TABLE IF NOT EXISTS supaoauth.connector_factories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS supaoauth.connector_factories (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_connector_factories_factory_id ON supaoauth.connector_factories (factory_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_connector_factories_factory_id ON supaoauth.connector_factories (factory_id);
 
 -- Application/resource binding overlay. Applications themselves live in SupaCloud.
 CREATE TABLE IF NOT EXISTS supaoauth.application_bindings (
@@ -173,21 +173,14 @@ CREATE TABLE IF NOT EXISTS supaoauth.application_bindings (
 );
 CREATE INDEX IF NOT EXISTS idx_app_bindings_app_id ON supaoauth.application_bindings (application_id);
 CREATE INDEX IF NOT EXISTS idx_app_bindings_resource_id ON supaoauth.application_bindings (resource_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_application_bindings_target
+  ON supaoauth.application_bindings (
+    application_id,
+    resource_id,
+    COALESCE(scope_id, '00000000-0000-0000-0000-000000000000')
+  );
 
--- OAuth consent overlays. Organization IDs are SupaCloud IDs, not local FKs.
-CREATE TABLE IF NOT EXISTS supaoauth.user_consents (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL,
-  application_id VARCHAR(255) NOT NULL,
-  scope_id UUID REFERENCES supaoauth.scopes(id) ON DELETE CASCADE,
-  organization_id UUID,
-  granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  revoked_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_user_consents_user_id ON supaoauth.user_consents (user_id);
-CREATE INDEX IF NOT EXISTS idx_user_consents_app_id ON supaoauth.user_consents (application_id);
-CREATE INDEX IF NOT EXISTS idx_user_consents_org_id ON supaoauth.user_consents (organization_id);
-
+-- Consent policy is local, but grants remain authoritative in GoTrue.
 CREATE TABLE IF NOT EXISTS supaoauth.application_consent_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   application_id VARCHAR(255) NOT NULL,
@@ -199,7 +192,27 @@ CREATE TABLE IF NOT EXISTS supaoauth.application_consent_settings (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_application_consent_settings_app_id ON supaoauth.application_consent_settings (application_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_application_consent_settings_app_id ON supaoauth.application_consent_settings (application_id);
+
+CREATE TABLE IF NOT EXISTS supaoauth.oauth_consent_decisions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  authorization_id VARCHAR(255),
+  user_id UUID NOT NULL,
+  application_id VARCHAR(255) NOT NULL,
+  requested_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  organization_id VARCHAR(255),
+  decision VARCHAR(16) NOT NULL CHECK (decision IN ('approved', 'denied')),
+  grant_id VARCHAR(255),
+  request_id VARCHAR(255),
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  decided_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_oauth_consent_decisions_authorization_id
+  ON supaoauth.oauth_consent_decisions (authorization_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_consent_decisions_user_id
+  ON supaoauth.oauth_consent_decisions (user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_consent_decisions_app_id
+  ON supaoauth.oauth_consent_decisions (application_id);
 
 -- Template overlay; instantiation calls SupaCloud Organizations/RBAC APIs.
 CREATE TABLE IF NOT EXISTS supaoauth.organization_templates (
@@ -264,7 +277,7 @@ CREATE TABLE IF NOT EXISTS supaoauth.tenant_configs (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_tenant_configs_type ON supaoauth.tenant_configs (config_type);
-CREATE INDEX IF NOT EXISTS idx_tenant_configs_key ON supaoauth.tenant_configs (key);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_configs_type_key ON supaoauth.tenant_configs (config_type, key);
 
 -- Account provisioning overlay. User creation itself goes through SupaCloud.
 CREATE TABLE IF NOT EXISTS supaoauth.account_provisioning_records (
@@ -293,10 +306,8 @@ CREATE INDEX IF NOT EXISTS idx_account_provisioning_user_id ON supaoauth.account
 
 -- Supabase-compatible RBAC projection helpers.
 --
--- SupaCloud owns RBAC. SupAuth sync projects effective permissions into
--- auth.users.app_metadata.supaoauth.permissions. RLS helpers read the JWT copy
--- so new projects do not need duplicated local RBAC tables. If the projection is
--- truncated, helpers fail closed and callers should use Management API lookups.
+-- Historical helper definitions retained for ordered installs. Migration V8
+-- replaces them with schema-v2 project-scoped readers before installation ends.
 CREATE OR REPLACE FUNCTION supaoauth.authorize(permission_name TEXT, target_organization_id UUID DEFAULT NULL)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -374,8 +385,8 @@ GRANT EXECUTE ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) TO authentica
 GRANT EXECUTE ON FUNCTION supaoauth.app_has_org_permission(TEXT, UUID, TEXT) TO authenticated;
 
 -- Defaults for overlay tables.
-INSERT INTO supaoauth.sign_in_experience (page_title, sign_up_enabled, mfa_required)
-SELECT 'SupaOAuth', true, false
+INSERT INTO supaoauth.sign_in_experience (page_title, sign_up_enabled)
+SELECT 'SupaOAuth', true
 WHERE NOT EXISTS (SELECT 1 FROM supaoauth.sign_in_experience);
 
 INSERT INTO supaoauth.security_config (admin_auth_mode, rate_limit_rpm, brute_force_protection, enforce_https)
@@ -420,42 +431,12 @@ SELECT 'captcha', 'default', '{"provider":"none","configured":false}'::jsonb, fa
 WHERE NOT EXISTS (SELECT 1 FROM supaoauth.tenant_configs WHERE config_type = 'captcha' AND key = 'default');
 `;
 
-export const PROJECT_ROLE_GRANTS_SQL = `
-DO $$
-DECLARE
-  project_role TEXT := 'role_' || regexp_replace(current_database(), '^supa_', '');
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = project_role) THEN
-    EXECUTE format('GRANT USAGE ON SCHEMA supaoauth TO %I', project_role);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA supaoauth TO %I', project_role);
-    EXECUTE format('GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA supaoauth TO %I', project_role);
-    EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA supaoauth TO %I', project_role);
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', project_role);
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %I', project_role);
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT EXECUTE ON FUNCTIONS TO %I', project_role);
-    EXECUTE format('GRANT USAGE ON SCHEMA auth TO %I', project_role);
-    EXECUTE format('GRANT SELECT, UPDATE ON TABLE auth.oauth_authorizations TO %I', project_role);
-  END IF;
-END $$;
-`;
-
-export function oauthAuthorizationProjectRoleGrantsSql(projectRef: string) {
-  const projectRole = `role_${projectRef.replace(/[^a-zA-Z0-9_]/g, '')}`;
-  return `
-DO $$
-DECLARE
-  project_role TEXT := '${projectRole}';
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = project_role) THEN
-    EXECUTE format('GRANT USAGE ON SCHEMA auth TO %I', project_role);
-    EXECUTE format('GRANT SELECT, UPDATE ON TABLE auth.oauth_authorizations TO %I', project_role);
-  END IF;
-END $$;
-`;
-}
-
 export const MIGRATION_V4_SQL = `
--- Active consent uniqueness. This overlay table is still owned by SupAuth.
+-- Existing installations retain historical consent rows for read-only audit.
+DO $$
+BEGIN
+  IF to_regclass('supaoauth.user_consents') IS NOT NULL THEN
+    EXECUTE $legacy_consent_dedupe$
 UPDATE supaoauth.user_consents AS c
 SET revoked_at = COALESCE(c.revoked_at, now())
 WHERE c.revoked_at IS NULL
@@ -469,38 +450,19 @@ WHERE c.revoked_at IS NULL
       AND COALESCE(keep.organization_id, '00000000-0000-0000-0000-000000000000')
         = COALESCE(c.organization_id, '00000000-0000-0000-0000-000000000000')
       AND (keep.granted_at, keep.id) > (c.granted_at, c.id)
-  );
-
+  )
+$legacy_consent_dedupe$;
+    EXECUTE $legacy_consent_index$
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_consents_active
   ON supaoauth.user_consents (user_id, application_id, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'), COALESCE(organization_id, '00000000-0000-0000-0000-000000000000'))
-  WHERE revoked_at IS NULL;
+  WHERE revoked_at IS NULL
+$legacy_consent_index$;
+  END IF;
+END $$;
 
--- Legacy webhook/application-secret tables are no longer created on new
--- SupaCloud-native installs. If they already exist, keep their hardening DDL.
+-- Legacy application-secret tables are no longer created on new installs.
 DO $$
 BEGIN
-  IF to_regclass('supaoauth.webhooks') IS NOT NULL THEN
-    EXECUTE $legacy_webhook_deliveries$
-CREATE TABLE IF NOT EXISTS supaoauth.webhook_deliveries (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  webhook_id UUID NOT NULL REFERENCES supaoauth.webhooks(id) ON DELETE CASCADE,
-  event_type VARCHAR(255) NOT NULL,
-  payload JSONB NOT NULL,
-  status VARCHAR(50) NOT NULL DEFAULT 'pending',
-  attempts INTEGER NOT NULL DEFAULT 0,
-  max_attempts INTEGER NOT NULL DEFAULT 3,
-  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_response_code INTEGER,
-  last_error TEXT,
-  delivered_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-)
-$legacy_webhook_deliveries$;
-    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON supaoauth.webhook_deliveries (next_attempt_at) WHERE status = 'pending';
-    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id ON supaoauth.webhook_deliveries (webhook_id);
-  END IF;
-
   IF to_regclass('supaoauth.application_secrets') IS NOT NULL THEN
     ALTER TABLE supaoauth.application_secrets ADD COLUMN IF NOT EXISTS secret_hash TEXT;
     CREATE UNIQUE INDEX IF NOT EXISTS uq_application_secrets_active
@@ -530,16 +492,261 @@ $legacy_provisioning_dedupe$;
 END $$;
 `;
 
+export const MIGRATION_V6_SQL = `
+-- GoTrue owns active OAuth grants. This table stores only the user's decision
+-- and correlation identifiers needed for product audit and reconciliation.
+CREATE TABLE IF NOT EXISTS supaoauth.oauth_consent_decisions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  authorization_id VARCHAR(255),
+  user_id UUID NOT NULL,
+  application_id VARCHAR(255) NOT NULL,
+  requested_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  organization_id VARCHAR(255),
+  decision VARCHAR(16) NOT NULL CHECK (decision IN ('approved', 'denied')),
+  grant_id VARCHAR(255),
+  request_id VARCHAR(255),
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  decided_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_oauth_consent_decisions_authorization_id
+  ON supaoauth.oauth_consent_decisions (authorization_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_consent_decisions_user_id
+  ON supaoauth.oauth_consent_decisions (user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_consent_decisions_app_id
+  ON supaoauth.oauth_consent_decisions (application_id);
+
+-- Duplicate configuration represents ambiguous runtime state. The migration
+-- fails instead of choosing a winner and silently discarding user settings.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_api_resources_indicator
+  ON supaoauth.api_resources (indicator);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scopes_resource_name
+  ON supaoauth.scopes (resource_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_connectors_provider_id
+  ON supaoauth.connectors (provider_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_connector_factories_factory_id
+  ON supaoauth.connector_factories (factory_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_application_bindings_target
+  ON supaoauth.application_bindings (
+    application_id,
+    resource_id,
+    COALESCE(scope_id, '00000000-0000-0000-0000-000000000000')
+  );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_application_consent_settings_app_id
+  ON supaoauth.application_consent_settings (application_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_configs_type_key
+  ON supaoauth.tenant_configs (config_type, key);
+`;
+
+export const MIGRATION_V7_SQL = `
+-- The project Function role may access only SupaOAuth overlay objects. GoTrue
+-- auth schema tables remain inaccessible and are reached through /auth/v1.
+DO $$
+DECLARE
+  project_role TEXT := 'role_' || regexp_replace(current_database(), '^supa_', '');
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = project_role) THEN
+    EXECUTE format('GRANT USAGE ON SCHEMA supaoauth TO %I', project_role);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA supaoauth TO %I', project_role);
+    EXECUTE format('GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA supaoauth TO %I', project_role);
+    EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA supaoauth TO %I', project_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', project_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %I', project_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA supaoauth GRANT EXECUTE ON FUNCTIONS TO %I', project_role);
+  END IF;
+END $$;
+`;
+
+export const MIGRATION_V8_SQL = `
+-- RBAC projections are project-scoped even when several projects share one
+-- GoTrue authority. Legacy root-level projections intentionally fail closed.
+CREATE OR REPLACE FUNCTION supaoauth.current_project_ref()
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+SET search_path = supaoauth, public, auth
+AS $$
+  SELECT CASE
+    WHEN current_database() ~ '^supa_.+$' THEN substring(current_database() FROM 6)
+    ELSE NULL
+  END;
+$$;
+
+CREATE OR REPLACE FUNCTION supaoauth.current_project_claims()
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = supaoauth, public, auth
+AS $$
+  WITH projection AS (
+    SELECT
+      COALESCE(auth.jwt() -> 'app_metadata' -> 'supaoauth', '{}'::jsonb) AS namespace,
+      supaoauth.current_project_ref() AS project_ref
+  )
+  SELECT CASE
+    WHEN namespace ->> 'schema_version' = '2'
+      AND project_ref IS NOT NULL
+      AND jsonb_typeof(namespace -> 'projects' -> project_ref) = 'object'
+      AND COALESCE(namespace -> 'projects' -> project_ref -> 'projection_unavailable', 'false'::jsonb) <> 'true'::jsonb
+    THEN namespace -> 'projects' -> project_ref
+    ELSE '{}'::jsonb
+  END
+  FROM projection;
+$$;
+
+CREATE OR REPLACE FUNCTION supaoauth.authorize(permission_name TEXT, target_organization_id UUID DEFAULT NULL)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = supaoauth, public, auth
+AS $$
+  WITH claims AS (
+    SELECT supaoauth.current_project_claims() AS project_claims
+  )
+  SELECT
+    COALESCE((project_claims -> 'permissions') ? permission_name, false)
+    AND COALESCE(project_claims -> 'permissions_truncated', 'false'::jsonb) <> 'true'::jsonb
+    AND (
+      target_organization_id IS NULL
+      OR project_claims ->> 'current_org_id' = target_organization_id::text
+      OR COALESCE((project_claims -> 'organization_ids') ? target_organization_id::text, false)
+    )
+  FROM claims;
+$$;
+
+CREATE OR REPLACE FUNCTION supaoauth.has_org_permission(organization_id UUID, permission_name TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = supaoauth, public, auth
+AS $$
+  SELECT supaoauth.authorize(permission_name, organization_id);
+$$;
+
+CREATE OR REPLACE FUNCTION supaoauth.has_permission(permission_name TEXT, target_organization_id UUID DEFAULT NULL)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = supaoauth, public, auth
+AS $$
+  SELECT supaoauth.authorize(permission_name, target_organization_id);
+$$;
+
+CREATE OR REPLACE FUNCTION supaoauth.app_has_org_permission(client_id TEXT, organization_id UUID, permission_name TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = supaoauth, public, auth
+AS $$
+  WITH claims AS (
+    SELECT supaoauth.current_project_claims() AS project_claims
+  )
+  SELECT
+    COALESCE((project_claims -> 'permissions') ? permission_name, false)
+    AND COALESCE(project_claims -> 'permissions_truncated', 'false'::jsonb) <> 'true'::jsonb
+    AND (
+      project_claims ->> 'application_id' = client_id
+      OR auth.jwt() ->> 'client_id' = client_id
+    )
+    AND (
+      organization_id IS NULL
+      OR project_claims ->> 'current_org_id' = organization_id::text
+      OR COALESCE((project_claims -> 'organization_ids') ? organization_id::text, false)
+    )
+  FROM claims;
+$$;
+
+REVOKE ALL ON FUNCTION supaoauth.current_project_ref() FROM PUBLIC;
+REVOKE ALL ON FUNCTION supaoauth.current_project_claims() FROM PUBLIC;
+REVOKE ALL ON FUNCTION supaoauth.authorize(TEXT, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION supaoauth.has_permission(TEXT, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION supaoauth.app_has_org_permission(TEXT, UUID, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION supaoauth.current_project_claims() TO authenticated;
+GRANT EXECUTE ON FUNCTION supaoauth.authorize(TEXT, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION supaoauth.has_permission(TEXT, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION supaoauth.app_has_org_permission(TEXT, UUID, TEXT) TO authenticated;
+`;
+
+export const MIGRATION_V9_SQL = `
+-- SupaCloud owns webhook definitions, secrets, outbox state, and deliveries.
+-- This migration commits independently so a later retirement block cannot
+-- restore Function access to legacy secrets or queued payloads.
+DO $$
+DECLARE
+  project_role TEXT := 'role_' || regexp_replace(current_database(), '^supa_', '');
+BEGIN
+  IF to_regclass('supaoauth.webhook_deliveries') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE supaoauth.webhook_deliveries FROM PUBLIC';
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = project_role) THEN
+      EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE supaoauth.webhook_deliveries FROM %I', project_role);
+    END IF;
+  END IF;
+
+  IF to_regclass('supaoauth.webhooks') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL PRIVILEGES ON TABLE supaoauth.webhooks FROM PUBLIC';
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = project_role) THEN
+      EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE supaoauth.webhooks FROM %I', project_role);
+    END IF;
+  END IF;
+END $$;
+`;
+
+export const MIGRATION_V10_SQL = `
+DO $$
+DECLARE
+  webhook_count BIGINT := 0;
+  delivery_count BIGINT := 0;
+BEGIN
+  IF to_regclass('supaoauth.webhooks') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM supaoauth.webhooks' INTO webhook_count;
+  END IF;
+  IF to_regclass('supaoauth.webhook_deliveries') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM supaoauth.webhook_deliveries' INTO delivery_count;
+  END IF;
+
+  IF webhook_count > 0 OR delivery_count > 0 THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'P0001',
+      MESSAGE = 'legacy_webhook_retirement_blocked',
+      DETAIL = format(
+        'reason_code=legacy_webhook_data_present; webhook_rows=%s; delivery_rows=%s',
+        webhook_count,
+        delivery_count
+      ),
+      HINT = 'Back up the legacy tables, recreate and rotate every webhook in SupaCloud Secret Manager, then clear the retired rows and rerun this migration.';
+  END IF;
+END $$;
+
+DROP TABLE IF EXISTS supaoauth.webhook_deliveries;
+DROP TABLE IF EXISTS supaoauth.webhooks;
+`;
+
+export const HOSTED_MIGRATIONS = [
+  { name: 'supauth-overlay-schema-v1', sql: MIGRATION_SQL },
+  { name: 'supauth-overlay-hardening-v4', sql: MIGRATION_V4_SQL },
+  { name: 'supauth-overlay-provisioning-v5', sql: MIGRATION_V5_SQL },
+  { name: 'supauth-overlay-gotrue-authority-v6', sql: MIGRATION_V6_SQL },
+  { name: 'supauth-overlay-function-access-v7', sql: MIGRATION_V7_SQL },
+  { name: 'supauth-overlay-project-claims-v8', sql: MIGRATION_V8_SQL },
+  { name: 'supauth-overlay-legacy-webhook-revoke-v9', sql: MIGRATION_V9_SQL },
+  { name: 'supauth-overlay-legacy-webhook-retirement-v10', sql: MIGRATION_V10_SQL },
+] as const;
+
 export async function runMigration(databaseUrl?: string) {
   const url = databaseUrl || process.env.SUPACLOUD_DATABASE_URL || process.env.DATABASE_URL || '';
   if (!url) throw new Error('SUPACLOUD_DATABASE_URL or DATABASE_URL is required for migration');
   const sql = postgres(url, { max: 1 });
 
   try {
-    await sql.unsafe(MIGRATION_SQL);
-    await sql.unsafe(MIGRATION_V4_SQL);
-    await sql.unsafe(MIGRATION_V5_SQL);
-    await sql.unsafe(PROJECT_ROLE_GRANTS_SQL);
+    for (const migration of HOSTED_MIGRATIONS) {
+      await sql.unsafe(migration.sql);
+    }
     console.log('SupaOAuth overlay schema migration completed');
   } catch (e) {
     console.error(`Migration failed: ${e instanceof Error ? e.message : String(e)}`);

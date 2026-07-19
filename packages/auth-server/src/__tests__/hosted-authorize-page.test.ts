@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import { adminConsoleSpaCandidates, hostedPageRoutes, resolveHostedPagePaths } from '../routes/hosted-pages.js';
+import {
+  adminConsoleRedirectLocation,
+  adminConsoleSpaCandidates,
+  hostedPageRoutes,
+  resolveHostedPagePaths,
+} from '../routes/hosted-pages.js';
 
 function request(url: string, init?: RequestInit) {
   const app = new Elysia().use(hostedPageRoutes);
@@ -39,6 +44,24 @@ describe('hostedPageRoutes', () => {
     ]);
   });
 
+  test('Admin Console legacy and detail entry paths resolve to canonical 307 locations', async () => {
+    expect(adminConsoleRedirectLocation(new URL('https://auth.example.com/admin/resources?tab=scopes')))
+      .toBe('/admin/api-resources?tab=scopes');
+    expect(adminConsoleRedirectLocation(new URL('https://auth.example.com/admin/users/user-1?from=audit')))
+      .toBe('/admin/users/user-1/settings?from=audit');
+    expect(adminConsoleRedirectLocation(new URL('https://auth.example.com/admin/users/user-1/settings')))
+      .toBeNull();
+
+    const legacyResponse = await request('https://auth.example.com/admin/sign-in-experience?locale=zh-CN');
+    expect(legacyResponse.status).toBe(307);
+    expect(legacyResponse.headers.get('location'))
+      .toBe('/admin/sign-in-experience/branding?locale=zh-CN');
+
+    const detailResponse = await request('https://auth.example.com/admin/roles/role-1');
+    expect(detailResponse.status).toBe(307);
+    expect(detailResponse.headers.get('location')).toBe('/admin/roles/role-1/general');
+  });
+
   test('GET /oauth/authorize serves hosted authorize html', async () => {
     const response = await request('http://localhost/oauth/authorize?authorization_id=test-authz');
     const body = await response.text();
@@ -46,6 +69,7 @@ describe('hostedPageRoutes', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
+    expect(body).toContain('[hidden] { display: none !important; }');
   });
 
   test('GET /login.html serves the same authorize page', async () => {
@@ -119,10 +143,8 @@ describe('hostedPageRoutes', () => {
     expect(body).not.toContain('JSON.parse(raw)');
     expect(body).not.toContain("document.getElementById('custom-content').innerHTML = branding.content");
 
-    const brandingRenderIndex = body.indexOf('renderBrandingContent(branding.content);');
-    const authorizationErrorIndex = body.indexOf('if (experience.authorization_error) {');
-    expect(brandingRenderIndex).toBeGreaterThan(-1);
-    expect(authorizationErrorIndex).toBeGreaterThan(brandingRenderIndex);
+    expect(body).not.toContain('experience.authorization_error');
+    expect(body).not.toContain('experience.authorization');
   });
 
   test('GET /claim serves the account claim page with same-origin public API base', async () => {
@@ -184,7 +206,7 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('hostedAuth.authenticatedFetch(`${apiBase}${path}`, {');
       expect(body).toContain("accountFetch('/account/me')");
       expect(body).toContain("accountFetch('/account/profile'");
-      expect(body).toContain("load('sessions', '/account/sessions')");
+      expect(body).not.toContain("load('sessions', '/account/sessions')");
       expect(body).toContain("load('grants', '/account/grants')");
       expect(body).toContain("load('identities', '/account/identities')");
       expect(body).toContain("load('mfa', '/account/mfa')");
@@ -195,18 +217,21 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain("`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`");
       expect(body).toContain("button.dataset.action === 'unenroll-mfa'");
       expect(body).toContain("accountFetch(`/account/mfa/${encodeURIComponent(id)}`, { method: 'DELETE' })");
-      expect(body).toContain("load('passkeys', '/account/passkeys')");
+      expect(body).not.toContain('/account/passkeys');
       expect(body).toContain("accountFetch('/account/email'");
       expect(body).toContain("accountFetch('/account/phone'");
       expect(body).toContain("accountFetch('/account',");
-      expect(body).toContain("button.dataset.action === 'revoke-session'");
+      expect(body).not.toContain("button.dataset.action === 'revoke-session'");
       expect(body).toContain("button.dataset.action === 'revoke-grant'");
       expect(body).toContain("button.dataset.action === 'unlink-identity'");
-      expect(body).toContain("button.dataset.action === 'revoke-passkey'");
+      expect(body).not.toContain("button.dataset.action === 'revoke-passkey'");
       expect(body).toContain('class="account-actions"');
       expect(body).toContain('登录 / 重新登录');
       expect(body).toContain('id="sign-out"');
-      expect(body).toContain('退出登录');
+      expect(body).toContain('退出当前设备');
+      expect(body).toContain('data-logout-scope="others"');
+      expect(body).toContain('data-logout-scope="global"');
+      expect(body).toContain('/account/logout?scope=');
       expect(body).toContain('hostedAuth.getSession()');
       expect(body).toContain("event === 'TOKEN_REFRESHED'");
       expect(body).toContain("event === 'SIGNED_OUT'");
@@ -215,11 +240,22 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('function showSignedOutState()');
       expect(body).toContain('function resetAccountView()');
       expect(body).toContain('class="account-section-card active"');
-      expect(body).toContain('document.querySelector(\'.account-section-grid\').hidden = true;');
+      expect(body).toContain('<section class="account-section-grid" aria-label="Account center sections" hidden>');
+      expect(body).toContain('<form id="profile-form" class="profile-form" hidden>');
+      expect(body).toContain('<form id="email-form" class="inline-form" hidden>');
+      expect(body).toContain('<form id="phone-form" class="inline-form" hidden>');
+      expect(body).toContain('<form id="delete-account-form" class="inline-form" hidden>');
+      expect(body).toContain('let accountConfigLoaded = false;');
+      expect(body).toContain("let accountConfig = {\n      enabled: false,");
+      expect(body).toContain('accountSectionGrid.hidden = true;');
+      expect(body).toContain('accountSectionGrid.hidden = false;');
+      expect(body).toContain('if (!accountConfigLoaded || !accountConfig.enabled)');
+      expect(body).toContain('const accountCenterAvailable = await loadAccountConfig();');
+      expect(body).toContain('if (!accountCenterAvailable) return;');
       expect(body).toContain('href="/account/password" data-section="security"');
       expect(body).toContain('href="#account-panel" data-section="profile"');
       expect(body).toContain('data-section="profile"');
-      expect(body).toContain('data-section="sessions"');
+      expect(body).not.toContain('data-section="sessions"');
       expect(body).toContain('data-section="grants"');
       expect(body).toContain('data-section="identities"');
       expect(body).toContain('data-section="mfa"');
@@ -255,16 +291,17 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('hostedAuth.signInWithPassword({ email, password })');
     expect(body).toContain('function completeStandaloneLogin()');
     expect(body).toContain("window.location.href = '/account';");
-    expect(body).toContain('function isAuthorizationNotFoundError(error)');
-    expect(body).toContain("error.code === 'authorization_not_found'");
     expect(body).toContain('completeStandaloneLogin();');
     expect(body).toContain('function safeRedirectUrl(value, allowExternal = false)');
     expect(body).toContain("url.protocol !== 'http:' && url.protocol !== 'https:'");
     expect(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");
     expect(body).toContain('return allowExternal ? url.toString() : `${url.pathname}${url.search}${url.hash}`;');
-    expect(body).toContain('const redirectUrl = approvedRedirectUrl');
-    expect(body).toContain('? safeRedirectUrl(approvedRedirectUrl, true)');
-    expect(body).toContain(': safeRedirectUrl(authorizationRedirectUrl);');
+    expect(body).toContain('await continueAuthorization(session.access_token);');
+    expect(body).toContain('function showConsent(authorization, accessToken)');
+    expect(body).toContain("void submitConsent('approve')");
+    expect(body).toContain("void submitConsent('deny')");
+    expect(body).toContain("authorizationRequest('/consent', authorizationAccessToken");
+    expect(body).not.toContain('/approve');
     expect(body).toContain('? `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`');
     expect(body).toContain(': `${publicApiBase()}/sign-in-experience/resolve`;');
     expect(body).not.toContain('if (!authorizationId) return;');
@@ -298,21 +335,23 @@ describe('hostedPageRoutes', () => {
     expect(footerIndex).toBeGreaterThan(socialSectionIndex);
   });
 
-  test('hosted login page blocks expired OAuth authorization requests', async () => {
+  test('hosted login page defers OAuth authorization authority to GoTrue', async () => {
     const response = await request('http://localhost/login.html');
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).toContain('let authorizationAvailable = !authorizationId;');
     expect(body).toContain("authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.'");
     expect(body).toContain("authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。'");
     expect(body).toContain("authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。'");
-    expect(body).toContain('function disableExpiredAuthorization()');
-    expect(body).toContain('function disableUnavailableAuthorization()');
-    expect(body).toContain('if (!authorizationAvailable) throw new Error(t(\'authorizationExpired\'));');
-    expect(body).toContain('authorizationAvailable = !!experience.authorization;');
-    expect(body).toContain('if (experience.authorization_error) {');
-    expect(body).toContain("setMessage('error', t('authorizationExpired'))");
+    expect(body).toContain("const authorization = await authorizationRequest('', accessToken);");
+    expect(body).toContain('if (authorization.redirect_url) {');
+    expect(body).toContain('showConsent(authorization, accessToken);');
+    expect(body).toContain('id="consent-client-name"');
+    expect(body).toContain('id="consent-scopes"');
+    expect(body).toContain('id="consent-approve"');
+    expect(body).toContain('id="consent-deny"');
+    expect(body).not.toContain('authorizationAvailable');
+    expect(body).not.toContain('experience.authorization');
   });
 
   test('GET / serves the same authorize page', async () => {

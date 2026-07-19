@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   createSupacloudAppManifest,
+  GOTRUE_OWNED_RUNTIME_DOMAINS,
+  SUPACLOUD_MANAGEMENT_FACADES,
+  SUPACLOUD_OWNED_MANAGEMENT_DOMAINS,
   SUPAOAUTH_TABLE_OWNERSHIP,
 } from '../scripts/supacloud-app-contract.js';
-import { MIGRATION_SQL, PROJECT_ROLE_GRANTS_SQL } from '../packages/auth-server/src/db/migrate.js';
+import { HOSTED_MIGRATIONS, MIGRATION_SQL, MIGRATION_V8_SQL } from '../packages/auth-server/src/db/migrate.js';
 
 describe('SupAuth SupaCloud app contract', () => {
   it('declares SupaCloud Functions as the only HTTP runtime', () => {
@@ -16,6 +19,12 @@ describe('SupAuth SupaCloud app contract', () => {
 
     expect(manifest.http_runtime).toBe('supacloud-functions-only');
     expect(manifest.source_of_truth).toBe('supacloud-management-api');
+    expect(manifest.runtime_mode).toBe('gotrue');
+    expect(manifest.authority).toEqual({
+      auth_runtime: 'gotrue',
+      control_plane: 'supacloud-management-api',
+      overlay: 'supaoauth-schema',
+    });
     expect(manifest.forbidden_runtime_forms).toEqual(expect.arrayContaining([
       'standalone-http-server',
       'systemd-service',
@@ -25,6 +34,18 @@ describe('SupAuth SupaCloud app contract', () => {
     ]));
     expect(manifest.functions).toHaveLength(1);
     expect(manifest.functions[0].entrypoint).toBe('packages/auth-server/dist/supacloud-function/supacloud-function.js');
+    expect(manifest.required_supacloud_env).toContainEqual(expect.objectContaining({
+      name: 'SUPAOAUTH_BFF_SIGNING_SECRET',
+      secret: true,
+    }));
+  });
+
+  it('builds a project-generic console behind the same-origin BFF', () => {
+    const buildScript = readFileSync('scripts/build-supacloud-app.ts', 'utf8');
+
+    expect(buildScript).toContain("VITE_AUTH_SERVER_URL: '/api'");
+    expect(buildScript).toContain("VITE_ADMIN_SSO_ISSUER: ''");
+    expect(buildScript).toContain("VITE_ADMIN_SSO_CLIENT_ID: ''");
   });
 
   it('declares SupaCloud-owned management domains and managed jobs', () => {
@@ -36,16 +57,27 @@ describe('SupAuth SupaCloud app contract', () => {
 
     expect(manifest.supacloud_owned_management_domains).toEqual(expect.arrayContaining([
       'applications',
-      'application_secrets',
-      'users',
-      'user_sessions',
-      'user_passkeys',
       'organizations',
       'rbac_roles',
       'audit',
       'webhooks',
       'webhook_delivery',
     ]));
+    for (const runtimeDomain of [
+      'application_secrets',
+      'oauth_clients',
+      'oauth_grants',
+      'users',
+      'user_sessions',
+      'user_identities',
+      'user_mfa',
+      'user_passkeys',
+    ]) {
+      expect(manifest.supacloud_owned_management_domains).not.toContain(runtimeDomain);
+    }
+    expect(manifest.gotrue_owned_runtime_domains).toEqual(GOTRUE_OWNED_RUNTIME_DOMAINS);
+    expect(manifest.supacloud_management_facades).toEqual(SUPACLOUD_MANAGEMENT_FACADES);
+    expect(SUPACLOUD_OWNED_MANAGEMENT_DOMAINS).not.toContain('user_passkeys');
     expect(manifest.supacloud_managed_background_jobs.map((job) => job.name)).toEqual([
       'webhook-delivery',
       'account-provisioning-import',
@@ -53,7 +85,8 @@ describe('SupAuth SupaCloud app contract', () => {
     expect(manifest.supauth_overlay_domains).toEqual(expect.arrayContaining([
       'hosted_auth_pages',
       'sign_in_experience_overrides',
-      'oauth_consents',
+      'oauth_consent_policy',
+      'oauth_consent_decisions',
       'account_provisioning_records',
     ]));
   });
@@ -64,9 +97,13 @@ describe('SupAuth SupaCloud app contract', () => {
     const classified = Object.keys(SUPAOAUTH_TABLE_OWNERSHIP).sort();
 
     expect(classified).toEqual(tables);
-    expect(SUPAOAUTH_TABLE_OWNERSHIP.webhooks.class).toBe('legacy-temporary');
+    expect(SUPAOAUTH_TABLE_OWNERSHIP).not.toHaveProperty('webhooks');
+    expect(SUPAOAUTH_TABLE_OWNERSHIP).not.toHaveProperty('webhook_deliveries');
     expect(SUPAOAUTH_TABLE_OWNERSHIP.application_secrets.class).toBe('legacy-temporary');
-    expect(SUPAOAUTH_TABLE_OWNERSHIP.passkeys.class).toBe('legacy-temporary');
+    expect(SUPAOAUTH_TABLE_OWNERSHIP.application_secrets.replacement).toBe('gotrue:oauth-client-secret-rotation');
+    expect(SUPAOAUTH_TABLE_OWNERSHIP.user_consents.class).toBe('legacy-temporary');
+    expect(SUPAOAUTH_TABLE_OWNERSHIP.user_consents.replacement).toBe('gotrue-oauth-grants');
+    expect(SUPAOAUTH_TABLE_OWNERSHIP.oauth_consent_decisions.class).toBe('supauth-overlay');
     expect(SUPAOAUTH_TABLE_OWNERSHIP.sign_in_experience.class).toBe('supauth-overlay');
     expect(SUPAOAUTH_TABLE_OWNERSHIP.account_provisioning_records.class).toBe('supauth-overlay');
   });
@@ -88,31 +125,60 @@ describe('SupAuth SupaCloud app contract', () => {
     expect(MIGRATION_SQL).toContain("auth.jwt() -> 'app_metadata' -> 'supaoauth'");
     expect(MIGRATION_SQL).not.toContain('JOIN supaoauth.permissions');
     expect(MIGRATION_SQL).not.toContain('FROM supaoauth.role_assignments');
+    expect(MIGRATION_SQL).not.toContain('mfa_required');
+    expect(MIGRATION_SQL).not.toContain('personal_access_tokens');
+    expect(MIGRATION_SQL).not.toContain('inline_hook');
+    expect(MIGRATION_SQL).not.toContain('recovery_code');
+    expect(MIGRATION_SQL).not.toContain('subject_token');
   });
 
-  it('grants the Function role only the GoTrue OAuth authorization access required by hosted login', () => {
-    expect(PROJECT_ROLE_GRANTS_SQL).toContain('GRANT USAGE ON SCHEMA auth');
-    expect(PROJECT_ROLE_GRANTS_SQL).toContain('GRANT SELECT, UPDATE ON TABLE auth.oauth_authorizations');
-    expect(PROJECT_ROLE_GRANTS_SQL).not.toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA auth');
+  it('publishes every hosted overlay migration in deterministic order', () => {
+    const manifest = createSupacloudAppManifest({
+      functionBundle: 'function.js',
+      adminStaticDir: 'admin',
+      openapiPath: 'openapi.json',
+    });
+
+    expect(HOSTED_MIGRATIONS.map((migration) => migration.name)).toEqual([
+      'supauth-overlay-schema-v1',
+      'supauth-overlay-hardening-v4',
+      'supauth-overlay-provisioning-v5',
+      'supauth-overlay-gotrue-authority-v6',
+      'supauth-overlay-function-access-v7',
+      'supauth-overlay-project-claims-v8',
+      'supauth-overlay-legacy-webhook-revoke-v9',
+      'supauth-overlay-legacy-webhook-retirement-v10',
+    ]);
+    expect(manifest.migrations.map((migration) => migration.name)).toEqual(
+      HOSTED_MIGRATIONS.map((migration) => migration.name),
+    );
   });
 
-  it('creates Supabase-compatible RBAC helper aliases without replacing auth.uid/auth.jwt patterns', () => {
-    expect(MIGRATION_SQL).toContain('CREATE OR REPLACE FUNCTION supaoauth.authorize(permission_name TEXT, target_organization_id UUID DEFAULT NULL)');
-    expect(MIGRATION_SQL).toContain('CREATE OR REPLACE FUNCTION supaoauth.has_permission(permission_name TEXT, target_organization_id UUID DEFAULT NULL)');
-    expect(MIGRATION_SQL).toContain('SELECT supaoauth.authorize(permission_name, target_organization_id)');
-    expect(MIGRATION_SQL).toContain('CREATE OR REPLACE FUNCTION supaoauth.has_org_permission(organization_id UUID, permission_name TEXT)');
-    expect(MIGRATION_SQL).toContain('GRANT EXECUTE ON FUNCTION supaoauth.has_permission(TEXT, UUID) TO authenticated');
-    expect(MIGRATION_SQL).toContain("auth.jwt() -> 'app_metadata' -> 'supaoauth'");
-    expect(MIGRATION_SQL).not.toContain("auth.jwt() ->> 'role' = 'admin'");
+  it('keeps hosted migrations out of GoTrue-owned OAuth authorization tables', () => {
+    const hostedSql = HOSTED_MIGRATIONS.map((migration) => migration.sql).join('\n');
+    expect(hostedSql).not.toContain('auth.oauth_authorizations');
+    expect(hostedSql).not.toContain('GRANT USAGE ON SCHEMA auth');
+  });
+
+  it('creates project-scoped RBAC helpers without replacing auth.uid/auth.jwt patterns', () => {
+    const hostedSql = HOSTED_MIGRATIONS.map((migration) => migration.sql).join('\n');
+    expect(hostedSql).toContain('CREATE OR REPLACE FUNCTION supaoauth.current_project_claims()');
+    expect(hostedSql).toContain('CREATE OR REPLACE FUNCTION supaoauth.authorize(permission_name TEXT, target_organization_id UUID DEFAULT NULL)');
+    expect(hostedSql).toContain('CREATE OR REPLACE FUNCTION supaoauth.has_permission(permission_name TEXT, target_organization_id UUID DEFAULT NULL)');
+    expect(hostedSql).toContain('SELECT supaoauth.authorize(permission_name, target_organization_id)');
+    expect(hostedSql).toContain('CREATE OR REPLACE FUNCTION supaoauth.has_org_permission(organization_id UUID, permission_name TEXT)');
+    expect(hostedSql).toContain('GRANT EXECUTE ON FUNCTION supaoauth.has_permission(TEXT, UUID) TO authenticated');
+    expect(hostedSql).toContain("namespace -> 'projects' -> project_ref");
+    expect(hostedSql).not.toContain("auth.jwt() ->> 'role' = 'admin'");
   });
 
   it('keeps RLS helpers fail-closed when JWT permission projection is truncated', () => {
-    const helperSql = MIGRATION_SQL.slice(
-      MIGRATION_SQL.indexOf('CREATE OR REPLACE FUNCTION supaoauth.authorize'),
-      MIGRATION_SQL.indexOf('REVOKE ALL ON FUNCTION supaoauth.authorize'),
+    const helperSql = MIGRATION_V8_SQL.slice(
+      MIGRATION_V8_SQL.indexOf('CREATE OR REPLACE FUNCTION supaoauth.authorize'),
+      MIGRATION_V8_SQL.indexOf('REVOKE ALL ON FUNCTION supaoauth.current_project_ref'),
     );
 
-    expect(helperSql).toContain("supaoauth_claims -> 'permissions_truncated'");
+    expect(helperSql).toContain("project_claims -> 'permissions_truncated'");
     expect(helperSql.match(/permissions_truncated/g) || []).toHaveLength(2);
   });
 
@@ -122,9 +188,13 @@ describe('SupAuth SupaCloud app contract', () => {
     expect(verifier).toContain("to_regprocedure('supaoauth.authorize(text, uuid)')");
     expect(verifier).toContain("to_regprocedure('supaoauth.has_permission(text, uuid)')");
     expect(verifier).toContain("to_regprocedure('supaoauth.has_org_permission(uuid, text)')");
+    expect(verifier).toContain("to_regprocedure('supaoauth.current_project_claims()')");
+    expect(verifier).toContain("to_regclass('supaoauth.webhooks') IS NULL");
+    expect(verifier).toContain("to_regclass('supaoauth.webhook_deliveries') IS NULL");
     expect(verifier).toContain('WHEN authorize_oid IS NULL THEN NULL');
     expect(verifier).toContain('WHEN has_permission_oid IS NULL THEN NULL');
     expect(verifier).toContain('WHEN has_org_permission_oid IS NULL THEN NULL');
+    expect(verifier).toContain('WHEN current_project_claims_oid IS NULL THEN NULL');
     expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.authorize(TEXT, UUID)'");
     expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.has_permission(TEXT, UUID)'");
     expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.has_org_permission(UUID, TEXT)'");
@@ -141,20 +211,8 @@ describe('SupAuth SupaCloud app contract', () => {
         forbidden: ["from '../db/index.js'", "from '../db/schema.js'"],
       },
       {
-        file: 'packages/auth-server/src/repositories/webhooks.ts',
-        forbidden: ["from '../db/index.js'", "from '../db/schema.js'"],
-      },
-      {
-        file: 'packages/auth-server/src/repositories/application-control.ts',
-        forbidden: ['applicationSecrets', 'randomBytes'],
-      },
-      {
         file: 'packages/auth-server/src/repositories/organization-control.ts',
         forbidden: ["from '../db/index.js'", "from '../db/schema.js'", 'randomBytes', 'createHash'],
-      },
-      {
-        file: 'packages/auth-server/src/repositories/account-control.ts',
-        forbidden: ["from '../db/index.js'", "from '../db/schema.js'", 'accountSessions'],
       },
       {
         file: 'packages/auth-server/src/repositories/rbac-bridge.ts',
@@ -169,6 +227,9 @@ describe('SupAuth SupaCloud app contract', () => {
         expect(source).not.toContain(token);
       }
     }
+
+    expect(existsSync('packages/auth-server/src/repositories/account-control.ts')).toBe(false);
+    expect(existsSync('packages/auth-server/src/repositories/webhooks.ts')).toBe(false);
   });
 
   it('legacy route verifier delegates to installed SupaCloud app verification', () => {

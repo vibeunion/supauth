@@ -3,7 +3,7 @@
 
 import type { AuthProvider, Identity, AuthActionResult, CheckResult } from '@svadmin/core';
 import { createSSOAuthProvider, type SSOAuthProvider } from '@svadmin/sso';
-import { adminApiRequest, setAdminAuthenticatedFetch } from '../admin-api';
+import { AdminApiError, adminApiRequest, setAdminAuthenticatedFetch } from '../admin-api';
 import { adminCheckFailure } from '../admin-auth-result';
 import { requireAdminAuthenticatedFetch } from '../admin-sso-capability';
 import {
@@ -12,7 +12,6 @@ import {
   setStoredAdminToken,
 } from '../auth-token';
 
-const API_BASE = import.meta.env.VITE_AUTH_SERVER_URL || '/api';
 interface AdminSsoConfig {
   issuer: string;
   clientId: string;
@@ -28,6 +27,12 @@ interface RuntimeAdminSsoConfigResponse {
   redirect_uri?: string;
   post_logout_redirect_uri?: string;
   gotrue_logout_url?: string;
+}
+
+interface AdminPrincipalPermissions {
+  roles: string[];
+  permissions: string[];
+  authorization_source: string;
 }
 
 const COMPILED_SSO_CONFIG = normalizeAdminSsoConfig({
@@ -68,19 +73,55 @@ function normalizeAdminSsoConfig(config: RuntimeAdminSsoConfigResponse): AdminSs
 
 async function loadRuntimeAdminSsoConfig(): Promise<AdminSsoConfig | null> {
   if (COMPILED_SSO_CONFIG) return COMPILED_SSO_CONFIG;
-  if (!runtimeSsoConfigPromise) {
-    runtimeSsoConfigPromise = fetch(`${API_BASE}/v1/public/admin-sso-config`, {
-      headers: { Accept: 'application/json' },
-      credentials: 'include',
-    })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const config = await res.json() as RuntimeAdminSsoConfigResponse;
-        return normalizeAdminSsoConfig(config);
-      })
-      .catch(() => null);
+  if (runtimeSsoConfigPromise) return runtimeSsoConfigPromise;
+
+  const pendingConfig = requestRuntimeAdminSsoConfig();
+  runtimeSsoConfigPromise = pendingConfig;
+  try {
+    return await pendingConfig;
+  } catch (error) {
+    if (runtimeSsoConfigPromise === pendingConfig) runtimeSsoConfigPromise = null;
+    throw error;
   }
-  return runtimeSsoConfigPromise;
+}
+
+async function requestRuntimeAdminSsoConfig(): Promise<AdminSsoConfig | null> {
+  const response = await adminApiRequest('/v1/public/admin-sso-config');
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new AdminApiError(
+      'Admin SSO config returned an invalid response',
+      502,
+      'invalid_upstream_response',
+      response,
+    );
+  }
+  return normalizeAdminSsoConfig(response as RuntimeAdminSsoConfigResponse);
+}
+
+function isStringArray(candidate: unknown): candidate is string[] {
+  return Array.isArray(candidate) && candidate.every((entry) => typeof entry === 'string');
+}
+
+function adminPrincipalPermissions(identity: unknown): AdminPrincipalPermissions {
+  if (!identity || typeof identity !== 'object' || Array.isArray(identity)) {
+    throw new AdminApiError('Admin identity returned an invalid response', 502, 'invalid_upstream_response', identity);
+  }
+  const principal = identity as Record<string, unknown>;
+  const roles = principal.roles;
+  const permissions = principal.permissions;
+  const authorizationSource = principal.authorization_source;
+  if (
+    !isStringArray(roles)
+    || !isStringArray(permissions)
+    || typeof authorizationSource !== 'string'
+  ) {
+    throw new AdminApiError('Admin identity is missing authorization data', 502, 'invalid_upstream_response', identity);
+  }
+  return { roles, permissions, authorization_source: authorizationSource };
+}
+
+async function getAdminPrincipalPermissions(): Promise<AdminPrincipalPermissions> {
+  return adminPrincipalPermissions(await adminApiRequest('/v1/auth/identity'));
 }
 
 const tokenAuthProvider: AuthProvider = {
@@ -134,8 +175,7 @@ const tokenAuthProvider: AuthProvider = {
   },
 
   getPermissions: async (): Promise<unknown> => {
-    // Admin console has full permissions for now; RBAC can be added later
-    return { role: 'admin' };
+    return getAdminPrincipalPermissions();
   },
 
   onError: async (error: unknown): Promise<{ redirectTo?: string; logout?: boolean }> => {
@@ -215,8 +255,7 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
     },
 
     getPermissions: async (): Promise<unknown> => {
-      const permissions = await ssoProvider.getPermissions?.();
-      return permissions ?? { role: 'admin' };
+      return getAdminPrincipalPermissions();
     },
 
     onError: async (error: unknown): Promise<{ redirectTo?: string; logout?: boolean }> => {

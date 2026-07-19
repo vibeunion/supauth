@@ -1,1 +1,4 @@
-export const ssr = false; export const prerender = true;
+import { createLegacyRouteRedirect } from '$lib/legacy-route.js';
+
+export const ssr = false;
+export const load = createLegacyRouteRedirect('/api-resources');

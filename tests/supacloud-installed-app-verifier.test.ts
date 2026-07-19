@@ -42,6 +42,7 @@ interface MockFetchRequest {
 function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?: string, requestLog: MockFetchRequest[] = []) {
   const defaultStatuses: Record<string, number> = {
     '/api/v1/health': 200,
+    '/api/v1/capabilities': 401,
     '/v1/auth-config': 401,
     '/v1/public/sign-in-experience/resolve': 200,
     '/admin/security': 200,
@@ -57,6 +58,8 @@ function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?
     '/oauth/authorize': 400,
     '/auth/v1/oauth/authorize': 302,
     '/auth/v1/health': 200,
+    '/auth/v1/.well-known/openid-configuration': 200,
+    '/auth/v1/.well-known/jwks.json': 200,
     '/rest/v1/': 401,
     '/storage/v1/bucket': 401,
     '/realtime/v1/websocket': 400,

@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 
 type JsonObject = Record<string, unknown>;
 
-export type SignInMethod = 'password' | 'magic_link' | 'phone_otp' | 'passkey';
+export type SignInMethod = 'password' | 'magic_link' | 'phone_otp';
 
 interface BrandingContentItem {
   icon?: string;
@@ -49,7 +49,6 @@ export interface SignInExperiencePayload {
   };
   sign_in_methods?: SignInMethod[];
   sign_up_enabled?: boolean;
-  mfa_required?: boolean;
   password_policy?: {
     min_length?: number;
     require_uppercase?: boolean;
@@ -65,7 +64,6 @@ const ALLOWED_SIGN_IN_METHODS = new Set<SignInMethod>([
   'password',
   'magic_link',
   'phone_otp',
-  'passkey',
 ]);
 const GOTRUE_PASSWORD_CHARACTERS = {
   none: '',
@@ -321,13 +319,11 @@ function validatePayload(candidate: JsonObject) {
     'branding',
     'sign_in_methods',
     'sign_up_enabled',
-    'mfa_required',
     'password_policy',
   ], 'sign_in_experience');
   validateBranding(candidate.branding);
   validateSignInMethods(candidate.sign_in_methods);
   assertOptionalBoolean(candidate.sign_up_enabled, 'sign_in_experience.sign_up_enabled');
-  assertOptionalBoolean(candidate.mfa_required, 'sign_in_experience.mfa_required');
   validatePasswordPolicy(candidate.password_policy);
 }
 

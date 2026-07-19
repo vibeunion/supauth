@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSupacloudAppManifest } from '../scripts/supacloud-app-contract.js';
@@ -38,6 +38,7 @@ const requiredOptions = {
   supacloudApiUrl: 'https://api.example.test',
   projectRef: 'project_123',
   token: 'secret-token',
+  bffSigningSecret: 'installer-bff-signing-secret-0123456789abcdef',
   runtimeUrl: 'https://project.example.test',
   databaseUrl: 'postgres://secret-db',
 };
@@ -54,6 +55,8 @@ const isolatedEnvKeys = [
   'CORS_ORIGINS',
   'SUPACLOUD_DATABASE_URL',
   'SUPABASE_DB_URL',
+  'SUPAOAUTH_BFF_SIGNING_SECRET',
+  'RUNTIME_MODE',
 ] as const;
 
 let isolatedEnv: Partial<Record<(typeof isolatedEnvKeys)[number], string>>;
@@ -75,6 +78,23 @@ afterEach(() => {
 });
 
 describe('SupaCloud app installer', () => {
+  it('rejects unsupported auth runtimes before any install request', async () => {
+    const { root, artifactDir } = createFixture();
+    let requested = false;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      runtimeMode: 'external_oidc',
+      fetchImpl: async () => {
+        requested = true;
+        return new Response('{}');
+      },
+    })).rejects.toThrow('RUNTIME_MODE must be "gotrue"');
+    expect(requested).toBe(false);
+  });
+
   it('keeps migration as an explicit install step in dry-run mode', async () => {
     const { root, artifactDir } = createFixture();
 
@@ -112,9 +132,13 @@ describe('SupaCloud app installer', () => {
           authorizeExists: true,
           hasPermissionExists: true,
           hasOrgPermissionExists: true,
+          currentProjectClaimsExists: true,
           authorizeGranted: true,
           hasPermissionGranted: true,
           hasOrgPermissionGranted: true,
+          currentProjectClaimsGranted: true,
+          legacyWebhooksAbsent: true,
+          legacyWebhookDeliveriesAbsent: true,
           unsafePolicies: [],
         };
       },
@@ -137,6 +161,7 @@ describe('SupaCloud app installer', () => {
           const body = JSON.parse(String(init?.body));
           expect(body).toContainEqual({ name: 'SUPACLOUD_INTERNAL_API_URL', value: requiredOptions.supacloudApiUrl });
           expect(body).toContainEqual({ name: 'SUPACLOUD_INTERNAL_TOKEN', value: requiredOptions.token });
+          expect(body).toContainEqual({ name: 'SUPAOAUTH_BFF_SIGNING_SECRET', value: requiredOptions.bffSigningSecret });
           expect(body.some((entry: { name: string }) => entry.name.startsWith('EDGEFN_'))).toBe(false);
           return new Response('{}', { status: 200 });
         }
@@ -170,7 +195,45 @@ describe('SupaCloud app installer', () => {
     ]));
   });
 
-  it('grants the business Function role on the center IdP OAuth authorization table', async () => {
+  it('applies every versioned hosted migration through the Management API', async () => {
+    const { root, artifactDir } = createFixture();
+    const submittedStatements: string[] = [];
+
+    await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigrationVerify: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/database/sql') {
+          const requestBody = JSON.parse(String(init?.body)) as { sql: string };
+          submittedStatements.push(requestBody.sql);
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    const submittedSql = submittedStatements.join('\n');
+    expect(submittedSql).toContain('uq_user_consents_active');
+    expect(submittedSql).toContain('uq_provisioning_records_project_step');
+    expect(submittedSql).toContain('oauth_consent_decisions');
+    expect(submittedSql).toContain('uq_tenant_configs_type_key');
+    expect(submittedSql).toContain('supaoauth.current_project_claims()');
+    const revokeIndex = submittedStatements.findIndex((statement) => statement.includes(
+      'REVOKE ALL PRIVILEGES ON TABLE supaoauth.webhooks FROM PUBLIC',
+    ));
+    const retirementIndex = submittedStatements.findIndex((statement) => statement.includes(
+      'reason_code=legacy_webhook_data_present',
+    ));
+    expect(revokeIndex).toBeGreaterThanOrEqual(0);
+    expect(retirementIndex).toBeGreaterThan(revokeIndex);
+  });
+
+  it('does not run overlay migrations against the center IdP auth schema', async () => {
     const { root, artifactDir } = createFixture();
     const calls: string[] = [];
     const result = await installSupacloudApp({
@@ -185,18 +248,13 @@ describe('SupaCloud app installer', () => {
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
         calls.push(`${init?.method || 'GET'} ${url.pathname}`);
-        if (url.pathname === '/v1/projects/central_idp_project/database/sql') {
-          const body = JSON.parse(String(init?.body));
-          expect(body.sql).toContain('role_project_123');
-          expect(body.sql).toContain('GRANT SELECT, UPDATE ON TABLE auth.oauth_authorizations');
-        }
         return new Response('{}', { status: 200 });
       },
     });
 
     expect(result.ok).toBe(true);
     expect(calls).toContain('POST /v1/projects/project_123/database/sql');
-    expect(calls).toContain('POST /v1/projects/central_idp_project/database/sql');
+    expect(calls).not.toContain('POST /v1/projects/central_idp_project/database/sql');
   });
 
   it('injects a center IdP OAuth authorization project ref when configured', async () => {
@@ -235,6 +293,7 @@ describe('SupaCloud app installer', () => {
       'SUPACLOUD_API_URL=https://api.from-file.test',
       'SUPACLOUD_PROJECT_REF=project_from_file',
       'SUPACLOUD_API_TOKEN=file-token',
+      'SUPAOAUTH_BFF_SIGNING_SECRET=file-bff-signing-secret-0123456789abcdef',
       'SUPACLOUD_GATEWAY_ADMIN_TOKEN=file-admin-token',
       'SUPACLOUD_RUNTIME_URL=https://runtime.from-file.test',
       'SUPACLOUD_DATABASE_URL=postgres://project-db',
@@ -270,6 +329,10 @@ describe('SupaCloud app installer', () => {
       expect(result.ok).toBe(true);
       expect(result.projectRef).toBe('project_from_file');
       expect(seenSecrets).toContainEqual({ name: 'SUPACLOUD_DATABASE_URL', value: 'postgres://project-db' });
+      expect(seenSecrets).toContainEqual({
+        name: 'SUPAOAUTH_BFF_SIGNING_SECRET',
+        value: 'file-bff-signing-secret-0123456789abcdef',
+      });
       expect(seenSecrets).not.toContainEqual({ name: 'SUPACLOUD_DATABASE_URL', value: 'postgres://stale-local-db' });
       expect(seenSecrets).toContainEqual({
         name: 'CORS_ORIGINS',
@@ -300,6 +363,62 @@ describe('SupaCloud app installer', () => {
       if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previousDatabaseUrl;
     }
+  });
+
+  it('requires an explicit independent BFF signing secret without generating one', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      bffSigningSecret: undefined,
+      dryRun: true,
+    })).rejects.toThrow('SUPAOAUTH_BFF_SIGNING_SECRET');
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      bffSigningSecret: 'short-secret',
+      dryRun: true,
+    })).rejects.toThrow('SUPAOAUTH_BFF_SIGNING_SECRET must be at least 32 characters');
+
+    const sharedSecret = 'shared-install-secret-0123456789abcdef';
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      token: sharedSecret,
+      bffSigningSecret: sharedSecret,
+      dryRun: true,
+    })).rejects.toThrow('SUPAOAUTH_BFF_SIGNING_SECRET must be independent from the SupaCloud token');
+
+    const installerSource = readFileSync('scripts/install-supacloud-app.ts', 'utf8');
+    expect(installerSource).toContain("bffSigningSecret: option('bff-signing-secret')");
+    expect(installerSource).not.toContain('randomBytes');
+  });
+
+  it('redacts the BFF signing secret from Management API failures', async () => {
+    const { root, artifactDir } = createFixture();
+    let failureMessage = '';
+
+    try {
+      await installSupacloudApp({
+        root,
+        artifactDir,
+        ...requiredOptions,
+        skipMigration: true,
+        skipFunctionDeploy: true,
+        skipDirectVerify: true,
+        fetchImpl: async () => new Response(`rejected ${requiredOptions.bffSigningSecret}`, { status: 500 }),
+      });
+    } catch (error) {
+      failureMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(failureMessage).toContain('[REDACTED]');
+    expect(failureMessage).not.toContain(requiredOptions.bffSigningSecret);
   });
 
   it('configures hosted gateway routes when an admin token and base URL are provided', async () => {
@@ -340,7 +459,7 @@ describe('SupaCloud app installer', () => {
       priority: 100,
       cors: expect.arrayContaining(['https://auth.example.test']),
     });
-    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/hosted-auth.js', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
   });
 
   it('configures a separate API route and injects deduplicated Function CORS origins', async () => {
@@ -425,9 +544,13 @@ describe('SupaCloud app installer', () => {
         authorizeExists: true,
         hasPermissionExists: true,
         hasOrgPermissionExists: false,
+        currentProjectClaimsExists: true,
         authorizeGranted: true,
         hasPermissionGranted: true,
         hasOrgPermissionGranted: true,
+        currentProjectClaimsGranted: true,
+        legacyWebhooksAbsent: true,
+        legacyWebhookDeliveriesAbsent: true,
         unsafePolicies: [],
       }),
       fetchImpl: async () => new Response('{}', { status: 200 }),
@@ -446,12 +569,66 @@ describe('SupaCloud app installer', () => {
         authorizeExists: true,
         hasPermissionExists: false,
         hasOrgPermissionExists: true,
+        currentProjectClaimsExists: true,
         authorizeGranted: true,
         hasPermissionGranted: true,
         hasOrgPermissionGranted: true,
+        currentProjectClaimsGranted: true,
+        legacyWebhooksAbsent: true,
+        legacyWebhookDeliveriesAbsent: true,
         unsafePolicies: [],
       }),
       fetchImpl: async () => new Response('{}', { status: 200 }),
     })).rejects.toThrow('supaoauth.has_permission() is missing');
+  });
+
+  it('fails install when project-scoped claim resolution is missing', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      migrationVerifier: async () => ({
+        reachable: true,
+        authorizeExists: true,
+        hasPermissionExists: true,
+        hasOrgPermissionExists: true,
+        currentProjectClaimsExists: false,
+        authorizeGranted: true,
+        hasPermissionGranted: true,
+        hasOrgPermissionGranted: true,
+        currentProjectClaimsGranted: false,
+        legacyWebhooksAbsent: true,
+        legacyWebhookDeliveriesAbsent: true,
+        unsafePolicies: [],
+      }),
+      fetchImpl: async () => new Response('{}', { status: 200 }),
+    })).rejects.toThrow('supaoauth.current_project_claims() is missing');
+  });
+
+  it('fails install verification while a retired local webhook table remains', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      migrationVerifier: async () => ({
+        reachable: true,
+        authorizeExists: true,
+        hasPermissionExists: true,
+        hasOrgPermissionExists: true,
+        currentProjectClaimsExists: true,
+        authorizeGranted: true,
+        hasPermissionGranted: true,
+        hasOrgPermissionGranted: true,
+        currentProjectClaimsGranted: true,
+        legacyWebhooksAbsent: false,
+        legacyWebhookDeliveriesAbsent: true,
+        unsafePolicies: [],
+      }),
+      fetchImpl: async () => new Response('{}', { status: 200 }),
+    })).rejects.toThrow('reason_code=legacy_webhook_table_present: supaoauth.webhooks must be retired');
   });
 });

@@ -1,7 +1,7 @@
 {
-  "packages/auth-server": "0.2.0",
-  "packages/admin-console": "0.2.0",
-  "packages/shared": "0.1.0",
-  "packages/sdks/typescript": "0.2.0",
-  "packages/sdks/auth-ui": "0.1.0"
+  "packages/auth-server": "0.3.0",
+  "packages/admin-console": "0.3.0",
+  "packages/shared": "0.3.0",
+  "packages/sdks/typescript": "0.3.0",
+  "packages/sdks/auth-ui": "0.3.0"
 }

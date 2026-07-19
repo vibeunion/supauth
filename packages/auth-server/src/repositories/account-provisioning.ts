@@ -222,6 +222,7 @@ export async function claimAccount(input: AccountClaimInput): Promise<AccountCla
 
   await logAudit({
     eventType: 'account_provisioning.claimed',
+    actorId: record.userId || record.email,
     actorType: 'user',
     resourceType: 'account_provisioning_record',
     resourceId: `${record.externalType}:${record.externalId}`,

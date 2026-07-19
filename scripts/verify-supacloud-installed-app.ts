@@ -225,6 +225,7 @@ export async function verifySupacloudInstalledApp(input: {
   const fetchImpl = input.fetchImpl || fetch;
   const requiredSupauthProbes: ProbeSpec[] = [
     { name: 'supauth_health_api_strip_prefix', url: joinUrl(baseUrl, '/api/v1/health'), expectation: 'exact-200' },
+    { name: 'supauth_capabilities', url: joinUrl(baseUrl, '/api/v1/capabilities'), expectation: 'route-exists', allowedStatuses: [200, 401, 403] },
     { name: 'supauth_management_api', url: joinUrl(baseUrl, '/v1/auth-config'), expectation: 'route-exists' },
     { name: 'public_sign_in_experience', url: joinUrl(baseUrl, '/v1/public/sign-in-experience/resolve'), expectation: 'route-exists' },
     { name: 'admin_console_page', url: joinUrl(baseUrl, '/admin/security'), expectation: 'exact-200' },
@@ -240,6 +241,8 @@ export async function verifySupacloudInstalledApp(input: {
   ];
   const requiredRuntimeProbes: ProbeSpec[] = [
     { name: 'gotrue_health_preserved', url: joinUrl(runtimeUrl, '/auth/v1/health'), expectation: 'exact-200' },
+    { name: 'gotrue_oidc_discovery_preserved', url: joinUrl(runtimeUrl, '/auth/v1/.well-known/openid-configuration'), expectation: 'exact-200' },
+    { name: 'gotrue_jwks_preserved', url: joinUrl(runtimeUrl, '/auth/v1/.well-known/jwks.json'), expectation: 'exact-200' },
     { name: 'postgrest_preserved', url: joinUrl(runtimeUrl, '/rest/v1/'), expectation: 'runtime-preserved', allowedStatuses: [200, 401, 406] },
     { name: 'storage_preserved', url: joinUrl(runtimeUrl, '/storage/v1/bucket'), expectation: 'runtime-preserved', allowedStatuses: [200, 401] },
     {

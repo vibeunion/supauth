@@ -1,205 +1,73 @@
-// Webhook event facade. SupaCloud owns webhook storage, signing, delivery,
-// retry, and diagnostics. Legacy local delivery helpers remain available for
-// compatibility with pre-SupaCloud-native installs and targeted tests.
+// SupaCloud owns webhook storage, signing, delivery, retry, and diagnostics.
 
-import { createHmac, randomUUID } from 'node:crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import * as auditRepo from './audit.js';
-import { getDb } from '../db/index.js';
-import { webhooks, webhookDeliveries } from '../db/schema.js';
+import { createHash } from 'node:crypto';
+import { getCurrentRequestId } from '../auth/request-context.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import type { ManagedWebhookEvent } from '../supacloud/adapter.js';
 
-const MAX_RETRIES = 3;
-const RETRY_DELAYS_MS = [5_000, 30_000, 120_000];
-const PROCESSING_STUCK_MS = 10 * 60 * 1000;
+const WEBHOOK_API_VERSION = '2026-07-01';
+const WEBHOOK_EVENT_UUID_NAMESPACE = Buffer.from('0db8c2f190d74ef28ec066780cff26d6', 'hex');
 
-function logDiagnosticAudit(event: Parameters<typeof auditRepo.logAudit>[0]) {
-  setTimeout(() => {
-    auditRepo.logAudit(event).catch(() => {});
-  }, 0);
+function formatUuid(uuidBytes: Buffer): string {
+  const uuidHex = uuidBytes.subarray(0, 16).toString('hex');
+  return `${uuidHex.slice(0, 8)}-${uuidHex.slice(8, 12)}-${uuidHex.slice(12, 16)}-${uuidHex.slice(16, 20)}-${uuidHex.slice(20, 32)}`;
 }
 
-async function computeSignature(payload: string, secret: string): Promise<string> {
-  return createHmac('sha256', secret).update(payload).digest('hex');
+function requestEventUuid(requestId: string, eventType: string): string {
+  const eventIdentity = `${requestId.length}:${requestId}${eventType.length}:${eventType}`;
+  // UUIDv5 mandates SHA-1; this digest is an idempotency identifier, not a security primitive.
+  const uuidBytes = createHash('sha1')
+    .update(WEBHOOK_EVENT_UUID_NAMESPACE)
+    .update(eventIdentity)
+    .digest();
+  uuidBytes[6] = (uuidBytes[6] & 0x0f) | 0x50;
+  uuidBytes[8] = (uuidBytes[8] & 0x3f) | 0x80;
+  return formatUuid(uuidBytes);
 }
 
-export interface WebhookEvent {
-  type: string;
-  payload: Record<string, unknown>;
-  timestamp: string;
+function webhookEventId(eventType: string): string {
+  const requestId = getCurrentRequestId();
+  if (!requestId) throw new Error('Cannot build webhook event without an active request ID');
+  return requestEventUuid(requestId, eventType);
 }
+
+export type WebhookEvent = ManagedWebhookEvent;
 
 /** Build a webhook event envelope. */
-export function buildEvent(eventType: string, data: Record<string, unknown>): WebhookEvent {
+export function buildEvent(eventType: string, payload: Record<string, unknown>): WebhookEvent {
   return {
+    id: webhookEventId(eventType),
     type: eventType,
-    payload: data,
-    timestamp: new Date().toISOString(),
+    payload,
+    occurred_at: new Date().toISOString(),
+    api_version: WEBHOOK_API_VERSION,
   };
 }
 
 /** Submit a webhook event to SupaCloud's managed delivery pipeline. */
 export async function dispatchEvent(event: WebhookEvent): Promise<void> {
-  await getSupaCloudAdapter().enqueueWebhookEvent(event as unknown as Record<string, unknown>);
+  await getSupaCloudAdapter().enqueueWebhookEvent(event);
 }
 
-async function claimPendingDeliveries(limit = 50) {
-  const db = getDb();
-  const now = new Date();
-  const staleBefore = new Date(now.getTime() - PROCESSING_STUCK_MS);
-  return db.transaction(async (tx) => {
-    const claimed = await tx.select().from(webhookDeliveries)
-      .where(and(
-        sql`(${webhookDeliveries.status} = 'pending' AND ${webhookDeliveries.nextAttemptAt} <= ${now})
-            OR (${webhookDeliveries.status} = 'processing' AND ${webhookDeliveries.updatedAt} < ${staleBefore})`,
-      ))
-      .limit(limit)
-      .for('update', { skipLocked: true });
-
-    if (claimed.length === 0) return [];
-
-    const claimedIds = claimed.map(r => r.id);
-    await tx.update(webhookDeliveries).set({
-      status: 'processing',
-      updatedAt: now,
-    }).where(inArray(webhookDeliveries.id, claimedIds));
-    return claimed;
-  });
-}
-
-/** Drain legacy local webhook deliveries that are already queued in Postgres. */
-export async function processPendingDeliveries(): Promise<number> {
-  const db = getDb();
-  const pending = await claimPendingDeliveries();
-  if (pending.length === 0) return 0;
-
-  let processed = 0;
-  for (const delivery of pending) {
-    const whRows = await db.select().from(webhooks)
-      .where(eq(webhooks.id, delivery.webhookId)).limit(1);
-    const wh = whRows[0];
-    if (!wh || !wh.enabled) {
-      await db.update(webhookDeliveries).set({
-        status: 'failed',
-        lastError: 'webhook not found or disabled',
-        updatedAt: new Date(),
-      }).where(eq(webhookDeliveries.id, delivery.id));
-      processed++;
-      continue;
-    }
-
-    const event: WebhookEvent = {
-      type: delivery.eventType,
-      payload: delivery.payload as Record<string, unknown>,
-      timestamp: delivery.createdAt.toISOString(),
-    };
-
-    const result = await deliverWebhookOnce(delivery.webhookId, wh.url, wh.secret, event, delivery.id);
-    processed++;
-
-    if (result.ok) {
-      await db.update(webhookDeliveries).set({
-        status: 'delivered',
-        attempts: delivery.attempts + 1,
-        lastResponseCode: result.status || null,
-        deliveredAt: new Date(),
-        nextAttemptAt: new Date(),
-        updatedAt: new Date(),
-      }).where(eq(webhookDeliveries.id, delivery.id));
-      continue;
-    }
-
-    const nextAttempts = delivery.attempts + 1;
-    if (nextAttempts >= delivery.maxAttempts) {
-      await db.update(webhookDeliveries).set({
-        status: 'failed',
-        attempts: nextAttempts,
-        lastError: result.error || `HTTP ${result.status}`,
-        lastResponseCode: result.status || null,
-        updatedAt: new Date(),
-      }).where(eq(webhookDeliveries.id, delivery.id));
-
-      try {
-        await db.update(webhooks).set({ enabled: false, updatedAt: new Date() })
-          .where(eq(webhooks.id, delivery.webhookId));
-      } catch {}
-    } else {
-      const delay = RETRY_DELAYS_MS[Math.min(nextAttempts - 1, RETRY_DELAYS_MS.length - 1)];
-      await db.update(webhookDeliveries).set({
-        status: 'pending',
-        attempts: nextAttempts,
-        lastError: result.error || `HTTP ${result.status}`,
-        lastResponseCode: result.status || null,
-        nextAttemptAt: new Date(Date.now() + delay),
-        updatedAt: new Date(),
-      }).where(eq(webhookDeliveries.id, delivery.id));
-    }
-  }
-  return processed;
-}
-
-export async function deliverWebhookOnce(
-  webhookId: string,
-  url: string,
-  secret: string,
-  event: WebhookEvent,
-  deliveryId?: string,
-): Promise<{ ok: boolean; status?: number; error?: string }> {
-  const idempotencyKey = deliveryId || randomUUID();
-  const payload = JSON.stringify(event);
-  const signature = await computeSignature(payload, secret);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-SupaOAuth-Signature': `sha256=${signature}`,
-        'X-SupaOAuth-Event': event.type,
-        'X-SupaOAuth-Delivery-Id': idempotencyKey,
-      },
-      body: payload,
-      signal: AbortSignal.timeout(10_000),
-    });
-    logDiagnosticAudit({
-      eventType: res.ok ? 'webhook.diagnostic_delivered' : 'webhook.diagnostic_failed',
-      resourceType: 'webhook',
-      resourceId: webhookId,
-      actorType: 'system',
-      details: { url, event: event.type, status: res.status },
-    });
-    return { ok: res.ok, status: res.status };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logDiagnosticAudit({
-      eventType: 'webhook.diagnostic_failed',
-      resourceType: 'webhook',
-      resourceId: webhookId,
-      actorType: 'system',
-      details: { url, event: event.type, error: message },
-    });
-    return { ok: false, error: message };
-  }
-}
-
-export const SUPPORTED_WEBHOOK_EVENTS = [
-  'user.created',
-  'user.signed_in',
-  'user.deleted',
-  'application.created',
-  'application.updated',
-  'application.deleted',
-  'application.secret_created',
-  'organization.created',
-  'organization.invitation_created',
-  'organization.member_added',
-  'organization.member_removed',
-  'role.assigned',
-  'role.revoked',
-  'connector.updated',
-  'consent.granted',
-  'consent.revoked',
-  'org_template.created',
-  'organization.created_from_template',
+export const WEBHOOK_EVENT_CATALOG = [
+  { type: 'user.created', guarantee: 'post_mutation' },
+  { type: 'user.updated', guarantee: 'post_mutation' },
+  { type: 'user.suspended', guarantee: 'post_mutation' },
+  { type: 'user.unsuspended', guarantee: 'post_mutation' },
+  { type: 'user.deleted', guarantee: 'post_mutation' },
+  { type: 'application.created', guarantee: 'post_mutation' },
+  { type: 'application.updated', guarantee: 'post_mutation' },
+  { type: 'application.deleted', guarantee: 'post_mutation' },
+  { type: 'organization.created', guarantee: 'transactional' },
+  { type: 'organization.invitation_created', guarantee: 'transactional' },
+  { type: 'organization.member_added', guarantee: 'transactional' },
+  { type: 'organization.member_updated', guarantee: 'transactional' },
+  { type: 'organization.member_removed', guarantee: 'transactional' },
+  { type: 'role.assigned', guarantee: 'transactional' },
+  { type: 'role.revoked', guarantee: 'transactional' },
+  { type: 'connector.updated', guarantee: 'post_mutation' },
+  { type: 'org_template.created', guarantee: 'post_mutation' },
+  { type: 'organization.created_from_template', guarantee: 'post_mutation' },
 ] as const;
 
-export type SupportedWebhookEvent = typeof SUPPORTED_WEBHOOK_EVENTS[number];
+export const SUPPORTED_WEBHOOK_EVENTS = WEBHOOK_EVENT_CATALOG.map(({ type }) => type);

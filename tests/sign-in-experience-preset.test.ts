@@ -41,7 +41,8 @@ describe('sign-in experience deployment presets', () => {
     expect(docs).toContain('不把“西谷智灯枢鉴系统”写入默认源码');
     expect(docs).toContain('**不是**服务端配置的原始 `ADMIN_TOKEN`');
     expect(docs).toContain('password_required_characters');
-    expect(docs).toContain('企业 SSO 必须通过已启用的 connector/SAML 配置接入');
+    expect(docs).toContain('企业 SSO 必须通过已启用的 GoTrue/SupaCloud connector 接入');
+    expect(docs).toContain('MFA 只使用 GoTrue TOTP 与真实 AAL');
     expect(preset).toContain('"supauth_owned"');
     expect(preset).toContain('"tenant_configured"');
   });

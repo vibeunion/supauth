@@ -3,30 +3,12 @@
   import { page } from '$app/state';
   import { t } from '$lib/i18n.js';
   import { brand, loadBrand } from '$lib/brand.svelte.js';
+  import { navigationSections, isNavigationEntryActive } from '$lib/navigation.js';
   let { children } = $props();
 
   // 启动时拉取系统品牌名（sign-in-experience.page_title）
   loadBrand();
 
-  const navItems = [
-    { path: '/dashboard', labelKey: 'nav.overview', icon: '◉' },
-    { path: '/applications', labelKey: 'nav.applications', icon: '⬡' },
-    { path: '/connectors', labelKey: 'nav.connectors', icon: '⊕' },
-    { path: '/resources', labelKey: 'nav.resources', icon: '◆' },
-    { path: '/roles', labelKey: 'nav.roles', icon: '★' },
-    { path: '/users', labelKey: 'nav.users', icon: '⊙' },
-    { path: '/organizations', labelKey: 'nav.organizations', icon: '⬢' },
-    { path: '/org-templates', labelKey: 'nav.orgTemplates', icon: '▦' },
-    { path: '/consents', labelKey: 'nav.consents', icon: '✓' },
-    { path: '/enterprise-sso', labelKey: 'nav.enterpriseSso', icon: '⇄' },
-    { path: '/account-center', labelKey: 'nav.accountCenter', icon: '◎' },
-    { path: '/tenant-config', labelKey: 'nav.tenantConfig', icon: '◧' },
-    { path: '/security', labelKey: 'nav.security', icon: '◇' },
-    { path: '/operations', labelKey: 'nav.operations', icon: '⌁' },
-    { path: '/settings', labelKey: 'nav.settings', icon: '⚙' },
-    { path: '/webhooks', labelKey: 'nav.webhooks', icon: '↗' },
-    { path: '/audit', labelKey: 'nav.audit', icon: '≡' },
-  ];
 </script>
 
 <div class="flex h-screen bg-surface-50 font-sans">
@@ -41,31 +23,40 @@
       </p>
     </div>
 
-    <div class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-      {#each navItems as item (item.path)}
-        {@const itemHref = `${base}${item.path}`}
-        {@const isActive = page.url.pathname === itemHref || page.url.pathname === `${itemHref}/`}
-        <a
-          href={resolve(item.path)}
-          class={[
-            'flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] font-medium transition-all duration-150 relative group',
-            isActive
-              ? 'bg-brand-50/70 text-brand-600 font-semibold'
-              : 'text-surface-600 hover:bg-surface-50 hover:text-surface-900',
-          ].join(' ')}
-        >
-          {#if isActive}
-            <div class="absolute left-0 top-2 bottom-2 w-[3px] bg-brand-600 rounded-r-md"></div>
-          {/if}
+    <div class="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
+      {#each navigationSections as navigationSection (navigationSection.labelKey)}
+        <section aria-labelledby={navigationSection.labelKey}>
+          <p id={navigationSection.labelKey} class="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-surface-400">
+            {t(navigationSection.labelKey)}
+          </p>
+          <div class="space-y-1">
+            {#each navigationSection.entries as navigationEntry (navigationEntry.path)}
+              {@const isActive = isNavigationEntryActive(page.url.pathname, base, navigationEntry.path)}
+              <a
+                href={resolve(navigationEntry.path)}
+                aria-current={isActive ? 'page' : undefined}
+                class={[
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] font-medium transition-all duration-150 relative group',
+                  isActive
+                    ? 'bg-brand-50/70 text-brand-600 font-semibold'
+                    : 'text-surface-600 hover:bg-surface-50 hover:text-surface-900',
+                ].join(' ')}
+              >
+                {#if isActive}
+                  <div class="absolute left-0 top-2 bottom-2 w-[3px] bg-brand-600 rounded-r-md"></div>
+                {/if}
 
-          <span class={[
-            'text-[16px] transition-colors duration-150',
-            isActive ? 'text-brand-600' : 'text-surface-400 group-hover:text-surface-600'
-          ].join(' ')}>
-            {item.icon}
-          </span>
-          {t(item.labelKey)}
-        </a>
+                <span class={[
+                  'text-[16px] transition-colors duration-150',
+                  isActive ? 'text-brand-600' : 'text-surface-400 group-hover:text-surface-600'
+                ].join(' ')}>
+                  {navigationEntry.icon}
+                </span>
+                {t(navigationEntry.labelKey)}
+              </a>
+            {/each}
+          </div>
+        </section>
       {/each}
     </div>
 

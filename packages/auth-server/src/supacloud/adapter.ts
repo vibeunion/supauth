@@ -2,7 +2,167 @@
 // All SupaCloud Management API calls go through this module.
 // P0-26: Supports per-request projectRef override for multi-project safety.
 
-import { getConfig } from '../config/index.js';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { currentAdminRequestContext, getCurrentRequestId } from '../auth/request-context.js';
+import { getConfig, validateBffSigningSecret } from '../config/index.js';
+import { capabilityUnavailable } from '../utils/api-contract.js';
+
+const DELEGATED_HEADER_NAMES = [
+  'x-request-id',
+  'x-supaoauth-actor-id',
+  'x-supaoauth-actor-type',
+  'x-supaoauth-actor-timestamp',
+  'x-supaoauth-body-sha256',
+  'x-supaoauth-actor-nonce',
+  'x-supaoauth-actor-signature',
+  'x-supaoauth-authorization-source',
+] as const;
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:/+-]{1,200}$/;
+const ACTOR_ID_PATTERN = /^[A-Za-z0-9@._:+/-]{1,200}$/;
+type BffActorType = 'admin' | 'user' | 'system';
+
+interface BffActorContext {
+  requestId: string;
+  actorId: string;
+  actorType: BffActorType;
+  authorizationSource: string;
+}
+
+interface BffProofInput extends BffActorContext {
+  method: string;
+  outboundUrl: string;
+  body: BodyInit | null | undefined;
+}
+
+interface BffSignatureInput extends BffProofInput {
+  timestamp: string;
+  bodySha256: string;
+  nonce: string;
+}
+
+interface SupaCloudAuditEvent {
+  event_type: string;
+  actor_id?: string | null;
+  actor_type: BffActorType;
+  resource_type: string;
+  resource_id: string;
+  details?: Record<string, unknown>;
+}
+
+function canonicalBffProof(input: {
+  method: string;
+  url: URL;
+  timestamp: string;
+  requestId: string;
+  actorId: string;
+  actorType: string;
+  bodySha256: string;
+  nonce: string;
+}) {
+  return [
+    input.method.toUpperCase(),
+    `${input.url.pathname}${input.url.search}`,
+    input.timestamp,
+    input.requestId,
+    input.actorId,
+    input.actorType,
+    input.bodySha256,
+    input.nonce,
+  ].join('\n');
+}
+
+function requireBffSigningSecret(): string {
+  const config = getConfig();
+  const validationError = validateBffSigningSecret(config);
+  if (validationError) throw new Error(validationError);
+  return config.supaoauthBffSigningSecret;
+}
+
+function assertProofField(name: string, value: string, pattern: RegExp): void {
+  if (!pattern.test(value)) throw new Error(`Invalid ${name} for SupaCloud BFF proof`);
+}
+
+function proofBodySha256(body: BodyInit | null | undefined, method: string): string {
+  if (method.toUpperCase() === 'GET' || method.toUpperCase() === 'HEAD' || body == null) {
+    return createHash('sha256').update(Buffer.alloc(0)).digest('hex');
+  }
+  if (typeof body === 'string') return createHash('sha256').update(Buffer.from(body)).digest('hex');
+  if (body instanceof ArrayBuffer) return createHash('sha256').update(Buffer.from(body)).digest('hex');
+  if (ArrayBuffer.isView(body)) {
+    return createHash('sha256')
+      .update(Buffer.from(body.buffer, body.byteOffset, body.byteLength))
+      .digest('hex');
+  }
+  if (body instanceof URLSearchParams) {
+    return createHash('sha256').update(Buffer.from(body.toString())).digest('hex');
+  }
+  throw new TypeError('SupaCloud BFF proof requires a replayable non-stream body');
+}
+
+function bffProofSignature(input: BffSignatureInput): string {
+  const canonical = canonicalBffProof({
+    method: input.method,
+    url: new URL(input.outboundUrl),
+    timestamp: input.timestamp,
+    requestId: input.requestId,
+    actorId: input.actorId,
+    actorType: input.actorType,
+    bodySha256: input.bodySha256,
+    nonce: input.nonce,
+  });
+  return `v2=${createHmac('sha256', requireBffSigningSecret()).update(canonical).digest('hex')}`;
+}
+
+function bffProofHeaders(input: BffProofInput): Record<string, string> {
+  assertProofField('request ID', input.requestId, REQUEST_ID_PATTERN);
+  assertProofField('actor ID', input.actorId, ACTOR_ID_PATTERN);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const bodySha256 = proofBodySha256(input.body, input.method);
+  const nonce = randomUUID();
+  return {
+    'x-request-id': input.requestId,
+    'x-supaoauth-actor-id': input.actorId,
+    'x-supaoauth-actor-type': input.actorType,
+    'x-supaoauth-actor-timestamp': timestamp,
+    'x-supaoauth-body-sha256': bodySha256,
+    'x-supaoauth-actor-nonce': nonce,
+    'x-supaoauth-actor-signature': bffProofSignature({
+      ...input,
+      timestamp,
+      bodySha256,
+      nonce,
+    }),
+    'x-supaoauth-authorization-source': input.authorizationSource,
+  };
+}
+
+function adminProofActor(): BffActorContext | undefined {
+  const context = currentAdminRequestContext();
+  if (!context) return undefined;
+  return {
+    requestId: context.requestId,
+    actorId: context.principal.id,
+    actorType: 'admin',
+    authorizationSource: context.principal.authorization_source,
+  };
+}
+
+function auditProofActor(event: SupaCloudAuditEvent): BffActorContext {
+  const adminActor = adminProofActor();
+  if (adminActor) return adminActor;
+  if (event.actor_type === 'admin') {
+    throw new Error('A trusted admin request context is required for admin audit events');
+  }
+  if (!event.actor_id?.trim()) {
+    throw new Error(`actorId is required for ${event.actor_type} audit events`);
+  }
+  return {
+    requestId: getCurrentRequestId() || randomUUID(),
+    actorId: event.actor_id,
+    actorType: event.actor_type,
+    authorizationSource: `supaoauth_audit_${event.actor_type}`,
+  };
+}
 
 export interface AdapterOptions {
   /** Override the default PROJECT_REF for this adapter instance */
@@ -19,6 +179,19 @@ export interface AdapterTargetInfo {
   storageUrl: string;
   runtimeProjectScoped: boolean;
   storageProjectScoped: boolean;
+}
+
+export interface ManagedWebhookEvent {
+  id: string;
+  type: string;
+  occurred_at: string;
+  api_version: string;
+  payload: Record<string, unknown>;
+}
+
+interface OrganizationJitSettings {
+  enabled: boolean;
+  domains: string[];
 }
 
 type GatewayRouteProbe = {
@@ -120,26 +293,100 @@ export class SupaCloudAdapter {
     };
   }
 
-  private async request(path: string, options: RequestInit = {}): Promise<unknown> {
-    const url = `${this.apiUrl}${path}`;
-    const headers: Record<string, string> = {
+  private requestHeaders(
+    outboundUrl: string,
+    options: RequestInit,
+    auditActor?: BffActorContext,
+  ): Headers {
+    const headers = new Headers(options.headers);
+    for (const name of DELEGATED_HEADER_NAMES) headers.delete(name);
+    headers.set('Content-Type', 'application/json');
+    headers.set('Authorization', `Bearer ${this.masterToken}`);
+    const proofActor = adminProofActor() || auditActor;
+    if (!proofActor) return headers;
+
+    const proofHeaders = bffProofHeaders({
+      method: options.method || 'GET',
+      outboundUrl,
+      ...proofActor,
+      body: options.body,
+    });
+    for (const [name, value] of Object.entries(proofHeaders)) headers.set(name, value);
+    return headers;
+  }
+
+  private bearerHeaders(authorization: string): Headers {
+    if (!/^Bearer [^\s]+$/.test(authorization)) {
+      throw new Error('A GoTrue user bearer token is required');
+    }
+    return new Headers({
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${this.masterToken}`,
-      ...(options.headers as Record<string, string>),
-    };
+      Authorization: authorization,
+    });
+  }
+
+  private async fetchResponse(
+    path: string,
+    options: RequestInit = {},
+    userAuthorization?: string,
+    auditActor?: BffActorContext,
+  ): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
+    const outboundUrl = `${this.apiUrl}${path}`;
     try {
-      const res = await fetch(url, { ...options, headers, signal: controller.signal });
+      const res = await fetch(outboundUrl, {
+        ...options,
+        headers: userAuthorization
+          ? this.bearerHeaders(userAuthorization)
+          : this.requestHeaders(outboundUrl, options, auditActor),
+        signal: controller.signal,
+      });
       if (!res.ok) {
         const body = await res.text();
         throw new SupaCloudApiError(res.status, body, path);
       }
-      if (res.status === 204) return null;
-      const body = await res.text();
-      return body ? JSON.parse(body) : null;
+      return res;
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private async request(path: string, options: RequestInit = {}): Promise<unknown> {
+    const response = await this.fetchResponse(path, options);
+    return this.responsePayload(response);
+  }
+
+  private async requestAsGoTrueUser(
+    path: string,
+    authorization: string,
+    options: RequestInit,
+  ): Promise<unknown> {
+    const response = await this.fetchResponse(path, options, authorization);
+    return this.responsePayload(response);
+  }
+
+  private async requestWithAuditActor(
+    path: string,
+    options: RequestInit,
+    actor: BffActorContext,
+  ): Promise<unknown> {
+    const response = await this.fetchResponse(path, options, undefined, actor);
+    return this.responsePayload(response);
+  }
+
+  private async responsePayload(response: Response): Promise<unknown> {
+    if (response.status === 204) return null;
+    const body = await response.text();
+    return body ? JSON.parse(body) : null;
+  }
+
+  private async requestCapability(path: string, capability: string, options: RequestInit = {}) {
+    try {
+      return await this.request(path, options);
+    } catch (error) {
+      if (isSupaCloudApiError(error, [404, 501])) throw capabilityUnavailable(capability);
+      throw error;
     }
   }
 
@@ -147,6 +394,10 @@ export class SupaCloudAdapter {
 
   async getProject() {
     return this.request(`/v1/projects/${this.projectRef}`);
+  }
+
+  async getCapabilities() {
+    return this.requestCapability(`/v1/projects/${this.projectRef}/capabilities`, 'project_capabilities_v1');
   }
 
   async runDatabaseMigration(name: string, sql: string) {
@@ -258,34 +509,6 @@ export class SupaCloudAdapter {
     });
   }
 
-  async listClientSecrets(clientId: string) {
-    try {
-      return await this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets`);
-    } catch (error) {
-      if (isSupaCloudApiError(error, [404, 501])) return [];
-      throw error;
-    }
-  }
-
-  async createClientSecret(clientId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async disableClientSecret(clientId: string, secretId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets/${pathSegment(secretId)}/disable`, {
-      method: 'POST',
-    });
-  }
-
-  async deleteClientSecret(clientId: string, secretId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/oauth-clients/${pathSegment(clientId)}/secrets/${pathSegment(secretId)}`, {
-      method: 'DELETE',
-    });
-  }
-
   // ─── SSO Providers ────────────────────────────────────────────────
 
   async listProviders() {
@@ -303,10 +526,16 @@ export class SupaCloudAdapter {
     });
   }
 
+  async testProvider(providerId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/providers/${pathSegment(providerId)}/test`, {
+      method: 'POST',
+    });
+  }
+
   // ─── Users ────────────────────────────────────────────────────────
 
-  async listUsers() {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users`);
+  async listUsers(params: Record<string, unknown> = {}) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users${queryString(params)}`);
   }
 
   async createUser(data: Record<string, unknown>) {
@@ -346,16 +575,12 @@ export class SupaCloudAdapter {
     });
   }
 
-  async revokeUserSession(userId: string, sessionId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/sessions/${sessionId}/revoke`, {
-      method: 'POST',
-    });
+  async revokeUserSession(_userId: string, _sessionId: string) {
+    throw capabilityUnavailable('gotrue_admin_user_sessions');
   }
 
-  async unlinkUserIdentity(userId: string, identityId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users/${userId}/identities/${identityId}`, {
-      method: 'DELETE',
-    });
+  async unlinkUserIdentity(_userId: string, _identityId: string) {
+    throw capabilityUnavailable('gotrue_admin_identity_unlink');
   }
 
   async resetUserMfa(userId: string, factorId: string) {
@@ -364,39 +589,8 @@ export class SupaCloudAdapter {
     });
   }
 
-  async listUserPasskeys(userId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/passkeys`);
-  }
-
-  async registerUserPasskey(userId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/passkeys`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async renamePasskey(passkeyId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/passkeys/${pathSegment(passkeyId)}/rename`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async revokePasskey(passkeyId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/passkeys/${pathSegment(passkeyId)}`, {
-      method: 'DELETE',
-    });
-  }
-
-  async listUserSessions(userId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/sessions`);
-  }
-
-  async recordUserSession(userId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/sessions`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  async listUserSessions(_userId: string) {
+    throw capabilityUnavailable('gotrue_admin_user_sessions');
   }
 
   async getUserRoleAssignments(userId: string) {
@@ -407,32 +601,50 @@ export class SupaCloudAdapter {
     return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/permissions${queryString({ org_id: orgId })}`);
   }
 
+  async listUserOrganizations(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/organizations`);
+  }
+
+  async listUserOAuthGrants(userId: string, params: { include_revoked?: unknown } = {}) {
+    return this.request(
+      `/v1/projects/${pathSegment(this.projectRef)}/auth/users/${pathSegment(userId)}/grants${queryString({ include_revoked: params.include_revoked })}`,
+    );
+  }
+
+  async revokeUserOAuthGrant(_userId: string, _clientId: string) {
+    throw capabilityUnavailable('gotrue_admin_oauth_grants');
+  }
+
+  async listApplicationOAuthGrants(_applicationId: string) {
+    throw capabilityUnavailable('gotrue_admin_oauth_grants');
+  }
+
   // ─── Organizations ────────────────────────────────────────────────
 
-  async listOrganizations() {
-    return this.requestWithGlobalOrganizationFallback('');
+  async listOrganizations(params: Record<string, unknown> = {}) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations${queryString(params)}`);
   }
 
   async createOrganization(data: Record<string, unknown>) {
-    return this.requestWithGlobalOrganizationFallback('', {
+    return this.request(`/v1/projects/${this.projectRef}/organizations`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   async getOrganization(orgId: string) {
-    return this.requestWithGlobalOrganizationFallback(`/${pathSegment(orgId)}`);
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`);
   }
 
   async updateOrganization(orgId: string, data: Record<string, unknown>) {
-    return this.requestWithGlobalOrganizationFallback(`/${pathSegment(orgId)}`, {
-      method: 'PUT',
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
 
   async deleteOrganization(orgId: string) {
-    return this.requestWithGlobalOrganizationFallback(`/${pathSegment(orgId)}`, {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}`, {
       method: 'DELETE',
     });
   }
@@ -444,14 +656,18 @@ export class SupaCloudAdapter {
     });
   }
 
-  async removeOrganizationMember(orgId: string, userId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, {
+  async listOrganizationMembers(orgId: string, params: Record<string, unknown> = {}) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members${queryString(params)}`);
+  }
+
+  async removeOrganizationMember(orgId: string, memberKey: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members/${pathSegment(memberKey)}`, {
       method: 'DELETE',
     });
   }
 
-  async updateOrganizationMember(orgId: string, userId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, {
+  async updateOrganizationMember(orgId: string, memberKey: string, data: { role: string }) {
+    return this.requestCapability(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/members/${pathSegment(memberKey)}`, 'business_organization_member_roles_v1', {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
@@ -472,20 +688,39 @@ export class SupaCloudAdapter {
     });
   }
 
-  async updateOrganizationInvitationStatus(orgId: string, invitationId: string, action: string) {
-    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}/${pathSegment(action)}`, {
+  async acceptOrganizationInvitation(
+    orgId: string,
+    invitationId: string,
+    data: { token: string },
+    userAuthorization: string,
+  ) {
+    const invitationPath = `/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}`;
+    return this.requestAsGoTrueUser(`${invitationPath}/accept`, userAuthorization, {
       method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 
-  async getOrganizationJitSettings(orgId: string) {
+  async revokeOrganizationInvitation(orgId: string, invitationId: string) {
+    const invitationPath = `/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}`;
+    return this.request(invitationPath, { method: 'DELETE' });
+  }
+
+  async getOrganizationJitSettings(orgId: string): Promise<unknown> {
     return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/jit`);
   }
 
-  async updateOrganizationJitSettings(orgId: string, data: Record<string, unknown>) {
+  async updateOrganizationJitSettings(orgId: string, data: OrganizationJitSettings) {
     return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/jit`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  }
+
+  async reconcileOrganizationJitMemberships(userId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/jit/reconcile`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
     });
   }
 
@@ -493,10 +728,10 @@ export class SupaCloudAdapter {
     return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications`);
   }
 
-  async updateOrganizationApplication(orgId: string, appId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
+  async bindOrganizationApplication(orgId: string, appId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/applications`, {
+      method: 'POST',
+      body: JSON.stringify({ application_id: appId }),
     });
   }
 
@@ -506,25 +741,18 @@ export class SupaCloudAdapter {
     });
   }
 
-  private async requestWithGlobalOrganizationFallback(path: string, options: RequestInit = {}) {
-    const primary = `/v1/projects/${this.projectRef}/organizations${path}`;
-    try {
-      return await this.request(primary, options);
-    } catch (error) {
-      if (isSupaCloudApiError(error, [404])) {
-        return this.request(`/v1/organizations${path}`, options);
-      }
-      throw error;
-    }
+  async getOrganizationBranding(orgId: string) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/branding`,
+      'business_organization_branding_v1',
+    );
   }
 
-  private async requestListWithEmptyFallback(path: string) {
-    try {
-      return await this.request(path);
-    } catch (error) {
-      if (isSupaCloudApiError(error, [404, 501])) return { items: [], total: 0 };
-      throw error;
-    }
+  async updateOrganizationBranding(orgId: string, data: Record<string, unknown>) {
+    return this.requestCapability(`/v1/projects/${this.projectRef}/organizations/${pathSegment(orgId)}/branding`, 'business_organization_branding_v1', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   // ─── RBAC ─────────────────────────────────────────────────────────
@@ -581,8 +809,8 @@ export class SupaCloudAdapter {
     });
   }
 
-  async listRoleAssignments(roleId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/assign`);
+  async listRoleAssignments(roleId: string, params: Record<string, unknown> = {}) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/roles/${pathSegment(roleId)}/assign${queryString(params)}`);
   }
 
   async revokeRole(roleId: string, assignmentId: string) {
@@ -591,27 +819,63 @@ export class SupaCloudAdapter {
     });
   }
 
+  async listApplicationRoleAssignments(applicationId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/rbac/applications/${pathSegment(applicationId)}/roles`);
+  }
+
+  async listApplicationOrganizations(applicationId: string) {
+    return this.listOrganizations({ application_id: applicationId });
+  }
+
   // ─── Audit ────────────────────────────────────────────────────────
 
   async queryAuditLogs(params: Record<string, unknown>) {
-    return this.requestListWithEmptyFallback(`/v1/projects/${this.projectRef}/audit${queryString(params)}`);
+    return this.request(`/v1/projects/${this.projectRef}/audit${queryString(params)}`);
   }
 
   async getAuditLog(logId: string) {
     return this.request(`/v1/projects/${this.projectRef}/audit/${pathSegment(logId)}`);
   }
 
-  async recordAuditEvent(event: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/audit/events`, {
+  async recordAuditEvent(event: SupaCloudAuditEvent) {
+    const actor = auditProofActor(event);
+    const payload = {
+      ...event,
+      actor_id: actor.actorId,
+      actor_type: actor.actorType,
+    };
+    return this.requestWithAuditActor(`/v1/projects/${this.projectRef}/audit/events`, {
       method: 'POST',
-      body: JSON.stringify(event),
+      body: JSON.stringify(payload),
+    }, actor);
+  }
+
+  async exportAuditLogs(params: Record<string, unknown>) {
+    const auditExport = await this.requestCapability(`/v1/projects/${this.projectRef}/audit/exports`, 'audit_export_v1', {
+      method: 'POST',
+      body: JSON.stringify(params),
     });
+    return bffAuditExport(auditExport);
+  }
+
+  async getAuditExport(exportId: string) {
+    const auditExport = await this.request(`/v1/projects/${this.projectRef}/audit/exports/${pathSegment(exportId)}`);
+    return bffAuditExport(auditExport);
+  }
+
+  async downloadAuditExport(exportId: string) {
+    const response = await this.fetchResponse(`/v1/projects/${this.projectRef}/audit/exports/${pathSegment(exportId)}/download`);
+    return auditDownloadResponse(response);
+  }
+
+  async getAuditIntegrity() {
+    return this.requestCapability(`/v1/projects/${this.projectRef}/audit/integrity`, 'audit_integrity_v1');
   }
 
   // ─── Webhooks ─────────────────────────────────────────────────────
 
   async listWebhooks() {
-    return this.requestListWithEmptyFallback(`/v1/projects/${this.projectRef}/webhooks`);
+    return this.request(`/v1/projects/${this.projectRef}/webhooks`);
   }
 
   async createWebhook(data: Record<string, unknown>) {
@@ -645,28 +909,116 @@ export class SupaCloudAdapter {
   }
 
   async listWebhookLogs(webhookId: string, params: Record<string, unknown> = {}) {
-    return this.requestListWithEmptyFallback(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/logs${queryString(params)}`);
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/logs${queryString(params)}`);
   }
 
-  async testWebhook(webhookId: string, data: Record<string, unknown>) {
+  async testWebhook(webhookId: string) {
     return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/test`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: '{}',
     });
   }
 
-  async replayWebhook(webhookId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/replay`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async enqueueWebhookEvent(event: Record<string, unknown>) {
+  async enqueueWebhookEvent(event: ManagedWebhookEvent) {
     return this.request(`/v1/projects/${this.projectRef}/webhooks/events`, {
       method: 'POST',
+      headers: { 'Idempotency-Key': event.id },
       body: JSON.stringify(event),
     });
+  }
+
+  async listWebhookDeliveries(webhookId: string, params: Record<string, unknown> = {}) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/deliveries${queryString(params)}`,
+      'webhook_delivery_v2',
+    );
+  }
+
+  async getWebhookDelivery(webhookId: string, deliveryId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/deliveries/${pathSegment(deliveryId)}`);
+  }
+
+  async replayWebhookDelivery(webhookId: string, deliveryId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/webhooks/${pathSegment(webhookId)}/deliveries/${pathSegment(deliveryId)}/replay`, {
+      method: 'POST',
+    });
+  }
+
+  async listTenantMembers(params: Record<string, unknown> = {}) {
+    return this.requestCapability(`/v1/projects/${this.projectRef}/collaborators${queryString(params)}`, 'tenant_collaborators_v1');
+  }
+
+  async updateTenantMember(memberId: string, data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/collaborators/${pathSegment(memberId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeTenantMember(memberId: string) {
+    return this.request(`/v1/projects/${this.projectRef}/collaborators/${pathSegment(memberId)}`, { method: 'DELETE' });
+  }
+
+  async listTenantInvitations(params: Record<string, unknown> = {}) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/collaborator-invitations${queryString(params)}`,
+      'tenant_collaborators_v1',
+    );
+  }
+
+  async createTenantInvitation(data: Record<string, unknown>) {
+    return this.request(`/v1/projects/${this.projectRef}/collaborator-invitations`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async verifySignupInvitation(data: { invitation_id?: string; invitation_token?: string; email?: string | null }) {
+    return this.request(`/v1/projects/${this.projectRef}/auth/invitations/verify`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAuthHookStatus(hookName: string) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/hooks/${pathSegment(hookName)}/status`,
+      'gotrue_auth_hooks_v1',
+    );
+  }
+
+  async verifyAuthHook(hookName: string) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/hooks/${pathSegment(hookName)}/verify`,
+      'gotrue_auth_hook_synthetic_verify_v1',
+      { method: 'POST', body: '{}' },
+    );
+  }
+
+  async verifyAuthHookMessage(hookName: string, message: {
+    webhook_id: string;
+    webhook_timestamp: string;
+    webhook_signature: string;
+    body_base64: string;
+  }): Promise<{ verified: boolean; consumed: boolean; reason_code: string | null }> {
+    const payload = await this.request(
+      `/v1/projects/${this.projectRef}/auth/hooks/${pathSegment(hookName)}/messages/verify`,
+      { method: 'POST', body: JSON.stringify(message) },
+    );
+    if (
+      !payload
+      || typeof payload !== 'object'
+      || Array.isArray(payload)
+      || typeof (payload as Record<string, unknown>).verified !== 'boolean'
+      || typeof (payload as Record<string, unknown>).consumed !== 'boolean'
+      || (
+        (payload as Record<string, unknown>).reason_code !== null
+        && typeof (payload as Record<string, unknown>).reason_code !== 'string'
+      )
+    ) {
+      throw new Error('SupaCloud auth hook verification response has an invalid shape');
+    }
+    return payload as { verified: boolean; consumed: boolean; reason_code: string | null };
   }
 
   async checkCustomDomain(domain: string) {
@@ -815,6 +1167,24 @@ export function getSupaCloudAdapter(): SupaCloudAdapter {
 /** Create an adapter bound to a specific projectRef (for multi-project safety). */
 export function getSupaCloudAdapterForProject(projectRef: string, options?: Omit<AdapterOptions, 'projectRef'>): SupaCloudAdapter {
   return new SupaCloudAdapter({ ...options, projectRef });
+}
+
+function bffAuditExport(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object') return payload;
+  const record = { ...(payload as Record<string, unknown>) };
+  if (!Object.hasOwn(record, 'download_url')) return record;
+  const exportId = typeof record.id === 'string' ? record.id : null;
+  record.download_url = exportId ? `/v1/audit/export/${pathSegment(exportId)}/download` : null;
+  return record;
+}
+
+function auditDownloadResponse(response: Response): Response {
+  const headers = new Headers();
+  for (const name of ['content-type', 'content-disposition', 'x-content-sha256', 'cache-control']) {
+    const value = response.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return new Response(response.body, { status: response.status, headers });
 }
 
 function trimTrailingSlash(url: string): string {

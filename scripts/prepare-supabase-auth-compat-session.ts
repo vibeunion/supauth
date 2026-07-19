@@ -47,13 +47,25 @@ if (signIn.error || !signIn.data.session) {
   throw new Error(`Supabase Auth compatibility sign-in failed: ${signIn.error?.message || 'missing session'}`);
 }
 
-const approvalResponse = await fetch(
-  `${authorizationPageUrl.origin}/v1/public/oauth/authorizations/${encodeURIComponent(authorizationId)}/approve`,
-  { method: 'POST', headers: { authorization: `Bearer ${signIn.data.session.access_token}` } },
-);
-const approval = await approvalResponse.json().catch(() => null) as { redirect_url?: string; error?: string } | null;
+const consentUrl = `${authorizationPageUrl.origin}/v1/public/oauth/authorizations/${encodeURIComponent(authorizationId)}`;
+const userAuthorization = { authorization: `Bearer ${signIn.data.session.access_token}` };
+const detailsResponse = await fetch(consentUrl, { headers: userAuthorization });
+const details = await detailsResponse.json().catch(() => null) as OAuthErrorPayload | null;
+if (!detailsResponse.ok) {
+  throw new Error(`OAuth authorization details failed with status ${detailsResponse.status}: ${oauthError(details, 'invalid response')}`);
+}
+const approvalResponse = details?.redirect_url
+  ? detailsResponse
+  : await fetch(`${consentUrl}/consent`, {
+    method: 'POST',
+    headers: { ...userAuthorization, 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'approve' }),
+  });
+const approval = details?.redirect_url
+  ? details
+  : await approvalResponse.json().catch(() => null) as OAuthErrorPayload | null;
 if (!approvalResponse.ok || !approval?.redirect_url) {
-  throw new Error(`OAuth authorization approval failed with status ${approvalResponse.status}: ${approval?.error || 'missing redirect URL'}`);
+  throw new Error(`OAuth authorization approval failed with status ${approvalResponse.status}: ${oauthError(approval, 'missing redirect URL')}`);
 }
 
 const callbackUrl = new URL(approval.redirect_url);
@@ -126,6 +138,17 @@ function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
+}
+
+interface OAuthErrorPayload {
+  redirect_url?: string;
+  error?: string;
+  error_description?: string;
+  message?: string;
+}
+
+function oauthError(payload: OAuthErrorPayload | null, fallback: string): string {
+  return payload?.error_description || payload?.message || payload?.error || fallback;
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> {

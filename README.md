@@ -150,6 +150,9 @@ PORT=4010
 HOST=0.0.0.0
 SUPACLOUD_INTERNAL_API_URL=<injected-by-supacloud>
 SUPACLOUD_INTERNAL_TOKEN=<injected-by-supacloud-never-expose-to-browser>
+# Independent 32+ character secret; the Management API and Function must use the same value.
+# Never expose it to the browser or reuse SUPACLOUD_INTERNAL_TOKEN.
+SUPAOAUTH_BFF_SIGNING_SECRET=<injected-by-supacloud-secret>
 SUPACLOUD_PROJECT_REF=<injected-by-supacloud>
 SUPACLOUD_RUNTIME_URL=<injected-by-supacloud>
 SUPAUTH_PUBLIC_URL=https://auth.your-domain.com
@@ -339,6 +342,9 @@ PORT=4010
 HOST=0.0.0.0
 SUPACLOUD_INTERNAL_API_URL=<由-supacloud-注入>
 SUPACLOUD_INTERNAL_TOKEN=<由-supacloud-注入-绝不暴露到浏览器>
+# 与 SupaCloud Management API 共用的独立 32+ 字符 secret；只在服务端保存。
+# 不得复用 SUPACLOUD_INTERNAL_TOKEN 或加密密钥，也不得暴露给浏览器。
+SUPAOAUTH_BFF_SIGNING_SECRET=<由-supacloud-注入-secret>
 SUPACLOUD_PROJECT_REF=<由-supacloud-注入>
 SUPACLOUD_RUNTIME_URL=<由-supacloud-注入>
 SUPAUTH_PUBLIC_URL=https://auth.your-domain.com

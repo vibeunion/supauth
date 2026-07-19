@@ -6,10 +6,10 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
 import * as provRepo from '../repositories/provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
-import { MIGRATION_SQL, PROJECT_ROLE_GRANTS_SQL } from '../db/migrate.js';
+import { HOSTED_MIGRATIONS } from '../db/migrate.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
-  try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
+  await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
 /** Validate that a projectRef looks like a valid SupaCloud project ref. */
@@ -57,8 +57,9 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
 
     // Step 1: DB migration
     try {
-      await adapter.runDatabaseMigration('supauth-overlay-schema', MIGRATION_SQL);
-      await adapter.runDatabaseMigration('supauth-overlay-project-role-grants', PROJECT_ROLE_GRANTS_SQL);
+      for (const migration of HOSTED_MIGRATIONS) {
+        await adapter.runDatabaseMigration(migration.name, migration.sql);
+      }
       await provRepo.recordStep(projectRef, { step: 'db_migration', status: 'completed' });
       results.push({ step: 'db_migration', status: 'completed', details: { mode: 'supacloud-management-api' } });
     } catch (e) {

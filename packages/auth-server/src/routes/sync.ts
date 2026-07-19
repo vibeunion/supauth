@@ -1,26 +1,20 @@
-// Metadata sync routes with OpenAPI annotations
-
 import { Elysia } from 'elysia';
-import { syncUserMetadata, syncOrgMetadata } from '../sync/index.js';
+import { capabilityUnavailable } from '../utils/api-contract.js';
 
 export const syncRoutes = new Elysia({ prefix: '/v1/sync' })
-  .post('/user/:userId', async ({ params, query }) => {
-    const orgId = query.org_id as string | undefined;
-    return syncUserMetadata(params.userId, orgId);
+  .post('/user/:userId', () => {
+    throw capabilityUnavailable(
+      'supacloud_rbac_metadata_sync',
+      'RBAC metadata is synchronized by the authoritative SupaCloud control plane',
+    );
   }, {
-    detail: {
-      summary: 'Sync user metadata to GoTrue app_metadata',
-      description: 'Pushes SupaOAuth roles/permissions/orgs into GoTrue app_metadata.supaoauth namespace',
-      tags: ['Sync'],
-    },
+    detail: { hide: true },
   })
-  .post('/org/:orgId', async ({ params }) => {
-    const results = await syncOrgMetadata(params.orgId);
-    return { results, total: results.length, failed: results.filter(r => !r.success).length };
+  .post('/org/:orgId', () => {
+    throw capabilityUnavailable(
+      'supacloud_rbac_metadata_sync',
+      'RBAC metadata is synchronized by the authoritative SupaCloud control plane',
+    );
   }, {
-    detail: {
-      summary: 'Sync organization member metadata to GoTrue',
-      description: 'Pushes all org member metadata to their respective GoTrue app_metadata',
-      tags: ['Sync'],
-    },
+    detail: { hide: true },
   });

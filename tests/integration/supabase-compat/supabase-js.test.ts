@@ -30,6 +30,7 @@ const MANAGEMENT_URL = trimTrailingSlash(process.env.MANAGEMENT_URL || `http://l
 const STRICT_COMPAT = process.env.REQUIRE_SUPABASE_AUTH_COMPAT === '1';
 const RUN_LIVE = STRICT_COMPAT || process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1' || process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const TEST_EMAIL = process.env.SUPABASE_TEST_EMAIL || '';
 const TEST_PASSWORD = process.env.SUPABASE_TEST_PASSWORD || '';
 
@@ -52,6 +53,7 @@ if (STRICT_COMPAT) {
     'OAUTH_RUNTIME_URL',
     'MANAGEMENT_URL',
     'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
     'SUPABASE_TEST_EMAIL',
     'SUPABASE_TEST_PASSWORD',
   ]);
@@ -92,8 +94,7 @@ describe('Supabase runtime compatibility', () => {
     expect(res.ok).toBe(true);
 
     const body = await res.json();
-    expect(body.runtime_mode).toBeDefined();
-    expect(['gotrue', 'external_oidc']).toContain(body.runtime_mode);
+    expect(body.runtime_mode).toBe('gotrue');
   });
 
   supabaseJsIt('supabase-js can initialize and read current session', async () => {
@@ -152,6 +153,81 @@ describe('Supabase runtime compatibility', () => {
     }
   });
 
+  authIt('supabase-js completes TOTP and verifies the v2.193 admin factor downgrade', async () => {
+    const client = supabaseClient();
+    const gotrueVersion = await readGotrueVersion();
+    const signIn = await client.auth.signInWithPassword({ email: TEST_EMAIL, password: TEST_PASSWORD });
+    expect(signIn.error).toBeNull();
+    expect(signIn.data.session?.access_token).toBeDefined();
+    expect(signIn.data.user?.id).toBeDefined();
+
+    let factorId: string | null = null;
+    let factorRemoved = false;
+    try {
+      const enrollment = await client.auth.mfa.enroll({
+        factorType: 'totp',
+        friendlyName: `supaoauth-compat-${Date.now()}`,
+        issuer: 'SupaOAuth compatibility',
+      });
+      expect(enrollment.error).toBeNull();
+      expect(enrollment.data?.type).toBe('totp');
+      factorId = enrollment.data?.id || null;
+      const secret = enrollment.data?.totp.secret;
+      expect(factorId).toBeTruthy();
+      expect(secret).toBeTruthy();
+
+      const challenge = await client.auth.mfa.challenge({ factorId: factorId as string });
+      expect(challenge.error).toBeNull();
+      expect(challenge.data?.id).toBeTruthy();
+
+      const verification = await client.auth.mfa.verify({
+        factorId: factorId as string,
+        challengeId: challenge.data?.id as string,
+        code: await generateTotpCode(secret as string),
+      });
+      expect(verification.error).toBeNull();
+      expect(verification.data?.access_token).toBeDefined();
+      const verifiedPayload = decodeJwtPayload(verification.data?.access_token || '');
+      expect(verifiedPayload.aal).toBe('aal2');
+      expect(amrMethods(verifiedPayload)).toContain('totp');
+      expect(amrEntries(verifiedPayload).every((entry) => !('factor_type' in entry))).toBe(true);
+
+      const assurance = await client.auth.mfa.getAuthenticatorAssuranceLevel();
+      expect(assurance.error).toBeNull();
+      expect(assurance.data?.currentLevel).toBe('aal2');
+
+      if (versionAtLeast(gotrueVersion, [2, 193, 0])) {
+        const adminClient = createClient(RUNTIME_URL, SUPABASE_SERVICE_ROLE_KEY, {
+          auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+        });
+        const deletion = await adminClient.auth.admin.mfa.deleteFactor({
+          userId: signIn.data.user?.id as string,
+          id: factorId as string,
+        });
+        expect(deletion.error).toBeNull();
+        factorRemoved = true;
+
+        const downgraded = await client.auth.refreshSession();
+        expect(downgraded.error).toBeNull();
+        const downgradedPayload = decodeJwtPayload(downgraded.data.session?.access_token || '');
+        expect(downgradedPayload.aal).toBe('aal1');
+        expect(amrMethods(downgradedPayload)).not.toContain('totp');
+        expect(amrEntries(downgradedPayload).every((entry) => !('factor_type' in entry))).toBe(true);
+      } else {
+        const unenroll = await client.auth.mfa.unenroll({ factorId: factorId as string });
+        expect(unenroll.error).toBeNull();
+        factorRemoved = true;
+      }
+    } finally {
+      if (factorId && !factorRemoved) {
+        const cleanup = await client.auth.mfa.unenroll({ factorId });
+        expect(cleanup.error).toBeNull();
+      }
+      const signOut = await client.auth.signOut({ scope: 'local' });
+      expect(signOut.error).toBeNull();
+    }
+  });
+
   it('GoTrue JWT required claims are defined in compatibility spec', () => {
     const expectedClaims = [
       'iss',
@@ -182,6 +258,37 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   return JSON.parse(atob(padded)) as Record<string, unknown>;
 }
 
+function amrEntries(payload: Record<string, unknown>): Array<Record<string, unknown>> {
+  if (!Array.isArray(payload.amr)) return [];
+  return payload.amr.filter((entry): entry is Record<string, unknown> => (
+    typeof entry === 'object' && entry !== null
+  ));
+}
+
+function amrMethods(payload: Record<string, unknown>): string[] {
+  return amrEntries(payload)
+    .map((entry) => entry.method)
+    .filter((method): method is string => typeof method === 'string');
+}
+
+async function readGotrueVersion(): Promise<string> {
+  const response = await fetch(`${RUNTIME_URL}/auth/v1/health`);
+  if (!response.ok) throw new Error(`Unable to read GoTrue version: HTTP ${response.status}`);
+  const body = await response.json() as { version?: unknown };
+  if (typeof body.version !== 'string') throw new Error('GoTrue health response is missing version');
+  return body.version;
+}
+
+function versionAtLeast(version: string, minimum: readonly [number, number, number]): boolean {
+  const match = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) throw new Error(`Invalid GoTrue version: ${version}`);
+  const actual = match.slice(1, 4).map(Number);
+  for (let index = 0; index < minimum.length; index += 1) {
+    if (actual[index] !== minimum[index]) return actual[index] > minimum[index];
+  }
+  return true;
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
@@ -191,4 +298,43 @@ function assertRequiredEnv(names: string[]) {
   if (missing.length > 0) {
     throw new Error(`Missing required Supabase Auth compatibility env: ${missing.join(', ')}`);
   }
+}
+
+async function generateTotpCode(secret: string, now = Date.now()): Promise<string> {
+  const counter = Math.floor((now - 5_000) / 30_000);
+  const counterBytes = new ArrayBuffer(8);
+  new DataView(counterBytes).setBigUint64(0, BigInt(counter));
+  const key = await crypto.subtle.importKey(
+    'raw',
+    decodeBase32(secret),
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign'],
+  );
+  const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, counterBytes));
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binaryCode = ((digest[offset] & 0x7f) << 24)
+    | (digest[offset + 1] << 16)
+    | (digest[offset + 2] << 8)
+    | digest[offset + 3];
+  return String(binaryCode % 1_000_000).padStart(6, '0');
+}
+
+function decodeBase32(value: string): Uint8Array<ArrayBuffer> {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const normalized = value.toUpperCase().replaceAll('=', '').replaceAll(/\s+/g, '');
+  const bytes: number[] = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const character of normalized) {
+    const digit = alphabet.indexOf(character);
+    if (digit < 0) throw new Error('GoTrue returned an invalid TOTP secret');
+    buffer = (buffer << 5) | digit;
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
+    }
+  }
+  return new Uint8Array(bytes);
 }

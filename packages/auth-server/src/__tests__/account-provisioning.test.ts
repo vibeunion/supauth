@@ -313,7 +313,7 @@ describe('account provisioning and claiming', () => {
     expect(password).toBeUndefined();
   });
 
-  test('existing user updates can reset the password while preserving metadata', () => {
+  test('existing user updates preserve profile metadata without rewriting authorization metadata', () => {
     const payload = mergeUserPayload({
       email: 'old@example.com',
       user_metadata: { locale: 'zh-CN' },
@@ -337,14 +337,6 @@ describe('account provisioning and claiming', () => {
       full_name: '张三',
       department: 'Engineering',
     });
-    expect(payload.app_metadata).toMatchObject({
-      role: 'authenticated',
-      supaoauth: {
-        existing: true,
-        employee_id: '10086',
-        external_id: '10086',
-        external_type: 'employee',
-      },
-    });
+    expect(payload).not.toHaveProperty('app_metadata');
   });
 });

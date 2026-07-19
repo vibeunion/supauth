@@ -35,15 +35,13 @@ export interface EmployeeStatusSyncResult {
 const ACTIVE_STATUSES = new Set(['active', '正常']);
 
 async function audit(eventType: string, resourceId: string, details?: Record<string, unknown>) {
-  try {
-    await auditRepo.logAudit({
-      eventType,
-      actorType: 'system',
-      resourceType: 'account_provisioning_record',
-      resourceId,
-      details,
-    });
-  } catch {}
+  await auditRepo.logAudit({
+    eventType,
+    actorType: 'system',
+    resourceType: 'account_provisioning_record',
+    resourceId,
+    details,
+  });
 }
 
 /**
