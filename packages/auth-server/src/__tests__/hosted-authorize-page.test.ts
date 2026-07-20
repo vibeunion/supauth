@@ -25,6 +25,14 @@ describe('hostedPageRoutes', () => {
     expect(fromDist.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
     expect(fromDist.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
     expect(fromDist.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
+
+    const fromActiveVersion = resolveHostedPagePaths(
+      '/opt/supacloud/functions/supauth/.versions/version-123',
+      '/opt/supacloud/functions/supauth',
+    );
+    expect(fromActiveVersion.adminConsoleBuildDirs).toContain(
+      '/opt/supacloud/functions/supauth/.versions/version-123/src/admin-console/build',
+    );
   });
 
   test('Admin Console SPA routes fall back to index.html for client routes', () => {
@@ -41,6 +49,22 @@ describe('hostedPageRoutes', () => {
       '/opt/supauth/packages/admin-console/build/_app/immutable/missing.js',
       '/opt/supauth/packages/admin-console/build/_app/immutable/missing.js.html',
       '/opt/supauth/packages/admin-console/build/_app/immutable/missing.js/index.html',
+    ]);
+  });
+
+  test('versioned Function Admin assets preserve deep-link fallback and exact static paths', () => {
+    const versionedBuild = '/opt/supacloud/functions/supauth/.versions/version-123/src/admin-console/build';
+
+    expect(adminConsoleSpaCandidates([versionedBuild], 'security/password')).toEqual([
+      `${versionedBuild}/security/password`,
+      `${versionedBuild}/security/password.html`,
+      `${versionedBuild}/security/password/index.html`,
+      `${versionedBuild}/index.html`,
+    ]);
+    expect(adminConsoleSpaCandidates([versionedBuild], '_app/immutable/admin.js')).toEqual([
+      `${versionedBuild}/_app/immutable/admin.js`,
+      `${versionedBuild}/_app/immutable/admin.js.html`,
+      `${versionedBuild}/_app/immutable/admin.js/index.html`,
     ]);
   });
 

@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSupacloudAppManifest } from '../scripts/supacloud-app-contract.js';
 import { installSupacloudApp } from '../scripts/install-supacloud-app.js';
+
+const REQUIRED_ADMIN_PAGES = ['index.html', 'authorize.html', 'claim.html', 'change-password.html', 'account.html'];
+
+function writeAdminPages(directory: string) {
+  mkdirSync(directory, { recursive: true });
+  for (const page of REQUIRED_ADMIN_PAGES) writeFileSync(join(directory, page), '<!doctype html>');
+}
 
 function createFixture() {
   const root = mkdtempSync(join(tmpdir(), 'supauth-installer-'));
@@ -13,15 +20,13 @@ function createFixture() {
   const openapiPath = 'artifact/openapi.json';
 
   mkdirSync(join(root, 'function'), { recursive: true });
-  mkdirSync(join(root, adminDir), { recursive: true });
+  writeAdminPages(join(root, adminDir));
+  mkdirSync(join(root, adminDir, '_app', 'immutable'), { recursive: true });
   mkdirSync(join(root, artifactDir), { recursive: true });
 
   writeFileSync(join(root, functionBundle), 'export default { fetch() { return new Response("ok"); } };');
-  writeFileSync(join(root, adminDir, 'index.html'), '<!doctype html>');
-  writeFileSync(join(root, adminDir, 'authorize.html'), '<!doctype html>');
-  writeFileSync(join(root, adminDir, 'claim.html'), '<!doctype html>');
-  writeFileSync(join(root, adminDir, 'change-password.html'), '<!doctype html>');
-  writeFileSync(join(root, adminDir, 'account.html'), '<!doctype html>');
+  writeFileSync(join(root, adminDir, '_app', 'immutable', 'admin.css'), 'body { color: #111; }');
+  writeFileSync(join(root, adminDir, '_app', 'immutable', 'admin.js'), 'export const admin = true;');
   writeFileSync(join(root, openapiPath), JSON.stringify({ openapi: '3.0.3', paths: {} }));
 
   const manifest = createSupacloudAppManifest({
@@ -41,6 +46,10 @@ const requiredOptions = {
   bffSigningSecret: 'installer-bff-signing-secret-0123456789abcdef',
   runtimeUrl: 'https://project.example.test',
   databaseUrl: 'postgres://secret-db',
+  adminSsoIssuer: 'https://auth.example.test/auth/v1',
+  adminSsoClientId: 'admin-client',
+  adminSsoAllowedDomains: 'example.test',
+  adminSsoAllowlistVerifier: async () => ({ emailCount: 0, domainCount: 0 }),
 };
 
 const isolatedEnvKeys = [
@@ -57,6 +66,14 @@ const isolatedEnvKeys = [
   'SUPABASE_DB_URL',
   'SUPAOAUTH_BFF_SIGNING_SECRET',
   'RUNTIME_MODE',
+  'ADMIN_SSO_ISSUER',
+  'ADMIN_SSO_CLIENT_ID',
+  'ADMIN_SSO_JWKS_URI',
+  'ADMIN_SSO_AUDIENCE',
+  'ADMIN_SSO_REDIRECT_URI',
+  'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+  'ADMIN_SSO_ALLOWED_EMAILS',
+  'ADMIN_SSO_ALLOWED_DOMAINS',
 ] as const;
 
 let isolatedEnv: Partial<Record<(typeof isolatedEnvKeys)[number], string>>;
@@ -97,12 +114,17 @@ describe('SupaCloud app installer', () => {
 
   it('keeps migration as an explicit install step in dry-run mode', async () => {
     const { root, artifactDir } = createFixture();
+    let allowlistDatabaseRead = false;
 
     const result = await installSupacloudApp({
       root,
       artifactDir,
       ...requiredOptions,
       dryRun: true,
+      adminSsoAllowlistVerifier: async () => {
+        allowlistDatabaseRead = true;
+        return { emailCount: 0, domainCount: 0 };
+      },
     });
 
     expect(result.ok).toBe(true);
@@ -110,11 +132,132 @@ describe('SupaCloud app installer', () => {
       expect.objectContaining({ name: 'artifact-verification', status: 'done' }),
       expect.objectContaining({ name: 'migration', status: 'planned' }),
       expect.objectContaining({ name: 'migration-verification', status: 'planned' }),
+      expect.objectContaining({ name: 'admin-sso-allowlist-verification', status: 'planned' }),
       expect.objectContaining({ name: 'runtime-env', status: 'planned' }),
       expect.objectContaining({ name: 'function-deploy', status: 'planned' }),
       expect.objectContaining({ name: 'gateway-routes', status: 'skipped' }),
       expect.objectContaining({ name: 'direct-function-probe', status: 'planned' }),
     ]);
+    expect(allowlistDatabaseRead).toBe(false);
+  });
+
+  it('requires explicit Admin SSO issuer and client id in dry-run mode', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoIssuer: undefined,
+      dryRun: true,
+    })).rejects.toThrow('ADMIN_SSO_ISSUER');
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoClientId: undefined,
+      dryRun: true,
+    })).rejects.toThrow('ADMIN_SSO_CLIENT_ID');
+  });
+
+  it('requires HTTPS for a production Admin SSO issuer', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoIssuer: 'http://auth.example.test/auth/v1',
+    })).rejects.toThrow('HTTPS for production installation');
+  });
+
+  it('uses CLI options over env-file and process env values for Admin SSO metadata', async () => {
+    const { root, artifactDir } = createFixture();
+    const envFile = join(root, 'admin-sso.env');
+    writeFileSync(envFile, [
+      'ADMIN_SSO_ISSUER=https://issuer.from-file.test',
+      'ADMIN_SSO_CLIENT_ID=file-client',
+      'ADMIN_SSO_JWKS_URI=https://issuer.from-file.test/keys',
+      'ADMIN_SSO_AUDIENCE=file-audience',
+      'ADMIN_SSO_REDIRECT_URI=https://issuer.from-file.test/admin',
+      'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI=https://issuer.from-file.test/admin/login',
+      'ADMIN_SSO_ALLOWED_EMAILS=file@example.test',
+      'ADMIN_SSO_ALLOWED_DOMAINS=file.example.test',
+    ].join('\n'));
+    process.env.ADMIN_SSO_ISSUER = 'https://issuer.from-process.test';
+    process.env.ADMIN_SSO_CLIENT_ID = 'process-client';
+
+    const seenSecrets: Array<{ name: string; value: string }> = [];
+    await installSupacloudApp({
+      root,
+      artifactDir,
+      envFile,
+      ...requiredOptions,
+      adminSsoIssuer: 'https://issuer.from-cli.test',
+      adminSsoClientId: 'cli-client',
+      adminSsoAllowedEmails: 'cli@example.test',
+      adminSsoAllowedDomains: undefined,
+      skipMigration: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        if (new URL(String(input)).pathname.endsWith('/secrets')) {
+          seenSecrets.push(...JSON.parse(String(init?.body)));
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    expect(seenSecrets.filter(({ name }) => name.startsWith('ADMIN_SSO_'))).toEqual([
+      { name: 'ADMIN_SSO_ISSUER', value: 'https://issuer.from-cli.test' },
+      { name: 'ADMIN_SSO_CLIENT_ID', value: 'cli-client' },
+      { name: 'ADMIN_SSO_JWKS_URI', value: 'https://issuer.from-file.test/keys' },
+      { name: 'ADMIN_SSO_AUDIENCE', value: 'file-audience' },
+      { name: 'ADMIN_SSO_REDIRECT_URI', value: 'https://issuer.from-file.test/admin' },
+      { name: 'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI', value: 'https://issuer.from-file.test/admin/login' },
+      { name: 'ADMIN_SSO_ALLOWED_EMAILS', value: 'cli@example.test' },
+      { name: 'ADMIN_SSO_ALLOWED_DOMAINS', value: 'file.example.test' },
+    ]);
+  });
+
+  it('accepts a non-empty database allowlist when environment fallback is empty', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoAllowedEmails: '',
+      adminSsoAllowedDomains: '',
+      adminSsoAllowlistVerifier: async () => ({ emailCount: 1, domainCount: 0 }),
+      skipMigration: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async () => new Response('{}', { status: 200 }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.steps).toContainEqual(expect.objectContaining({
+      name: 'admin-sso-allowlist-verification',
+      status: 'done',
+    }));
+  });
+
+  it('fails closed when both database and environment allowlists are empty', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoAllowedEmails: '',
+      adminSsoAllowedDomains: '',
+      adminSsoAllowlistVerifier: async () => ({ emailCount: 0, domainCount: 0 }),
+      skipMigration: true,
+      fetchImpl: async () => new Response('{}', { status: 200 }),
+    })).rejects.toThrow('non-empty database or explicit environment allowlist');
   });
 
   it('runs SupaCloud hosted migration before secrets and function deploy', async () => {
@@ -142,6 +285,10 @@ describe('SupaCloud app installer', () => {
           unsafePolicies: [],
         };
       },
+      adminSsoAllowlistVerifier: async (databaseUrl) => {
+        calls.push(`VERIFY_ADMIN_SSO ${databaseUrl}`);
+        return { emailCount: 0, domainCount: 0 };
+      },
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
         calls.push(`${init?.method || 'GET'} ${url.pathname}`);
@@ -162,8 +309,28 @@ describe('SupaCloud app installer', () => {
           expect(body).toContainEqual({ name: 'SUPACLOUD_INTERNAL_API_URL', value: requiredOptions.supacloudApiUrl });
           expect(body).toContainEqual({ name: 'SUPACLOUD_INTERNAL_TOKEN', value: requiredOptions.token });
           expect(body).toContainEqual({ name: 'SUPAOAUTH_BFF_SIGNING_SECRET', value: requiredOptions.bffSigningSecret });
+          expect(body).toContainEqual({ name: 'ADMIN_SSO_ISSUER', value: requiredOptions.adminSsoIssuer });
+          expect(body).toContainEqual({ name: 'ADMIN_SSO_CLIENT_ID', value: requiredOptions.adminSsoClientId });
+          expect(body).toContainEqual({ name: 'ADMIN_SSO_ALLOWED_DOMAINS', value: requiredOptions.adminSsoAllowedDomains });
+          expect(body.some((entry: { name: string }) => entry.name === 'ADMIN_SSO_JWKS_URI')).toBe(false);
           expect(body.some((entry: { name: string }) => entry.name.startsWith('EDGEFN_'))).toBe(false);
           return new Response('{}', { status: 200 });
+        }
+
+        if (url.pathname === '/v1/projects/project_123/functions/supauth/bundle') {
+          const body = JSON.parse(String(init?.body));
+          expect(body.entrypoint).toBe('index.ts');
+          expect(Object.keys(body.files)).toEqual([
+            'index.ts',
+            'admin-console/build/_app/immutable/admin.css',
+            'admin-console/build/_app/immutable/admin.js',
+            'admin-console/build/account.html',
+            'admin-console/build/authorize.html',
+            'admin-console/build/change-password.html',
+            'admin-console/build/claim.html',
+            'admin-console/build/index.html',
+          ]);
+          expect(body.files['admin-console/build/_app/immutable/admin.js']).toBe('export const admin = true;');
         }
 
         return new Response('{}', { status: 200 });
@@ -173,6 +340,7 @@ describe('SupaCloud app installer', () => {
     expect(result.ok).toBe(true);
     expect(calls[0]).toBe('POST /v1/projects/project_123/database/sql');
     expect(calls).toContain(`VERIFY ${requiredOptions.databaseUrl}`);
+    expect(calls).toContain(`VERIFY_ADMIN_SSO ${requiredOptions.databaseUrl}`);
     expect(calls).toContain('POST /v1/projects/project_123/secrets');
     expect(calls.slice(-3)).toEqual([
       'POST /v1/projects/project_123/functions/supauth/bundle',
@@ -183,16 +351,116 @@ describe('SupaCloud app installer', () => {
       calls.indexOf(`VERIFY ${requiredOptions.databaseUrl}`),
     );
     expect(calls.indexOf(`VERIFY ${requiredOptions.databaseUrl}`)).toBeLessThan(
+      calls.indexOf(`VERIFY_ADMIN_SSO ${requiredOptions.databaseUrl}`),
+    );
+    expect(calls.indexOf(`VERIFY_ADMIN_SSO ${requiredOptions.databaseUrl}`)).toBeLessThan(
       calls.indexOf('POST /v1/projects/project_123/secrets'),
     );
     expect(calls).toEqual(expect.arrayContaining([
       'POST /v1/projects/project_123/database/sql',
       `VERIFY ${requiredOptions.databaseUrl}`,
+      `VERIFY_ADMIN_SSO ${requiredOptions.databaseUrl}`,
       'POST /v1/projects/project_123/secrets',
       'POST /v1/projects/project_123/functions/supauth/bundle',
       'PATCH /v1/projects/project_123/functions/supauth/config',
       'GET /functions/v1/supauth/api/v1/health',
     ]));
+  });
+
+  it('rejects symlinks in the Admin static deployment tree before install requests', async () => {
+    const { root, artifactDir } = createFixture();
+    symlinkSync('index.html', join(root, 'admin-build', 'linked-index.html'));
+    let requested = false;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      dryRun: true,
+      fetchImpl: async () => {
+        requested = true;
+        return new Response('{}');
+      },
+    })).rejects.toThrow('must not contain symlinks');
+    expect(requested).toBe(false);
+  });
+
+  it('rejects binary files in the Admin static deployment tree', async () => {
+    const { root, artifactDir } = createFixture();
+    writeFileSync(join(root, 'admin-build', 'binary.dat'), Buffer.from([0x89, 0x50, 0x00, 0x47]));
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      dryRun: true,
+    })).rejects.toThrow('Admin static artifact is binary: binary.dat');
+  });
+
+  it('rejects an Admin static path whose ancestor symlink escapes the real repository root', async () => {
+    const { root, artifactDir } = createFixture();
+    const outsideRoot = mkdtempSync(join(tmpdir(), 'supauth-linked-admin-'));
+    writeAdminPages(join(outsideRoot, 'admin'));
+    symlinkSync(outsideRoot, join(root, 'linked-static-root'), 'dir');
+    const manifestPath = join(root, artifactDir, 'supacloud-app-manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.artifacts.admin_static_dir = 'linked-static-root/admin';
+    manifest.pages[0].source_dir = 'linked-static-root/admin';
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      dryRun: true,
+    })).rejects.toThrow('Manifest artifact resolves outside the repository root: admin_static_dir');
+  });
+
+  it('rejects a symlink Function bundle even when its target stays inside the repository', async () => {
+    const { root, artifactDir } = createFixture();
+    const functionBundle = join(root, 'function', 'supacloud-function.js');
+    writeFileSync(join(root, 'function', 'real-function.js'), 'export default { fetch() {} };');
+    unlinkSync(functionBundle);
+    symlinkSync('real-function.js', functionBundle);
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      dryRun: true,
+    })).rejects.toThrow('function_bundle must be a regular file and must not be a symlink');
+  });
+
+  it('rejects a non-regular Function bundle before the offline verifier reads it', async () => {
+    const { root, artifactDir } = createFixture();
+    const functionBundle = join(root, 'function', 'supacloud-function.js');
+    unlinkSync(functionBundle);
+    mkdirSync(functionBundle);
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      dryRun: true,
+    })).rejects.toThrow('function_bundle must be a regular file and must not be a symlink');
+  });
+
+  it('rejects an Admin static artifact outside the repository root', async () => {
+    const { root, artifactDir } = createFixture();
+    const outsideAdminDir = mkdtempSync(join(tmpdir(), 'supauth-outside-admin-'));
+    writeAdminPages(outsideAdminDir);
+    const manifestPath = join(root, artifactDir, 'supacloud-app-manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.artifacts.admin_static_dir = outsideAdminDir;
+    manifest.pages[0].source_dir = outsideAdminDir;
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      dryRun: true,
+    })).rejects.toThrow('Manifest artifact escapes the repository root: admin_static_dir');
   });
 
   it('applies every versioned hosted migration through the Management API', async () => {
@@ -300,6 +568,9 @@ describe('SupaCloud app installer', () => {
       'SUPAUTH_PUBLIC_URL=https://auth.from-file.test',
       'SUPAUTH_API_URL=https://auth-api.from-file.test',
       'CORS_ORIGINS=https://www.from-file.test',
+      'ADMIN_SSO_ISSUER=https://issuer.from-file.test/auth/v1',
+      'ADMIN_SSO_CLIENT_ID=file-client',
+      'ADMIN_SSO_ALLOWED_DOMAINS=file.example.test',
     ].join('\n'));
 
     const previousDatabaseUrl = process.env.DATABASE_URL;
@@ -314,6 +585,7 @@ describe('SupaCloud app installer', () => {
         skipMigration: true,
         skipFunctionDeploy: true,
         skipDirectVerify: true,
+        adminSsoAllowlistVerifier: async () => ({ emailCount: 0, domainCount: 0 }),
         fetchImpl: async (input, init) => {
           const url = new URL(String(input));
           if (url.pathname === '/v1/projects/project_from_file/secrets') {
@@ -396,6 +668,18 @@ describe('SupaCloud app installer', () => {
 
     const installerSource = readFileSync('scripts/install-supacloud-app.ts', 'utf8');
     expect(installerSource).toContain("bffSigningSecret: option('bff-signing-secret')");
+    for (const cliOption of [
+      'admin-sso-issuer',
+      'admin-sso-client-id',
+      'admin-sso-jwks-uri',
+      'admin-sso-audience',
+      'admin-sso-redirect-uri',
+      'admin-sso-post-logout-redirect-uri',
+      'admin-sso-allowed-emails',
+      'admin-sso-allowed-domains',
+    ]) {
+      expect(installerSource).toContain(`option('${cliOption}')`);
+    }
     expect(installerSource).not.toContain('randomBytes');
   });
 
@@ -411,7 +695,10 @@ describe('SupaCloud app installer', () => {
         skipMigration: true,
         skipFunctionDeploy: true,
         skipDirectVerify: true,
-        fetchImpl: async () => new Response(`rejected ${requiredOptions.bffSigningSecret}`, { status: 500 }),
+        fetchImpl: async () => new Response(
+          `rejected ${requiredOptions.bffSigningSecret} ${requiredOptions.adminSsoAllowedDomains}`,
+          { status: 500 },
+        ),
       });
     } catch (error) {
       failureMessage = error instanceof Error ? error.message : String(error);
@@ -419,6 +706,60 @@ describe('SupaCloud app installer', () => {
 
     expect(failureMessage).toContain('[REDACTED]');
     expect(failureMessage).not.toContain(requiredOptions.bffSigningSecret);
+    expect(failureMessage).not.toContain(requiredOptions.adminSsoAllowedDomains);
+  });
+
+  it('redacts individual trimmed Admin allowlist entries from partial upstream echoes', async () => {
+    const { root, artifactDir } = createFixture();
+    const echoedEmail = 'second@example.test';
+    const echoedDomain = 'tenant.example.test';
+    let failureMessage = '';
+
+    try {
+      await installSupacloudApp({
+        root,
+        artifactDir,
+        ...requiredOptions,
+        adminSsoAllowedEmails: ` first@example.test , ${echoedEmail} `,
+        adminSsoAllowedDomains: ` ${echoedDomain}, other.example.test `,
+        skipMigration: true,
+        skipFunctionDeploy: true,
+        skipDirectVerify: true,
+        fetchImpl: async () => new Response(`rejected ${echoedEmail} and ${echoedDomain}`, { status: 500 }),
+      });
+    } catch (error) {
+      failureMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(failureMessage).toContain('rejected [REDACTED] and [REDACTED]');
+    expect(failureMessage).not.toContain(echoedEmail);
+    expect(failureMessage).not.toContain(echoedDomain);
+  });
+
+  it('redacts a full email before its shorter domain fragment', async () => {
+    const { root, artifactDir } = createFixture();
+    const echoedEmail = 'alice@example.test';
+    let failureMessage = '';
+
+    try {
+      await installSupacloudApp({
+        root,
+        artifactDir,
+        ...requiredOptions,
+        adminSsoAllowedEmails: `example.test,${echoedEmail}`,
+        skipMigration: true,
+        skipFunctionDeploy: true,
+        skipDirectVerify: true,
+        fetchImpl: async () => new Response(`rejected ${echoedEmail}`, { status: 500 }),
+      });
+    } catch (error) {
+      failureMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(failureMessage).toContain('rejected [REDACTED]');
+    expect(failureMessage).not.toContain('alice@');
+    expect(failureMessage).not.toContain('example.test');
+    expect(failureMessage).not.toContain(echoedEmail);
   });
 
   it('configures hosted gateway routes when an admin token and base URL are provided', async () => {

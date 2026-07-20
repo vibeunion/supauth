@@ -101,4 +101,38 @@ describe('SupaCloud app artifact verifier', () => {
     expect(result.ok).toBe(false);
     expect(result.errors).toContain('SUPAOAUTH_BFF_SIGNING_SECRET must be marked secret');
   });
+
+  it('requires exact Admin SSO required, optional, and secret semantics', () => {
+    const { root, manifest } = createFixture();
+    const issuerEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'ADMIN_SSO_ISSUER')!;
+    const allowlistEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'ADMIN_SSO_ALLOWED_EMAILS')!;
+    issuerEnv.optional = true;
+    allowlistEnv.secret = false;
+    manifest.admin_sso.allowlist.install_rule = 'optional';
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('ADMIN_SSO_ISSUER optional flag must be false');
+    expect(result.errors).toContain('ADMIN_SSO_ALLOWED_EMAILS secret flag must be true');
+    expect(result.errors).toContain(
+      'Admin SSO allowlist contract must require a non-empty database or explicit environment source',
+    );
+  });
+
+  it('requires the self-contained multi-file Admin Function deployment layout', () => {
+    const { root, manifest } = createFixture();
+    manifest.functions[0].deployment_bundle.files = [
+      { artifact: 'function_bundle', target: 'index.ts' },
+    ];
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'Function deployment bundle must recursively publish text Admin assets under admin-console/build',
+    );
+  });
 });

@@ -11,6 +11,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
 
+const ADMIN_SSO_REQUIRED_ENV = ['ADMIN_SSO_ISSUER', 'ADMIN_SSO_CLIENT_ID'];
+const ADMIN_SSO_OPTIONAL_ENV = [
+  'ADMIN_SSO_JWKS_URI',
+  'ADMIN_SSO_AUDIENCE',
+  'ADMIN_SSO_REDIRECT_URI',
+  'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+];
+const ADMIN_SSO_ALLOWLIST_ENV = ['ADMIN_SSO_ALLOWED_EMAILS', 'ADMIN_SSO_ALLOWED_DOMAINS'];
+
 const EXPECTED_REQUIRED_ENV = [
   'SUPACLOUD_INTERNAL_API_URL',
   'SUPACLOUD_INTERNAL_TOKEN',
@@ -18,7 +27,14 @@ const EXPECTED_REQUIRED_ENV = [
   'SUPACLOUD_PROJECT_REF',
   'SUPACLOUD_RUNTIME_URL',
   'SUPACLOUD_DATABASE_URL',
+  ...ADMIN_SSO_REQUIRED_ENV,
 ];
+
+const EXPECTED_ADMIN_SSO_ENV = [
+  ...ADMIN_SSO_REQUIRED_ENV.map((name) => ({ name, secret: false, optional: false })),
+  ...ADMIN_SSO_OPTIONAL_ENV.map((name) => ({ name, secret: false, optional: true })),
+  ...ADMIN_SSO_ALLOWLIST_ENV.map((name) => ({ name, secret: true, optional: true })),
+] as const;
 
 const EXPECTED_FUNCTION_ROUTES = [
   '/api/*',
@@ -144,6 +160,66 @@ function fileExists(root: string, relativePath: string) {
   return existsSync(resolve(root, relativePath));
 }
 
+function assertAdminSsoEnvContract(
+  result: VerificationResult,
+  requiredEnv: Record<string, unknown>[],
+) {
+  for (const expected of EXPECTED_ADMIN_SSO_ENV) {
+    const entry = requiredEnv.find((candidate) => candidate.name === expected.name);
+    if (!entry) {
+      result.errors.push(`Missing Admin SSO env contract: ${expected.name}`);
+      continue;
+    }
+    if (entry.secret !== expected.secret) {
+      result.errors.push(`${expected.name} secret flag must be ${expected.secret}`);
+    }
+    if ((entry.optional === true) !== expected.optional) {
+      result.errors.push(`${expected.name} optional flag must be ${expected.optional}`);
+    }
+  }
+}
+
+function stringArray(manifestField: unknown) {
+  return asArray(manifestField).map(String);
+}
+
+function hasExactStrings(manifestField: unknown, expected: string[]) {
+  return JSON.stringify(stringArray(manifestField)) === JSON.stringify(expected);
+}
+
+function assertAdminSsoInstallContract(result: VerificationResult, manifest: Record<string, unknown>) {
+  const adminSso = asRecord(manifest.admin_sso);
+  const allowlist = asRecord(adminSso.allowlist);
+  if (!hasExactStrings(adminSso.required_env, ADMIN_SSO_REQUIRED_ENV)) {
+    result.errors.push('Admin SSO contract must require issuer and client id');
+  }
+  if (!hasExactStrings(adminSso.optional_env, ADMIN_SSO_OPTIONAL_ENV)) {
+    result.errors.push('Admin SSO contract has invalid optional public metadata');
+  }
+  const hasDatabaseContract = allowlist.database_table === 'supaoauth.security_config'
+    && hasExactStrings(allowlist.database_fields, ['admin_allowed_emails', 'admin_allowed_domains']);
+  const hasEnvironmentContract = hasExactStrings(allowlist.optional_secret_env, ADMIN_SSO_ALLOWLIST_ENV)
+    && allowlist.install_rule === 'database-count-or-explicit-env-nonempty';
+  if (!hasDatabaseContract || !hasEnvironmentContract) {
+    result.errors.push('Admin SSO allowlist contract must require a non-empty database or explicit environment source');
+  }
+}
+
+function assertFunctionDeploymentBundle(result: VerificationResult, supauthFunction: Record<string, unknown>) {
+  const deploymentBundle = asRecord(supauthFunction.deployment_bundle);
+  const deploymentFiles = asArray(deploymentBundle.files).map(asRecord);
+  const functionFile = deploymentFiles.find((entry) => entry.artifact === 'function_bundle');
+  const adminFiles = deploymentFiles.find((entry) => entry.artifact === 'admin_static_dir');
+  if (deploymentBundle.entrypoint !== 'index.ts' || functionFile?.target !== 'index.ts') {
+    result.errors.push('Function deployment bundle must publish function_bundle as index.ts');
+  }
+  if (adminFiles?.target_prefix !== 'admin-console/build'
+    || adminFiles?.recursive !== true
+    || adminFiles?.text_only !== true) {
+    result.errors.push('Function deployment bundle must recursively publish text Admin assets under admin-console/build');
+  }
+}
+
 function assertNoRuntimeRouteCollision(result: VerificationResult, functionRoutes: string[], preservedRoutes: string[]) {
   for (const route of functionRoutes) {
     for (const preserved of preservedRoutes) {
@@ -252,6 +328,8 @@ export function verifySupacloudAppArtifact(input: {
   if (oauthAuthorizationProjectRefEnv && oauthAuthorizationProjectRefEnv.optional !== true) {
     result.errors.push('SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF must be marked optional');
   }
+  assertAdminSsoEnvContract(result, requiredEnv);
+  assertAdminSsoInstallContract(result, manifest);
 
   const artifacts = asRecord(manifest.artifacts);
   const functionBundle = String(artifacts.function_bundle || '');
@@ -289,6 +367,7 @@ export function verifySupacloudAppArtifact(input: {
   if (supauthFunction.runtime !== 'bun') {
     result.errors.push('SupAuth Function runtime must be bun');
   }
+  assertFunctionDeploymentBundle(result, supauthFunction);
   const functionRoutes = routePaths(supauthFunction.routes);
   for (const missing of EXPECTED_FUNCTION_ROUTES.filter((route) => !functionRoutes.includes(route))) {
     result.errors.push(`Missing Function route: ${missing}`);

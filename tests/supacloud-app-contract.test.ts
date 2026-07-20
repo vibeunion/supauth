@@ -40,6 +40,49 @@ describe('SupAuth SupaCloud app contract', () => {
     }));
   });
 
+  it('declares the Admin SSO install and multi-file Function bundle contract', () => {
+    const manifest = createSupacloudAppManifest({
+      functionBundle: 'function.js',
+      adminStaticDir: 'admin',
+      openapiPath: 'openapi.json',
+    });
+    const envByName = Object.fromEntries(manifest.required_supacloud_env.map((entry) => [entry.name, entry]));
+
+    expect(envByName.ADMIN_SSO_ISSUER).toMatchObject({ secret: false });
+    expect(envByName.ADMIN_SSO_ISSUER.optional).not.toBe(true);
+    expect(envByName.ADMIN_SSO_CLIENT_ID).toMatchObject({ secret: false });
+    expect(envByName.ADMIN_SSO_CLIENT_ID.optional).not.toBe(true);
+    for (const name of [
+      'ADMIN_SSO_JWKS_URI',
+      'ADMIN_SSO_AUDIENCE',
+      'ADMIN_SSO_REDIRECT_URI',
+      'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+    ]) {
+      expect(envByName[name]).toMatchObject({ secret: false, optional: true });
+    }
+    for (const name of ['ADMIN_SSO_ALLOWED_EMAILS', 'ADMIN_SSO_ALLOWED_DOMAINS']) {
+      expect(envByName[name]).toMatchObject({ secret: true, optional: true });
+    }
+    expect(manifest.admin_sso.allowlist).toEqual({
+      database_table: 'supaoauth.security_config',
+      database_fields: ['admin_allowed_emails', 'admin_allowed_domains'],
+      optional_secret_env: ['ADMIN_SSO_ALLOWED_EMAILS', 'ADMIN_SSO_ALLOWED_DOMAINS'],
+      install_rule: 'database-count-or-explicit-env-nonempty',
+    });
+    expect(manifest.functions[0].deployment_bundle).toEqual({
+      entrypoint: 'index.ts',
+      files: [
+        { artifact: 'function_bundle', target: 'index.ts' },
+        {
+          artifact: 'admin_static_dir',
+          target_prefix: 'admin-console/build',
+          recursive: true,
+          text_only: true,
+        },
+      ],
+    });
+  });
+
   it('builds a project-generic console behind the same-origin BFF', () => {
     const buildScript = readFileSync('scripts/build-supacloud-app.ts', 'utf8');
 

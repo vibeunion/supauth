@@ -7,15 +7,29 @@
  * considered installed.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
 import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 import { verifyRbacAgainstDatabase } from '../packages/auth-server/src/compatibility/rbac-verify.js';
+import { verifyAdminSsoAllowlist } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';
 import type { RbacDbVerification } from '../packages/auth-server/src/compatibility/rbac-verify.js';
+import type { AdminSsoAllowlistVerification } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';
 
 type FetchImpl = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type MigrationVerifier = (databaseUrl: string) => Promise<RbacDbVerification>;
+type AdminSsoAllowlistVerifier = (databaseUrl: string) => Promise<AdminSsoAllowlistVerification>;
+
+const ADMIN_SSO_ENV = {
+  issuer: 'ADMIN_SSO_ISSUER',
+  clientId: 'ADMIN_SSO_CLIENT_ID',
+  jwksUri: 'ADMIN_SSO_JWKS_URI',
+  audience: 'ADMIN_SSO_AUDIENCE',
+  redirectUri: 'ADMIN_SSO_REDIRECT_URI',
+  postLogoutRedirectUri: 'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+  allowedEmails: 'ADMIN_SSO_ALLOWED_EMAILS',
+  allowedDomains: 'ADMIN_SSO_ALLOWED_DOMAINS',
+} as const;
 
 type StepStatus = 'done' | 'planned' | 'skipped';
 
@@ -61,6 +75,14 @@ export interface InstallSupacloudAppOptions {
   edgeRuntimeUpstream?: string;
   databaseUrl?: string;
   runtimeMode?: string;
+  adminSsoIssuer?: string;
+  adminSsoClientId?: string;
+  adminSsoJwksUri?: string;
+  adminSsoAudience?: string;
+  adminSsoRedirectUri?: string;
+  adminSsoPostLogoutRedirectUri?: string;
+  adminSsoAllowedEmails?: string;
+  adminSsoAllowedDomains?: string;
   dryRun?: boolean;
   skipMigration?: boolean;
   skipMigrationVerify?: boolean;
@@ -69,6 +91,7 @@ export interface InstallSupacloudAppOptions {
   skipDirectVerify?: boolean;
   fetchImpl?: FetchImpl;
   migrationVerifier?: MigrationVerifier;
+  adminSsoAllowlistVerifier?: AdminSsoAllowlistVerifier;
 }
 
 interface ResolvedInstallConfig {
@@ -89,6 +112,14 @@ interface ResolvedInstallConfig {
   edgeRuntimeUpstream: string;
   databaseUrl: string;
   runtimeMode: string;
+  adminSsoIssuer: string;
+  adminSsoClientId: string;
+  adminSsoJwksUri: string;
+  adminSsoAudience: string;
+  adminSsoRedirectUri: string;
+  adminSsoPostLogoutRedirectUri: string;
+  adminSsoAllowedEmails: string;
+  adminSsoAllowedDomains: string;
   dryRun: boolean;
 }
 
@@ -171,6 +202,14 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     SUPACLOUD_EDGE_RUNTIME_UPSTREAM: options.edgeRuntimeUpstream,
     SUPACLOUD_DATABASE_URL: options.databaseUrl,
     RUNTIME_MODE: options.runtimeMode,
+    [ADMIN_SSO_ENV.issuer]: options.adminSsoIssuer,
+    [ADMIN_SSO_ENV.clientId]: options.adminSsoClientId,
+    [ADMIN_SSO_ENV.jwksUri]: options.adminSsoJwksUri,
+    [ADMIN_SSO_ENV.audience]: options.adminSsoAudience,
+    [ADMIN_SSO_ENV.redirectUri]: options.adminSsoRedirectUri,
+    [ADMIN_SSO_ENV.postLogoutRedirectUri]: options.adminSsoPostLogoutRedirectUri,
+    [ADMIN_SSO_ENV.allowedEmails]: options.adminSsoAllowedEmails,
+    [ADMIN_SSO_ENV.allowedDomains]: options.adminSsoAllowedDomains,
   };
   const sources = [cliEnv, fileEnv, process.env];
 
@@ -210,6 +249,8 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
   const apiUrl = firstValue(sources, ['SUPAUTH_API_URL', 'AUTH_API_URL']);
   const configuredCorsOrigins = firstValue(sources, ['CORS_ORIGINS']);
   const edgeRuntimeUpstream = firstValue(sources, ['SUPACLOUD_EDGE_RUNTIME_UPSTREAM', 'EDGE_RUNTIME_UPSTREAM']);
+  const adminSsoIssuer = firstValue(sources, [ADMIN_SSO_ENV.issuer]).trim();
+  const adminSsoClientId = firstValue(sources, [ADMIN_SSO_ENV.clientId]).trim();
 
   return {
     root,
@@ -233,8 +274,32 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     edgeRuntimeUpstream: edgeRuntimeUpstream || '127.0.0.1:9000',
     databaseUrl,
     runtimeMode,
+    adminSsoIssuer: stripTrailingSlash(adminSsoIssuer),
+    adminSsoClientId,
+    adminSsoJwksUri: firstValue(sources, [ADMIN_SSO_ENV.jwksUri]).trim(),
+    adminSsoAudience: firstValue(sources, [ADMIN_SSO_ENV.audience]).trim(),
+    adminSsoRedirectUri: firstValue(sources, [ADMIN_SSO_ENV.redirectUri]).trim(),
+    adminSsoPostLogoutRedirectUri: firstValue(sources, [ADMIN_SSO_ENV.postLogoutRedirectUri]).trim(),
+    adminSsoAllowedEmails: firstValue(sources, [ADMIN_SSO_ENV.allowedEmails]).trim(),
+    adminSsoAllowedDomains: firstValue(sources, [ADMIN_SSO_ENV.allowedDomains]).trim(),
     dryRun: options.dryRun === true,
   };
+}
+
+function requireAdminSsoIssuer(config: ResolvedInstallConfig) {
+  let issuer: URL;
+  try {
+    issuer = new URL(config.adminSsoIssuer);
+  } catch (error) {
+    if (error instanceof TypeError) throw new Error(`${ADMIN_SSO_ENV.issuer} must be an absolute URL`);
+    throw error;
+  }
+  if (issuer.protocol !== 'http:' && issuer.protocol !== 'https:') {
+    throw new Error(`${ADMIN_SSO_ENV.issuer} must use http(s)`);
+  }
+  if (!config.dryRun && issuer.protocol !== 'https:') {
+    throw new Error(`${ADMIN_SSO_ENV.issuer} must use HTTPS for production installation`);
+  }
 }
 
 function requireConfig(config: ResolvedInstallConfig) {
@@ -245,6 +310,8 @@ function requireConfig(config: ResolvedInstallConfig) {
   if (!config.bffSigningSecret) missing.push('SUPAOAUTH_BFF_SIGNING_SECRET');
   if (!config.runtimeUrl) missing.push('SUPACLOUD_RUNTIME_URL');
   if (!config.databaseUrl) missing.push('SUPACLOUD_DATABASE_URL');
+  if (!config.adminSsoIssuer) missing.push(ADMIN_SSO_ENV.issuer);
+  if (!config.adminSsoClientId) missing.push(ADMIN_SSO_ENV.clientId);
   if (missing.length > 0) {
     throw new Error(`Missing required install configuration: ${missing.join(', ')}`);
   }
@@ -257,6 +324,7 @@ function requireConfig(config: ResolvedInstallConfig) {
   if (config.runtimeMode !== 'gotrue') {
     throw new Error('RUNTIME_MODE must be "gotrue"; external OIDC runtimes are not supported');
   }
+  requireAdminSsoIssuer(config);
 }
 
 function readManifest(root: string, artifactDir: string, manifestPath?: string) {
@@ -264,12 +332,50 @@ function readManifest(root: string, artifactDir: string, manifestPath?: string) 
   return JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>;
 }
 
-function artifactPath(root: string, manifest: Record<string, any>, key: string) {
+function pathEscapesRoot(root: string, candidate: string) {
+  const relativePath = relative(root, candidate);
+  return relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath);
+}
+
+function artifactLocation(realRoot: string, manifest: Record<string, any>, key: string) {
   const value = manifest.artifacts?.[key];
   if (!value || typeof value !== 'string') throw new Error(`Manifest artifact is missing: ${key}`);
-  const path = resolve(root, value);
-  if (!existsSync(path)) throw new Error(`Manifest artifact file is missing: ${value}`);
-  return path;
+  const declaredPath = resolve(realRoot, value);
+  if (pathEscapesRoot(realRoot, declaredPath)) {
+    throw new Error(`Manifest artifact escapes the repository root: ${key}`);
+  }
+  if (!existsSync(declaredPath)) throw new Error(`Manifest artifact file is missing: ${value}`);
+  const realPath = realpathSync(declaredPath);
+  if (pathEscapesRoot(realRoot, realPath)) {
+    throw new Error(`Manifest artifact resolves outside the repository root: ${key}`);
+  }
+  return { declaredPath, realPath };
+}
+
+function assertNoSymlinkSegments(root: string, artifactPath: string, key: string) {
+  let currentPath = root;
+  for (const segment of relative(root, artifactPath).split(sep).filter(Boolean)) {
+    currentPath = join(currentPath, segment);
+    if (lstatSync(currentPath).isSymbolicLink()) {
+      throw new Error(`Manifest artifact path must not contain symlinks: ${key}`);
+    }
+  }
+}
+
+function validatedDeployArtifactPaths(root: string, manifest: Record<string, any>) {
+  const realRoot = realpathSync(root);
+  const functionBundle = artifactLocation(realRoot, manifest, 'function_bundle');
+  const adminStaticDir = artifactLocation(realRoot, manifest, 'admin_static_dir');
+  artifactLocation(realRoot, manifest, 'openapi');
+  const functionStat = lstatSync(functionBundle.declaredPath);
+  if (functionStat.isSymbolicLink() || !functionStat.isFile()) {
+    throw new Error('Manifest function_bundle must be a regular file and must not be a symlink');
+  }
+  assertNoSymlinkSegments(realRoot, adminStaticDir.declaredPath, 'admin_static_dir');
+  return {
+    functionBundlePath: functionBundle.realPath,
+    adminStaticDirPath: adminStaticDir.realPath,
+  };
 }
 
 function redact(text: string, secrets: string[]) {
@@ -278,6 +384,19 @@ function redact(text: string, secrets: string[]) {
     if (secret) output = output.split(secret).join('[REDACTED]');
   }
   return output;
+}
+
+function csvEntries(csv: string) {
+  return csv.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+function configuredAdminAllowlistCount(config: ResolvedInstallConfig) {
+  return csvEntries(config.adminSsoAllowedEmails).length + csvEntries(config.adminSsoAllowedDomains).length;
+}
+
+function allowlistRedactionSecrets(allowlistCsv: Array<string | undefined>) {
+  const secrets = allowlistCsv.flatMap((csv) => csv?.trim() ? [csv, ...csvEntries(csv)] : []);
+  return [...new Set(secrets)].sort((left, right) => right.length - left.length);
 }
 
 class SupacloudClient {
@@ -303,6 +422,23 @@ class SupacloudClient {
   }
 }
 
+function optionalRuntimeEnv(name: string, runtimeValue: string) {
+  return runtimeValue ? [{ name, value: runtimeValue }] : [];
+}
+
+function adminSsoFunctionEnv(config: ResolvedInstallConfig) {
+  return [
+    { name: ADMIN_SSO_ENV.issuer, value: config.adminSsoIssuer },
+    { name: ADMIN_SSO_ENV.clientId, value: config.adminSsoClientId },
+    ...optionalRuntimeEnv(ADMIN_SSO_ENV.jwksUri, config.adminSsoJwksUri),
+    ...optionalRuntimeEnv(ADMIN_SSO_ENV.audience, config.adminSsoAudience),
+    ...optionalRuntimeEnv(ADMIN_SSO_ENV.redirectUri, config.adminSsoRedirectUri),
+    ...optionalRuntimeEnv(ADMIN_SSO_ENV.postLogoutRedirectUri, config.adminSsoPostLogoutRedirectUri),
+    ...optionalRuntimeEnv(ADMIN_SSO_ENV.allowedEmails, config.adminSsoAllowedEmails),
+    ...optionalRuntimeEnv(ADMIN_SSO_ENV.allowedDomains, config.adminSsoAllowedDomains),
+  ];
+}
+
 function functionEnv(config: ResolvedInstallConfig) {
   return [
     { name: 'SUPACLOUD_INTERNAL_API_URL', value: config.supacloudApiUrl },
@@ -326,6 +462,7 @@ function functionEnv(config: ResolvedInstallConfig) {
       ? [{ name: 'CORS_ORIGINS', value: config.corsOrigins.join(',') }]
       : []),
     { name: 'SUPACLOUD_DATABASE_URL', value: config.databaseUrl },
+    ...adminSsoFunctionEnv(config),
   ];
 }
 
@@ -334,16 +471,57 @@ function hostnameFromUrl(url: string) {
   return new URL(url).hostname;
 }
 
+function textBundleFile(filePath: string, relativePath: string) {
+  const bytes = readFileSync(filePath);
+  if (bytes.includes(0)) throw new Error(`Admin static artifact is binary: ${relativePath}`);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    if (error instanceof TypeError) throw new Error(`Admin static artifact is not valid UTF-8 text: ${relativePath}`);
+    throw error;
+  }
+}
+
+function directoryTextEntries(root: string, directory: string): Array<[string, string]> {
+  return readdirSync(directory, { withFileTypes: true })
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    .flatMap((entry): Array<[string, string]> => {
+      const entryPath = join(directory, entry.name);
+      const relativePath = relative(root, entryPath).split(sep).join('/');
+      const entryStat = lstatSync(entryPath);
+      if (entryStat.isSymbolicLink()) throw new Error(`Admin static artifact must not contain symlinks: ${relativePath}`);
+      if (entryStat.isDirectory()) return directoryTextEntries(root, entryPath);
+      if (!entryStat.isFile()) throw new Error(`Admin static artifact must contain only regular files: ${relativePath}`);
+      return [[relativePath, textBundleFile(entryPath, relativePath)]];
+    });
+}
+
+function adminStaticTextEntries(adminStaticDirPath: string) {
+  const rootStat = lstatSync(adminStaticDirPath);
+  if (rootStat.isSymbolicLink()) throw new Error('Admin static artifact directory must not be a symlink');
+  if (!rootStat.isDirectory()) throw new Error('Admin static artifact must be a directory');
+  return directoryTextEntries(adminStaticDirPath, adminStaticDirPath);
+}
+
+function functionBundleFiles(functionBundlePath: string, adminStaticDirPath: string) {
+  const files: Record<string, string> = {
+    'index.ts': readFileSync(functionBundlePath, 'utf8'),
+  };
+  for (const [relativePath, staticSource] of adminStaticTextEntries(adminStaticDirPath)) {
+    files[`admin-console/build/${relativePath}`] = staticSource;
+  }
+  return files;
+}
+
 async function deployFunction(input: {
   client: SupacloudClient;
   projectRef: string;
-  functionBundlePath: string;
+  files: Record<string, string>;
 }) {
-  const code = readFileSync(input.functionBundlePath, 'utf8');
   await input.client.request(`/v1/projects/${input.projectRef}/functions/supauth/bundle`, {
     method: 'POST',
     body: JSON.stringify({
-      files: { 'index.ts': code },
+      files: input.files,
       entrypoint: 'index.ts',
       minify: false,
     }),
@@ -585,12 +763,34 @@ async function directFunctionProbe(runtimeUrl: string, fetchImpl: FetchImpl) {
   return { url, status: response.status, ok: response.status >= 200 && response.status < 300 };
 }
 
+async function adminSsoAllowlistInstallStep(config: ResolvedInstallConfig, verifier: AdminSsoAllowlistVerifier): Promise<InstallStep> {
+  if (config.dryRun) return {
+    name: 'admin-sso-allowlist-verification',
+    status: 'planned',
+    detail: 'database counts or explicit server-only environment allowlist',
+  };
+  const dbAllowlist = await verifier(config.databaseUrl);
+  const databaseCount = dbAllowlist.emailCount + dbAllowlist.domainCount;
+  const environmentCount = configuredAdminAllowlistCount(config);
+  if (databaseCount === 0 && environmentCount === 0) {
+    throw new Error('Admin SSO installation requires a non-empty database or explicit environment allowlist');
+  }
+  return {
+    name: 'admin-sso-allowlist-verification',
+    status: 'done',
+    detail: `database email/domain counts=${dbAllowlist.emailCount}/${dbAllowlist.domainCount}; explicit environment configured=${environmentCount > 0}`,
+  };
+}
+
 export async function installSupacloudApp(options: InstallSupacloudAppOptions = {}): Promise<SupacloudInstallResult> {
   const config = resolveConfig(options);
   const fetchImpl = options.fetchImpl || fetch;
   const migrationVerifier = options.migrationVerifier || verifyRbacAgainstDatabase;
+  const adminSsoAllowlistVerifier = options.adminSsoAllowlistVerifier || verifyAdminSsoAllowlist;
   const steps: InstallStep[] = [];
   const warnings: string[] = [];
+  const manifest = readManifest(config.root, config.artifactDir, config.manifestPath);
+  const artifactPaths = validatedDeployArtifactPaths(config.root, manifest);
 
   const offline = verifySupacloudAppArtifact({
     root: config.root,
@@ -603,16 +803,25 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   }
 
   requireConfig(config);
-  const manifest = readManifest(config.root, config.artifactDir, config.manifestPath);
-  const functionBundlePath = artifactPath(config.root, manifest, 'function_bundle');
-  const clientSecrets = [config.token, config.bffSigningSecret];
+  const bundleFiles = functionBundleFiles(
+    artifactPaths.functionBundlePath,
+    artifactPaths.adminStaticDirPath,
+  );
+  const clientSecrets = [
+    config.token,
+    config.bffSigningSecret,
+    ...allowlistRedactionSecrets([
+      config.adminSsoAllowedEmails,
+      config.adminSsoAllowedDomains,
+    ]),
+  ];
   const client = new SupacloudClient(config.supacloudApiUrl, config.token, fetchImpl, clientSecrets);
   const gatewayClient = config.gatewayAdminToken
     ? new SupacloudClient(
       config.supacloudApiUrl,
       config.gatewayAdminToken,
       fetchImpl,
-      [config.gatewayAdminToken, config.bffSigningSecret],
+      [config.gatewayAdminToken, ...clientSecrets],
     )
     : null;
 
@@ -650,6 +859,8 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
     steps.push({ name: 'migration-verification', status: 'done', detail: 'RBAC helpers, grants, retired webhook tables, and RLS policies passed' });
   }
 
+  steps.push(await adminSsoAllowlistInstallStep(config, adminSsoAllowlistVerifier));
+
   if (options.skipSecrets) {
     steps.push({ name: 'runtime-env', status: 'skipped', detail: 'skipSecrets=true' });
   } else if (config.dryRun) {
@@ -667,8 +878,8 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   } else if (config.dryRun) {
     steps.push({ name: 'function-deploy', status: 'planned', detail: 'supauth verify_jwt=false' });
   } else {
-    await deployFunction({ client, projectRef: config.projectRef, functionBundlePath });
-    steps.push({ name: 'function-deploy', status: 'done', detail: 'supauth verify_jwt=false' });
+    await deployFunction({ client, projectRef: config.projectRef, files: bundleFiles });
+    steps.push({ name: 'function-deploy', status: 'done', detail: 'supauth multi-file bundle verify_jwt=false' });
   }
 
   if (!config.baseUrl) {
@@ -752,6 +963,14 @@ if (import.meta.main) {
       corsOrigins: option('cors-origins'),
       edgeRuntimeUpstream: option('edge-runtime-upstream'),
       databaseUrl: option('database-url'),
+      adminSsoIssuer: option('admin-sso-issuer'),
+      adminSsoClientId: option('admin-sso-client-id'),
+      adminSsoJwksUri: option('admin-sso-jwks-uri'),
+      adminSsoAudience: option('admin-sso-audience'),
+      adminSsoRedirectUri: option('admin-sso-redirect-uri'),
+      adminSsoPostLogoutRedirectUri: option('admin-sso-post-logout-redirect-uri'),
+      adminSsoAllowedEmails: option('admin-sso-allowed-emails'),
+      adminSsoAllowedDomains: option('admin-sso-allowed-domains'),
       dryRun: hasFlag('dry-run'),
       skipMigration: hasFlag('skip-migration'),
       skipMigrationVerify: hasFlag('skip-migration-verify'),
@@ -771,10 +990,17 @@ if (import.meta.main) {
 
     if (!result.ok) process.exit(1);
   } catch (error) {
+    const allowlistSecrets = allowlistRedactionSecrets([
+      option('admin-sso-allowed-emails'),
+      option('admin-sso-allowed-domains'),
+      process.env[ADMIN_SSO_ENV.allowedEmails],
+      process.env[ADMIN_SSO_ENV.allowedDomains],
+    ]);
     const secrets = [
       option('token'),
       option('bff-signing-secret'),
       option('database-url'),
+      ...allowlistSecrets,
       process.env.SUPACLOUD_API_TOKEN,
       process.env.SUPACLOUD_MASTER_TOKEN,
       process.env.SUPACLOUD_INTERNAL_TOKEN,
