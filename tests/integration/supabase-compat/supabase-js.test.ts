@@ -248,6 +248,14 @@ describe('Supabase runtime compatibility', () => {
     expect(SUPABASE_METADATA_CLAIMS).toEqual(['app_metadata', 'user_metadata']);
     expect(SUPABASE_RUNTIME_ROLES).toEqual(['anon', 'authenticated', 'service_role']);
   });
+
+  it('generates RFC 6238 TOTP at the exact injected client-time boundary', async () => {
+    const rfcSecret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+
+    expect(await generateTotpCode(rfcSecret, 29_999)).toBe('755224');
+    expect(await generateTotpCode(rfcSecret, 30_000)).toBe('287082');
+    expect(await generateTotpCode(rfcSecret, 59_000)).toBe('287082');
+  });
 });
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
@@ -301,7 +309,7 @@ function assertRequiredEnv(names: string[]) {
 }
 
 async function generateTotpCode(secret: string, now = Date.now()): Promise<string> {
-  const counter = Math.floor((now - 5_000) / 30_000);
+  const counter = Math.floor(now / 30_000);
   const counterBytes = new ArrayBuffer(8);
   new DataView(counterBytes).setBigUint64(0, BigInt(counter));
   const key = await crypto.subtle.importKey(

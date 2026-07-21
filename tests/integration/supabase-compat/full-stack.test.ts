@@ -8,6 +8,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
+import { CleanupStack } from './cleanup.js';
 
 const STRICT_COMPAT = process.env.REQUIRE_SUPABASE_AUTH_COMPAT === '1';
 const RUN_FULL_STACK = STRICT_COMPAT || process.env.RUN_SUPABASE_FULL_STACK_COMPAT === '1';
@@ -50,21 +51,21 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
   let adminClient: SupabaseClient;
   let primary: AuthenticatedFixture;
   let secondary: AuthenticatedFixture;
-  let realtimeChannel: RealtimeChannel | undefined;
-  const createdRowIds: string[] = [];
+  const cleanup = new CleanupStack();
   const primaryObjectPath = () => `${primary.userId}/${RUN_ID}.txt`;
 
   beforeAll(async () => {
     if (!RUN_FULL_STACK) return;
     adminClient = supabaseClient(SERVICE_ROLE_KEY);
-    primary = await createAuthenticatedFixture(adminClient, 'primary');
-    secondary = await createAuthenticatedFixture(adminClient, 'secondary');
+    primary = await createAuthenticatedFixture(adminClient, 'primary', cleanup);
+    secondary = await createAuthenticatedFixture(adminClient, 'secondary', cleanup);
   }, TEST_TIMEOUT_MS);
 
   fullStackIt('enforces owner-based PostgREST RLS with a real GoTrue JWT', async () => {
     const primaryRow = await insertOwnedRow(primary, `primary-${RUN_ID}`);
+    registerRowCleanup(adminClient, primaryRow.id, cleanup);
     const secondaryRow = await insertOwnedRow(secondary, `secondary-${RUN_ID}`);
-    createdRowIds.push(primaryRow.id, secondaryRow.id);
+    registerRowCleanup(adminClient, secondaryRow.id, cleanup);
 
     const crossOwnerInsert = await secondary.client
       .from(RLS_TABLE)
@@ -82,18 +83,20 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
 
   fullStackIt('applies Storage RLS to real upload and download requests', async () => {
     const contents = `storage-${RUN_ID}`;
+    const objectPath = primaryObjectPath();
     const upload = await primary.client.storage
       .from(STORAGE_BUCKET)
-      .upload(primaryObjectPath(), contents, { contentType: 'text/plain' });
+      .upload(objectPath, contents, { contentType: 'text/plain' });
+    if (!upload.error) registerStorageCleanup(adminClient, objectPath, cleanup);
     expect(upload.error).toBeNull();
 
-    const ownerDownload = await primary.client.storage.from(STORAGE_BUCKET).download(primaryObjectPath());
+    const ownerDownload = await primary.client.storage.from(STORAGE_BUCKET).download(objectPath);
     expect(ownerDownload.error).toBeNull();
     expect(await ownerDownload.data?.text()).toBe(contents);
 
     const crossOwnerDownload = await secondary.client.storage
       .from(STORAGE_BUCKET)
-      .download(primaryObjectPath());
+      .download(objectPath);
     expect(crossOwnerDownload.error).not.toBeNull();
     expect(crossOwnerDownload.data).toBeNull();
   });
@@ -101,11 +104,11 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
   fullStackIt('delivers an authenticated Postgres change through Realtime', async () => {
     const expectedPayload = `realtime-${RUN_ID}`;
     const observation = observeOwnerInsert(primary.client, expectedPayload);
-    realtimeChannel = observation.channel;
-    await waitForSubscription(realtimeChannel);
+    registerRealtimeCleanup(primary.client, observation.channel, cleanup);
+    await waitForSubscription(observation.channel);
 
     const insertedRow = await insertOwnedRow(primary, expectedPayload);
-    createdRowIds.push(insertedRow.id);
+    registerRowCleanup(adminClient, insertedRow.id, cleanup);
 
     const payload = await observation.event;
     expect(payload.id).toBe(insertedRow.id);
@@ -126,13 +129,7 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
 
   afterAll(async () => {
     if (!RUN_FULL_STACK) return;
-    if (realtimeChannel) await primary.client.removeChannel(realtimeChannel);
-    await adminClient.storage.from(STORAGE_BUCKET).remove([primaryObjectPath()]);
-    if (createdRowIds.length > 0) await adminClient.from(RLS_TABLE).delete().in('id', createdRowIds);
-    await Promise.all([
-      adminClient.auth.admin.deleteUser(primary.userId),
-      adminClient.auth.admin.deleteUser(secondary.userId),
-    ]);
+    await cleanup.run();
   }, TEST_TIMEOUT_MS);
 });
 
@@ -145,19 +142,65 @@ function supabaseClient(key: string): SupabaseClient {
 async function createAuthenticatedFixture(
   adminClient: SupabaseClient,
   label: string,
+  cleanup: CleanupStack,
 ): Promise<AuthenticatedFixture> {
+  const compatibilityUser = await createCompatibilityUser(adminClient, label, cleanup);
+  const client = supabaseClient(ANON_KEY);
+  const signedIn = await client.auth.signInWithPassword({
+    email: compatibilityUser.email,
+    password: TEST_PASSWORD,
+  });
+  if (signedIn.error || !signedIn.data.session) {
+    throw new Error(`Unable to sign in ${label} compatibility user: ${signedIn.error?.message || 'missing session'}`);
+  }
+  return { client, userId: compatibilityUser.userId };
+}
+
+async function createCompatibilityUser(
+  adminClient: SupabaseClient,
+  label: string,
+  cleanup: CleanupStack,
+): Promise<{ email: string; userId: string }> {
   const email = `supaoauth-${label}-${RUN_ID}@example.test`;
   const created = await adminClient.auth.admin.createUser({ email, password: TEST_PASSWORD, email_confirm: true });
   if (created.error || !created.data.user) {
     throw new Error(`Unable to create ${label} compatibility user: ${created.error?.message || 'missing user'}`);
   }
+  const userId = created.data.user.id;
+  registerUserCleanup(adminClient, userId, cleanup);
+  return { email, userId };
+}
 
-  const client = supabaseClient(ANON_KEY);
-  const signedIn = await client.auth.signInWithPassword({ email, password: TEST_PASSWORD });
-  if (signedIn.error || !signedIn.data.session) {
-    throw new Error(`Unable to sign in ${label} compatibility user: ${signedIn.error?.message || 'missing session'}`);
-  }
-  return { client, userId: created.data.user.id };
+function registerUserCleanup(adminClient: SupabaseClient, userId: string, cleanup: CleanupStack): void {
+  cleanup.register(`compatibility user ${userId}`, async () => {
+    const deleted = await adminClient.auth.admin.deleteUser(userId);
+    if (deleted.error) throw deleted.error;
+  });
+}
+
+function registerRowCleanup(adminClient: SupabaseClient, rowId: string, cleanup: CleanupStack): void {
+  cleanup.register(`RLS row ${rowId}`, async () => {
+    const deleted = await adminClient.from(RLS_TABLE).delete().eq('id', rowId);
+    if (deleted.error) throw deleted.error;
+  });
+}
+
+function registerStorageCleanup(adminClient: SupabaseClient, objectPath: string, cleanup: CleanupStack): void {
+  cleanup.register(`Storage object ${objectPath}`, async () => {
+    const removed = await adminClient.storage.from(STORAGE_BUCKET).remove([objectPath]);
+    if (removed.error) throw removed.error;
+  });
+}
+
+function registerRealtimeCleanup(
+  client: SupabaseClient,
+  channel: RealtimeChannel,
+  cleanup: CleanupStack,
+): void {
+  cleanup.register('Realtime channel', async () => {
+    const status = await client.removeChannel(channel);
+    if (status !== 'ok') throw new Error(`Realtime channel cleanup returned ${status}`);
+  });
 }
 
 async function insertOwnedRow(fixture: AuthenticatedFixture, payload: string): Promise<{ id: string }> {

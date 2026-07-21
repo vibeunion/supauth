@@ -55,6 +55,11 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Check live runner clock against GoTrue
+        env:
+          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_SUPABASE_AUTH_URL || secrets.LIVE_OAUTH_RUNTIME_URL }}
+        run: bun run scripts/check-live-clock-skew.ts
+
       - name: Prepare ephemeral OAuth compatibility session
         env:
           OAUTH_RUNTIME_URL: ${{ secrets.LIVE_SUPABASE_AUTH_URL || secrets.LIVE_OAUTH_RUNTIME_URL }}
