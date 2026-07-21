@@ -136,6 +136,7 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
 function supabaseClient(key: string): SupabaseClient {
   return createClient(RUNTIME_URL, key, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    realtime: { params: { log_level: 'info' } },
   });
 }
 
