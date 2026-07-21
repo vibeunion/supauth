@@ -171,7 +171,30 @@ export function createSupacloudAppManifest(input: {
       { name: 'SUPACLOUD_RUNTIME_INTERNAL_URL', secret: false, optional: true, description: 'Internal GoTrue/runtime URL when different from the public runtime URL.' },
       { name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF', secret: false, optional: true, description: 'Center IdP project ref that owns GoTrue OAuth authorization rows when different from the business project.' },
       { name: 'SUPACLOUD_DATABASE_URL', secret: true, description: 'Project database URL for SupAuth overlay tables and migrations.' },
+      { name: 'ADMIN_SSO_ISSUER', secret: false, description: 'Explicit public GoTrue/OIDC issuer used by the Admin Console.' },
+      { name: 'ADMIN_SSO_CLIENT_ID', secret: false, description: 'Explicit public OAuth client id registered for the Admin Console.' },
+      { name: 'ADMIN_SSO_JWKS_URI', secret: false, optional: true, description: 'Optional explicit issuer JWKS endpoint.' },
+      { name: 'ADMIN_SSO_AUDIENCE', secret: false, optional: true, description: 'Optional explicit accepted access-token audience.' },
+      { name: 'ADMIN_SSO_REDIRECT_URI', secret: false, optional: true, description: 'Optional explicit Admin OAuth redirect URI.' },
+      { name: 'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI', secret: false, optional: true, description: 'Optional explicit Admin post-logout redirect URI.' },
+      { name: 'ADMIN_SSO_ALLOWED_EMAILS', secret: true, optional: true, description: 'Optional server-only email allowlist fallback when the database allowlist is empty.' },
+      { name: 'ADMIN_SSO_ALLOWED_DOMAINS', secret: true, optional: true, description: 'Optional server-only domain allowlist fallback when the database allowlist is empty.' },
     ],
+    admin_sso: {
+      required_env: ['ADMIN_SSO_ISSUER', 'ADMIN_SSO_CLIENT_ID'],
+      optional_env: [
+        'ADMIN_SSO_JWKS_URI',
+        'ADMIN_SSO_AUDIENCE',
+        'ADMIN_SSO_REDIRECT_URI',
+        'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+      ],
+      allowlist: {
+        database_table: 'supaoauth.security_config',
+        database_fields: ['admin_allowed_emails', 'admin_allowed_domains'],
+        optional_secret_env: ['ADMIN_SSO_ALLOWED_EMAILS', 'ADMIN_SSO_ALLOWED_DOMAINS'],
+        install_rule: 'database-count-or-explicit-env-nonempty',
+      },
+    },
     pages: [
       {
         name: 'supauth-admin',
@@ -185,6 +208,18 @@ export function createSupacloudAppManifest(input: {
         name: 'supauth',
         runtime: 'bun',
         entrypoint: input.functionBundle,
+        deployment_bundle: {
+          entrypoint: 'index.ts',
+          files: [
+            { artifact: 'function_bundle', target: 'index.ts' },
+            {
+              artifact: 'admin_static_dir',
+              target_prefix: 'admin-console/build',
+              recursive: true,
+              text_only: true,
+            },
+          ],
+        },
         routes: [
           { path: '/api/*', strip_prefix: '/api' },
           { path: '/v1/*' },

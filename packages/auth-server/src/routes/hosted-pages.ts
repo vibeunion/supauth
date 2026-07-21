@@ -18,6 +18,7 @@ function uniquePaths(paths: string[]) {
 
 export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = process.cwd()) {
   const adminConsoleBuildDirs = uniquePaths([
+    path.resolve(importMetaDir, 'src/admin-console/build'),
     path.resolve(importMetaDir, '../../../admin-console/build'),
     path.resolve(importMetaDir, '../../admin-console/build'),
     path.resolve(cwd, '../admin-console/build'),

@@ -68,6 +68,14 @@ bun run build
 bun run install:supacloud
 ```
 
+Production installation requires explicit `ADMIN_SSO_ISSUER` and
+`ADMIN_SSO_CLIENT_ID`. The installer verifies that the DB-first Admin allowlist
+has at least one email/domain entry, or that an explicit server-only
+`ADMIN_SSO_ALLOWED_EMAILS` / `ADMIN_SSO_ALLOWED_DOMAINS` fallback is present.
+Allowlist values are never printed. The Admin SPA is published under
+`admin-console/build/**` in the same multi-file Function bundle and continues
+to call the BFF through same-origin `/api`.
+
 Start the local development function shim and admin console together:
 
 ```sh
@@ -81,7 +89,7 @@ Useful commands:
 ```sh
 bun run dev:function # local SupaCloud Function emulator only
 bun run dev:admin    # admin-console only
-bun run build        # SupaCloud app manifest + Function + Pages artifacts
+bun run build        # SupaCloud app manifest + Function + Admin static artifacts
 bun run check        # typecheck + tests + admin-console build
 ```
 
@@ -161,6 +169,11 @@ RUNTIME_MODE=gotrue
 SUPACLOUD_DATABASE_URL=<injected-by-supacloud>
 CORS_ORIGINS=http://localhost:5173
 ADMIN_TOKEN=<development-admin-token>
+ADMIN_SSO_ISSUER=https://auth.your-domain.com/auth/v1
+ADMIN_SSO_CLIENT_ID=<registered-admin-oauth-client-id>
+# Optional server-only fallback when the DB allowlist is empty.
+ADMIN_SSO_ALLOWED_EMAILS=
+ADMIN_SSO_ALLOWED_DOMAINS=
 LOG_LEVEL=info
 ```
 
@@ -258,6 +271,12 @@ bun run build
 bun run install:supacloud
 ```
 
+生产安装必须显式提供 `ADMIN_SSO_ISSUER` 和 `ADMIN_SSO_CLIENT_ID`。安装器会
+验证 DB 优先的管理员 email/domain allowlist 至少有一项，或者存在显式的服务端
+`ADMIN_SSO_ALLOWED_EMAILS` / `ADMIN_SSO_ALLOWED_DOMAINS` 回退；allowlist 值不会
+输出。Admin SPA 会随同一个多文件 Function bundle 发布到
+`admin-console/build/**`，浏览器继续通过同源 `/api` 调用 BFF。
+
 同时启动本地开发 function shim 和 admin console：
 
 ```sh
@@ -271,7 +290,7 @@ Admin console 运行在 `http://localhost:5173/admin`。开发时 Vite 会把 `/
 ```sh
 bun run dev:function # 只启动本地 SupaCloud Function emulator
 bun run dev:admin    # 只启动 admin-console
-bun run build        # 构建 SupaCloud app manifest + Function + Pages 产物
+bun run build        # 构建 SupaCloud app manifest + Function + Admin 静态产物
 bun run check        # typecheck + tests + admin-console build
 ```
 
@@ -353,6 +372,11 @@ RUNTIME_MODE=gotrue
 SUPACLOUD_DATABASE_URL=<由-supacloud-注入>
 CORS_ORIGINS=http://localhost:5173
 ADMIN_TOKEN=<development-admin-token>
+ADMIN_SSO_ISSUER=https://auth.your-domain.com/auth/v1
+ADMIN_SSO_CLIENT_ID=<已注册的-admin-oauth-client-id>
+# 仅当 DB allowlist 为空时使用的可选服务端回退。
+ADMIN_SSO_ALLOWED_EMAILS=
+ADMIN_SSO_ALLOWED_DOMAINS=
 LOG_LEVEL=info
 ```
 

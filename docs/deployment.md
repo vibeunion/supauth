@@ -40,7 +40,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 | 服务 | 路径 | 说明 |
 |------|------|------|
-| Admin Console | `/admin` | SvelteKit SPA，由 SupaCloud Pages/static hosting 托管 |
+| Admin Console | `/admin` | SvelteKit SPA，作为 `admin-console/build/**` 随 SupAuth 多文件 Function bundle 发布 |
 | SupAuth Function (BFF) | `/api/v1/*`, `/v1/public/*`, `/oauth/sso/authorize` | SupaCloud Function 调用 `supacloud-function.ts` |
 | GoTrue (runtime) | `/auth/v1/*` | OIDC 端点，SupaOAuth 不替代 |
 | Storage | `/storage/v1/*` | 文件存储，SupAuth Function 代理敏感操作 |
@@ -62,22 +62,21 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 1. 构建 SupaCloud app artifact：`bun run build`
 2. SupaCloud 读取 `artifacts/supacloud-app/supacloud-app-manifest.json`
-3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL`、`SUPAUTH_PUBLIC_URL`、`SUPACLOUD_DATABASE_URL`
+3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL`、`SUPAUTH_PUBLIC_URL`、`SUPACLOUD_DATABASE_URL`，以及显式的 `ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID`
 4. 安装器按 manifest 的 V1/V4/V5/V6/V7/V8/V9/V10 顺序，通过 SupaCloud Management API
    对 `SUPACLOUD_DATABASE_URL` 应用幂等 hosted migrations；禁止绕过安装器直连
    执行迁移。V9 独立撤销旧 webhook 表的 Function/PUBLIC 权限，V10 仅在
    两张旧表均为空时按 deliveries → definitions 顺序删除它们
-5. 将 `packages/auth-server/dist/supacloud-function/supacloud-function.js` 发布到 SupaCloud Functions
-6. 将 `packages/admin-console/build` 发布到 SupaCloud Pages/static hosting
-7. 按 manifest 将 `/api/*`（strip `/api`）、`/v1/public/*`、`/oauth/*`、`/login`、`/login.html`、`/authorize.html`、`/claim`、`/claim.html` 路由到 Function
-8. 按 manifest 的 `authority`、`gotrue_owned_runtime_domains`、
+5. 将 `packages/auth-server/dist/supacloud-function/supacloud-function.js` 作为 `index.ts`，并将 `packages/admin-console/build` 的全部 regular UTF-8 text 文件稳定排序后发布到同一 Function bundle 的 `admin-console/build/**`；symlink、特殊文件、NUL/binary、无效 UTF-8 或越界路径必须阻断发布
+6. 按 manifest 将 `/api/*`（strip `/api`）、`/v1/public/*`、`/oauth/*`、`/login`、`/login.html`、`/authorize.html`、`/claim`、`/claim.html` 和 `/admin/*` 路由到 Function
+7. 按 manifest 的 `authority`、`gotrue_owned_runtime_domains`、
    `supacloud_owned_management_domains` 与 `supacloud_management_facades`
    检查数据权威：GoTrue 拥有用户、Identity、OAuth Grants、Session、Refresh
    Token、MFA、JWT/JWKS；SupaCloud 拥有 Applications 控制面、业务组织、
    RBAC、协作者、Audit、Webhooks 与 Secret Manager；SupAuth Function 只做
    BFF/facade 和 overlay。
-9. 按 manifest 的 `supacloud_managed_background_jobs` 确认 webhook 投递、重试、诊断和失败禁用由 SupaCloud 托管任务执行；SupAuth 不部署 webhook worker、cron 或 systemd/pm2 进程。
-10. 安装完成后运行 live verifier：
+8. 按 manifest 的 `supacloud_managed_background_jobs` 确认 webhook 投递、重试、诊断和失败禁用由 SupaCloud 托管任务执行；SupAuth 不部署 webhook worker、cron 或 systemd/pm2 进程。
+9. 安装完成后运行 live verifier：
     `SUPAUTH_PUBLIC_URL=https://auth.example.com SUPAUTH_INSTALLED_RUNTIME_URL=https://project.example.com bun run scripts/verify-supacloud-installed-app.ts --artifact-dir artifacts/supacloud-app`
 
 ### 旧 Webhook 表退役
@@ -102,6 +101,15 @@ discovery/JWKS 或第二套 Session/MFA 的半实现运行时。
 
 `SUPAOAUTH_BFF_SIGNING_SECRET` 必须是独立、随机且至少 32 个字符的服务端 secret。SupaCloud Management API 与 SupAuth Function 必须使用同一个值；它不得与 `SUPACLOUD_INTERNAL_TOKEN`、master token 或加密密钥复用，浏览器和任何 `VITE_*` 变量都不可见。安装器通过 `--bff-signing-secret` 或同名环境变量接收该值，不会自动生成或回显。
 
+生产 Admin SSO 必须显式配置 HTTPS `ADMIN_SSO_ISSUER` 与非空
+`ADMIN_SSO_CLIENT_ID`，不得从内部 runtime URL 猜测 issuer。JWKS、audience、
+redirect 与 post-logout redirect 仅在显式提供时注入；redirect 未提供时由
+Function 按 `SUPAUTH_PUBLIC_URL` 派生。安装器在 migrations 之后、secrets 与
+Function 发布之前，只读统计 `supaoauth.security_config` 的 email/domain
+allowlist 数量；DB allowlist 优先，只有 DB 为空时才使用服务端
+`ADMIN_SSO_ALLOWED_EMAILS` / `ADMIN_SSO_ALLOWED_DOMAINS` 回退。两者都为空时
+安装失败，allowlist 值不得出现在日志、浏览器、公共 SSO metadata 或 `VITE_*`。
+
 `bun run build` 是唯一构建入口。项目尚未发版，因此不保留额外兼容构建别名。
 
 ### 托管页面自定义
@@ -120,7 +128,7 @@ discovery/JWKS 或第二套 Session/MFA 的半实现运行时。
 ## Admin Console
 
 - **技术栈**：SvelteKit + @svadmin/core + Tailwind v4
-- **部署方式**：SupaCloud Pages/static hosting
+- **部署方式**：`packages/admin-console/build/**` 随 SupAuth 多文件 Function bundle 发布
 - **路径前缀**：`/admin`
 - **API 代理**：Vite dev 代理 `/api → localhost:4010` 的 Function emulator；生产环境由 SupaCloud 路由到 SupAuth Function
 
@@ -128,7 +136,10 @@ discovery/JWKS 或第二套 Session/MFA 的半实现运行时。
 
 1. `bun run --filter '@supauth/admin-console' build`
 2. 输出到 `packages/admin-console/build/`
-3. SupaCloud Pages 配置 `/admin/*` 指向静态文件
+3. 安装器把静态文件发布到 Function source 的 `admin-console/build/**`，`/admin/*` 深链回退到同 bundle 的 `index.html`
+
+生产构建固定使用 `VITE_AUTH_SERVER_URL=/api`。Admin SPA 与 Function 同源，
+不得把独立旧 API origin 或任何 Admin allowlist 写入浏览器 bundle。
 
 ## SupaCloud 路由配置
 
@@ -144,13 +155,8 @@ discovery/JWKS 或第二套 Session/MFA 的半实现运行时。
     - /authorize.html
     - /claim
     - /claim.html
-  target: supacloud-function:supauth
-
-# SupAuth Admin Console Pages
-- name: supaoauth-admin
-  paths:
     - /admin/*
-  target: supacloud-pages:supauth-admin
+  target: supacloud-function:supauth
 
 # Preserved Supabase-compatible runtime routes
 - name: supacloud-runtime
