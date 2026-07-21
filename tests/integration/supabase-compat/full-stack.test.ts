@@ -107,6 +107,11 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
     registerRealtimeCleanup(primary.client, observation.channel, cleanup);
     await waitForSubscription(observation.channel);
 
+    // The channel SUBSCRIBED status fires before the server-side postgres_changes
+    // CDC subscription is registered. Wait for the server's system confirmation
+    // (or a short grace period on cold CDC worker start) before inserting.
+    await waitForPostgresChangesReady(observation.channel);
+
     const insertedRow = await insertOwnedRow(primary, expectedPayload);
     registerRowCleanup(adminClient, insertedRow.id, cleanup);
 
@@ -225,6 +230,29 @@ function waitForSubscription(channel: RealtimeChannel): Promise<void> {
         clearTimeout(timer);
         reject(new Error(`Realtime subscription failed: ${status}`));
       }
+    });
+  });
+}
+
+/**
+ * After channel SUBSCRIBED, the server-side postgres_changes CDC subscription
+ * may still be registering (especially on cold CDC worker start). Wait for the
+ * server system confirmation or a short grace period before the test inserts.
+ */
+function waitForPostgresChangesReady(channel: RealtimeChannel): Promise<void> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const grace = setTimeout(() => {
+      if (!resolved) { resolved = true; resolve(); }
+    }, 3000);
+
+    channel.onMessage((event, payload) => {
+      if (!resolved && event === 'system' && payload?.channel === 'postgres_changes' && payload?.status === 'ok') {
+        resolved = true;
+        clearTimeout(grace);
+        resolve();
+      }
+      return payload;
     });
   });
 }
