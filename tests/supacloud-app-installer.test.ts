@@ -260,6 +260,37 @@ describe('SupaCloud app installer', () => {
     })).rejects.toThrow('non-empty database or explicit environment allowlist');
   });
 
+  for (const [runtimeUrl, expectedProbeUrl] of [
+    ['https://project.example.test', 'https://project.example.test/functions/v1/supauth/api/v1/health'],
+    ['https://project.example.test/auth/v1', 'https://project.example.test/functions/v1/supauth/api/v1/health'],
+    ['https://project.example.test/auth/v1/', 'https://project.example.test/functions/v1/supauth/api/v1/health'],
+    ['https://project.example.test/runtime', 'https://project.example.test/runtime/functions/v1/supauth/api/v1/health'],
+  ] as const) {
+    it(`probes the Function from the project base for runtime URL ${runtimeUrl}`, async () => {
+      const { root, artifactDir } = createFixture();
+      const fetchedUrls: string[] = [];
+
+      const result = await installSupacloudApp({
+        root,
+        artifactDir,
+        ...requiredOptions,
+        runtimeUrl,
+        skipMigration: true,
+        skipMigrationVerify: true,
+        skipSecrets: true,
+        skipFunctionDeploy: true,
+        fetchImpl: async (input) => {
+          fetchedUrls.push(String(input));
+          return new Response('ok', { status: 200 });
+        },
+      });
+
+      expect(fetchedUrls).toEqual([expectedProbeUrl]);
+      expect(result.directFunctionProbe?.url).toBe(expectedProbeUrl);
+      expect(result.directFunctionProbe?.ok).toBe(true);
+    });
+  }
+
   it('runs SupaCloud hosted migration before secrets and function deploy', async () => {
     const { root, artifactDir } = createFixture();
     const calls: string[] = [];

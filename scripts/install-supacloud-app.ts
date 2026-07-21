@@ -155,6 +155,10 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, '');
 }
 
+function supacloudProjectBaseUrl(runtimeUrl: string) {
+  return runtimeUrl.replace(/\/auth\/v1\/?$/, '');
+}
+
 function urlOrigin(rawUrl: string) {
   let url: URL;
   try {
@@ -758,7 +762,7 @@ function rbacMigrationVerificationErrors(result: RbacDbVerification) {
 }
 
 async function directFunctionProbe(runtimeUrl: string, fetchImpl: FetchImpl) {
-  const url = `${runtimeUrl}/functions/v1/supauth/api/v1/health`;
+  const url = `${supacloudProjectBaseUrl(runtimeUrl)}/functions/v1/supauth/api/v1/health`;
   const response = await fetchImpl(url, { method: 'GET' });
   return { url, status: response.status, ok: response.status >= 200 && response.status < 300 };
 }
