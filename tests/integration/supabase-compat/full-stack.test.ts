@@ -240,21 +240,10 @@ function waitForSubscription(channel: RealtimeChannel): Promise<void> {
  * server system confirmation or a short grace period before the test inserts.
  */
 function waitForPostgresChangesReady(channel: RealtimeChannel): Promise<void> {
-  return new Promise((resolve) => {
-    let resolved = false;
-    const grace = setTimeout(() => {
-      if (!resolved) { resolved = true; resolve(); }
-    }, 3000);
-
-    channel.onMessage((event, payload) => {
-      if (!resolved && event === 'system' && payload?.channel === 'postgres_changes' && payload?.status === 'ok') {
-        resolved = true;
-        clearTimeout(grace);
-        resolve();
-      }
-      return payload;
-    });
-  });
+  // The channel SUBSCRIBED status fires before the server-side CDC subscription
+  // is registered. On cold CDC worker start this takes ~2s. Wait before inserting
+  // so the change isn't consumed by the poller before a subscription exists.
+  return new Promise((resolve) => setTimeout(resolve, 3000));
 }
 
 function observeOwnerInsert(client: SupabaseClient, expectedPayload: string) {
