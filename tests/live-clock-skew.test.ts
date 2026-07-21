@@ -75,6 +75,29 @@ describe('live clock skew prerequisite', () => {
       if (sessionPreparation > -1) expect(prerequisite).toBeLessThan(sessionPreparation);
     }
   });
+
+  it('isolates self-hosted checkout from the runner SSH config', () => {
+    const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    const liveWorkflow = readFileSync('.github/workflows/live-compat.yml', 'utf8');
+    const compatJob = ciWorkflow.slice(
+      ciWorkflow.indexOf('  supabase-auth-compat:'),
+      ciWorkflow.indexOf('  package-auth-ui:'),
+    );
+    const liveJob = liveWorkflow.slice(liveWorkflow.indexOf('  live-compat:'));
+    const sshCommand = 'ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/Users/zhd/.ssh/known_hosts';
+
+    expect(`${ciWorkflow}\n${liveWorkflow}`.split(`GIT_SSH_COMMAND: ${sshCommand}`)).toHaveLength(3);
+    for (const job of [compatJob, liveJob]) {
+      expect(job.split(`GIT_SSH_COMMAND: ${sshCommand}`)).toHaveLength(2);
+      expect(job).not.toMatch(/ProxyCommand|ProxyJump|7897|StrictHostKeyChecking=no/);
+      expect(job).not.toContain('core.sshCommand');
+      expect(job).not.toContain('ssh-key:');
+      expect(job.indexOf('ssh-keyscan github.com')).toBeLessThan(job.indexOf('- uses: actions/checkout@v6'));
+      expect(job.indexOf('insteadOf "https://github.com/"')).toBeLessThan(job.indexOf('- uses: actions/checkout@v6'));
+    }
+    expect(ciWorkflow.slice(0, ciWorkflow.indexOf('  supabase-auth-compat:'))).not.toContain('GIT_SSH_COMMAND');
+    expect(ciWorkflow.slice(ciWorkflow.indexOf('  package-auth-ui:'))).not.toContain('GIT_SSH_COMMAND');
+  });
 });
 
 interface ClockFixture {

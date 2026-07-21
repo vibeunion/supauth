@@ -15,6 +15,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.repository == 'zuohuadong/supauth'
     env:
       PATH: /Users/zhd/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      GIT_SSH_COMMAND: ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/Users/zhd/.ssh/known_hosts
 
     steps:
       - name: Use SSH for GitHub checkout
