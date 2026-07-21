@@ -155,13 +155,8 @@ allowlist 数量；DB allowlist 优先，只有 DB 为空时才使用服务端
     - /authorize.html
     - /claim
     - /claim.html
-  target: supacloud-function:supauth
-
-# SupAuth Admin Console Pages
-- name: supaoauth-admin
-  paths:
     - /admin/*
-  target: supacloud-pages:supauth-admin
+  target: supacloud-function:supauth
 
 # Preserved Supabase-compatible runtime routes
 - name: supacloud-runtime
