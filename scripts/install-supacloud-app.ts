@@ -156,7 +156,12 @@ function stripTrailingSlash(value: string) {
 }
 
 function supacloudProjectBaseUrl(runtimeUrl: string) {
-  return runtimeUrl.replace(/\/auth\/v1\/?$/, '');
+  const parsedRuntimeUrl = new URL(runtimeUrl);
+  if (parsedRuntimeUrl.href.includes('?') || parsedRuntimeUrl.href.includes('#')) {
+    throw new Error('SUPACLOUD_RUNTIME_URL must not include a query string or fragment');
+  }
+  parsedRuntimeUrl.pathname = parsedRuntimeUrl.pathname.replace(/\/auth\/v1\/?$/, '');
+  return stripTrailingSlash(parsedRuntimeUrl.toString());
 }
 
 function urlOrigin(rawUrl: string) {
@@ -319,6 +324,7 @@ function requireConfig(config: ResolvedInstallConfig) {
   if (missing.length > 0) {
     throw new Error(`Missing required install configuration: ${missing.join(', ')}`);
   }
+  supacloudProjectBaseUrl(config.runtimeUrl);
   if (config.bffSigningSecret.length < 32) {
     throw new Error('SUPAOAUTH_BFF_SIGNING_SECRET must be at least 32 characters');
   }

@@ -291,6 +291,29 @@ describe('SupaCloud app installer', () => {
     });
   }
 
+  for (const runtimeUrl of [
+    'https://project.example.test/auth/v1?tenant=project_123',
+    'https://project.example.test/auth/v1#runtime',
+  ]) {
+    it(`rejects query or fragment data in runtime URL ${runtimeUrl} before install requests`, async () => {
+      const { root, artifactDir } = createFixture();
+      let requested = false;
+
+      await expect(installSupacloudApp({
+        root,
+        artifactDir,
+        ...requiredOptions,
+        runtimeUrl,
+        fetchImpl: async () => {
+          requested = true;
+          return new Response('{}', { status: 200 });
+        },
+      })).rejects.toThrow('SUPACLOUD_RUNTIME_URL must not include a query string or fragment');
+
+      expect(requested).toBe(false);
+    });
+  }
+
   it('runs SupaCloud hosted migration before secrets and function deploy', async () => {
     const { root, artifactDir } = createFixture();
     const calls: string[] = [];
