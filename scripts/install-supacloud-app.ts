@@ -550,8 +550,6 @@ const hostedRoutePaths = [
   '/login',
   '/login.html',
   '/authorize.html',
-  '/logout',
-  '/logout.html',
   '/hosted-auth.js',
   '/account',
   '/account.html',
@@ -567,6 +565,7 @@ const hostedRoutePaths = [
   '/',
 ];
 
+const hostedLogoutRoutePaths = ['/logout', '/logout.html'];
 const apiRoutePaths = ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*', '/'];
 
 async function upsertGatewayRoute(input: {
@@ -616,6 +615,14 @@ async function configureGatewayRoutes(input: {
     id: 'supauth-function-hosted',
     host,
     path: hostedRoutePaths,
+    priority: 100,
+  });
+
+  await upsertGatewayRoute({
+    ...routeDefaults,
+    id: 'supauth-function-logout',
+    host,
+    path: hostedLogoutRoutePaths,
     priority: 100,
   });
 

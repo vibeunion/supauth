@@ -665,7 +665,7 @@ describe('SupaCloud app installer', () => {
         name: 'CORS_ORIGINS',
         value: 'https://www.from-file.test,https://auth.from-file.test,https://auth-api.from-file.test',
       });
-      expect(routeIds).toEqual(['supauth-function-hosted', 'supauth-api']);
+      expect(routeIds).toEqual(['supauth-function-hosted', 'supauth-function-logout', 'supauth-api']);
     } finally {
       if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previousDatabaseUrl;
@@ -842,12 +842,13 @@ describe('SupaCloud app installer', () => {
     });
 
     const gatewayCalls = calls.filter((call) => call.path === '/v1/projects/project_123/gateway/routes');
-    const gatewayCall = gatewayCalls[0];
+    const hostedGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-hosted');
+    const logoutGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-logout');
     expect(result.ok).toBe(true);
     expect(result.steps).toContainEqual(expect.objectContaining({ name: 'gateway-routes', status: 'done' }));
-    expect(gatewayCalls).toHaveLength(1);
-    expect(gatewayCall?.auth).toBe('Bearer admin-token');
-    expect(gatewayCall?.body).toMatchObject({
+    expect(gatewayCalls).toHaveLength(2);
+    expect(hostedGatewayCall?.auth).toBe('Bearer admin-token');
+    expect(hostedGatewayCall?.body).toMatchObject({
       id: 'supauth-function-hosted',
       hosts: ['auth.example.test'],
       upstream: '127.0.0.1:9000',
@@ -855,7 +856,13 @@ describe('SupaCloud app installer', () => {
       priority: 100,
       cors: expect.arrayContaining(['https://auth.example.test']),
     });
-    expect(gatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/hosted-auth.js', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+    expect(hostedGatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/hosted-auth.js', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+    expect(logoutGatewayCall?.body).toMatchObject({
+      id: 'supauth-function-logout',
+      hosts: ['auth.example.test'],
+      path: ['/logout', '/logout.html'],
+      priority: 100,
+    });
   });
 
   it('configures a separate API route and injects deduplicated Function CORS origins', async () => {
@@ -897,13 +904,19 @@ describe('SupaCloud app installer', () => {
     ];
     expect(result.ok).toBe(true);
     expect(seenSecrets).toContainEqual({ name: 'CORS_ORIGINS', value: cors.join(',') });
-    expect(routeBodies).toHaveLength(2);
-    expect(routeBodies[0]).toMatchObject({
+    expect(routeBodies).toHaveLength(3);
+    expect(routeBodies.find((route) => route.id === 'supauth-function-hosted')).toMatchObject({
       id: 'supauth-function-hosted',
       hosts: ['auth.example.test'],
       cors,
     });
-    expect(routeBodies[1]).toMatchObject({
+    expect(routeBodies.find((route) => route.id === 'supauth-function-logout')).toMatchObject({
+      id: 'supauth-function-logout',
+      hosts: ['auth.example.test'],
+      path: ['/logout', '/logout.html'],
+      cors,
+    });
+    expect(routeBodies.find((route) => route.id === 'supauth-api')).toMatchObject({
       id: 'supauth-api',
       hosts: ['auth-api.example.test'],
       path: ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*', '/'],
@@ -912,7 +925,8 @@ describe('SupaCloud app installer', () => {
       enabled: true,
       cors,
     });
-    expect(routeBodies[1].path).not.toContain('/auth/v1/*');
+    const apiRoute = routeBodies.find((route) => route.id === 'supauth-api');
+    expect(apiRoute.path).not.toContain('/auth/v1/*');
   });
 
   it('rejects wildcard CORS when gateway credentials are enabled', async () => {
