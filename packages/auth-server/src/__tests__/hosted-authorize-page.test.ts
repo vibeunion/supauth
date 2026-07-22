@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { getConfig } from '../config/index.js';
 import {
   adminConsoleRedirectLocation,
   adminConsoleSpaCandidates,
   hostedPageRoutes,
   resolveHostedPagePaths,
+  serveAdminConsolePage,
 } from '../routes/hosted-pages.js';
 
 function request(url: string, init?: RequestInit) {
@@ -35,6 +39,22 @@ describe('hostedPageRoutes', () => {
     );
     expect(fromActiveVersion.adminConsoleBuildDirs).toContain(
       '/opt/supacloud/functions/supauth/.versions/version-123/src/admin-console/build',
+    );
+
+    const fromProjectBundle = resolveHostedPagePaths(
+      '/opt/supacloud/functions/project-ref',
+      '/',
+    );
+    expect(fromProjectBundle.adminConsoleBuildDirs).toContain(
+      '/opt/supacloud/functions/project-ref/.src-supauth/admin-console/build',
+    );
+
+    const fromVersionSource = resolveHostedPagePaths(
+      '/opt/supacloud/functions/project-ref/.versions/supauth/6/src',
+      '/',
+    );
+    expect(fromVersionSource.adminConsoleBuildDirs).toContain(
+      '/opt/supacloud/functions/project-ref/.versions/supauth/6/src/admin-console/build',
     );
   });
 
@@ -69,6 +89,25 @@ describe('hostedPageRoutes', () => {
       `${versionedBuild}/_app/immutable/admin.js.html`,
       `${versionedBuild}/_app/immutable/admin.js/index.html`,
     ]);
+  });
+
+  test('Admin Console serves SPA fallbacks and exact static assets from a Function source tree', async () => {
+    const buildDir = mkdtempSync(join(tmpdir(), 'supauth-admin-build-'));
+    mkdirSync(join(buildDir, '_app'), { recursive: true });
+    writeFileSync(join(buildDir, 'index.html'), '<main>Admin Console</main>');
+    writeFileSync(join(buildDir, '_app', 'version.json'), '{"version":"test"}');
+
+    try {
+      const page = serveAdminConsolePage([buildDir], 'security/password');
+      const asset = serveAdminConsolePage([buildDir], '_app/version.json');
+
+      expect(page.status).toBe(200);
+      expect(await page.text()).toContain('Admin Console');
+      expect(asset.status).toBe(200);
+      expect(await asset.json()).toEqual({ version: 'test' });
+    } finally {
+      rmSync(buildDir, { recursive: true, force: true });
+    }
   });
 
   test('Admin Console legacy and detail entry paths resolve to canonical 307 locations', async () => {

@@ -20,6 +20,8 @@ function uniquePaths(paths: string[]) {
 
 export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = process.cwd()) {
   const adminConsoleBuildDirs = uniquePaths([
+    path.resolve(importMetaDir, 'admin-console/build'),
+    path.resolve(importMetaDir, '.src-supauth/admin-console/build'),
     path.resolve(importMetaDir, 'src/admin-console/build'),
     path.resolve(importMetaDir, '../../../admin-console/build'),
     path.resolve(importMetaDir, '../../admin-console/build'),
@@ -299,9 +301,9 @@ function adminConsoleRedirectResponse(request: Request) {
     : null;
 }
 
-function serveAdminConsolePage(sub: string) {
+export function serveAdminConsolePage(buildDirs: string[], sub: string) {
   return serveFirstStaticFile(
-    adminConsoleSpaCandidates(hostedPagePaths.adminConsoleBuildDirs, sub),
+    adminConsoleSpaCandidates(buildDirs, sub),
   ) || new Response('Not Found', { status: 404 });
 }
 
@@ -510,7 +512,7 @@ export const hostedPageRoutes = new Elysia()
   })
 
   .get('/admin', ({ request }) => (
-    adminConsoleRedirectResponse(request) || serveAdminConsolePage('')
+    adminConsoleRedirectResponse(request) || serveAdminConsolePage(hostedPagePaths.adminConsoleBuildDirs, '')
   ))
 
   // Admin console SPA pages: /admin/*
@@ -518,7 +520,7 @@ export const hostedPageRoutes = new Elysia()
     const redirectResponse = adminConsoleRedirectResponse(request);
     if (redirectResponse) return redirectResponse;
     const sub = (params as Record<string, string>)['*'] || '';
-    return serveAdminConsolePage(sub);
+    return serveAdminConsolePage(hostedPagePaths.adminConsoleBuildDirs, sub);
   })
 
   // robots.txt

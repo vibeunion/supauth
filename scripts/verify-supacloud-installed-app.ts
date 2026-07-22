@@ -135,6 +135,40 @@ async function probeAny(fetchImpl: FetchLike, name: string, candidates: string[]
   return { ok: false, attempts };
 }
 
+function failedAdminConsoleProbe(url: string, error: string, status?: number): ProbeResult {
+  return { name: 'admin_console_page', url, expectation: 'exact-200', ok: false, status, error };
+}
+
+function canonicalAdminConsoleTarget(response: Response, entryUrl: string) {
+  const location = response.headers.get('location') || '';
+  const redirectUrl = new URL(location, entryUrl);
+  const expectedOrigin = new URL(entryUrl).origin;
+  return response.status === 307
+    && redirectUrl.origin === expectedOrigin
+    && redirectUrl.pathname === '/admin/security/password'
+    ? redirectUrl
+    : null;
+}
+
+async function probeAdminConsoleRedirect(fetchImpl: FetchLike, entryUrl: string): Promise<ProbeResult> {
+  try {
+    const response = await fetchImpl(entryUrl, { method: 'GET', redirect: 'manual' });
+    const redirectUrl = canonicalAdminConsoleTarget(response, entryUrl);
+    if (!redirectUrl) {
+      const location = response.headers.get('location') || '<empty>';
+      return failedAdminConsoleProbe(entryUrl, `expected HTTP 307 to same-origin /admin/security/password, got HTTP ${response.status} Location ${location}`, response.status);
+    }
+    const targetProbe = await probe(fetchImpl, {
+      name: 'admin_console_page', url: redirectUrl.toString(), expectation: 'exact-200',
+    });
+    return targetProbe.ok || !targetProbe.error
+      ? targetProbe
+      : { ...targetProbe, error: `redirect target ${targetProbe.error}` };
+  } catch (error) {
+    return failedAdminConsoleProbe(entryUrl, error instanceof Error ? error.message : String(error));
+  }
+}
+
 async function probeSsoAuthorizeRedirect(fetchImpl: FetchLike, url: string, baseUrl: string): Promise<ProbeResult> {
   try {
     const response = await fetchImpl(url, { method: 'GET', redirect: 'manual' });
@@ -228,7 +262,7 @@ export async function verifySupacloudInstalledApp(input: {
     { name: 'supauth_capabilities', url: joinUrl(baseUrl, '/api/v1/capabilities'), expectation: 'route-exists', allowedStatuses: [200, 401, 403] },
     { name: 'supauth_management_api', url: joinUrl(baseUrl, '/v1/auth-config'), expectation: 'route-exists' },
     { name: 'public_sign_in_experience', url: joinUrl(baseUrl, '/v1/public/sign-in-experience/resolve'), expectation: 'route-exists' },
-    { name: 'admin_console_page', url: joinUrl(baseUrl, '/admin/security'), expectation: 'exact-200' },
+    { name: 'admin_console_static_asset', url: joinUrl(baseUrl, '/admin/_app/version.json'), expectation: 'exact-200' },
     { name: 'hosted_login_path', url: joinUrl(baseUrl, '/login'), expectation: 'exact-200' },
     { name: 'hosted_login_page', url: joinUrl(baseUrl, '/login.html'), expectation: 'exact-200' },
     { name: 'hosted_authorize_page', url: joinUrl(baseUrl, '/authorize.html'), expectation: 'exact-200' },
@@ -258,6 +292,7 @@ export async function verifySupacloudInstalledApp(input: {
     { name: 'supauth_function_health_preserved', url: joinUrl(runtimeUrl, '/functions/v1/supauth/api/v1/health'), expectation: 'exact-200' },
   ];
 
+  result.probes.push(await probeAdminConsoleRedirect(fetchImpl, joinUrl(baseUrl, '/admin/security')));
   for (const probeSpec of requiredSupauthProbes) {
     result.probes.push(await probe(fetchImpl, probeSpec));
   }
