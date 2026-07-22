@@ -15,7 +15,7 @@
     "@supabase/auth-js": "2.110.7",
     "@supauth/shared": "workspace:*",
     "@svadmin/core": "0.32.2",
-    "@svadmin/sso": "0.11.2",
+    "@svadmin/sso": "0.11.3",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/svelte-query": "^6.1.29",
     "tailwindcss": "^4.3.0"
