@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.110.7",
-    "@supacloud/js": "0.20.0",
+    "@supacloud/js": "0.20.1",
     "@types/bun": "^1.2.0",
     "pinyin-pro": "^3.28.1",
     "typescript": "^5.8.0",

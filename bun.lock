@@ -6,7 +6,7 @@
       "name": "supaoauth",
       "devDependencies": {
         "@supabase/supabase-js": "^2.110.7",
-        "@supacloud/js": "0.20.0",
+        "@supacloud/js": "0.20.1",
         "@types/bun": "^1.2.0",
         "pinyin-pro": "^3.28.1",
         "typescript": "^5.8.0",
@@ -229,7 +229,7 @@
 
     "@supabase/supabase-js": ["@supabase/supabase-js@2.110.7", "https://registry.npmmirror.com/@supabase/supabase-js/-/supabase-js-2.110.7.tgz", { "dependencies": { "@supabase/auth-js": "2.110.7", "@supabase/functions-js": "2.110.7", "@supabase/postgrest-js": "2.110.7", "@supabase/realtime-js": "2.110.7", "@supabase/storage-js": "2.110.7" } }, "sha512-AnfO3A230Shy6RMO7cya3Wl1OcXnABJrzH8vP+fY7/RFjhzcchB7DjKkkTIAntlwekD+GkSFzEvt2tC+D4Fp8w=="],
 
-    "@supacloud/js": ["@supacloud/js@0.20.0", "https://registry.npmmirror.com/@supacloud/js/-/js-0.20.0.tgz", { "peerDependencies": { "@supabase/supabase-js": "^2.110.7" } }, "sha512-Jgoq+Hz89APFZ9v2ufO7Dk1YRzdu9Kch44kZxx0MdIvucWl3URga66EwOjKQeoV3nXXfYHbZgTfT9eDkw2WXDA=="],
+    "@supacloud/js": ["@supacloud/js@0.20.1", "https://registry.npmmirror.com/@supacloud/js/-/js-0.20.1.tgz", { "peerDependencies": { "@supabase/supabase-js": "^2.110.7" } }, "sha512-o0P5WYAwMot5TGwOZy0a3kYAV0CAKbCmPalc5t1uD6Uogh1bEIz1V+YuogDgTI9835wfVTgntKgkFtF/dG1ejA=="],
 
     "@supauth/admin-console": ["@supauth/admin-console@workspace:packages/admin-console"],
 
