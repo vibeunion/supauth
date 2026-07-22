@@ -70,7 +70,8 @@ if (runLive && (!runSupabaseRuntimeCompat || !runSupabaseOauth21Compat)) {
 mkdirSync(artifactDir, { recursive: true });
 
 run(['bunx', 'tsc', '--noEmit']);
-run(['bun', 'test']);
+// 全仓测试会修改 process.env；按文件隔离，避免并行测试互相污染认证配置。
+run(['bun', 'test', '--isolate']);
 run(['bun', 'run', 'check']);
 run(['bun', 'run', 'build'], { env: { SUPAUTH_SUPACLOUD_ARTIFACT_DIR: artifactDir } });
 run(['bun', 'run', 'scripts/verify-supacloud-app-artifact.ts', '--artifact-dir', artifactDir]);

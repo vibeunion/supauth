@@ -192,6 +192,7 @@ describe('Supabase claims compatibility contract', () => {
 
     expect(releaseGate).toContain("RUN_SUPABASE_RUNTIME_COMPAT: '1'");
     expect(releaseGate).toContain("RUN_SUPABASE_OAUTH21_COMPAT: '1'");
+    expect(releaseGate).toContain("run(['bun', 'test', '--isolate'])");
     expect(releaseGate).toContain("RELEASE_ENVIRONMENT === 'production'");
     expect(releaseGate).toContain('live verification requires both Supabase runtime and OAuth 2.1 compatibility suites');
     expect(strictEnvCount).toBeGreaterThanOrEqual(2);
