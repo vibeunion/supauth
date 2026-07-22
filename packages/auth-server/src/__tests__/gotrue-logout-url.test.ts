@@ -15,4 +15,9 @@ describe('GoTrue logout URL resolution', () => {
       SUPACLOUD_RUNTIME_URL: 'https://public-auth.example.test',
     })).toBe('https://internal-auth.example.test/auth/v1/logout');
   });
+
+  test('rejects non-http or credential-bearing logout addresses', () => {
+    expect(buildGoTrueLogoutUrl('file:///etc/passwd')).toBe('');
+    expect(buildGoTrueLogoutUrl('https://user:password@auth.example.test')).toBe('');
+  });
 });

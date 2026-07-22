@@ -232,6 +232,8 @@ export async function verifySupacloudInstalledApp(input: {
     { name: 'hosted_login_path', url: joinUrl(baseUrl, '/login'), expectation: 'exact-200' },
     { name: 'hosted_login_page', url: joinUrl(baseUrl, '/login.html'), expectation: 'exact-200' },
     { name: 'hosted_authorize_page', url: joinUrl(baseUrl, '/authorize.html'), expectation: 'exact-200' },
+    { name: 'hosted_logout_path', url: joinUrl(baseUrl, '/logout'), expectation: 'exact-200' },
+    { name: 'hosted_logout_page', url: joinUrl(baseUrl, '/logout.html'), expectation: 'exact-200' },
     { name: 'account_center_page', url: joinUrl(baseUrl, '/account'), expectation: 'exact-200' },
     { name: 'account_center_html', url: joinUrl(baseUrl, '/account.html'), expectation: 'exact-200' },
     { name: 'change_password_page', url: joinUrl(baseUrl, '/account/password'), expectation: 'exact-200' },

@@ -22,6 +22,7 @@ function createFixture() {
   writeFileSync(join(root, adminDir, 'claim.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'change-password.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'account.html'), '<!doctype html>');
+  writeFileSync(join(root, adminDir, 'logout.html'), '<!doctype html>');
   writeFileSync(join(root, openapiPath), JSON.stringify({ openapi: '3.0.3', paths: {} }));
 
   const manifest = createSupacloudAppManifest({
@@ -49,6 +50,8 @@ function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?
     '/login': 200,
     '/login.html': 200,
     '/authorize.html': 200,
+    '/logout': 200,
+    '/logout.html': 200,
     '/account': 200,
     '/account.html': 200,
     '/account/password': 200,

@@ -32,8 +32,8 @@ const ENV_LOGIN_LOCKOUT_SEC = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '9
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const SECURITY_CONFIG_CACHE_MS = 10_000;
 const ADMIN_CLAIM_PROJECTION_LIMITS = { roles: 64, permissions: 256 } as const;
-// GoTrue does not advertise end_session_endpoint in OIDC discovery.
 const GOTRUE_LOGOUT_URL = resolveGoTrueLogoutUrl();
+const GOTRUE_LOGOUT_TIMEOUT_MS = 3_000;
 
 export interface AdminSession {
   id: string;
@@ -307,21 +307,89 @@ export function resolveSsoAdminAccess(
     : { status: 'forbidden' };
 }
 
-async function verifySsoToken(token: string): Promise<AdminBearerAccess> {
-  const mode = await effectiveAdminAuthMode();
-  if (mode === 'token' || !ENV_SSO_ISSUER || !jwks) return { status: 'unauthenticated' };
-
+async function verifiedSsoPayload(token: string): Promise<JWTPayload | null> {
+  if (!ENV_SSO_ISSUER || !jwks) return null;
   try {
-    const result = await jwtVerify(token, jwks, {
+    const verified = await jwtVerify(token, jwks, {
       issuer: ENV_SSO_ISSUER,
       audience: ENV_SSO_AUDIENCES.length > 0 ? ENV_SSO_AUDIENCES : undefined,
       algorithms: ['ES256', 'RS256'],
     });
-    const session = adminSessionFromPayload(result.payload);
-    return resolveSsoAdminAccess(session, await effectiveAllowedAdmins());
+    return verified.payload;
   } catch {
-    return { status: 'unauthenticated' };
+    return null;
   }
+}
+
+async function verifySsoToken(token: string): Promise<AdminBearerAccess> {
+  const mode = await effectiveAdminAuthMode();
+  if (mode === 'token') return { status: 'unauthenticated' };
+  const payload = await verifiedSsoPayload(token);
+  if (!payload) return { status: 'unauthenticated' };
+  const session = adminSessionFromPayload(payload);
+  return resolveSsoAdminAccess(session, await effectiveAllowedAdmins());
+}
+
+export interface AdminLogoutDependencies {
+  logoutUrl: string;
+  fetchImpl: typeof fetch;
+  verifyToken: (token: string) => Promise<JWTPayload | null>;
+}
+
+function logoutFailure(status: number, code: string, message: string): Response {
+  return Response.json({ success: false, error: { code, message } }, { status });
+}
+
+function upstreamLogoutUrl(logoutUrl: string): string {
+  const url = new URL(logoutUrl);
+  url.searchParams.set('scope', 'local');
+  return url.toString();
+}
+
+async function revokeGoTrueSession(
+  token: string,
+  dependencies: AdminLogoutDependencies,
+): Promise<Response> {
+  let upstream: Response;
+  try {
+    upstream = await dependencies.fetchImpl(upstreamLogoutUrl(dependencies.logoutUrl), {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(GOTRUE_LOGOUT_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const timedOut = error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name);
+    return logoutFailure(
+      timedOut ? 504 : 502,
+      timedOut ? 'gotrue_logout_timeout' : 'gotrue_logout_unavailable',
+      timedOut ? '认证服务退出请求超时。' : '认证服务当前无法完成退出。',
+    );
+  }
+  if (upstream.ok) return Response.json({ success: true, scope: 'local' });
+  const status = upstream.status === 401 || upstream.status === 403 ? upstream.status : 502;
+  return logoutFailure(status, 'gotrue_logout_rejected', `认证服务拒绝退出请求（${upstream.status}）。`);
+}
+
+export async function logoutAdminSession(
+  headers: Record<string, string | undefined>,
+  dependencies: AdminLogoutDependencies = {
+    logoutUrl: GOTRUE_LOGOUT_URL,
+    fetchImpl: globalThis.fetch,
+    verifyToken: verifiedSsoPayload,
+  },
+): Promise<Response> {
+  const token = bearerToken(headers);
+  if (!token) return logoutFailure(401, 'missing_bearer_token', '退出登录需要 Bearer token。');
+  if (sessions.delete(token)) return Response.json({ success: true, scope: 'local' });
+  if (!dependencies.logoutUrl) {
+    return logoutFailure(503, 'gotrue_logout_not_configured', '认证服务退出地址未配置。');
+  }
+  const payload = await dependencies.verifyToken(token);
+  if (!payload) return logoutFailure(401, 'invalid_bearer_token', 'Bearer token 无效或已过期。');
+  if (typeof payload.session_id !== 'string' || !payload.session_id) {
+    return logoutFailure(422, 'session_id_required', '当前 token 无法安全执行 local scope 退出。');
+  }
+  return revokeGoTrueSession(token, dependencies);
 }
 
 export async function verifyAdminBearer(headers: Record<string, string | undefined>): Promise<AdminBearerAccess> {
@@ -455,41 +523,9 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
     await recordLoginFailure(ip);
     return { success: false, error: { message: await ssoMessage() || 'Invalid credentials' } };
   })
-  .post('/logout', async ({ headers, request }) => {
-    const token = bearerToken(headers as Record<string, string | undefined>);
-    // 清除 in-memory admin session（dev 模式 ADMIN_TOKEN 登录的 token）
-    if (token) sessions.delete(token);
-
-    // SSO 模式下还需要清除 GoTrue 的 session cookie。
-    // GoTrue 的 bearer token 是 JWT，不在 sessions Map 里，
-    // 但 GoTrue 域的 httpOnly session cookie 仍有效，不清除的话
-    // 下次 authorize GoTrue 会直接发 code，用户感觉"没退出"。
-    if (GOTRUE_LOGOUT_URL) {
-      try {
-        const cookie = (headers as Record<string, string | undefined>).cookie || '';
-        const authorization = (headers as Record<string, string | undefined>).authorization || '';
-        await fetch(GOTRUE_LOGOUT_URL, {
-          method: 'POST',
-          headers: {
-            ...(cookie ? { cookie } : {}),
-            ...(authorization ? { authorization } : {}),
-          },
-        });
-      } catch {
-        // GoTrue 不可达时仍返回成功，前端也会直接清本地 token
-      }
-    }
-
-    // 设置 Set-Cookie 头清除浏览器侧可能残留的 SupaOAuth session cookie
-    const setCookieHeaders: string[] = [];
-
-    return new Response(JSON.stringify({ success: true }), {
-      headers: {
-        'content-type': 'application/json',
-        ...(setCookieHeaders.length ? { 'set-cookie': setCookieHeaders.join(', ') } : {}),
-      },
-    });
-  })
+  .post('/logout', ({ headers }) => (
+    logoutAdminSession(headers as Record<string, string | undefined>)
+  ))
   .get('/identity', async ({ headers }) => {
     const access = await verifyAdminBearer(headers as Record<string, string | undefined>);
     if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access.status);

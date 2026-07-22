@@ -26,7 +26,8 @@ describe('stock GoTrue account and administrator boundaries', () => {
       expect(embeddedAccountHtml).not.toContain(removedToken);
     }
     expect(embeddedAccountHtml).toContain('EMBEDDED_ACCOUNT_HTML');
-    expect(accountHtml).toContain('/account/logout?scope=');
+    expect(accountHtml).not.toContain('/account/logout?scope=');
+    expect(accountHtml).toContain('hostedAuth.signOut({ scope })');
     expect(accountHtml).toContain('data-logout-scope="local"');
     expect(accountHtml).toContain('data-logout-scope="global"');
     expect(accountHtml).toContain('data-logout-scope="others"');

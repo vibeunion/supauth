@@ -1322,19 +1322,17 @@
       const scope = button.dataset.logoutScope;
       button.disabled = true;
       try {
-        const logoutResponse = await accountFetch(`/account/logout?scope=${encodeURIComponent(scope)}`, { method: 'POST' });
-        if (!logoutResponse) return;
+        const { error } = await hostedAuth.signOut({ scope });
+        if (error) {
+          setMessage('error', readableError(error, '认证服务未能完成退出。'));
+          return;
+        }
         if (scope === 'others') {
           setMessage('ok', '已退出其他设备，当前设备保持登录。');
           return;
         }
-        const { error } = await hostedAuth.signOut();
         resetAccountView();
         showSignedOutState();
-        if (error) {
-          setMessage('error', readableError(error, '本地已退出，但服务端撤销失败。'));
-          return;
-        }
         setMessage('ok', '已安全退出登录。');
       } catch (error) {
         setMessage('error', `退出登录失败：${readableError(error, '未知错误')}`);

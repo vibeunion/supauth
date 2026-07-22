@@ -21,6 +21,7 @@ function createFixture() {
   writeFileSync(join(root, adminDir, 'claim.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'change-password.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'account.html'), '<!doctype html>');
+  writeFileSync(join(root, adminDir, 'logout.html'), '<!doctype html>');
   writeFileSync(join(root, openapiPath), JSON.stringify({ openapi: '3.0.3', paths: {} }));
 
   const manifest = createSupacloudAppManifest({

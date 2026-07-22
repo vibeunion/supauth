@@ -4,7 +4,6 @@ import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
 import { getSupaCloudAdapter, getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
 import { checkRuntimeHealth, getDiscovery, getJWKS } from '../runtime/index.js';
-import { resolveGoTrueLogoutUrl } from '../auth/gotrue-logout-url.js';
 
 const config = getConfig();
 const adapter = getSupaCloudAdapter();
@@ -35,7 +34,7 @@ export function resolvePublicAdminSsoConfig() {
     client_id: clientId,
     redirect_uri: redirectUri,
     post_logout_redirect_uri: postLogoutRedirectUri,
-    gotrue_logout_url: resolveGoTrueLogoutUrl(),
+    end_session_endpoint: publicAdminUrl('/logout'),
   };
 }
 

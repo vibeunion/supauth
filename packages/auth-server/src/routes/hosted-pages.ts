@@ -10,7 +10,9 @@ import {
   EMBEDDED_CHANGE_PASSWORD_HTML,
   EMBEDDED_CLAIM_HTML,
   EMBEDDED_HOSTED_SESSION_JS,
+  EMBEDDED_LOGOUT_HTML,
 } from '../generated/hosted-pages.js';
+import { LOGOUT_PAGE_HEADERS, resolvePostLogoutRedirect } from './logout-page.js';
 
 function uniquePaths(paths: string[]) {
   return [...new Set(paths.map(candidate => path.normalize(candidate)))];
@@ -57,6 +59,14 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
     ...adminConsoleBuildDirs.map(dir => path.join(dir, 'account.html')),
   ]);
 
+  const logoutHtmlCandidates = uniquePaths([
+    path.resolve(importMetaDir, '../../../admin-console/static/logout.html'),
+    path.resolve(importMetaDir, '../../admin-console/static/logout.html'),
+    path.resolve(cwd, '../admin-console/static/logout.html'),
+    path.resolve(cwd, 'packages/admin-console/static/logout.html'),
+    ...adminConsoleBuildDirs.map(dir => path.join(dir, 'logout.html')),
+  ]);
+
   const customUiDirs = uniquePaths([
     path.resolve(importMetaDir, '../../custom-ui'),
     path.resolve(importMetaDir, '../custom-ui'),
@@ -70,6 +80,7 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
     claimHtmlCandidates,
     changePasswordHtmlCandidates,
     accountHtmlCandidates,
+    logoutHtmlCandidates,
     customUiDirs,
   };
 }
@@ -209,6 +220,11 @@ async function loadAccountHtml(): Promise<string | null> {
   return EMBEDDED_ACCOUNT_HTML;
 }
 
+async function loadLogoutHtml(): Promise<string | null> {
+  const htmlFile = await findFirstExistingFile(hostedPagePaths.logoutHtmlCandidates);
+  return htmlFile ? htmlFile.text() : EMBEDDED_LOGOUT_HTML;
+}
+
 function renderAuthorizeHtml(html: string) {
   return html.replace(
     PUBLIC_API_BASE_PLACEHOLDER,
@@ -220,6 +236,14 @@ function renderPublicHtml(html: string) {
   return html.replace(
     PUBLIC_API_BASE_PLACEHOLDER,
     `window.__SUPAOAUTH_PUBLIC_API_BASE__ = ${JSON.stringify(SAME_ORIGIN_PUBLIC_API_BASE)};`,
+  );
+}
+
+function renderLogoutHtml(html: string, redirectUri: string) {
+  const encodedRedirect = JSON.stringify(redirectUri).replace(/</g, '\\u003c');
+  return html.replace(
+    'window.__SUPAOAUTH_POST_LOGOUT_REDIRECT__ = null;',
+    `window.__SUPAOAUTH_POST_LOGOUT_REDIRECT__ = ${encodedRedirect};`,
   );
 }
 
@@ -279,6 +303,13 @@ function serveAdminConsolePage(sub: string) {
   return serveFirstStaticFile(
     adminConsoleSpaCandidates(hostedPagePaths.adminConsoleBuildDirs, sub),
   ) || new Response('Not Found', { status: 404 });
+}
+
+async function serveLogoutPage(request: Request, query: Record<string, unknown>) {
+  const html = await loadLogoutHtml();
+  if (!html) return new Response('Not Found', { status: 404 });
+  const redirectUri = await resolvePostLogoutRedirect(request, query);
+  return new Response(renderLogoutHtml(html, redirectUri), { headers: LOGOUT_PAGE_HEADERS });
 }
 
 export const hostedPageRoutes = new Elysia()
@@ -347,6 +378,18 @@ export const hostedPageRoutes = new Elysia()
     return renderAuthorizeHtml(html);
   }, {
     detail: { summary: 'Serve hosted authorize page alias', tags: ['Public', 'Consent'] },
+  })
+
+  .get('/logout', ({ query, request }) => (
+    serveLogoutPage(request, query as Record<string, unknown>)
+  ), {
+    detail: { summary: 'End the current SupAuth session', tags: ['Public'] },
+  })
+
+  .get('/logout.html', ({ query, request }) => (
+    serveLogoutPage(request, query as Record<string, unknown>)
+  ), {
+    detail: { summary: 'End the current SupAuth session HTML alias', tags: ['Public'] },
   })
 
   .get('/claim', async ({ set }) => {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createSupacloudAppManifest } from '../scripts/supacloud-app-contract.js';
 import { installSupacloudApp } from '../scripts/install-supacloud-app.js';
 
-const REQUIRED_ADMIN_PAGES = ['index.html', 'authorize.html', 'claim.html', 'change-password.html', 'account.html'];
+const REQUIRED_ADMIN_PAGES = ['index.html', 'authorize.html', 'claim.html', 'change-password.html', 'account.html', 'logout.html'];
 
 function writeAdminPages(directory: string) {
   mkdirSync(directory, { recursive: true });
@@ -383,6 +383,7 @@ describe('SupaCloud app installer', () => {
             'admin-console/build/change-password.html',
             'admin-console/build/claim.html',
             'admin-console/build/index.html',
+            'admin-console/build/logout.html',
           ]);
           expect(body.files['admin-console/build/_app/immutable/admin.js']).toBe('export const admin = true;');
         }

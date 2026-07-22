@@ -44,6 +44,8 @@ const EXPECTED_FUNCTION_ROUTES = [
   '/login',
   '/login.html',
   '/authorize.html',
+  '/logout',
+  '/logout.html',
   '/account',
   '/account.html',
   '/account/*',
@@ -349,7 +351,7 @@ export function verifySupacloudAppArtifact(input: {
   }
 
   if (adminStaticDir) {
-    for (const requiredPage of ['index.html', 'authorize.html', 'claim.html', 'change-password.html', 'account.html']) {
+    for (const requiredPage of ['index.html', 'authorize.html', 'claim.html', 'change-password.html', 'account.html', 'logout.html']) {
       if (!fileExists(root, `${adminStaticDir}/${requiredPage}`)) {
         result.errors.push(`Missing Admin/hosted page artifact: ${adminStaticDir}/${requiredPage}`);
       }

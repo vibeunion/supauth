@@ -46,7 +46,6 @@ if (!skipBuild) {
       VITE_SSO_ISSUER: '',
       VITE_ADMIN_SSO_CLIENT_ID: '',
       VITE_SSO_CLIENT_ID: '',
-      VITE_GOTRUE_LOGOUT_URL: '',
     },
   });
 }
@@ -58,6 +57,7 @@ const hostedAuthorize = resolve(adminStaticDir, 'authorize.html');
 const hostedClaim = resolve(adminStaticDir, 'claim.html');
 const hostedChangePassword = resolve(adminStaticDir, 'change-password.html');
 const hostedAccount = resolve(adminStaticDir, 'account.html');
+const hostedLogout = resolve(adminStaticDir, 'logout.html');
 const openapiPath = resolve(artifactDir, 'openapi.json');
 const manifestPath = resolve(artifactDir, 'supacloud-app-manifest.json');
 
@@ -67,6 +67,7 @@ requireFile(hostedAuthorize);
 requireFile(hostedClaim);
 requireFile(hostedChangePassword);
 requireFile(hostedAccount);
+requireFile(hostedLogout);
 
 run(['bun', 'run', 'scripts/export-openapi.ts', openapiPath]);
 

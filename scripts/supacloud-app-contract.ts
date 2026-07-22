@@ -228,6 +228,8 @@ export function createSupacloudAppManifest(input: {
           { path: '/login' },
           { path: '/login.html' },
           { path: '/authorize.html' },
+          { path: '/logout' },
+          { path: '/logout.html' },
           { path: '/hosted-auth.js' },
           { path: '/account' },
           { path: '/account.html' },

@@ -17,7 +17,7 @@ interface AdminSsoConfig {
   clientId: string;
   redirectUri: string;
   postLogoutRedirectUri: string;
-  gotrueLogoutUrl: string;
+  endSessionEndpoint: string;
 }
 
 interface RuntimeAdminSsoConfigResponse {
@@ -26,7 +26,14 @@ interface RuntimeAdminSsoConfigResponse {
   client_id?: string;
   redirect_uri?: string;
   post_logout_redirect_uri?: string;
-  gotrue_logout_url?: string;
+  end_session_endpoint?: string;
+}
+
+interface AdminEndSessionInput {
+  endpoint: string;
+  clientId: string;
+  idToken: string;
+  postLogoutRedirectUri: string;
 }
 
 interface AdminPrincipalPermissions {
@@ -40,7 +47,6 @@ const COMPILED_SSO_CONFIG = normalizeAdminSsoConfig({
   client_id: import.meta.env.VITE_ADMIN_SSO_CLIENT_ID || import.meta.env.VITE_SSO_CLIENT_ID || '',
   redirect_uri: import.meta.env.VITE_ADMIN_SSO_REDIRECT_URI || defaultRedirectUri(),
   post_logout_redirect_uri: import.meta.env.VITE_ADMIN_SSO_POST_LOGOUT_REDIRECT_URI || defaultLoginUri(),
-  gotrue_logout_url: import.meta.env.VITE_GOTRUE_LOGOUT_URL || '',
 });
 let runtimeSsoConfigPromise: Promise<AdminSsoConfig | null> | null = null;
 let currentSsoProvider: SSOAuthProvider | null = null;
@@ -56,6 +62,23 @@ function defaultLoginUri(): string {
   return `${window.location.origin}/admin/login`;
 }
 
+function defaultLogoutUri(): string {
+  if (typeof window === 'undefined') return '/logout';
+  return `${window.location.origin}/logout`;
+}
+
+export function buildAdminEndSessionUrl(input: AdminEndSessionInput): string {
+  const browserOrigin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const logoutUrl = new URL(input.endpoint, browserOrigin);
+  if (!['http:', 'https:'].includes(logoutUrl.protocol) || logoutUrl.username || logoutUrl.password) {
+    throw new TypeError('Admin end-session endpoint must be an http(s) URL without credentials');
+  }
+  logoutUrl.searchParams.set('client_id', input.clientId);
+  logoutUrl.searchParams.set('id_token_hint', input.idToken);
+  logoutUrl.searchParams.set('post_logout_redirect_uri', input.postLogoutRedirectUri);
+  return logoutUrl.toString();
+}
+
 function normalizeAdminSsoConfig(config: RuntimeAdminSsoConfigResponse): AdminSsoConfig | null {
   if (!config.enabled && !(config.issuer && config.client_id)) return null;
   const issuer = (config.issuer || '').replace(/\/+$/, '');
@@ -67,7 +90,7 @@ function normalizeAdminSsoConfig(config: RuntimeAdminSsoConfigResponse): AdminSs
     clientId,
     redirectUri: config.redirect_uri || defaultRedirectUri(),
     postLogoutRedirectUri: config.post_logout_redirect_uri || defaultLoginUri(),
-    gotrueLogoutUrl: config.gotrue_logout_url || '',
+    endSessionEndpoint: config.end_session_endpoint || defaultLogoutUri(),
   };
 }
 
@@ -147,12 +170,16 @@ const tokenAuthProvider: AuthProvider = {
   },
 
   logout: async (): Promise<AuthActionResult> => {
+    let revokeError: unknown = null;
     try {
       await adminApiRequest('/v1/auth/logout', { method: 'POST' });
-    } catch {
-      // Ignore logout API errors
+    } catch (error) {
+      revokeError = error;
     }
     clearStoredAdminToken();
+    if (revokeError) {
+      return { success: false, error: { message: (revokeError as Error).message } };
+    }
     return { success: true, redirectTo: '/admin/login' };
   },
 
@@ -208,27 +235,37 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
     login: () => ssoProvider.login({}),
 
     logout: async (): Promise<AuthActionResult> => {
-      // GoTrue 不在 OIDC discovery 暴露 end_session_endpoint；显式调用 logout
-      // 才能清除 httpOnly cookie，避免下次 authorize 直接签发 code。
-      if (config.gotrueLogoutUrl) {
-        try {
-          await fetch(config.gotrueLogoutUrl, { method: 'POST', credentials: 'include' });
-        } catch {
-          // GoTrue 不可达时仍继续清本地 token
-        }
-      }
-
-      // BFF 与 GoTrue 会话独立，退出时需要分别吊销。
+      let revokeError: unknown = null;
       try {
         await adminApiRequest('/v1/auth/logout', { method: 'POST' });
-      } catch {
-        // BFF 不可达时仍继续清本地 token
+      } catch (error) {
+        revokeError = error;
       }
-
+      let currentSession: Awaited<ReturnType<SSOAuthProvider['getSession']>> = null;
+      try {
+        currentSession = await ssoProvider.getSession();
+      } catch {
+        currentSession = null;
+      }
       clearStoredAdminToken();
-
-      // Provider 始终清理本地 SSO token；支持时再执行 RP-initiated logout。
-      return ssoProvider.logout({});
+      const providerLogout = await ssoProvider.logout({});
+      if (currentSession?.id_token && typeof window !== 'undefined') {
+        window.location.assign(buildAdminEndSessionUrl({
+          endpoint: config.endSessionEndpoint,
+          clientId: config.clientId,
+          idToken: currentSession.id_token,
+          postLogoutRedirectUri: config.postLogoutRedirectUri,
+        }));
+        return { success: true };
+      }
+      if (revokeError) {
+        return {
+          success: false,
+          error: { message: (revokeError as Error).message },
+          redirectTo: providerLogout.redirectTo,
+        };
+      }
+      return providerLogout;
     },
 
     check: async (): Promise<CheckResult> => {

@@ -325,4 +325,14 @@ describe('hosted session client', () => {
     expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
     expect(result.error).toBeNull();
   });
+
+  test('forwards an explicit account-center logout scope exactly once', async () => {
+    const signOut = mock(async () => ({ error: null }));
+    const api = createHostedAuthApi(client({ signOut: signOut as HostedAuthClient['signOut'] }));
+
+    await api.signOut({ scope: 'others' });
+
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(signOut).toHaveBeenCalledWith({ scope: 'others' });
+  });
 });

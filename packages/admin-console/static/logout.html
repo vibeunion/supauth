@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>正在退出 SupAuth</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #f8fafc; color: #0f172a; }
+      main { width: min(420px, calc(100% - 48px)); padding: 32px; border: 1px solid #e2e8f0; border-radius: 16px; background: white; box-shadow: 0 20px 45px rgb(15 23 42 / 8%); }
+      h1 { margin: 0 0 12px; font-size: 22px; }
+      p { margin: 0; color: #475569; line-height: 1.6; }
+      .error { color: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>正在退出登录</h1>
+      <p id="status">正在撤销当前 SupAuth 会话，请稍候。</p>
+    </main>
+    <script src="/hosted-auth.js"></script>
+    <script>
+      window.__SUPAOAUTH_POST_LOGOUT_REDIRECT__ = null;
+      const status = document.getElementById('status');
+
+      function clearHostedSessionStorage() {
+        for (const storage of [window.localStorage, window.sessionStorage]) {
+          try {
+            storage.removeItem('supaoauth.hosted.auth.session');
+          } catch {
+            // 浏览器隐私模式可能禁用 Storage；GoTrue 撤销仍由 signOut 完成。
+          }
+        }
+      }
+
+      async function signOut() {
+        const hostedAuth = window.SupaOAuthHostedAuth;
+        if (!hostedAuth) {
+          clearHostedSessionStorage();
+          status.className = 'error';
+          status.textContent = '退出组件加载失败，请刷新页面后重试。';
+          return;
+        }
+        let error;
+        try {
+          ({ error } = await hostedAuth.signOut({ scope: 'local' }));
+        } catch (caughtError) {
+          error = caughtError;
+        }
+        clearHostedSessionStorage();
+        const sessionAlreadyMissing = error && (error.status === 401 || error.name === 'AuthSessionMissingError');
+        if (error && !sessionAlreadyMissing) {
+          status.className = 'error';
+          status.textContent = error.message || '认证服务未能完成退出，请重试。';
+          return;
+        }
+        window.location.replace(window.__SUPAOAUTH_POST_LOGOUT_REDIRECT__);
+      }
+
+      signOut();
+    </script>
+  </body>
+</html>

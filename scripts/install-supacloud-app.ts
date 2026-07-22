@@ -550,6 +550,8 @@ const hostedRoutePaths = [
   '/login',
   '/login.html',
   '/authorize.html',
+  '/logout',
+  '/logout.html',
   '/hosted-auth.js',
   '/account',
   '/account.html',

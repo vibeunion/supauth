@@ -512,6 +512,7 @@
       const hostedAuth = window.SupaOAuthHostedAuth;
       const params = new URLSearchParams(window.location.search);
       const authorizationId = params.get('authorization_id') || '';
+      const forceLogin = (params.get('prompt') || '').split(/\s+/).includes('login');
       let authorizationAccessToken = '';
       let hasCustomPageTitle = false;
       let hasCustomButtonLabel = false;
@@ -1246,6 +1247,14 @@
         await loadPhrases(currentLocale);
         applyLocale(currentLocale);
         await loadExperience();
+        if (forceLogin && hostedAuth) {
+          const { error } = await hostedAuth.signOut({ scope: 'local' });
+          const sessionAlreadyMissing = error && (error.status === 401 || error.name === 'AuthSessionMissingError');
+          if (error && !sessionAlreadyMissing) {
+            setMessage('error', responseMessage(error, t('networkError')));
+          }
+          return;
+        }
         if (authorizationId && hostedAuth) {
           const { data, error } = await hostedAuth.getSession();
           if (!error && data && data.session && data.session.access_token) {

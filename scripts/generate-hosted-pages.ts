@@ -10,6 +10,7 @@ const authorizeHtml = readFileSync(resolve(root, 'packages/admin-console/static/
 const claimHtml = readFileSync(resolve(root, 'packages/admin-console/static/claim.html'), 'utf8');
 const changePasswordHtml = readFileSync(resolve(root, 'packages/admin-console/static/change-password.html'), 'utf8');
 const accountHtml = readFileSync(resolve(root, 'packages/admin-console/static/account.html'), 'utf8');
+const logoutHtml = readFileSync(resolve(root, 'packages/admin-console/static/logout.html'), 'utf8');
 const hostedSessionBuild = await Bun.build({
   entrypoints: [hostedSessionClient],
   target: 'browser',
@@ -35,6 +36,7 @@ writeFileSync(
     'export const EMBEDDED_CLAIM_HTML = ' + JSON.stringify(claimHtml) + ';',
     'export const EMBEDDED_CHANGE_PASSWORD_HTML = ' + JSON.stringify(changePasswordHtml) + ';',
     'export const EMBEDDED_ACCOUNT_HTML = ' + JSON.stringify(accountHtml) + ';',
+    'export const EMBEDDED_LOGOUT_HTML = ' + JSON.stringify(logoutHtml) + ';',
     '',
   ].join('\n'),
 );

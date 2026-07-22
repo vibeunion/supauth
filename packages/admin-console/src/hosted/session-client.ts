@@ -81,7 +81,7 @@ export interface HostedAuthApi {
   onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void): {
     data: { subscription: Subscription };
   };
-  signOut(): ReturnType<GoTrueClient['signOut']>;
+  signOut(options?: { scope?: 'global' | 'local' | 'others' }): ReturnType<GoTrueClient['signOut']>;
 }
 
 export type HostedFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -197,15 +197,17 @@ export function createHostedAuthApi(
     return refreshPromise;
   }
 
-  function signOutCurrentSession(): ReturnType<GoTrueClient['signOut']> {
-    return client.signOut({ scope: 'local' });
+  function signOutSession(
+    options: { scope?: 'global' | 'local' | 'others' } = { scope: 'local' },
+  ): ReturnType<GoTrueClient['signOut']> {
+    return client.signOut({ scope: options.scope || 'local' });
   }
 
   return Object.freeze({
     signInWithPassword: (credentials: SignInWithPasswordCredentials) => client.signInWithPassword(credentials),
     getSession: () => client.getSession(),
     onAuthStateChange: (callback: (event: AuthChangeEvent, session: Session | null) => void) => client.onAuthStateChange(callback),
-    signOut: signOutCurrentSession,
+    signOut: signOutSession,
     async authenticatedFetch(input: RequestInfo | URL, init?: RequestInit) {
       const [initialRequest, retryRequest] = createReplayableRequests(input, init);
       const currentSession = await requireSession(client);

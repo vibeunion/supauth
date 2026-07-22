@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
+import { getConfig } from '../config/index.js';
 import {
   adminConsoleRedirectLocation,
   adminConsoleSpaCandidates,
@@ -18,12 +19,14 @@ describe('hostedPageRoutes', () => {
     expect(fromSrc.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
     expect(fromSrc.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
     expect(fromSrc.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
+    expect(fromSrc.logoutHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/logout.html');
     expect(fromSrc.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
 
     const fromDist = resolveHostedPagePaths('/opt/supauth/packages/auth-server/dist', '/opt/supauth');
     expect(fromDist.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
     expect(fromDist.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
     expect(fromDist.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
+    expect(fromDist.logoutHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/logout.html');
     expect(fromDist.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
 
     const fromActiveVersion = resolveHostedPagePaths(
@@ -121,6 +124,8 @@ describe('hostedPageRoutes', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
+    expect(body).toContain("params.get('prompt')");
+    expect(body).toContain("hostedAuth.signOut({ scope: 'local' })");
   });
 
   test('GET /hosted-auth.js serves the embedded session client without stale caching', async () => {
@@ -132,6 +137,23 @@ describe('hostedPageRoutes', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(body).toContain('supaoauth.hosted.auth.session');
     expect(body).toContain('/auth/v1');
+  });
+
+  test('GET /logout serves a no-store same-origin hosted logout page', async () => {
+    const requestUrl = 'https://auth.example.com/logout';
+    const response = await request(requestUrl);
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(response.headers.get('content-security-policy')).toContain("connect-src 'self'");
+    expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+    expect(body).toContain("hostedAuth.signOut({ scope: 'local' })");
+    expect(body).toContain(new URL(
+      '/login?logged_out=1',
+      getConfig().publicBaseUrl || requestUrl,
+    ).toString());
   });
 
   test('hosted login page supports config-driven intro text', async () => {
@@ -255,11 +277,11 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('退出当前设备');
       expect(body).toContain('data-logout-scope="others"');
       expect(body).toContain('data-logout-scope="global"');
-      expect(body).toContain('/account/logout?scope=');
+      expect(body).not.toContain('/account/logout?scope=');
       expect(body).toContain('hostedAuth.getSession()');
       expect(body).toContain("event === 'TOKEN_REFRESHED'");
       expect(body).toContain("event === 'SIGNED_OUT'");
-      expect(body).toContain('hostedAuth.signOut()');
+      expect(body).toContain('hostedAuth.signOut({ scope })');
       expect(body).toContain('未检测到登录状态。请先登录，登录完成后会自动回到账户中心。');
       expect(body).toContain('function showSignedOutState()');
       expect(body).toContain('function resetAccountView()');
