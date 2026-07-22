@@ -142,37 +142,40 @@ async function probeAny(fetchImpl: FetchLike, name: string, candidates: string[]
   return { ok: false, attempts };
 }
 
-function failedAdminConsoleProbe(url: string, error: string, status?: number): ProbeResult {
-  return { name: 'admin_console_page', url, expectation: 'exact-200', ok: false, status, error };
+function failedAdminConsoleProbe(name: string, url: string, error: string, status?: number): ProbeResult {
+  return { name, url, expectation: 'exact-200', ok: false, status, error };
 }
 
-function canonicalAdminConsoleTarget(response: Response, entryUrl: string) {
+function canonicalAdminConsoleTarget(response: Response, entryUrl: string, expectedPath: string) {
   const location = response.headers.get('location') || '';
   const redirectUrl = new URL(location, entryUrl);
   const expectedOrigin = new URL(entryUrl).origin;
   return response.status === 307
     && redirectUrl.origin === expectedOrigin
-    && redirectUrl.pathname === '/admin/security/password'
+    && redirectUrl.pathname === expectedPath
     ? redirectUrl
     : null;
 }
 
-async function probeAdminConsoleRedirect(fetchImpl: FetchLike, entryUrl: string): Promise<ProbeResult> {
+async function probeAdminConsoleRedirect(
+  fetchImpl: FetchLike,
+  input: { name: string; entryUrl: string; expectedPath: string },
+): Promise<ProbeResult> {
   try {
-    const response = await fetchImpl(entryUrl, { method: 'GET', redirect: 'manual' });
-    const redirectUrl = canonicalAdminConsoleTarget(response, entryUrl);
+    const response = await fetchImpl(input.entryUrl, { method: 'GET', redirect: 'manual' });
+    const redirectUrl = canonicalAdminConsoleTarget(response, input.entryUrl, input.expectedPath);
     if (!redirectUrl) {
       const location = response.headers.get('location') || '<empty>';
-      return failedAdminConsoleProbe(entryUrl, `expected HTTP 307 to same-origin /admin/security/password, got HTTP ${response.status} Location ${location}`, response.status);
+      return failedAdminConsoleProbe(input.name, input.entryUrl, `expected HTTP 307 to same-origin ${input.expectedPath}, got HTTP ${response.status} Location ${location}`, response.status);
     }
     const targetProbe = await probe(fetchImpl, {
-      name: 'admin_console_page', url: redirectUrl.toString(), expectation: 'exact-200', expectedMediaType: 'text/html',
+      name: input.name, url: redirectUrl.toString(), expectation: 'exact-200', expectedMediaType: 'text/html',
     });
     return targetProbe.ok || !targetProbe.error
       ? targetProbe
       : { ...targetProbe, error: `redirect target ${targetProbe.error}` };
   } catch (error) {
-    return failedAdminConsoleProbe(entryUrl, error instanceof Error ? error.message : String(error));
+    return failedAdminConsoleProbe(input.name, input.entryUrl, error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -299,7 +302,16 @@ export async function verifySupacloudInstalledApp(input: {
     { name: 'supauth_function_health_preserved', url: joinUrl(runtimeUrl, '/functions/v1/supauth/api/v1/health'), expectation: 'exact-200' },
   ];
 
-  result.probes.push(await probeAdminConsoleRedirect(fetchImpl, joinUrl(baseUrl, '/admin/security')));
+  result.probes.push(await probeAdminConsoleRedirect(fetchImpl, {
+    name: 'admin_console_root',
+    entryUrl: joinUrl(baseUrl, '/admin'),
+    expectedPath: '/admin/get-started',
+  }));
+  result.probes.push(await probeAdminConsoleRedirect(fetchImpl, {
+    name: 'admin_console_page',
+    entryUrl: joinUrl(baseUrl, '/admin/security'),
+    expectedPath: '/admin/security/password',
+  }));
   for (const probeSpec of requiredSupauthProbes) {
     result.probes.push(await probe(fetchImpl, probeSpec));
   }

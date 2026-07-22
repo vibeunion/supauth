@@ -51,6 +51,8 @@ function mockFetch(
     '/api/v1/capabilities': 401,
     '/v1/auth-config': 401,
     '/v1/public/sign-in-experience/resolve': 200,
+    '/admin': 307,
+    '/admin/get-started': 200,
     '/admin/security': 307,
     '/admin/security/password': 200,
     '/admin/_app/version.json': 200,
@@ -89,8 +91,14 @@ function mockFetch(
     }
     const status = defaultStatuses[url.pathname] ?? 404;
     const headers = new Headers(responseHeaders[url.pathname]);
+    if (url.pathname === '/admin' && status === 307 && !headers.has('location')) {
+      headers.set('location', '/admin/get-started');
+    }
     if (url.pathname === '/admin/security' && status === 307 && !headers.has('location')) {
       headers.set('location', '/admin/security/password');
+    }
+    if (url.pathname === '/admin/get-started' && status === 200 && !headers.has('content-type')) {
+      headers.set('content-type', 'text/html; charset=utf-8');
     }
     if (url.pathname === '/admin/security/password' && status === 200 && !headers.has('content-type')) {
       headers.set('content-type', 'text/html; charset=utf-8');
@@ -177,6 +185,59 @@ describe('SupaCloud installed app verifier', () => {
     expect(verification.ok).toBe(false);
     expect(verification.errors).toContain('admin_console_page failed: redirect target expected HTTP 200, got HTTP 404');
     expect(verification.errors).toContain('admin_console_static_asset failed: expected HTTP 200, got HTTP 404');
+  });
+
+  it('rejects a missing exact Admin Console root route', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ '/admin': 404 }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors).toContain(
+      'admin_console_root failed: expected HTTP 307 to same-origin /admin/get-started, got HTTP 404 Location <empty>',
+    );
+  });
+
+  it('rejects an Admin Console root redirect to the wrong location', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({}, undefined, [], {
+        '/admin': { location: '/admin/login' },
+      }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors).toContain(
+      'admin_console_root failed: expected HTTP 307 to same-origin /admin/get-started, got HTTP 307 Location /admin/login',
+    );
+  });
+
+  it('rejects a missing Admin Console root redirect target', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ '/admin/get-started': 404 }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors).toContain(
+      'admin_console_root failed: redirect target expected HTTP 200, got HTTP 404',
+    );
   });
 
   it('rejects unsafe Admin Console response media types', async () => {
