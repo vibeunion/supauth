@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import {
     setDataProvider,
     setAuthProvider,
@@ -28,6 +29,10 @@
 
       const result = await authProvider.check();
       if (result.authenticated) {
+        if (window.location.pathname === resolve('/login')) {
+          await goto(resolve('/get-started'), { replaceState: true });
+          return;
+        }
         initialized = true;
         checkingAuth = false;
         return;
