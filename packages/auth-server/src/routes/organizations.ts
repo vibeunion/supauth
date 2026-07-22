@@ -218,10 +218,11 @@ export const publicOrganizationRoutes = new Elysia({ prefix: '/v1/organizations'
   });
 
 function authenticatedGoTrueBearer(authorization: string | undefined): string {
-  if (!authorization || !/^Bearer [^\s]+$/.test(authorization)) {
+  const token = authorization?.match(/^Bearer +([^\s]+)$/i)?.[1];
+  if (!token) {
     throw new ApiContractError(401, 'gotrue_access_token_required', 'A GoTrue user access token is required');
   }
-  return authorization;
+  return `Bearer ${token}`;
 }
 
 function acceptedInvitationUserId(accepted: unknown): string {

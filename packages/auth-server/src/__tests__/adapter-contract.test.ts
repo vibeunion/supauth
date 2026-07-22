@@ -93,7 +93,7 @@ describe('SupaCloudAdapter contract', () => {
         'org/one',
         'invite/one',
         { token: 'token-one' },
-        'Bearer gotrue-user-token',
+        'bearer gotrue-user-token',
       );
       await adapter.revokeOrganizationInvitation('org/one', 'invite/one');
       await adapter.updateOrganizationJitSettings('org/one', { enabled: true, domains: ['example.test'] });

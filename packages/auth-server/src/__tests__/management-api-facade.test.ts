@@ -133,7 +133,7 @@ describe('SupaCloud Management API facade routes', () => {
       'http://supauth.local/v1/organizations/org-one/invitations/invite-one/accept',
       {
         method: 'POST',
-        headers: { authorization: 'Bearer gotrue-user-token', 'content-type': 'application/json' },
+        headers: { authorization: 'bearer gotrue-user-token', 'content-type': 'application/json' },
         body: JSON.stringify({ token: 'one-time-token' }),
       },
     ));

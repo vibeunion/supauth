@@ -316,12 +316,13 @@ export class SupaCloudAdapter {
   }
 
   private bearerHeaders(authorization: string): Headers {
-    if (!/^Bearer [^\s]+$/.test(authorization)) {
+    const token = authorization.match(/^Bearer +([^\s]+)$/i)?.[1];
+    if (!token) {
       throw new Error('A GoTrue user bearer token is required');
     }
     return new Headers({
       'Content-Type': 'application/json',
-      Authorization: authorization,
+      Authorization: `Bearer ${token}`,
     });
   }
 

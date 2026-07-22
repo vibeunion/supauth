@@ -315,7 +315,7 @@ describe('Auth module — guard and route structure', () => {
     expect(await response.json()).toEqual({ enabled: true });
   });
 
-  it('injects the authenticated principal into downstream request context', async () => {
+  it('accepts the case-insensitive Bearer scheme from OAuth token responses', async () => {
     process.env.ADMIN_TOKEN = 'request-scoped-admin-token';
     const { adminAuthGuard, authRoutes } = await import('../auth/index.js');
     const app = new Elysia()
@@ -330,7 +330,7 @@ describe('Auth module — guard and route structure', () => {
     }));
     const loginPayload = await login.json() as { token: string };
     const response = await app.handle(new Request('http://localhost/v1/users/principal-probe', {
-      headers: { authorization: `Bearer ${loginPayload.token}`, 'x-request-id': 'principal-request' },
+      headers: { authorization: `bearer ${loginPayload.token}`, 'x-request-id': 'principal-request' },
     }));
     const principal = await response.json() as { id: string; authorization_source: string; permissions: string[] };
 

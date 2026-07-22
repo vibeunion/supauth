@@ -166,8 +166,7 @@ export function resolveSsoAudiences(input: {
 
 function bearerToken(headers: Record<string, string | undefined>): string | null {
   const authHeader = headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  return authHeader.slice(7);
+  return authHeader?.match(/^Bearer +([^\s]+)$/i)?.[1] || null;
 }
 
 function requestIp(headers: Record<string, string | undefined>): string {
