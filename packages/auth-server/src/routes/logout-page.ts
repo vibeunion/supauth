@@ -92,13 +92,13 @@ export async function resolvePostLogoutRedirect(
   const requestedRedirect = queryString(query, 'post_logout_redirect_uri');
   const state = queryString(query, 'state');
   const redirectUri = safeRedirectUri(requestedRedirect);
-  if (!clientId || clientId.length > 256 || !idTokenHint || !redirectUri || state.length > 1024) return fallback;
+  if (!clientId || clientId.length > 256 || !redirectUri || state.length > 1024) return fallback;
 
   try {
     const metadata = clientMetadata(await dependencies.oauthClient(clientId));
     if (!metadata || (metadata.client_id && metadata.client_id !== clientId)) return fallback;
     if (!registeredLogoutUris(metadata).includes(requestedRedirect)) return fallback;
-    if (!await validIdTokenHint(idTokenHint, clientId, dependencies)) return fallback;
+    if (idTokenHint && !await validIdTokenHint(idTokenHint, clientId, dependencies)) return fallback;
     return redirectWithState(redirectUri, state);
   } catch {
     return fallback;

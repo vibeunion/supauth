@@ -46,6 +46,50 @@ describe('hosted logout redirect validation', () => {
     expect(redirect).toBe('https://app.example.test/login?state=logout-state');
   });
 
+  test('returns an exactly registered redirect for client-only logout', async () => {
+    const redirect = await resolvePostLogoutRedirect(
+      new Request('https://auth.example.test/logout'),
+      {
+        client_id: 'business-app',
+        post_logout_redirect_uri: 'https://app.example.test/login',
+        state: 'logout-state',
+      },
+      {
+        discovery: async () => { throw new Error('discovery should not be requested'); },
+        jwks: async () => { throw new Error('JWKS should not be requested'); },
+        oauthClient: async () => ({
+          client_id: 'business-app',
+          post_logout_redirect_uris: ['https://app.example.test/login'],
+        }),
+      },
+    );
+    expect(redirect).toBe('https://app.example.test/login?state=logout-state');
+  });
+
+  test('still fails closed when a supplied ID token is invalid', async () => {
+    const requestUrl = 'https://auth.example.test/logout';
+    const redirect = await resolvePostLogoutRedirect(
+      new Request(requestUrl),
+      {
+        client_id: 'business-app',
+        id_token_hint: 'invalid',
+        post_logout_redirect_uri: 'https://app.example.test/login',
+      },
+      {
+        discovery: async () => ({ issuer: 'https://auth.example.test/auth/v1' }),
+        jwks: async () => ({ keys: [] }),
+        oauthClient: async () => ({
+          client_id: 'business-app',
+          post_logout_redirect_uris: ['https://app.example.test/login'],
+        }),
+      },
+    );
+    expect(redirect).toBe(new URL(
+      '/login?logged_out=1',
+      getConfig().publicBaseUrl || requestUrl,
+    ).toString());
+  });
+
   test('fails closed for an unregistered redirect', async () => {
     const requestUrl = 'https://auth.example.test/logout';
     const redirect = await resolvePostLogoutRedirect(
