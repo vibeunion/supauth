@@ -856,7 +856,7 @@ describe('SupaCloud app installer', () => {
       priority: 100,
       cors: expect.arrayContaining(['https://auth.example.test']),
     });
-    expect(hostedGatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/hosted-auth.js', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+    expect(hostedGatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/hosted-auth.js', '/account', '/account.html', '/claim.html', '/admin', '/admin/*', '/']));
     expect(logoutGatewayCall?.body).toMatchObject({
       id: 'supauth-function-logout',
       hosts: ['auth.example.test'],

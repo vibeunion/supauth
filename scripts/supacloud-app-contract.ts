@@ -199,7 +199,7 @@ export function createSupacloudAppManifest(input: {
       {
         name: 'supauth-admin',
         source_dir: input.adminStaticDir,
-        routes: ['/admin/*'],
+        routes: ['/admin', '/admin/*'],
         fallback: '/admin/index.html',
       },
     ],
@@ -241,6 +241,7 @@ export function createSupacloudAppManifest(input: {
           { path: '/favicon.ico' },
           { path: '/favicon.svg' },
           { path: '/admin/api/*', strip_prefix: '/admin/api' },
+          { path: '/admin' },
           { path: '/' },
         ],
       },

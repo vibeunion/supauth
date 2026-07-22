@@ -561,6 +561,7 @@ const hostedRoutePaths = [
   '/favicon.ico',
   '/favicon.svg',
   '/admin/api/*',
+  '/admin',
   '/admin/*',
   '/',
 ];

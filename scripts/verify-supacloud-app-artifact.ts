@@ -56,6 +56,7 @@ const EXPECTED_FUNCTION_ROUTES = [
   '/favicon.ico',
   '/favicon.svg',
   '/admin/api/*',
+  '/admin',
   '/',
 ];
 
@@ -383,6 +384,7 @@ export function verifySupacloudAppArtifact(input: {
   } else {
     if (adminPage.source_dir !== adminStaticDir) result.errors.push('supauth-admin source_dir must match artifacts.admin_static_dir');
     const pageRoutes = asArray(adminPage.routes).map(String);
+    if (!pageRoutes.includes('/admin')) result.errors.push('supauth-admin must route /admin');
     if (!pageRoutes.includes('/admin/*')) result.errors.push('supauth-admin must route /admin/*');
   }
 

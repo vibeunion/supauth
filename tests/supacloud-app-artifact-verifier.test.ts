@@ -61,6 +61,29 @@ describe('SupaCloud app artifact verifier', () => {
     expect(result.errors).toContain('Function route /auth/v1/* collides with preserved runtime route /auth/v1/*');
   });
 
+  it('requires the exact Admin Console root route as well as nested routes', () => {
+    const { root, manifest } = createFixture();
+    const adminPage = manifest.pages.find((page) => page.name === 'supauth-admin')!;
+    adminPage.routes = ['/admin/*'];
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('supauth-admin must route /admin');
+  });
+
+  it('requires the exact Admin Console root route on the Function', () => {
+    const { root, manifest } = createFixture();
+    manifest.functions[0].routes = manifest.functions[0].routes.filter((route) => route.path !== '/admin');
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('Missing Function route: /admin');
+  });
+
   it('rejects manifests that advertise removed local tables', () => {
     const { root, manifest } = createFixture();
     const tableOwnership = manifest.supaoauth_table_ownership as Record<string, unknown>;
