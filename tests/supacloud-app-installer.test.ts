@@ -665,7 +665,12 @@ describe('SupaCloud app installer', () => {
         name: 'CORS_ORIGINS',
         value: 'https://www.from-file.test,https://auth.from-file.test,https://auth-api.from-file.test',
       });
-      expect(routeIds).toEqual(['supauth-function-hosted', 'supauth-function-logout', 'supauth-api']);
+      expect(routeIds).toEqual([
+        'supauth-function-hosted',
+        'supauth-function-logout',
+        'supauth-function-admin-root',
+        'supauth-api',
+      ]);
     } finally {
       if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previousDatabaseUrl;
@@ -844,9 +849,11 @@ describe('SupaCloud app installer', () => {
     const gatewayCalls = calls.filter((call) => call.path === '/v1/projects/project_123/gateway/routes');
     const hostedGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-hosted');
     const logoutGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-logout');
+    const adminRootGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-admin-root');
     expect(result.ok).toBe(true);
     expect(result.steps).toContainEqual(expect.objectContaining({ name: 'gateway-routes', status: 'done' }));
-    expect(gatewayCalls).toHaveLength(2);
+    expect(gatewayCalls).toHaveLength(3);
+    expect(gatewayCalls.every((call) => call.body.path.length <= 20)).toBe(true);
     expect(hostedGatewayCall?.auth).toBe('Bearer admin-token');
     expect(hostedGatewayCall?.body).toMatchObject({
       id: 'supauth-function-hosted',
@@ -856,12 +863,24 @@ describe('SupaCloud app installer', () => {
       priority: 100,
       cors: expect.arrayContaining(['https://auth.example.test']),
     });
-    expect(hostedGatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/hosted-auth.js', '/account', '/account.html', '/claim.html', '/admin', '/admin/*', '/']));
+    expect(hostedGatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/hosted-auth.js', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+    expect(hostedGatewayCall?.body.path).not.toContain('/admin');
     expect(logoutGatewayCall?.body).toMatchObject({
       id: 'supauth-function-logout',
       hosts: ['auth.example.test'],
       path: ['/logout', '/logout.html'],
       priority: 100,
+    });
+    expect(adminRootGatewayCall?.auth).toBe('Bearer admin-token');
+    expect(adminRootGatewayCall?.body).toMatchObject({
+      id: 'supauth-function-admin-root',
+      hosts: ['auth.example.test'],
+      path: ['/admin'],
+      upstream: '127.0.0.1:9000',
+      rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
+      priority: 100,
+      enabled: true,
+      cors: expect.arrayContaining(['https://auth.example.test']),
     });
   });
 
@@ -904,7 +923,8 @@ describe('SupaCloud app installer', () => {
     ];
     expect(result.ok).toBe(true);
     expect(seenSecrets).toContainEqual({ name: 'CORS_ORIGINS', value: cors.join(',') });
-    expect(routeBodies).toHaveLength(3);
+    expect(routeBodies).toHaveLength(4);
+    expect(routeBodies.every((route) => route.path.length <= 20)).toBe(true);
     expect(routeBodies.find((route) => route.id === 'supauth-function-hosted')).toMatchObject({
       id: 'supauth-function-hosted',
       hosts: ['auth.example.test'],
@@ -914,6 +934,16 @@ describe('SupaCloud app installer', () => {
       id: 'supauth-function-logout',
       hosts: ['auth.example.test'],
       path: ['/logout', '/logout.html'],
+      cors,
+    });
+    expect(routeBodies.find((route) => route.id === 'supauth-function-admin-root')).toMatchObject({
+      id: 'supauth-function-admin-root',
+      hosts: ['auth.example.test'],
+      path: ['/admin'],
+      upstream: '127.0.0.1:9000',
+      rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
+      priority: 100,
+      enabled: true,
       cors,
     });
     expect(routeBodies.find((route) => route.id === 'supauth-api')).toMatchObject({
