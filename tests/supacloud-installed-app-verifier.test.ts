@@ -40,7 +40,12 @@ interface MockFetchRequest {
   init?: RequestInit;
 }
 
-function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?: string, requestLog: MockFetchRequest[] = []) {
+function mockFetch(
+  overrides: Record<string, number> = {},
+  ssoAuthorizeLocation?: string,
+  requestLog: MockFetchRequest[] = [],
+  responseHeaders: Record<string, HeadersInit> = {},
+) {
   const defaultStatuses: Record<string, number> = {
     '/api/v1/health': 200,
     '/api/v1/capabilities': 401,
@@ -83,9 +88,16 @@ function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?
       return new Response('redirect', { status: 302, headers: { location } });
     }
     const status = defaultStatuses[url.pathname] ?? 404;
-    const headers = url.pathname === '/admin/security' && status === 307
-      ? { location: '/admin/security/password' }
-      : undefined;
+    const headers = new Headers(responseHeaders[url.pathname]);
+    if (url.pathname === '/admin/security' && status === 307 && !headers.has('location')) {
+      headers.set('location', '/admin/security/password');
+    }
+    if (url.pathname === '/admin/security/password' && status === 200 && !headers.has('content-type')) {
+      headers.set('content-type', 'text/html; charset=utf-8');
+    }
+    if (url.pathname === '/admin/_app/version.json' && status === 200 && !headers.has('content-type')) {
+      headers.set('content-type', 'application/json; charset=utf-8');
+    }
     return new Response(status === 200 ? 'ok' : 'probe', { status, headers });
   };
 }
@@ -165,6 +177,25 @@ describe('SupaCloud installed app verifier', () => {
     expect(verification.ok).toBe(false);
     expect(verification.errors).toContain('admin_console_page failed: redirect target expected HTTP 200, got HTTP 404');
     expect(verification.errors).toContain('admin_console_static_asset failed: expected HTTP 200, got HTTP 404');
+  });
+
+  it('rejects unsafe Admin Console response media types', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({}, undefined, [], {
+        '/admin/security/password': { 'content-type': 'application/octet-stream' },
+        '/admin/_app/version.json': { 'content-type': 'application/octet-stream' },
+      }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors.some((error) => error.includes('expected text/html'))).toBe(true);
+    expect(verification.errors.some((error) => error.includes('expected application/json'))).toBe(true);
   });
 
   it('rejects missing PostgREST, Storage, or Realtime runtime routes instead of accepting generic 404s', async () => {

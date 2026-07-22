@@ -20,6 +20,7 @@ interface ProbeSpec {
   url: string;
   expectation: ProbeExpectation;
   allowedStatuses?: number[];
+  expectedMediaType?: string;
   headers?: HeadersInit;
 }
 
@@ -102,17 +103,23 @@ function isHostedGoTrueAuthorizeLocation(location: string, baseUrl: string) {
 }
 
 async function probe(fetchImpl: FetchLike, spec: ProbeSpec): Promise<ProbeResult> {
-  const { name, url, expectation, allowedStatuses, headers } = spec;
+  const { name, url, expectation, allowedStatuses, expectedMediaType, headers } = spec;
   try {
     const response = await fetchImpl(url, { method: 'GET', redirect: 'manual', headers });
-    const ok = isExpectedStatus(response.status, expectation, allowedStatuses);
+    const statusMatches = isExpectedStatus(response.status, expectation, allowedStatuses);
+    const actualContentType = response.headers.get('content-type') || '';
+    const actualMediaType = actualContentType.split(';', 1)[0].trim().toLowerCase();
+    const contentTypeMatches = !expectedMediaType || actualMediaType === expectedMediaType.toLowerCase();
+    const ok = statusMatches && contentTypeMatches;
     return {
       name,
       url,
       expectation,
       ok,
       status: response.status,
-      error: ok ? undefined : `${describeExpectation(expectation, allowedStatuses)}, got HTTP ${response.status}`,
+      error: ok
+        ? undefined
+        : `${describeExpectation(expectation, allowedStatuses)}, got HTTP ${response.status}${statusMatches && !contentTypeMatches ? ` Content-Type ${actualContentType || '<empty>'}; expected ${expectedMediaType}` : ''}`,
     };
   } catch (error) {
     return {
@@ -159,7 +166,7 @@ async function probeAdminConsoleRedirect(fetchImpl: FetchLike, entryUrl: string)
       return failedAdminConsoleProbe(entryUrl, `expected HTTP 307 to same-origin /admin/security/password, got HTTP ${response.status} Location ${location}`, response.status);
     }
     const targetProbe = await probe(fetchImpl, {
-      name: 'admin_console_page', url: redirectUrl.toString(), expectation: 'exact-200',
+      name: 'admin_console_page', url: redirectUrl.toString(), expectation: 'exact-200', expectedMediaType: 'text/html',
     });
     return targetProbe.ok || !targetProbe.error
       ? targetProbe
@@ -262,7 +269,7 @@ export async function verifySupacloudInstalledApp(input: {
     { name: 'supauth_capabilities', url: joinUrl(baseUrl, '/api/v1/capabilities'), expectation: 'route-exists', allowedStatuses: [200, 401, 403] },
     { name: 'supauth_management_api', url: joinUrl(baseUrl, '/v1/auth-config'), expectation: 'route-exists' },
     { name: 'public_sign_in_experience', url: joinUrl(baseUrl, '/v1/public/sign-in-experience/resolve'), expectation: 'route-exists' },
-    { name: 'admin_console_static_asset', url: joinUrl(baseUrl, '/admin/_app/version.json'), expectation: 'exact-200' },
+    { name: 'admin_console_static_asset', url: joinUrl(baseUrl, '/admin/_app/version.json'), expectation: 'exact-200', expectedMediaType: 'application/json' },
     { name: 'hosted_login_path', url: joinUrl(baseUrl, '/login'), expectation: 'exact-200' },
     { name: 'hosted_login_page', url: joinUrl(baseUrl, '/login.html'), expectation: 'exact-200' },
     { name: 'hosted_authorize_page', url: joinUrl(baseUrl, '/authorize.html'), expectation: 'exact-200' },

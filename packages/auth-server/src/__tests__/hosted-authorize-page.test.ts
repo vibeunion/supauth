@@ -95,15 +95,22 @@ describe('hostedPageRoutes', () => {
     const buildDir = mkdtempSync(join(tmpdir(), 'supauth-admin-build-'));
     mkdirSync(join(buildDir, '_app'), { recursive: true });
     writeFileSync(join(buildDir, 'index.html'), '<main>Admin Console</main>');
+    writeFileSync(join(buildDir, '_app', 'app.js'), 'export const ready = true;');
     writeFileSync(join(buildDir, '_app', 'version.json'), '{"version":"test"}');
 
     try {
       const page = serveAdminConsolePage([buildDir], 'security/password');
+      const script = serveAdminConsolePage([buildDir], '_app/app.js');
       const asset = serveAdminConsolePage([buildDir], '_app/version.json');
 
       expect(page.status).toBe(200);
+      expect(page.headers.get('content-type')).toContain('text/html');
       expect(await page.text()).toContain('Admin Console');
+      expect(script.status).toBe(200);
+      expect(script.headers.get('content-type')).toContain('text/javascript');
+      expect(script.headers.get('x-content-type-options')).toBe('nosniff');
       expect(asset.status).toBe(200);
+      expect(asset.headers.get('content-type')).toContain('application/json');
       expect(await asset.json()).toEqual({ version: 'test' });
     } finally {
       rmSync(buildDir, { recursive: true, force: true });

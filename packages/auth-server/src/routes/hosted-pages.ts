@@ -90,6 +90,25 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
 const hostedPagePaths = resolveHostedPagePaths();
 const PUBLIC_API_BASE_PLACEHOLDER = 'window.__SUPAOAUTH_PUBLIC_API_BASE__ = null;';
 const SAME_ORIGIN_PUBLIC_API_BASE = '/v1/public';
+const STATIC_CONTENT_TYPES = new Map([
+  ['.css', 'text/css; charset=utf-8'],
+  ['.gif', 'image/gif'],
+  ['.html', 'text/html; charset=utf-8'],
+  ['.ico', 'image/x-icon'],
+  ['.jpeg', 'image/jpeg'],
+  ['.jpg', 'image/jpeg'],
+  ['.js', 'text/javascript; charset=utf-8'],
+  ['.json', 'application/json; charset=utf-8'],
+  ['.mjs', 'text/javascript; charset=utf-8'],
+  ['.otf', 'font/otf'],
+  ['.png', 'image/png'],
+  ['.svg', 'image/svg+xml'],
+  ['.ttf', 'font/ttf'],
+  ['.txt', 'text/plain; charset=utf-8'],
+  ['.webp', 'image/webp'],
+  ['.woff', 'font/woff'],
+  ['.woff2', 'font/woff2'],
+]);
 const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="14" fill="#0f172a"/>
   <path d="M19 22.5c0-5.2 4.2-9.5 9.5-9.5H48v9H28.5a.5.5 0 0 0-.5.5V28h17v8H28v5.5c0 .3.2.5.5.5H48v9H28.5c-5.3 0-9.5-4.3-9.5-9.5v-19Z" fill="#f8fafc"/>
@@ -279,7 +298,12 @@ function serveFirstStaticFile(fileCandidates: string[]) {
   for (const candidate of fileCandidates) {
     const file = Bun.file(candidate);
     if (file.size) {
-      return new Response(file);
+      return new Response(file, {
+        headers: {
+          'content-type': STATIC_CONTENT_TYPES.get(path.extname(candidate).toLowerCase()) || 'application/octet-stream',
+          'x-content-type-options': 'nosniff',
+        },
+      });
     }
   }
   return null;
