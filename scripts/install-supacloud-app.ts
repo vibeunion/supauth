@@ -443,38 +443,13 @@ class SupacloudClient {
   }
 }
 
-function optionalRuntimeEnv(name: string, runtimeValue: string) {
-  return runtimeValue ? [{ name, value: runtimeValue }] : [];
-}
-
-function adminSsoFunctionEnv(config: ResolvedInstallConfig) {
+function userManagedProjectSecrets(config: ResolvedInstallConfig) {
   return [
-    { name: ADMIN_SSO_ENV.issuer, value: config.adminSsoIssuer },
-    { name: ADMIN_SSO_ENV.clientId, value: config.adminSsoClientId },
-    ...optionalRuntimeEnv(ADMIN_SSO_ENV.jwksUri, config.adminSsoJwksUri),
-    ...optionalRuntimeEnv(ADMIN_SSO_ENV.audience, config.adminSsoAudience),
-    ...optionalRuntimeEnv(ADMIN_SSO_ENV.redirectUri, config.adminSsoRedirectUri),
-    ...optionalRuntimeEnv(ADMIN_SSO_ENV.postLogoutRedirectUri, config.adminSsoPostLogoutRedirectUri),
-    ...optionalRuntimeEnv(ADMIN_SSO_ENV.allowedEmails, config.adminSsoAllowedEmails),
-    ...optionalRuntimeEnv(ADMIN_SSO_ENV.allowedDomains, config.adminSsoAllowedDomains),
-  ];
-}
-
-function functionEnv(config: ResolvedInstallConfig) {
-  return [
-    { name: 'SUPACLOUD_INTERNAL_API_URL', value: config.supacloudApiUrl },
-    { name: 'SUPACLOUD_INTERNAL_TOKEN', value: config.token },
-    { name: 'SUPAOAUTH_BFF_SIGNING_SECRET', value: config.bffSigningSecret },
-    { name: 'SUPACLOUD_PROJECT_REF', value: config.projectRef },
-    { name: 'SUPACLOUD_RUNTIME_URL', value: config.runtimeUrl },
     ...(config.baseUrl
       ? [
         { name: 'SUPAUTH_PUBLIC_URL', value: config.baseUrl },
         { name: 'SUPAUTH_INSTALLED_BASE_URL', value: config.baseUrl },
       ]
-      : []),
-    ...(config.runtimeInternalUrl
-      ? [{ name: 'SUPACLOUD_RUNTIME_INTERNAL_URL', value: config.runtimeInternalUrl }]
       : []),
     ...(config.oauthAuthorizationProjectRef
       ? [{ name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF', value: config.oauthAuthorizationProjectRef }]
@@ -482,8 +457,6 @@ function functionEnv(config: ResolvedInstallConfig) {
     ...(config.corsOrigins.length > 0
       ? [{ name: 'CORS_ORIGINS', value: config.corsOrigins.join(',') }]
       : []),
-    { name: 'SUPACLOUD_DATABASE_URL', value: config.databaseUrl },
-    ...adminSsoFunctionEnv(config),
   ];
 }
 
@@ -911,7 +884,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   } else {
     await client.request(`/v1/projects/${config.projectRef}/secrets`, {
       method: 'POST',
-      body: JSON.stringify(functionEnv(config)),
+      body: JSON.stringify(userManagedProjectSecrets(config)),
     });
     steps.push({ name: 'runtime-env', status: 'done', detail: 'project runtime secrets' });
   }
