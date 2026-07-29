@@ -78,7 +78,7 @@ jobs:
               gh release upload "$RELEASE_TAG" release-assets/* --clobber
               ;;
             npm)
-              gh workflow run publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref main -f release_tag="$RELEASE_TAG"
+              gh workflow run release-please.yml --repo "$GITHUB_REPOSITORY" --ref main -f release_tag="$RELEASE_TAG"
               echo "Dispatched npm publish workflow for $RELEASE_TAG"
               ;;
             *)
