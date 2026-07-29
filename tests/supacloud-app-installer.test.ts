@@ -62,6 +62,8 @@ const isolatedEnvKeys = [
   'SUPAUTH_API_URL',
   'AUTH_API_URL',
   'CORS_ORIGINS',
+  'SUPACLOUD_EDGE_RUNTIME_UPSTREAM',
+  'EDGE_RUNTIME_UPSTREAM',
   'SUPACLOUD_DATABASE_URL',
   'SUPABASE_DB_URL',
   'SUPAOAUTH_BFF_SIGNING_SECRET',
@@ -822,7 +824,7 @@ describe('SupaCloud app installer', () => {
     expect(failureMessage).not.toContain(echoedEmail);
   });
 
-  it('configures hosted gateway routes when an admin token and base URL are provided', async () => {
+  it('defaults hosted gateway routes to the Management API with a project Host header', async () => {
     const { root, artifactDir } = createFixture();
     const calls: Array<{ path: string; auth: string | null; body: any }> = [];
 
@@ -832,7 +834,6 @@ describe('SupaCloud app installer', () => {
       ...requiredOptions,
       gatewayAdminToken: 'admin-token',
       baseUrl: 'https://auth.example.test',
-      edgeRuntimeUpstream: '127.0.0.1:9000',
       skipMigrationVerify: true,
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
@@ -854,11 +855,14 @@ describe('SupaCloud app installer', () => {
     expect(result.steps).toContainEqual(expect.objectContaining({ name: 'gateway-routes', status: 'done' }));
     expect(gatewayCalls).toHaveLength(3);
     expect(gatewayCalls.every((call) => call.body.path.length <= 20)).toBe(true);
+    expect(gatewayCalls.every((call) => call.body.upstream === '127.0.0.1:9090')).toBe(true);
+    expect(gatewayCalls.every((call) => call.body.headers?.Host === 'auth.example.test')).toBe(true);
     expect(hostedGatewayCall?.auth).toBe('Bearer admin-token');
     expect(hostedGatewayCall?.body).toMatchObject({
       id: 'supauth-function-hosted',
       hosts: ['auth.example.test'],
-      upstream: '127.0.0.1:9000',
+      upstream: '127.0.0.1:9090',
+      headers: { Host: 'auth.example.test' },
       rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       priority: 100,
       cors: expect.arrayContaining(['https://auth.example.test']),
@@ -876,7 +880,8 @@ describe('SupaCloud app installer', () => {
       id: 'supauth-function-admin-root',
       hosts: ['auth.example.test'],
       path: ['/admin'],
-      upstream: '127.0.0.1:9000',
+      upstream: '127.0.0.1:9090',
+      headers: { Host: 'auth.example.test' },
       rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       priority: 100,
       enabled: true,
@@ -940,7 +945,8 @@ describe('SupaCloud app installer', () => {
       id: 'supauth-function-admin-root',
       hosts: ['auth.example.test'],
       path: ['/admin'],
-      upstream: '127.0.0.1:9000',
+      upstream: '127.0.0.1:9090',
+      headers: { Host: 'auth.example.test' },
       rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       priority: 100,
       enabled: true,
@@ -957,6 +963,68 @@ describe('SupaCloud app installer', () => {
     });
     const apiRoute = routeBodies.find((route) => route.id === 'supauth-api');
     expect(apiRoute.path).not.toContain('/auth/v1/*');
+    expect(routeBodies.every((route) => route.upstream === '127.0.0.1:9090')).toBe(true);
+    expect(routeBodies.every((route) => route.headers?.Host === 'auth.example.test')).toBe(true);
+  });
+
+  it('preserves explicit direct Edge upstream overrides without a Management Host header', async () => {
+    const { root, artifactDir } = createFixture();
+    const routeBodies: any[] = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      gatewayAdminToken: 'admin-token',
+      baseUrl: 'https://auth.example.test',
+      edgeRuntimeUpstream: '127.0.0.1:9000',
+      skipMigration: true,
+      skipMigrationVerify: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/gateway/routes') {
+          routeBodies.push(JSON.parse(String(init?.body)));
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(routeBodies).toHaveLength(3);
+    expect(routeBodies.every((route) => route.upstream === '127.0.0.1:9000')).toBe(true);
+    expect(routeBodies.every((route) => !('headers' in route))).toBe(true);
+  });
+
+  it('uses the EDGE_RUNTIME_UPSTREAM environment override for direct Edge routes', async () => {
+    const { root, artifactDir } = createFixture();
+    const routeBodies: any[] = [];
+    process.env.EDGE_RUNTIME_UPSTREAM = '127.0.0.1:9005';
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      gatewayAdminToken: 'admin-token',
+      baseUrl: 'https://auth.example.test',
+      skipMigration: true,
+      skipMigrationVerify: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/gateway/routes') {
+          routeBodies.push(JSON.parse(String(init?.body)));
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(routeBodies).toHaveLength(3);
+    expect(routeBodies.every((route) => route.upstream === '127.0.0.1:9005')).toBe(true);
+    expect(routeBodies.every((route) => !('headers' in route))).toBe(true);
   });
 
   it('rejects wildcard CORS when gateway credentials are enabled', async () => {
