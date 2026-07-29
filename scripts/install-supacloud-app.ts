@@ -252,7 +252,9 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     'SUPACLOUD_ADMIN_TOKEN',
   ]);
   const bffSigningSecret = firstValue(sources, ['SUPAOAUTH_BFF_SIGNING_SECRET']);
-  const runtimeUrl = firstValue(sources, ['SUPACLOUD_RUNTIME_URL', 'OAUTH_RUNTIME_URL', 'SUPABASE_URL']);
+  // SupaCloud 0.50.2 的 runtime env 会用权威 SUPABASE_URL 覆盖项目 API 地址；
+  // 旧的自定义 SUPACLOUD_RUNTIME_URL 可能仍指向托管认证域名，不能用于 Function 直连探针。
+  const runtimeUrl = firstValue(sources, ['SUPABASE_URL', 'SUPACLOUD_RUNTIME_URL', 'OAUTH_RUNTIME_URL']);
   const runtimeInternalUrl = firstValue(sources, [
     'OAUTH_RUNTIME_INTERNAL_URL',
     'SUPACLOUD_RUNTIME_INTERNAL_URL',

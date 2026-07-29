@@ -77,6 +77,9 @@ const isolatedEnvKeys = [
   'EDGE_RUNTIME_UPSTREAM',
   'SUPACLOUD_DATABASE_URL',
   'SUPABASE_DB_URL',
+  'SUPACLOUD_RUNTIME_URL',
+  'OAUTH_RUNTIME_URL',
+  'SUPABASE_URL',
   'SUPAOAUTH_BFF_SIGNING_SECRET',
   'RUNTIME_MODE',
   'ADMIN_SSO_ISSUER',
@@ -295,6 +298,43 @@ describe('SupaCloud app installer', () => {
       expect(result.directFunctionProbe?.ok).toBe(true);
     });
   }
+
+  it('prefers the canonical Supabase project URL over a stale custom runtime URL', async () => {
+    const { root, artifactDir } = createFixture();
+    const envFile = join(root, 'runtime.env');
+    writeFileSync(envFile, [
+      'SUPACLOUD_API_URL=https://management.example.test',
+      'SUPACLOUD_PROJECT_REF=project_123',
+      'SUPACLOUD_API_TOKEN=secret-token',
+      'SUPAOAUTH_BFF_SIGNING_SECRET=installer-bff-signing-secret-0123456789abcdef',
+      'SUPACLOUD_RUNTIME_URL=https://auth.example.test',
+      'SUPABASE_URL=https://api.auth.example.test',
+      'SUPACLOUD_DATABASE_URL=postgres://secret-db',
+      'ADMIN_SSO_ISSUER=https://auth.example.test/auth/v1',
+      'ADMIN_SSO_CLIENT_ID=admin-client',
+      'ADMIN_SSO_ALLOWED_DOMAINS=example.test',
+    ].join('\n'));
+    const fetchedUrls: string[] = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      envFile,
+      skipMigration: true,
+      skipMigrationVerify: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      adminSsoAllowlistVerifier: async () => ({ emailCount: 0, domainCount: 0 }),
+      fetchImpl: async (input) => {
+        fetchedUrls.push(String(input));
+        return new Response('ok', { status: 200 });
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.runtimeUrl).toBe('https://api.auth.example.test');
+    expect(fetchedUrls).toEqual(['https://api.auth.example.test/functions/v1/supauth/api/v1/health']);
+  });
 
   for (const runtimeUrl of [
     'https://project.example.test/auth/v1?tenant=project_123',
