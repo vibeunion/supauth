@@ -12,7 +12,7 @@
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json --threshold error"
   },
   "dependencies": {
-    "@supabase/auth-js": "2.110.7",
+    "@supabase/auth-js": "2.110.9",
     "@supauth/shared": "workspace:*",
     "@svadmin/core": "0.32.2",
     "@svadmin/sso": "0.11.3",

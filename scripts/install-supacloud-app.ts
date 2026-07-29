@@ -155,6 +155,17 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, '');
 }
 
+function isLoopbackManagementUpstream(upstream: string) {
+  try {
+    const parsed = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(upstream) ? upstream : `http://${upstream}`);
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    return parsed.port === '9090' && ['127.0.0.1', 'localhost', '::1'].includes(hostname);
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
+  }
+}
+
 function supacloudProjectBaseUrl(runtimeUrl: string) {
   const parsedRuntimeUrl = new URL(runtimeUrl);
   if (parsedRuntimeUrl.href.includes('?') || parsedRuntimeUrl.href.includes('#')) {
@@ -280,7 +291,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
       baseUrl,
       apiUrl,
     ]),
-    edgeRuntimeUpstream: edgeRuntimeUpstream || '127.0.0.1:9000',
+    edgeRuntimeUpstream: edgeRuntimeUpstream || '127.0.0.1:9090',
     databaseUrl,
     runtimeMode,
     adminSsoIssuer: stripTrailingSlash(adminSsoIssuer),
@@ -577,6 +588,7 @@ async function upsertGatewayRoute(input: {
   path: string[];
   corsOrigins: string[];
   edgeRuntimeUpstream: string;
+  upstreamHostHeader?: string;
   priority: number;
 }) {
   await input.client.request(`/v1/projects/${input.projectRef}/gateway/routes`, {
@@ -590,6 +602,7 @@ async function upsertGatewayRoute(input: {
       priority: input.priority,
       enabled: true,
       cors: input.corsOrigins,
+      ...(input.upstreamHostHeader ? { headers: { Host: input.upstreamHostHeader } } : {}),
     }),
   });
 }
@@ -604,11 +617,13 @@ async function configureGatewayRoutes(input: {
 }) {
   const host = hostnameFromUrl(input.baseUrl);
   if (!host) throw new Error('SUPAUTH_PUBLIC_URL or SUPAUTH_INSTALLED_BASE_URL is required for gateway route binding');
+  const upstreamHostHeader = isLoopbackManagementUpstream(input.edgeRuntimeUpstream) ? host : undefined;
   const routeDefaults = {
     client: input.client,
     projectRef: input.projectRef,
     corsOrigins: input.corsOrigins,
     edgeRuntimeUpstream: input.edgeRuntimeUpstream,
+    upstreamHostHeader,
   };
 
   await upsertGatewayRoute({
