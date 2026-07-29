@@ -195,8 +195,8 @@ export async function claimAccount(input: AccountClaimInput): Promise<AccountCla
     return { status: 'password_unavailable', email: record.email };
   }
 
-  const initialPassword = decryptInitialPassword(record.initialPasswordEncrypted);
   const passwordMode = input.passwordMode || 'show_initial_password';
+  let claimResult: Extract<AccountClaimResult, { status: 'claimed' }>;
 
   if (passwordMode === 'set_on_claim') {
     if (!input.newPassword || !record.userId || !input.updatePassword) {
@@ -209,6 +209,13 @@ export async function claimAccount(input: AccountClaimInput): Promise<AccountCla
       externalId: record.externalId,
       externalType: record.externalType,
     }, input.newPassword);
+    claimResult = { status: 'claimed', email: record.email, passwordSet: true };
+  } else {
+    claimResult = {
+      status: 'claimed',
+      email: record.email,
+      initialPassword: decryptInitialPassword(record.initialPasswordEncrypted),
+    };
   }
 
   const db = getDb();
@@ -234,11 +241,7 @@ export async function claimAccount(input: AccountClaimInput): Promise<AccountCla
     },
   });
 
-  if (passwordMode === 'set_on_claim') {
-    return { status: 'claimed', email: record.email, passwordSet: true };
-  }
-
-  return { status: 'claimed', email: record.email, initialPassword };
+  return claimResult;
 }
 
 export async function listAccountProvisioningRecords(limit = 100, offset = 0) {

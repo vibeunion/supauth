@@ -1,21 +1,21 @@
 const liveProjects = [
   {
-    role: 'business-production',
-    label: '业务生产项目',
-    projectRef: 'dglewlzugrtygzysqrce',
-    database: 'supa_dglewlzugrtygzysqrce',
-    publicUrl: 'https://auth.ai.xigu.team',
-    runtimeUrl: 'https://dglewlzugrtygzysqrce.ai.xigu.team',
-    defaultFor: ['业务数据迁移', '真实用户/RBAC 修复', '生产配置变更', '线上业务验收'],
-  },
-  {
-    role: 'supauth-validation',
-    label: 'SupAuth 开源验证项目',
+    role: 'supauth-production',
+    label: 'SupAuth 正式身份项目',
     projectRef: 'vwsvexjelurvczfivgiz',
     database: 'supa_vwsvexjelurvczfivgiz',
-    publicUrl: 'https://supauth.ai.xigu.team',
-    runtimeUrl: 'https://vwsvexjelurvczfivgiz.ai.xigu.team',
-    defaultFor: ['安装器验证', '发布前 smoke', 'GitHub/开源提交验证', '自托管演示'],
+    publicUrl: 'https://auth.ai.xigu.team',
+    runtimeUrl: 'https://auth.ai.xigu.team',
+    defaultFor: ['SupAuth Function', '中央身份', '账号领取', 'SupAuth 生产配置和验收'],
+  },
+  {
+    role: 'business-application',
+    label: '业务应用项目（非 SupAuth 正式项目）',
+    projectRef: 'dglewlzugrtygzysqrce',
+    database: 'supa_dglewlzugrtygzysqrce',
+    publicUrl: '非 SupAuth 公开入口',
+    runtimeUrl: '由业务应用单独配置',
+    defaultFor: ['所属业务数据', '所属业务 Function'],
   },
 ] as const;
 
@@ -29,4 +29,4 @@ for (const project of liveProjects) {
   console.log('');
 }
 
-console.log('规则：业务操作默认只针对 dglewlzugrtygzysqrce；同时操作两个项目时必须说明同步验证项目的原因。');
+console.log('规则：SupAuth 操作默认只针对 vwsvexjelurvczfivgiz；业务操作仍按各自项目边界执行。');

@@ -36,7 +36,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 ## 域名与路径映射
 
-当前西谷线上环境有两个 SupaCloud project ref：`dglewlzugrtygzysqrce` 是业务生产项目，`vwsvexjelurvczfivgiz` 是 SupAuth 开源验证项目。数据库迁移、生产配置和线上验收前，先按 `docs/live-projects.md` 确认目标项目，避免把验证项目当作业务库操作。
+当前西谷中央 SupAuth 正式身份项目是 `vwsvexjelurvczfivgiz`，`dglewlzugrtygzysqrce` 是独立业务应用项目，不是 SupAuth 正式项目。SupAuth Function、账号领取、中央身份配置和线上验收默认以 `vwsvexjelurvczfivgiz` 为目标；业务数据和业务 Function 仍留在其所属项目。操作前先按 `docs/live-projects.md` 确认边界。
 
 | 服务 | 路径 | 说明 |
 |------|------|------|

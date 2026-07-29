@@ -289,7 +289,9 @@ export async function verifySupacloudInstalledApp(input: {
     { name: 'gotrue_health_preserved', url: joinUrl(runtimeUrl, '/auth/v1/health'), expectation: 'exact-200' },
     { name: 'gotrue_oidc_discovery_preserved', url: joinUrl(runtimeUrl, '/auth/v1/.well-known/openid-configuration'), expectation: 'exact-200' },
     { name: 'gotrue_jwks_preserved', url: joinUrl(runtimeUrl, '/auth/v1/.well-known/jwks.json'), expectation: 'exact-200' },
-    { name: 'postgrest_preserved', url: joinUrl(runtimeUrl, '/rest/v1/'), expectation: 'runtime-preserved', allowedStatuses: [200, 401, 406] },
+    // SupaCloud 0.50.2 对未携带 secret API key 的 Data API 根路径返回 403，
+    // 与 401/406 一样可证明 PostgREST 路由仍存在且由访问边界保护。
+    { name: 'postgrest_preserved', url: joinUrl(runtimeUrl, '/rest/v1/'), expectation: 'runtime-preserved', allowedStatuses: [200, 401, 403, 406] },
     { name: 'storage_preserved', url: joinUrl(runtimeUrl, '/storage/v1/bucket'), expectation: 'runtime-preserved', allowedStatuses: [200, 401] },
     {
       name: 'realtime_preserved',

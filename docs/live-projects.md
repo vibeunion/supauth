@@ -1,20 +1,20 @@
 # Live SupaCloud Projects
 
-本文件记录 SupaOAuth 在当前西谷 SupaCloud 环境中的项目 ref 角色，避免把业务项目和开源验证项目混用。
+本文件记录 SupaOAuth 在当前西谷 SupaCloud 环境中的项目 ref 角色，避免把中央 SupAuth 身份项目和业务应用项目混用。
 
 ## 项目角色
 
 | Project ref | 数据库 | 公开入口 | 角色 | 用途 |
 | --- | --- | --- | --- | --- |
-| `dglewlzugrtygzysqrce` | `supa_dglewlzugrtygzysqrce` | `https://auth.ai.xigu.team` / `https://dglewlzugrtygzysqrce.ai.xigu.team` | 业务生产项目 | 承载真实业务登录、用户、权限和 SupAuth overlay。生产数据迁移、业务修复和线上验证默认以它为目标。 |
-| `vwsvexjelurvczfivgiz` | `supa_vwsvexjelurvczfivgiz` | `https://supauth.ai.xigu.team` / `https://vwsvexjelurvczfivgiz.ai.xigu.team` | SupAuth 开源验证项目 | 用于 SupAuth 自身安装器、发布前 smoke、GitHub 提交/开源验证和自托管演示；默认不承载实际业务。 |
+| `vwsvexjelurvczfivgiz` | `supa_vwsvexjelurvczfivgiz` | `https://auth.ai.xigu.team` | SupAuth 正式身份项目 | 承载中央 GoTrue、SupAuth Function、账号领取和管理入口。SupAuth 生产部署、配置和线上验收默认以它为目标。 |
+| `dglewlzugrtygzysqrce` | `supa_dglewlzugrtygzysqrce` | —（非 SupAuth 入口） | 业务应用项目 | 承载业务应用数据和业务 Function；不是 SupAuth 正式项目，也不能替代中央身份项目。 |
 
 ## 操作规则
 
-- 业务数据迁移、真实用户修复、权限/RBAC 变更、生产配置变更：默认只操作 `dglewlzugrtygzysqrce`。
-- 开源发布验证、安装器验证、SupAuth artifact smoke、自托管演示：使用 `vwsvexjelurvczfivgiz`。
-- 需要同时操作两个项目时，命令、PR 描述或进度记录必须明确写出原因，例如“同步验证项目以证明开源安装包兼容”。
-- 不要把 `vwsvexjelurvczfivgiz` 的小样本用户/配置当作业务验收证据；业务验收应以 `dglewlzugrtygzysqrce` 的运行时和数据库为准。
+- SupAuth Function、中央身份、账号领取和 SupAuth 生产配置：默认只操作 `vwsvexjelurvczfivgiz`。
+- 业务数据和业务 Function：仍操作各自所属的业务项目；`dglewlzugrtygzysqrce` 不能作为 SupAuth 部署目标。
+- 需要跨中央身份项目和业务应用项目操作时，命令、PR 描述或进度记录必须明确写出两个目标及原因。
+- `https://auth.ai.xigu.team/v1/health` 的 `project_ref` 应为 `vwsvexjelurvczfivgiz`，不能用 `dglewlzugrtygzysqrce` 作为 SupAuth 正式环境验收依据。
 
 ## 常用核验
 

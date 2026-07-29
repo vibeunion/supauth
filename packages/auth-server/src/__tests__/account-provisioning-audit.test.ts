@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 const accountClaimSecret = 'account-claim-secret-for-audit-test';
 const originalAccountClaimSecret = process.env.ACCOUNT_CLAIM_SECRET;
 const auditCalls = mock(async (_event: Record<string, unknown>) => ({ id: 'audit-one' }));
+const updateRecord = mock((_values: Record<string, unknown>) => ({ where: async () => [] }));
 const provisionedAccount = {
   id: 'record-one',
   externalId: '10086',
@@ -30,7 +31,7 @@ const database = {
     }),
   })),
   update: mock(() => ({
-    set: () => ({ where: async () => [] }),
+    set: updateRecord,
   })),
 };
 
@@ -42,12 +43,14 @@ const accountProvisioning = await import('../repositories/account-provisioning.j
 describe('account provisioning audit actor', () => {
   beforeEach(() => {
     process.env.ACCOUNT_CLAIM_SECRET = accountClaimSecret;
+    provisionedAccount.userId = 'gotrue-user-one';
     provisionedAccount.initialPasswordClaimed = false;
     provisionedAccount.initialPasswordEncrypted = accountProvisioning.encryptInitialPassword(
       'Init123!',
       accountClaimSecret,
     );
     auditCalls.mockClear();
+    updateRecord.mockClear();
   });
 
   afterAll(() => {
@@ -69,5 +72,53 @@ describe('account provisioning audit actor', () => {
         actorType: 'user',
       });
     }
+  });
+
+  test('set_on_claim ignores an undecryptable historical initial password', async () => {
+    provisionedAccount.initialPasswordEncrypted = accountProvisioning.encryptInitialPassword(
+      'Init123!',
+      'historical-account-claim-secret',
+    );
+    const updatePassword = mock(async () => {});
+
+    const claimResult = await accountProvisioning.claimAccount({
+      externalId: '10086',
+      externalType: 'employee',
+      displayName: '张三',
+      passwordMode: 'set_on_claim',
+      newPassword: 'NewPass123!',
+      updatePassword,
+    });
+
+    expect(claimResult).toEqual({
+      status: 'claimed',
+      email: 'zhangsan@example.com',
+      passwordSet: true,
+    });
+    expect(updatePassword).toHaveBeenCalledWith({
+      userId: 'gotrue-user-one',
+      email: 'zhangsan@example.com',
+      externalId: '10086',
+      externalType: 'employee',
+    }, 'NewPass123!');
+    expect(updateRecord).toHaveBeenCalledWith(expect.objectContaining({
+      initialPasswordClaimed: true,
+      initialPasswordEncrypted: null,
+    }));
+  });
+
+  test('show_initial_password still rejects an undecryptable initial password', async () => {
+    provisionedAccount.initialPasswordEncrypted = accountProvisioning.encryptInitialPassword(
+      'Init123!',
+      'historical-account-claim-secret',
+    );
+
+    await expect(accountProvisioning.claimAccount({
+      externalId: '10086',
+      externalType: 'employee',
+      displayName: '张三',
+      passwordMode: 'show_initial_password',
+    })).rejects.toThrow();
+    expect(updateRecord).not.toHaveBeenCalled();
   });
 });
