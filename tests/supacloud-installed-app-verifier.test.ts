@@ -139,6 +139,24 @@ describe('SupaCloud installed app verifier', () => {
     expect(realtimeHeaders.get('sec-websocket-key')).toBe('dGhlIHNhbXBsZSBub25jZQ==');
   });
 
+  it('accepts SupaCloud 0.50.2 protected PostgREST schema responses', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ '/rest/v1/': 403 }),
+    });
+
+    expect(verification.ok).toBe(true);
+    expect(verification.probes.find((probe) => probe.name === 'postgrest_preserved')).toMatchObject({
+      ok: true,
+      status: 403,
+    });
+  });
+
   it('fails instead of pretending live verification passed when deployed URLs are missing', async () => {
     const { root, artifactDir } = createFixture();
 
@@ -276,7 +294,7 @@ describe('SupaCloud installed app verifier', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.errors).toContain('postgrest_preserved failed: expected HTTP status in [200, 401, 406], got HTTP 404');
+    expect(result.errors).toContain('postgrest_preserved failed: expected HTTP status in [200, 401, 403, 406], got HTTP 404');
     expect(result.errors).toContain('storage_preserved failed: expected HTTP status in [200, 401], got HTTP 404');
     expect(result.errors).toContain('realtime_preserved failed: expected HTTP status in [400, 401, 403, 426], got HTTP 404');
     expect(result.errors.some((error) => error.includes('functions_preserved'))).toBe(false);
