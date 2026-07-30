@@ -260,6 +260,9 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain("password.require_numbers === true");
     expect(body).toContain("password.require_symbols === true");
     expect(body).toContain('passwordPolicyHint.textContent');
+    expect(body).toContain('#password-fields {\n      margin-top: 16px;\n    }');
+    expect(body).toContain('.password-hint {\n      margin: 8px 0 0;');
+    expect(body).not.toContain('.password-hint {\n      margin: -8px 0 16px;');
     expect(body).toContain('type="submit" disabled');
     expect(body).toContain("setMessage('error', t('claimUnavailable'))");
     expect(body).toContain("return 'passwordRequiresUppercase'");
