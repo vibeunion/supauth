@@ -7,13 +7,19 @@
   import { collectionItems, tabFromRoute } from "$lib/resource-page.js";
   import {
     getUser,
+    getUserPermissions,
     getUserRoles,
+    listApplications,
     listUserGrants,
     listUserLogs,
     listUserOrganizations,
     suspendUser,
     unsuspendUser,
   } from "$lib/api/client.js";
+  import {
+    permissionDescription,
+    permissionLabel,
+  } from "$lib/permission-catalog.js";
 
   const tabs = [
     { value: "settings", labelKey: "detail.settings" },
@@ -26,6 +32,9 @@
 
   let user = $state(null);
   let roles = $state([]);
+  let permissions = $state([]);
+  let applications = $state([]);
+  let selectedApplicationId = $state("");
   let logs = $state([]);
   let organizations = $state([]);
   let grants = $state([]);
@@ -36,6 +45,8 @@
     tabFromRoute(page.params.tab, tabValues, "settings"),
   );
   let userId = $derived(page.params.userId);
+  let applicationContextUserId = "";
+  let loadGeneration = 0;
 
   function timestamp(value) {
     return value ? new Date(value).toLocaleString() : t("common.notAvailable");
@@ -56,24 +67,108 @@
     );
   }
 
+  function applicationId(application) {
+    return (
+      application?.client_id ||
+      application?.clientId ||
+      application?.application_id ||
+      application?.id ||
+      ""
+    );
+  }
+
+  function applicationLabel(application) {
+    const id = applicationId(application);
+    return [application?.name || application?.client_name || application?.clientName, id]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  function roleFromAssignment(assignment) {
+    return assignment?.role || assignment;
+  }
+
+  function roleKey(assignment) {
+    const role = roleFromAssignment(assignment);
+    return assignment?.id || assignment?.assignment_id || role?.id || role?.role_id;
+  }
+
+  function normalizedPermission(permission) {
+    if (typeof permission === "string") return { name: permission };
+    return {
+      ...permission,
+      name: permission?.name || permission?.permission || permission?.id || "-",
+    };
+  }
+
+  function permissionKey(permission) {
+    const normalized = normalizedPermission(permission);
+    return normalized.id || normalized.name;
+  }
+
+  function isCurrentLoad(loadContext) {
+    const applicationContext =
+      activeTab === "roles" ? selectedApplicationId : "";
+    return (
+      loadContext.generation === loadGeneration &&
+      loadContext.userId === userId &&
+      loadContext.tab === activeTab &&
+      loadContext.applicationId === applicationContext
+    );
+  }
+
   async function loadUser() {
+    const loadContext = {
+      generation: loadGeneration + 1,
+      userId,
+      tab: activeTab,
+      applicationId: activeTab === "roles" ? selectedApplicationId : "",
+    };
+    loadGeneration = loadContext.generation;
     loading = true;
     error = null;
+    if (loadContext.tab === "roles") {
+      roles = [];
+      permissions = [];
+    }
     try {
-      user = await getUser(userId);
-      if (activeTab === "roles") {
-        roles = collectionItems(await getUserRoles(userId));
-      } else if (activeTab === "logs") {
-        logs = collectionItems(await listUserLogs(userId, { limit: 50 }));
-      } else if (activeTab === "organizations") {
-        organizations = collectionItems(await listUserOrganizations(userId));
-      } else if (activeTab === "grants") {
-        grants = collectionItems(await listUserGrants(userId));
+      const userResponse = await getUser(loadContext.userId);
+      if (!isCurrentLoad(loadContext)) return;
+      user = userResponse;
+      if (loadContext.tab === "roles") {
+        const [applicationResponse, roleResponse, permissionResponse] =
+          await Promise.all([
+            listApplications(),
+            getUserRoles(
+              loadContext.userId,
+              loadContext.applicationId || undefined,
+            ),
+            getUserPermissions(
+              loadContext.userId,
+              undefined,
+              loadContext.applicationId || undefined,
+            ),
+          ]);
+        if (!isCurrentLoad(loadContext)) return;
+        applications = collectionItems(applicationResponse);
+        roles = collectionItems(roleResponse);
+        permissions =
+          permissionResponse?.permissions || collectionItems(permissionResponse);
+      } else if (loadContext.tab === "logs") {
+        const logResponse = await listUserLogs(loadContext.userId, { limit: 50 });
+        if (isCurrentLoad(loadContext)) logs = collectionItems(logResponse);
+      } else if (loadContext.tab === "organizations") {
+        const organizationResponse = await listUserOrganizations(loadContext.userId);
+        if (isCurrentLoad(loadContext)) organizations = collectionItems(organizationResponse);
+      } else if (loadContext.tab === "grants") {
+        const grantResponse = await listUserGrants(loadContext.userId);
+        if (isCurrentLoad(loadContext)) grants = collectionItems(grantResponse);
       }
     } catch (requestError) {
-      error = requestError;
+      if (isCurrentLoad(loadContext)) error = requestError;
+    } finally {
+      if (isCurrentLoad(loadContext)) loading = false;
     }
-    loading = false;
   }
 
   async function toggleSuspension() {
@@ -91,7 +186,12 @@
 
   let lastLoadKey = "";
   $effect(() => {
-    const loadKey = `${userId}:${activeTab}`;
+    if (userId !== applicationContextUserId) {
+      selectedApplicationId = "";
+      applicationContextUserId = userId;
+    }
+    const applicationContext = activeTab === "roles" ? selectedApplicationId : "";
+    const loadKey = `${userId}:${activeTab}:${applicationContext}`;
     if (!userId || loadKey === lastLoadKey) return;
     lastLoadKey = loadKey;
     void loadUser();
@@ -186,19 +286,60 @@
       </section>
     </div>
   {:else if activeTab === "roles"}
-    <RequestState empty={roles.length === 0} emptyTitle="users.noRoles">
-      <div class="space-y-3">
-        {#each roles as role (role.id || role.role_id)}<div
-            class="console-card p-4"
-          >
-            <p class="font-semibold text-surface-900">
-              {role.name || role.role_name || role.role_id}
-            </p>
-            <p class="mt-1 text-sm text-surface-500">
-              {role.description || ""}
-            </p>
-          </div>{/each}
-      </div>
+    <RequestState>
+      <section class="console-card p-4">
+        <label
+          for="user-application-context"
+          class="mb-1 block text-sm font-medium text-surface-700"
+          >{t("users.applicationContext")}</label
+        >
+        <select
+          id="user-application-context"
+          bind:value={selectedApplicationId}
+          class="w-full max-w-lg rounded-lg border border-surface-300 bg-white px-3 py-2 text-sm"
+        >
+          <option value="">{t("users.projectWide")}</option>
+          {#each applications as application (applicationId(application))}
+            <option value={applicationId(application)}>
+              {applicationLabel(application)}
+            </option>
+          {/each}
+        </select>
+      </section>
+      {#if roles.length}
+        <div class="space-y-3">
+          {#each roles as assignment (roleKey(assignment))}
+            {@const role = roleFromAssignment(assignment)}
+            <div class="console-card p-4">
+              <p class="font-semibold text-surface-900">
+                {role.name || role.role_name || role.role_id}
+              </p>
+              <p class="mt-1 text-sm text-surface-500">
+                {role.description || ""}
+              </p>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <p class="console-card p-4 text-sm text-surface-500">{t("users.noRoles")}</p>
+      {/if}
+      <section class="console-card p-4">
+        <h3 class="font-semibold text-surface-900">{t("users.permissions")}</h3>
+        <div class="mt-3 space-y-2">
+          {#each permissions as permission (permissionKey(permission))}
+            {@const item = normalizedPermission(permission)}
+            <div class="rounded-lg border border-surface-200 px-3 py-2">
+              <p class="text-sm font-medium text-surface-900">{permissionLabel(item, t)}</p>
+              <code class="text-xs text-surface-400">{item.name}</code>
+              {#if permissionDescription(item, t)}
+                <p class="mt-1 text-xs text-surface-500">{permissionDescription(item, t)}</p>
+              {/if}
+            </div>
+          {:else}
+            <p class="text-sm text-surface-500">{t("users.noPermissions")}</p>
+          {/each}
+        </div>
+      </section>
     </RequestState>
   {:else if activeTab === "logs"}
     <RequestState empty={logs.length === 0} emptyTitle="No audit log entries">

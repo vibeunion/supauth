@@ -303,13 +303,17 @@ export function deleteUser(userId) {
   });
 }
 
-export function getUserPermissions(userId, orgId) {
-  const qs = orgId ? queryString({ org_id: orgId }) : "";
+export function getUserPermissions(userId, orgId, applicationId) {
+  const qs = queryString({
+    org_id: orgId,
+    application_id: applicationId,
+  });
   return request(`/v1/users/${pathSegment(userId)}/permissions${qs}`);
 }
 
-export function getUserRoles(userId) {
-  return request(`/v1/users/${pathSegment(userId)}/roles`);
+export function getUserRoles(userId, applicationId) {
+  const qs = queryString({ application_id: applicationId });
+  return request(`/v1/users/${pathSegment(userId)}/roles${qs}`);
 }
 
 export function resetUserMfa(userId, factorId) {

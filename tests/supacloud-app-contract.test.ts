@@ -7,7 +7,11 @@ import {
   SUPACLOUD_OWNED_MANAGEMENT_DOMAINS,
   SUPAOAUTH_TABLE_OWNERSHIP,
 } from '../scripts/supacloud-app-contract.js';
-import { HOSTED_MIGRATIONS, MIGRATION_SQL, MIGRATION_V8_SQL } from '../packages/auth-server/src/db/migrate.js';
+import {
+  HOSTED_MIGRATIONS,
+  MIGRATION_SQL,
+  MIGRATION_V11_SQL,
+} from '../packages/auth-server/src/db/migrate.js';
 
 describe('SupAuth SupaCloud app contract', () => {
   it('declares SupaCloud Functions as the only HTTP runtime', () => {
@@ -196,6 +200,7 @@ describe('SupAuth SupaCloud app contract', () => {
       'supauth-overlay-project-claims-v8',
       'supauth-overlay-legacy-webhook-revoke-v9',
       'supauth-overlay-legacy-webhook-retirement-v10',
+      'supauth-overlay-application-permissions-v11',
     ]);
     expect(manifest.migrations.map((migration) => migration.name)).toEqual(
       HOSTED_MIGRATIONS.map((migration) => migration.name),
@@ -221,13 +226,29 @@ describe('SupAuth SupaCloud app contract', () => {
   });
 
   it('keeps RLS helpers fail-closed when JWT permission projection is truncated', () => {
-    const helperSql = MIGRATION_V8_SQL.slice(
-      MIGRATION_V8_SQL.indexOf('CREATE OR REPLACE FUNCTION supaoauth.authorize'),
-      MIGRATION_V8_SQL.indexOf('REVOKE ALL ON FUNCTION supaoauth.current_project_ref'),
+    const helperSql = MIGRATION_V11_SQL.slice(
+      MIGRATION_V11_SQL.indexOf('CREATE OR REPLACE FUNCTION supaoauth.current_permission_claims'),
+      MIGRATION_V11_SQL.indexOf('REVOKE ALL ON FUNCTION supaoauth.current_permission_claims'),
     );
 
-    expect(helperSql).toContain("project_claims -> 'permissions_truncated'");
+    expect(helperSql).toContain("project_claims -> 'projection_unavailable'");
+    expect(helperSql).toContain("application_claims -> 'permissions_truncated'");
+    expect(helperSql).toContain("permission_claims -> 'permissions_truncated'");
     expect(helperSql.match(/permissions_truncated/g) || []).toHaveLength(2);
+  });
+
+  it('preserves root permission inheritance when a target organization has no nested projection', () => {
+    const organizationScopeStart = MIGRATION_V11_SQL.indexOf('), organization_scoped AS (');
+    const organizationScopeSql = MIGRATION_V11_SQL.slice(
+      organizationScopeStart,
+      MIGRATION_V11_SQL.indexOf('  SELECT CASE', organizationScopeStart),
+    );
+
+    expect(organizationScopeSql).toContain(
+      "THEN permission_claims -> 'organizations' -> target_organization_id::text",
+    );
+    expect(organizationScopeSql).toContain('ELSE permission_claims');
+    expect(organizationScopeSql).not.toContain("ELSE '{}'::jsonb");
   });
 
   it('verifies RBAC helper grants without turning missing helper signatures into DB reachability failures', () => {

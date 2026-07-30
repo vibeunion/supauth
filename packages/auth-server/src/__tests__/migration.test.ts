@@ -12,6 +12,7 @@ import {
   MIGRATION_V8_SQL,
   MIGRATION_V9_SQL,
   MIGRATION_V10_SQL,
+  MIGRATION_V11_SQL,
 } from '../db/migrate.js';
 
 const __dirname2 = dirname(fileURLToPath(import.meta.url));
@@ -99,6 +100,7 @@ describe('Hosted migration chain', () => {
       { name: 'supauth-overlay-project-claims-v8', sql: MIGRATION_V8_SQL },
       { name: 'supauth-overlay-legacy-webhook-revoke-v9', sql: MIGRATION_V9_SQL },
       { name: 'supauth-overlay-legacy-webhook-retirement-v10', sql: MIGRATION_V10_SQL },
+      { name: 'supauth-overlay-application-permissions-v11', sql: MIGRATION_V11_SQL },
     ]);
     expect(migrateSrc).toContain('for (const migration of HOSTED_MIGRATIONS)');
     expect(migrateSrc).toContain('await sql.unsafe(migration.sql)');
@@ -112,5 +114,42 @@ describe('Hosted migration chain', () => {
     expect(MIGRATION_V8_SQL).not.toContain("namespace -> 'permissions'");
     expect(MIGRATION_V8_SQL).toContain('supaoauth.current_project_claims()');
     expect(MIGRATION_V8_SQL).toContain('GRANT EXECUTE ON FUNCTION supaoauth.current_project_claims() TO authenticated');
+  });
+
+  it('selects schema-v2 permissions across project, application, and organization contexts', () => {
+    expect(MIGRATION_V11_SQL).toContain('supaoauth.current_project_claims()');
+    expect(MIGRATION_V11_SQL).toContain("auth.jwt() ->> 'client_id'");
+    expect(MIGRATION_V11_SQL).toContain("project_claims -> 'applications' -> trusted_application_id");
+    expect(MIGRATION_V11_SQL).toContain("permission_claims -> 'organizations' -> target_organization_id::text");
+    expect(MIGRATION_V11_SQL).toContain("project_claims ->> 'application_id' = trusted_application_id");
+  });
+
+  it('inherits selected root permissions when an organization projection is absent', () => {
+    const organizationScopeStart = MIGRATION_V11_SQL.indexOf('), organization_scoped AS (');
+    const organizationScopeSql = MIGRATION_V11_SQL.slice(
+      organizationScopeStart,
+      MIGRATION_V11_SQL.indexOf('  SELECT CASE', organizationScopeStart),
+    );
+
+    expect(organizationScopeSql).toContain(
+      "THEN permission_claims -> 'organizations' -> target_organization_id::text",
+    );
+    expect(organizationScopeSql).toContain('ELSE permission_claims');
+    expect(organizationScopeSql).not.toContain("ELSE '{}'::jsonb");
+  });
+
+  it('fails closed for missing, unavailable, or truncated permission projections', () => {
+    expect(MIGRATION_V11_SQL).toContain("ELSE '{}'::jsonb");
+    expect(MIGRATION_V11_SQL).toContain("project_claims -> 'projection_unavailable'");
+    expect(MIGRATION_V11_SQL).toContain("application_claims -> 'permissions_truncated'");
+    expect(MIGRATION_V11_SQL).toContain("permission_claims -> 'permissions_truncated'");
+    expect(MIGRATION_V11_SQL).toContain('supaoauth.current_permission_claims(target_organization_id)');
+  });
+
+  it('binds explicit application checks to the token or narrowed project application', () => {
+    expect(MIGRATION_V11_SQL).toContain(
+      "COALESCE(token_application_id, NULLIF(project_claims ->> 'application_id', '')) = client_id",
+    );
+    expect(MIGRATION_V11_SQL).toContain('supaoauth.authorize(permission_name, organization_id)');
   });
 });

@@ -27,6 +27,7 @@ type ListOperationResult = { ok: true; items: unknown[]; total: number } | Accou
 type MfaOperationResult = { ok: true; data: Record<string, unknown> } | AccountFailure;
 type LogoutScope = 'local' | 'global' | 'others';
 type GoTruePayloadResult = { ok: true; payload: unknown } | AccountFailure;
+type AccessTokenApplicationResult = { ok: true; clientId: string | null } | AccountFailure;
 
 export interface ProviderLinkingCapability {
   available: boolean;
@@ -224,6 +225,32 @@ function bearerToken(headers: Record<string, string | undefined>): string | null
   const authHeader = headers.authorization || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   return match ? match[1].trim() : null;
+}
+
+function decodedJwtPayload(encodedPayload: string): Record<string, unknown> | null {
+  try {
+    const parsedPayload: unknown = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+    return isRecord(parsedPayload) ? parsedPayload : null;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+function accessTokenApplication(accessToken: string): AccessTokenApplicationResult {
+  const segments = accessToken.split('.');
+  if (segments.length !== 3 || !/^[A-Za-z0-9_-]+$/.test(segments[1])) {
+    return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token is not a valid JWT.' };
+  }
+  const tokenPayload = decodedJwtPayload(segments[1]);
+  if (!tokenPayload) {
+    return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token payload is invalid.' };
+  }
+  if (tokenPayload.client_id === undefined) return { ok: true, clientId: null };
+  if (typeof tokenPayload.client_id !== 'string' || !tokenPayload.client_id.trim() || tokenPayload.client_id.length > 255) {
+    return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token client_id is invalid.' };
+  }
+  return { ok: true, clientId: tokenPayload.client_id };
 }
 
 function goTrueRoute(routePath: string) {
@@ -946,6 +973,7 @@ export function createPublicAccountRoutes(options?: {
   enrollTotpMfa?: (accessToken: string, input: { friendly_name: string; issuer?: string }) => Promise<MfaOperationResult>;
   verifyTotpMfa?: (accessToken: string, factorId: string, input: { code: string; challengeId?: string | null }) => Promise<MfaOperationResult>;
   unenrollMfa?: (accessToken: string, factorId: string) => Promise<MfaOperationResult>;
+  resolvePermissions?: (userId: string, orgId?: string, applicationId?: string) => Promise<unknown>;
   deleteAccount?: (userId: string) => Promise<unknown>;
   auditEvent?: (eventType: string, userId: string, details?: Record<string, unknown>) => Promise<void>;
   }) {
@@ -962,8 +990,10 @@ export function createPublicAccountRoutes(options?: {
   const enrollTotpMfa = options?.enrollTotpMfa || enrollTotpMfaWithGoTrue;
   const verifyTotpMfa = options?.verifyTotpMfa || verifyTotpMfaWithGoTrue;
   const unenrollMfa = options?.unenrollMfa || unenrollMfaFactorWithGoTrue;
-    const deleteAccount = options?.deleteAccount || deleteCurrentUserAccount;
-    const auditEvent = options?.auditEvent || auditAccountEvent;
+  const resolvePermissions = options?.resolvePermissions || ((userId: string, orgId?: string, applicationId?: string) =>
+    adapter.resolveUserPermissions(userId, orgId, applicationId));
+  const deleteAccount = options?.deleteAccount || deleteCurrentUserAccount;
+  const auditEvent = options?.auditEvent || auditAccountEvent;
 
   async function requireAccount(headers: Record<string, string | undefined>, set: { status?: unknown }) {
     const token = bearerToken(headers);
@@ -1025,6 +1055,50 @@ export function createPublicAccountRoutes(options?: {
       return { success: true, user: account.user };
     }, {
       detail: { summary: 'Get current account profile with user access token', tags: ['Public', 'Account Center'] },
+    })
+    .get('/permissions', async ({ headers, query, set }) => {
+      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+      if (!account.ok) return account.response;
+      const applicationId = typeof query.application_id === 'string' ? query.application_id.trim() : '';
+      const orgId = typeof query.org_id === 'string' ? query.org_id.trim() : undefined;
+      if (!applicationId || applicationId.length > 255) {
+        set.status = 400;
+        return {
+          success: false,
+          error: { code: 'application_id_required', message: 'A valid application_id is required.' },
+        };
+      }
+      if (orgId && orgId.length > 255) {
+        set.status = 400;
+        return {
+          success: false,
+          error: { code: 'invalid_org_id', message: 'The org_id is too long.' },
+        };
+      }
+      // Cases: ordinary session, matching OAuth client, malformed JWT payload, and cross-client query.
+      const tokenApplication = accessTokenApplication(account.token);
+      if (!tokenApplication.ok) {
+        set.status = tokenApplication.status;
+        return { success: false, error: { code: tokenApplication.code, message: tokenApplication.message } };
+      }
+      if (tokenApplication.clientId && tokenApplication.clientId !== applicationId) {
+        set.status = 403;
+        return {
+          success: false,
+          error: {
+            code: 'application_context_mismatch',
+            message: 'The access token is bound to a different application.',
+          },
+        };
+      }
+      const resolved = await resolvePermissions(account.userId, orgId || undefined, applicationId);
+      return {
+        ...(isRecord(resolved) ? resolved : { data: resolved }),
+        success: true,
+        application_id: applicationId,
+      };
+    }, {
+      detail: { summary: 'Resolve current user permissions for one application', tags: ['Public', 'Account Center', 'RBAC'] },
     })
     .patch('/profile', async ({ headers, body, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);

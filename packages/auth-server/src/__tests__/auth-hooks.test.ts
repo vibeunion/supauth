@@ -127,6 +127,145 @@ describe('Auth Hooks bridge', () => {
     expect((claims.app_metadata as any).supaoauth.projects[projectRef].permissions_version).toBe(3);
   });
 
+  it('narrows OAuth tokens to the matching application without replacing OAuth scope', () => {
+    const otherProject = { roles: ['other-project'], permissions: ['other.read'] };
+    const result = handleCustomAccessToken({
+      claims: {
+        role: 'authenticated',
+        client_id: 'app-a',
+        scope: 'openid email',
+        app_metadata: {
+          provider: 'email',
+          supaoauth: {
+            schema_version: 2,
+            projects: {
+              [projectRef]: {
+                roles: ['global'],
+                permissions: ['global.read'],
+                scopes: ['global-scope'],
+                applications: {
+                  'app-a': {
+                    roles: ['app-a-role', 'global'],
+                    permissions: ['app-a.read', 'global.read'],
+                    scopes: ['app-a-scope', 'global-scope'],
+                    organization_ids: ['org-a'],
+                    organizations: {
+                      'org-a': {
+                        roles: ['app-a-org-role', 'app-a-role', 'global', 'org-a-role'],
+                        permissions: ['app-a.org.approve', 'app-a.read', 'global.read', 'org-a.read'],
+                        scopes: ['app-a-org-scope', 'app-a-scope', 'global-scope', 'org-a-scope'],
+                      },
+                    },
+                  },
+                  'app-b': {
+                    roles: ['app-b-role'],
+                    permissions: ['app-b.read'],
+                    scopes: ['app-b-scope'],
+                  },
+                },
+              },
+              'project-two': otherProject,
+            },
+          },
+        },
+      },
+    }, noOrganizationMemberships, projectRef);
+
+    const claims = claimsResult(result).claims;
+    const supaoauth = (claims.app_metadata as any).supaoauth;
+    const projection = supaoauth.projects[projectRef];
+    expect(claims.client_id).toBe('app-a');
+    expect(claims.scope).toBe('openid email');
+    expect((claims.app_metadata as any).provider).toBe('email');
+    expect(supaoauth.projects['project-two']).toEqual(otherProject);
+    expect(projection).toMatchObject({
+      application_id: 'app-a',
+      roles: ['app-a-role', 'global'],
+      permissions: ['app-a.read', 'global.read'],
+      scopes: ['app-a-scope', 'global-scope'],
+      organization_ids: ['org-a'],
+      organization_memberships: [],
+    });
+    expect(projection.organizations['org-a'].permissions).toEqual([
+      'app-a.org.approve',
+      'app-a.read',
+      'global.read',
+      'org-a.read',
+    ]);
+    expect(projection.applications).toBeUndefined();
+    expect(JSON.stringify(projection)).not.toContain('app-b.read');
+  });
+
+  it('keeps only project inheritance for an unknown OAuth application', () => {
+    const result = handleCustomAccessToken({
+      claims: {
+        role: 'authenticated',
+        client_id: 'unknown-app',
+        scope: 'openid',
+        app_metadata: {
+          supaoauth: {
+            schema_version: 2,
+            projects: {
+              [projectRef]: {
+                roles: ['global'],
+                permissions: ['global.read'],
+                scopes: ['global-scope'],
+                organizations: {
+                  'org-a': { roles: ['global', 'org-a-role'], permissions: ['global.read', 'org-a.read'] },
+                },
+                applications: {
+                  'app-a': { roles: ['app-a-role'], permissions: ['app-a.read'] },
+                },
+              },
+            },
+          },
+        },
+      },
+    }, noOrganizationMemberships, projectRef);
+
+    const projection = (claimsResult(result).claims.app_metadata as any).supaoauth.projects[projectRef];
+    expect(projection).toMatchObject({
+      application_id: 'unknown-app',
+      roles: ['global'],
+      permissions: ['global.read'],
+      scopes: ['global-scope'],
+    });
+    expect(projection.organizations['org-a'].permissions).toEqual(['global.read', 'org-a.read']);
+    expect(projection.applications).toBeUndefined();
+    expect(JSON.stringify(projection)).not.toContain('app-a.read');
+  });
+
+  it('preserves application namespaces for ordinary sessions and sticky empty application projections', () => {
+    const applicationProjection = {
+      roles: ['global'],
+      permissions: ['global.read'],
+      scopes: [],
+      organization_ids: [],
+      organizations: {},
+    };
+    const result = handleCustomAccessToken({
+      claims: {
+        role: 'authenticated',
+        app_metadata: {
+          supaoauth: {
+            schema_version: 2,
+            projects: {
+              [projectRef]: {
+                roles: ['global'],
+                permissions: ['global.read'],
+                applications: { 'app-a': applicationProjection },
+              },
+            },
+          },
+        },
+      },
+    }, noOrganizationMemberships, projectRef);
+
+    const projection = (claimsResult(result).claims.app_metadata as any).supaoauth.projects[projectRef];
+    expect(projection.application_id).toBeUndefined();
+    expect(projection.applications).toEqual({ 'app-a': applicationProjection });
+  });
+
   it('removes legacy top-level and root v1 SupaOAuth claims from custom access token output', () => {
     const result = handleCustomAccessToken({
       authentication_method: 'token_refresh',

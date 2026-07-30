@@ -594,12 +594,19 @@ export class SupaCloudAdapter {
     throw capabilityUnavailable('gotrue_admin_user_sessions');
   }
 
-  async getUserRoleAssignments(userId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/roles`);
+  async getUserRoleAssignments(userId: string, applicationId?: string) {
+    return this.request(
+      `/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/roles${queryString({ application_id: applicationId })}`,
+    );
   }
 
-  async resolveUserPermissions(userId: string, orgId?: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/permissions${queryString({ org_id: orgId })}`);
+  async resolveUserPermissions(userId: string, orgId?: string, applicationId?: string) {
+    return this.request(
+      `/v1/projects/${this.projectRef}/auth/users/${pathSegment(userId)}/permissions${queryString({
+        org_id: orgId,
+        application_id: applicationId,
+      })}`,
+    );
   }
 
   async listUserOrganizations(userId: string) {

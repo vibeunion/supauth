@@ -84,8 +84,8 @@ export async function listRoleAssignments(roleId: string) {
 }
 
 /** Get all role assignments for a user */
-export async function getUserRoleAssignments(userId: string) {
-  return getSupaCloudAdapter().getUserRoleAssignments(userId);
+export async function getUserRoleAssignments(userId: string, applicationId?: string) {
+  return getSupaCloudAdapter().getUserRoleAssignments(userId, applicationId);
 }
 
 /** Get all role assignments for an organization */
@@ -94,6 +94,6 @@ export async function getOrgRoleAssignments(orgId: string) {
 }
 
 /** Resolve effective permissions for a user (optionally in org context) */
-export async function resolveUserPermissions(userId: string, orgId?: string) {
-  return getSupaCloudAdapter().resolveUserPermissions(userId, orgId);
+export async function resolveUserPermissions(userId: string, orgId?: string, applicationId?: string) {
+  return getSupaCloudAdapter().resolveUserPermissions(userId, orgId, applicationId);
 }

@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
+import { observabilityMiddleware } from '../middleware/index.js';
 import {
   authorizeIdentityLinkWithGoTrue,
   createPublicAccountRoutes,
@@ -17,6 +18,7 @@ import {
   updateAccountProfileWithGoTrue,
   verifyTotpMfaWithGoTrue,
 } from '../routes/account-self-service.js';
+import { SupaCloudApiError } from '../supacloud/adapter.js';
 
 const disabledProviderLinkingCapability = resolveProviderLinkingCapability({}, 'https://auth.example.test');
 const enabledProviderLinkingCapability = resolveProviderLinkingCapability({
@@ -52,6 +54,12 @@ function routes(options: Parameters<typeof createPublicAccountRoutes>[0] = {}) {
     getProviderLinkingCapability: async () => disabledProviderLinkingCapability,
     ...options,
   });
+}
+
+function testAccessToken(claims: Record<string, unknown> = {}) {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ sub: 'user-1', ...claims })).toString('base64url');
+  return `${header}.${payload}.signature`;
 }
 
 describe('account self-service API', () => {
@@ -528,6 +536,110 @@ describe('account self-service API', () => {
     expect(await response.json()).toEqual({
       success: true,
       user: { id: 'user-1', email: 'user@example.test' },
+    });
+  });
+
+  test('resolves permissions only for the requested application context', async () => {
+    const app = new Elysia().use(routes({
+      getAccount: async () => ({ ok: true, user: { id: 'user-1', email: 'user@example.test' } }),
+      resolvePermissions: async (userId, orgId, applicationId) => {
+        expect(userId).toBe('user-1');
+        expect(orgId).toBe('org-one');
+        expect(applicationId).toBe('fa-app');
+        return { roles: ['fa_engineer'], permissions: ['fa.rework.approve'], scopes: [] };
+      },
+    }));
+
+    const response = await app.handle(new Request(
+      'http://localhost/v1/public/account/permissions?application_id=fa-app&org_id=org-one&user_id=user-2',
+      { headers: { Authorization: `Bearer ${testAccessToken()}` } },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: true,
+      application_id: 'fa-app',
+      roles: ['fa_engineer'],
+      permissions: ['fa.rework.approve'],
+      scopes: [],
+    });
+  });
+
+  test('rejects public permission resolution without an application context', async () => {
+    const app = new Elysia().use(routes({
+      getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
+    }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/account/permissions', {
+      headers: { Authorization: 'Bearer user-access-token' },
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: { code: 'application_id_required', message: 'A valid application_id is required.' },
+    });
+  });
+
+  test('rejects a query for a different OAuth client before permission resolution', async () => {
+    const resolvePermissions = mock(async () => ({ permissions: ['unexpected'] }));
+    const app = new Elysia().use(routes({
+      getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
+      resolvePermissions,
+    }));
+
+    const response = await app.handle(new Request(
+      'http://localhost/v1/public/account/permissions?application_id=app-b',
+      { headers: { Authorization: `Bearer ${testAccessToken({ client_id: 'app-a' })}` } },
+    ));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: {
+        code: 'application_context_mismatch',
+        message: 'The access token is bound to a different application.',
+      },
+    });
+    expect(resolvePermissions).not.toHaveBeenCalled();
+  });
+
+  test('fails closed when a verified account is paired with a malformed access token', async () => {
+    const resolvePermissions = mock(async () => ({ permissions: ['unexpected'] }));
+    const app = new Elysia().use(routes({
+      getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
+      resolvePermissions,
+    }));
+
+    const response = await app.handle(new Request(
+      'http://localhost/v1/public/account/permissions?application_id=app-a',
+      { headers: { Authorization: 'Bearer opaque-token' } },
+    ));
+
+    expect(response.status).toBe(401);
+    expect((await response.json() as any).error.code).toBe('invalid_token');
+    expect(resolvePermissions).not.toHaveBeenCalled();
+  });
+
+  test('preserves SupaCloud permission lookup failures', async () => {
+    const app = new Elysia()
+      .use(observabilityMiddleware)
+      .use(routes({
+        getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
+        resolvePermissions: async () => {
+          throw new SupaCloudApiError(503, 'rbac unavailable', '/rbac/permissions');
+        },
+      }));
+
+    const response = await app.handle(new Request(
+      'http://localhost/v1/public/account/permissions?application_id=app-a',
+      { headers: { Authorization: `Bearer ${testAccessToken()}` } },
+    ));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: { code: 'supacloud_upstream_error' },
     });
   });
 

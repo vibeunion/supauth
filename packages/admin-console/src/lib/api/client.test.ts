@@ -155,6 +155,25 @@ describe("admin business API authentication recovery", () => {
     ).resolves.toMatchObject({ items: [], total: 0 });
   });
 
+  test("forwards the selected application for user roles and permissions", async () => {
+    const requestedUrls = [];
+    const fetcher = mock(async (input) => {
+      requestedUrls.push(String(input));
+      return Response.json({ items: [], total: 0 });
+    });
+    setAdminAuthenticatedFetch(fetcher);
+
+    await adminClient.getUserRoles("user/one", "application/one");
+    await adminClient.getUserPermissions("user/one", "org/one", "application/one");
+
+    expect(requestedUrls[0]).toEndWith(
+      "/api/v1/users/user%2Fone/roles?application_id=application%2Fone",
+    );
+    expect(requestedUrls[1]).toEndWith(
+      "/api/v1/users/user%2Fone/permissions?org_id=org%2Fone&application_id=application%2Fone",
+    );
+  });
+
   test("encodes untrusted path identifiers before issuing a request", async () => {
     const fetcher = mock(async (input) => {
       expect(String(input)).toEndWith("/api/v1/users/user%2Fwith%20space");

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import { t } from "$lib/i18n.js";
+  import { collectionItems } from "$lib/resource-page.js";
   import {
     listUsers,
     createUser,
@@ -12,6 +13,7 @@
     resetUserMfa,
     getUserRoles,
     getUserPermissions,
+    listApplications,
   } from "$lib/api/client.js";
   import {
     permissionDescription,
@@ -39,6 +41,12 @@
   let roles = $state([]);
   let permissions = $state([]);
   let rolesPermissionsLoaded = $state(false);
+  let rolesPermissionsLoading = $state(false);
+  let applications = $state([]);
+  let applicationsLoaded = $state(false);
+  let applicationLoadError = $state(null);
+  let selectedApplicationId = $state("");
+  let rolesPermissionsGeneration = 0;
 
   function isSuspended(user) {
     const until = user?.banned_until;
@@ -101,6 +109,49 @@
   function permissionKey(permission) {
     const normalized = normalizePermission(permission);
     return normalized.id || normalized.name;
+  }
+
+  function applicationId(application) {
+    return (
+      application?.client_id ||
+      application?.clientId ||
+      application?.application_id ||
+      application?.id ||
+      ""
+    );
+  }
+
+  function applicationLabel(application) {
+    const id = applicationId(application);
+    return [application?.name || application?.client_name || application?.clientName, id]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  function roleFromAssignment(assignment) {
+    return assignment?.role || assignment;
+  }
+
+  function roleKey(assignment) {
+    const role = roleFromAssignment(assignment);
+    return assignment?.id || assignment?.assignment_id || role?.id || role?.role_id;
+  }
+
+  function resetRolesPermissions() {
+    rolesPermissionsGeneration += 1;
+    rolesPermissionsLoaded = false;
+    rolesPermissionsLoading = false;
+    roles = [];
+    permissions = [];
+  }
+
+  function isCurrentRolesPermissionsLoad(loadContext) {
+    return (
+      loadContext.generation === rolesPermissionsGeneration &&
+      selectedUser?.id === loadContext.userId &&
+      selectedApplicationId === loadContext.applicationId &&
+      activeTab === "rolesPermissions"
+    );
   }
 
   function factorTypeLabel(type) {
@@ -171,9 +222,10 @@
     openMenuId = null;
     selectedUser = user;
     activeTab = "profile";
-    rolesPermissionsLoaded = false;
-    roles = [];
-    permissions = [];
+    resetRolesPermissions();
+    selectedApplicationId = "";
+    applicationsLoaded = false;
+    applicationLoadError = null;
     drawerLoading = true;
     try {
       // 拉取最新详情，确保 identities / factors 为实时数据
@@ -183,28 +235,70 @@
     } catch (e) {
       error = e;
     }
+    void loadApplications();
     drawerLoading = false;
   }
 
-  async function ensureRolesPermissions() {
-    if (rolesPermissionsLoaded || !selectedUser) return;
+  async function loadApplications() {
+    applicationLoadError = null;
+    applicationsLoaded = false;
     try {
-      const [r, p] = await Promise.all([
-        getUserRoles(selectedUser.id),
-        getUserPermissions(selectedUser.id),
-      ]);
-      roles = r.items || r.data || (Array.isArray(r) ? r : []);
-      permissions =
-        p.items || p.permissions || p.data || (Array.isArray(p) ? p : []);
-    } catch (e) {
-      error = e;
+      applications = collectionItems(await listApplications());
+      applicationsLoaded = true;
+      if (activeTab === "rolesPermissions") await ensureRolesPermissions();
+    } catch (requestError) {
+      applications = [];
+      applicationLoadError = requestError;
     }
-    rolesPermissionsLoaded = true;
+  }
+
+  async function ensureRolesPermissions() {
+    if (rolesPermissionsLoaded || !selectedUser || !applicationsLoaded || applicationLoadError) return;
+    const loadContext = {
+      generation: rolesPermissionsGeneration + 1,
+      userId: selectedUser.id,
+      applicationId: selectedApplicationId,
+    };
+    rolesPermissionsGeneration = loadContext.generation;
+    rolesPermissionsLoading = true;
+    error = null;
+    try {
+      const [roleResponse, permissionResponse] = await Promise.all([
+        getUserRoles(loadContext.userId, loadContext.applicationId || undefined),
+        getUserPermissions(
+          loadContext.userId,
+          undefined,
+          loadContext.applicationId || undefined,
+        ),
+      ]);
+      if (!isCurrentRolesPermissionsLoad(loadContext)) return;
+      roles =
+        roleResponse.items ||
+        roleResponse.data ||
+        (Array.isArray(roleResponse) ? roleResponse : []);
+      permissions =
+        permissionResponse.items ||
+        permissionResponse.permissions ||
+        permissionResponse.data ||
+        (Array.isArray(permissionResponse) ? permissionResponse : []);
+      rolesPermissionsLoaded = true;
+    } catch (requestError) {
+      if (isCurrentRolesPermissionsLoad(loadContext)) error = requestError;
+    } finally {
+      if (isCurrentRolesPermissionsLoad(loadContext)) rolesPermissionsLoading = false;
+    }
+  }
+
+  async function changeApplication(event) {
+    selectedApplicationId = event.currentTarget.value;
+    resetRolesPermissions();
+    await ensureRolesPermissions();
   }
 
   function switchTab(tab) {
     activeTab = tab;
-    if (tab === "rolesPermissions") ensureRolesPermissions();
+    if (tab === "rolesPermissions") void ensureRolesPermissions();
+    else resetRolesPermissions();
   }
 
   async function handleCreateUser() {
@@ -687,30 +781,70 @@
           </div>
         {:else if activeTab === "rolesPermissions"}
           <section>
+            <div class="mb-4 rounded-xl border border-surface-200 bg-white p-4">
+              <label
+                for="drawer-application-context"
+                class="mb-1 block text-sm font-medium text-surface-700"
+                >{t("users.applicationContext")}</label
+              >
+              {#if applicationLoadError}
+                <div class="flex items-center justify-between gap-3 text-sm text-red-700">
+                  <span>{t("users.applicationLoadFailed")}</span>
+                  <button
+                    onclick={loadApplications}
+                    class="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold hover:bg-red-50"
+                    >{t("users.retryApplications")}</button
+                  >
+                </div>
+              {:else if !applicationsLoaded}
+                <p class="text-sm text-surface-400">{t("Loading...")}</p>
+              {:else}
+                <select
+                  id="drawer-application-context"
+                  value={selectedApplicationId}
+                  onchange={changeApplication}
+                  class="w-full rounded-lg border border-surface-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">{t("users.projectWide")}</option>
+                  {#each applications as application (applicationId(application))}
+                    <option value={applicationId(application)}>
+                      {applicationLabel(application)}
+                    </option>
+                  {/each}
+                </select>
+              {/if}
+            </div>
             <h4 class="text-sm font-semibold text-surface-700 mb-2">
               {t("users.assignedRoles")}
             </h4>
             <div
               class="bg-white rounded-xl border border-surface-200 divide-y divide-surface-100"
             >
-              {#each roles as role (role.id)}
-                <div class="px-4 py-3 flex items-center justify-between gap-3">
-                  <div class="min-w-0">
-                    <div class="text-sm font-medium text-surface-900 truncate">
-                      {role.name}
-                    </div>
-                    {#if role.description}<div
-                        class="text-xs text-surface-400 truncate"
-                      >
-                        {role.description}
-                      </div>{/if}
-                  </div>
+              {#if rolesPermissionsLoading}
+                <div class="px-4 py-6 text-center text-sm text-surface-400">
+                  {t("Loading...")}
                 </div>
               {:else}
-                <div class="px-4 py-6 text-center text-sm text-surface-400">
-                  {t("users.noRoles")}
-                </div>
-              {/each}
+                {#each roles as assignment (roleKey(assignment))}
+                  {@const role = roleFromAssignment(assignment)}
+                  <div class="px-4 py-3 flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium text-surface-900 truncate">
+                        {role.name}
+                      </div>
+                      {#if role.description}<div
+                          class="text-xs text-surface-400 truncate"
+                        >
+                          {role.description}
+                        </div>{/if}
+                    </div>
+                  </div>
+                {:else}
+                  <div class="px-4 py-6 text-center text-sm text-surface-400">
+                    {t("users.noRoles")}
+                  </div>
+                {/each}
+              {/if}
             </div>
           </section>
           <section>
@@ -723,7 +857,13 @@
             <p class="text-xs text-surface-500 mb-3">
               {t("users.permissionsSource")}
             </p>
-            {#if permissions.length}
+            {#if rolesPermissionsLoading}
+              <div
+                class="bg-white rounded-xl border border-surface-200 px-4 py-6 text-center text-sm text-surface-400"
+              >
+                {t("Loading...")}
+              </div>
+            {:else if permissions.length}
               <div class="grid gap-2">
                 {#each permissions as perm (permissionKey(perm))}
                   {@const item = normalizePermission(perm)}

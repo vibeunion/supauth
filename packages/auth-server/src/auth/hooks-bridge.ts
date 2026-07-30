@@ -7,6 +7,22 @@ const SUPAOAUTH_PROJECT_PROJECTION_BYTE_LIMIT = 16 * 1024;
 const SUPAOAUTH_NAMESPACE_PROJECTION_BYTE_LIMIT = 64 * 1024;
 const SUPAOAUTH_ORGANIZATION_MEMBERSHIP_LIMIT = 50;
 const SUPAOAUTH_ORGANIZATION_MEMBERSHIP_FIELD_LENGTH_LIMIT = 128;
+const APPLICATION_PERMISSION_FIELDS = [
+  'roles',
+  'roles_count',
+  'roles_truncated',
+  'roles_projection_limit',
+  'permissions',
+  'permissions_count',
+  'permissions_truncated',
+  'permissions_projection_limit',
+  'scopes',
+  'scopes_count',
+  'organization_ids',
+  'organization_ids_count',
+  'organizations',
+  'organizations_count',
+] as const;
 const utf8Encoder = new TextEncoder();
 
 export interface AuthHookError {
@@ -53,6 +69,14 @@ export interface OrganizationMembershipClaims {
   }>;
   total: number;
   truncated: boolean;
+}
+
+interface CustomAccessTokenProjectionContext {
+  existingContainer: unknown;
+  organizationMemberships: OrganizationMembershipClaims;
+  projectRef: string;
+  authenticationMethod: string;
+  applicationId?: string;
 }
 
 function normalizeDomain(domain: string): string {
@@ -148,6 +172,26 @@ function projectProjection(projects: Record<string, unknown>, projectRef: string
   return isRecord(projection) ? projection : {};
 }
 
+function permissionProjectionFields(permissionSource: Record<string, unknown>) {
+  const projectedFields: Record<string, unknown> = {};
+  for (const field of APPLICATION_PERMISSION_FIELDS) {
+    if (Object.hasOwn(permissionSource, field)) projectedFields[field] = permissionSource[field];
+  }
+  return projectedFields;
+}
+
+function projectForOAuthClient(currentProject: Record<string, unknown>, applicationId: string) {
+  if (currentProject.projection_unavailable === true) return currentProject;
+  const applications = isRecord(currentProject.applications) ? currentProject.applications : {};
+  const application = isRecord(applications[applicationId]) ? applications[applicationId] : null;
+  const permissionSource = application || currentProject;
+  const nextProject: Record<string, unknown> = { ...currentProject, application_id: applicationId };
+  delete nextProject.applications;
+  delete nextProject.applications_count;
+  for (const field of APPLICATION_PERMISSION_FIELDS) delete nextProject[field];
+  return Object.assign(nextProject, permissionProjectionFields(permissionSource));
+}
+
 function projectWithOrganizations(
   currentProject: Record<string, unknown>,
   organizationMemberships: OrganizationMembershipClaims,
@@ -203,23 +247,21 @@ function hookMetadata(authenticationMethod: string) {
   };
 }
 
-function customAccessTokenSupaoauth(
-  existingContainer: unknown,
-  organizationMemberships: OrganizationMembershipClaims,
-  projectRef: string,
-  authenticationMethod: string,
-) {
-  const existingProjects = schemaV2Projects(existingContainer);
-  const currentProject = projectProjection(existingProjects, projectRef);
-  const nextProject = projectWithSafeMemberships(currentProject, organizationMemberships);
-  if (!nextProject) return null;
+function customAccessTokenSupaoauth(context: CustomAccessTokenProjectionContext) {
+  const existingProjects = schemaV2Projects(context.existingContainer);
+  const currentProject = projectProjection(existingProjects, context.projectRef);
+  const projectWithMemberships = projectWithSafeMemberships(currentProject, context.organizationMemberships);
+  if (!projectWithMemberships) return null;
+  const nextProject = context.applicationId
+    ? projectForOAuthClient(projectWithMemberships, context.applicationId)
+    : projectWithMemberships;
   const nextSupaoauth = {
     schema_version: SUPAOAUTH_APP_METADATA_SCHEMA_VERSION,
     projects: {
       ...existingProjects,
-      [projectRef]: nextProject,
+      [context.projectRef]: nextProject,
     },
-    hook: hookMetadata(authenticationMethod),
+    hook: hookMetadata(context.authenticationMethod),
   };
   return withinNamespaceProjectionBudget(nextSupaoauth) ? nextSupaoauth : null;
 }
@@ -233,6 +275,10 @@ function customAccessTokenInputError(
   }
   if (claims.role !== undefined && !SUPABASE_RUNTIME_ROLES.some((runtimeRole) => runtimeRole === claims.role)) {
     return reject(400, 'The top-level Supabase role claim is invalid.', 'invalid_supabase_role');
+  }
+  if (claims.client_id !== undefined
+    && (typeof claims.client_id !== 'string' || !claims.client_id.trim() || claims.client_id.length > 255)) {
+    return reject(400, 'The OAuth client_id claim is invalid.', 'invalid_oauth_client_id');
   }
   return null;
 }
@@ -259,12 +305,13 @@ export function handleCustomAccessToken(
   const inputError = customAccessTokenInputError(claims, projectRef);
   if (inputError) return inputError;
   const appMetadata = isRecord(claims.app_metadata) ? claims.app_metadata : {};
-  const supaoauth = customAccessTokenSupaoauth(
-    appMetadata.supaoauth,
+  const supaoauth = customAccessTokenSupaoauth({
+    existingContainer: appMetadata.supaoauth,
     organizationMemberships,
     projectRef,
-    payload.authentication_method || 'unknown',
-  );
+    authenticationMethod: payload.authentication_method || 'unknown',
+    applicationId: typeof claims.client_id === 'string' ? claims.client_id : undefined,
+  });
   if (!supaoauth) {
     return reject(500, 'The SupaOAuth claim projection exceeds its safe bounds.', 'claim_projection_overflow');
   }

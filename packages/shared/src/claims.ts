@@ -124,6 +124,7 @@ export interface SupaOAuthApplicationProjection extends SupaOAuthPermissionSetPr
 }
 
 export interface SupaOAuthProjectProjection extends SupaOAuthPermissionSetProjection {
+  application_id?: string;
   rbac_version?: number;
   permissions_version?: number;
   organization_ids?: string[];

@@ -42,6 +42,7 @@
   let assignmentForm = $state({
     targetType: "user",
     targetId: "",
+    applicationId: "",
     organizationId: "",
     assignmentId: "",
   });
@@ -254,10 +255,10 @@
 
   function applicationId(application) {
     return (
-      application?.id ||
       application?.client_id ||
       application?.clientId ||
       application?.application_id ||
+      application?.id ||
       ""
     );
   }
@@ -306,7 +307,7 @@
     const target = assignmentTarget(assignment);
     return (
       assignmentIdOf(assignment) ||
-      `${target.type}:${target.id}:${assignmentOrganization(assignment)}`
+      `${target.type}:${target.id}:${assignmentApplication(assignment)}:${assignmentOrganization(assignment)}`
     );
   }
 
@@ -322,6 +323,14 @@
 
   function assignmentOrganization(assignment) {
     return assignment?.organization_id || assignment?.organizationId || "-";
+  }
+
+  function assignmentApplication(assignment) {
+    return (
+      assignment?.application_id ||
+      assignment?.applicationId ||
+      t("roles.projectWide")
+    );
   }
 
   function assignmentCreatedAt(assignment) {
@@ -667,7 +676,12 @@
     if (!targetId) return;
     const payload = {
       ...(assignmentForm.targetType === "user"
-        ? { user_id: targetId }
+        ? {
+            user_id: targetId,
+            ...(assignmentForm.applicationId.trim()
+              ? { application_id: assignmentForm.applicationId.trim() }
+              : {}),
+          }
         : { application_id: targetId }),
       ...(assignmentForm.organizationId.trim()
         ? { organization_id: assignmentForm.organizationId.trim() }
@@ -685,7 +699,11 @@
     saving = true;
     try {
       const assignment = await assignRole(role.id, payload);
-      assignmentForm = { ...assignmentForm, targetId: "" };
+      assignmentForm = {
+        ...assignmentForm,
+        targetId: "",
+        applicationId: "",
+      };
       assignmentMessage = formatText("roles.assignmentCreated", {
         id: assignmentIdOf(assignment) || t("common.notAvailable"),
       });
@@ -1403,7 +1421,7 @@
                 onRetry={loadAssignmentTargets}
               >
                 <div
-                  class="mt-4 grid gap-3 md:grid-cols-[160px_1fr_1fr_auto] md:items-end"
+                  class="mt-4 grid gap-3 lg:grid-cols-[160px_1fr_1fr_1fr_auto] lg:items-end"
                 >
                 <div>
                   <label
@@ -1415,7 +1433,11 @@
                     id="assignment-target-type"
                     bind:value={assignmentForm.targetType}
                     onchange={() => {
-                      assignmentForm = { ...assignmentForm, targetId: "" };
+                      assignmentForm = {
+                        ...assignmentForm,
+                        targetId: "",
+                        applicationId: "",
+                      };
                       targetSearch = "";
                     }}
                     class="w-full rounded-xl border border-surface-300 bg-white px-3 py-2 text-sm"
@@ -1426,6 +1448,27 @@
                     >
                   </select>
                 </div>
+                {#if assignmentForm.targetType === "user"}
+                  <div>
+                    <label
+                      for="assignment-application-id"
+                      class="mb-1 block text-sm font-medium text-surface-700"
+                      >{t("roles.applicationOptional")}</label
+                    >
+                    <select
+                      id="assignment-application-id"
+                      bind:value={assignmentForm.applicationId}
+                      class="w-full rounded-xl border border-surface-300 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">{t("roles.projectWide")}</option>
+                      {#each applications as application (applicationId(application))}
+                        <option value={applicationId(application)}>
+                          {applicationLabel(application)}
+                        </option>
+                      {/each}
+                    </select>
+                  </div>
+                {/if}
                 <div>
                   <label
                     for="assignment-target-id"
@@ -1585,6 +1628,9 @@
                           >{t("roles.targetId")}</th
                         >
                         <th class="px-3 py-2 text-left"
+                          >{t("roles.assignmentApplication")}</th
+                        >
+                        <th class="px-3 py-2 text-left"
                           >{t("roles.organizationOptional")}</th
                         >
                         <th class="px-3 py-2 text-left">{t("Created")}</th>
@@ -1606,6 +1652,9 @@
                               class="rounded bg-surface-100 px-1.5 py-0.5 text-xs text-surface-600"
                               >{target.id}</code
                             ></td
+                          >
+                          <td class="px-3 py-2 text-surface-500"
+                            >{assignmentApplication(assignment)}</td
                           >
                           <td class="px-3 py-2 text-surface-500"
                             >{assignmentOrganization(assignment)}</td
