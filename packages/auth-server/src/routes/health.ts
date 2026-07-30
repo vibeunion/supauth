@@ -2,6 +2,7 @@
 
 import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
+import { runtimeEnv } from '../config/platform-env.js';
 import { getSupaCloudAdapter, getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
 import { checkRuntimeHealth, getDiscovery, getJWKS } from '../runtime/index.js';
 
@@ -23,10 +24,10 @@ function publicAdminUrl(path: string): string {
 }
 
 export function resolvePublicAdminSsoConfig() {
-  const issuer = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
-  const clientId = process.env.ADMIN_SSO_CLIENT_ID || '';
-  const redirectUri = process.env.ADMIN_SSO_REDIRECT_URI || publicAdminUrl('/admin');
-  const postLogoutRedirectUri = process.env.ADMIN_SSO_POST_LOGOUT_REDIRECT_URI || publicAdminUrl('/admin/login');
+  const issuer = trimTrailingSlash(runtimeEnv('ADMIN_SSO_ISSUER') || '');
+  const clientId = runtimeEnv('ADMIN_SSO_CLIENT_ID') || '';
+  const redirectUri = runtimeEnv('ADMIN_SSO_REDIRECT_URI') || publicAdminUrl('/admin');
+  const postLogoutRedirectUri = runtimeEnv('ADMIN_SSO_POST_LOGOUT_REDIRECT_URI') || publicAdminUrl('/admin/login');
 
   return {
     enabled: Boolean(issuer && clientId),

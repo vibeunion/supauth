@@ -5,6 +5,7 @@
 // with a short TTL cache so that Admin UI changes take effect without restart.
 
 import { Elysia } from 'elysia';
+import { runtimeEnv } from '../config/platform-env.js';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { getConfig } from '../config/index.js';
 import * as secRepo from '../repositories/security-config.js';
@@ -16,17 +17,17 @@ import { parseAdminSsoRequireAal2 } from './admin-sso-aal2-policy.js';
 
 // Env-var fallbacks: used before migration has run, or when DB is unreachable.
 const ENV_ADMIN_AUTH_MODE = (process.env.ADMIN_AUTH_MODE || 'auto').toLowerCase();
-const ENV_SSO_ISSUER = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
-const ENV_SSO_CLIENT_ID = process.env.ADMIN_SSO_CLIENT_ID || '';
+const ENV_SSO_ISSUER = trimTrailingSlash(runtimeEnv('ADMIN_SSO_ISSUER') || '');
+const ENV_SSO_CLIENT_ID = runtimeEnv('ADMIN_SSO_CLIENT_ID') || '';
 const ENV_SSO_AUDIENCES = resolveSsoAudiences({
-  configuredAudience: process.env.ADMIN_SSO_AUDIENCE,
+  configuredAudience: runtimeEnv('ADMIN_SSO_AUDIENCE'),
   clientId: ENV_SSO_CLIENT_ID,
   issuer: ENV_SSO_ISSUER,
 });
-const ENV_SSO_JWKS_URI = process.env.ADMIN_SSO_JWKS_URI || (ENV_SSO_ISSUER ? `${ENV_SSO_ISSUER}/.well-known/jwks.json` : '');
-const ENV_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS).map((email) => email.toLowerCase());
-const ENV_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((domain) => domain.toLowerCase());
-const ENV_SSO_ACCESS_POLICY = { requireAal2: parseAdminSsoRequireAal2(process.env.ADMIN_SSO_REQUIRE_AAL2) };
+const ENV_SSO_JWKS_URI = runtimeEnv('ADMIN_SSO_JWKS_URI') || (ENV_SSO_ISSUER ? `${ENV_SSO_ISSUER}/.well-known/jwks.json` : '');
+const ENV_ALLOWED_EMAILS = parseCsv(runtimeEnv('ADMIN_SSO_ALLOWED_EMAILS')).map((email) => email.toLowerCase());
+const ENV_ALLOWED_DOMAINS = parseCsv(runtimeEnv('ADMIN_SSO_ALLOWED_DOMAINS')).map((domain) => domain.toLowerCase());
+const ENV_SSO_ACCESS_POLICY = { requireAal2: parseAdminSsoRequireAal2(runtimeEnv('ADMIN_SSO_REQUIRE_AAL2')) };
 const ENV_RATE_LIMIT_RPM = parseInt(process.env.ADMIN_RATE_LIMIT_RPM || '300', 10);
 const ENV_MAX_LOGIN_ATTEMPTS = parseInt(process.env.ADMIN_MAX_LOGIN_ATTEMPTS || '10', 10);
 const ENV_LOGIN_LOCKOUT_SEC = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '900', 10);

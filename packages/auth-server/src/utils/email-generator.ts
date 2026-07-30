@@ -2,6 +2,7 @@
 // with duplicate-suffix logic: zhangsan@example.com / zhangsan.0231@example.com
 
 import { pinyin } from 'pinyin-pro';
+import { runtimeEnv } from '../config/platform-env.js';
 
 export interface EmailGeneratorOptions {
   domain: string;
@@ -12,7 +13,7 @@ export interface EmailGeneratorOptions {
 }
 
 const DEFAULT_OPTIONS: EmailGeneratorOptions = {
-  domain: process.env.SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+  domain: runtimeEnv('SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN')
     || process.env.ACCOUNT_PROVISIONING_EMAIL_DOMAIN
     || 'example.com',
   suffixSeparator: '.',

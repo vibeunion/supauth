@@ -4,6 +4,7 @@
 
 import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
+import { runtimeEnv } from '../config/platform-env.js';
 
 export interface RouteProbe {
   name: string;
@@ -113,7 +114,7 @@ function resolveRouteGateInput(query?: Record<string, unknown>): {
   const supauthUrl = String(
     query?.supauth_url ||
     query?.admin_url ||
-    process.env.SUPAUTH_INSTALLED_BASE_URL ||
+    runtimeEnv('SUPAUTH_INSTALLED_BASE_URL') ||
     process.env.SUPAOAUTH_ROUTE_GATE_ADMIN_URL ||
     process.env.SUPAOAUTH_ADMIN_URL ||
     localAdminUrl(),

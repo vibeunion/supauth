@@ -2,6 +2,7 @@
 
 import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
+import { runtimeEnv } from '../config/platform-env.js';
 import {
   getSupaCloudAdapter,
   getSupaCloudAdapterForProject,
@@ -66,7 +67,7 @@ const DEFAULT_ACCOUNT_CLAIM_CONFIG: AccountClaimConfig = {
 
 function defaultProvisioningEmailDomain(): string {
   return (
-    process.env.SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+    runtimeEnv('SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN')
     || process.env.ACCOUNT_PROVISIONING_EMAIL_DOMAIN
     || 'example.com'
   ).replace(/^@/, '').toLowerCase();
@@ -211,7 +212,7 @@ function accountClaimPasswordAdapters(): SupaCloudAdapter[] {
   const projectRefs = resolveAccountClaimPasswordProjectRefs({
     projectRef: config.projectRef,
     oauthAuthorizationProjectRef: config.oauthAuthorizationProjectRef,
-    extraProjectRefs: process.env.SUPAUTH_ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS
+    extraProjectRefs: runtimeEnv('SUPAUTH_ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS')
       || process.env.ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS,
   });
   if (projectRefs.length === 0) throw new Error('No account claim password target project is configured');

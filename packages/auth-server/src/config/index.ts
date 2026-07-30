@@ -1,5 +1,7 @@
 // SupaOAuth server configuration — loaded from server-side env only (no VITE_)
 
+import { firstRuntimeEnv, runtimeEnv } from './platform-env.js';
+
 export interface ServerConfig {
   port: number;
   host: string;
@@ -25,15 +27,11 @@ const MIN_BFF_SIGNING_SECRET_LENGTH = 32;
 let _config: ServerConfig | null = null;
 
 function env(...names: string[]): string {
-  for (const name of names) {
-    const value = process.env[name];
-    if (value) return value;
-  }
-  return '';
+  return firstRuntimeEnv(...names);
 }
 
 function booleanEnv(name: string, defaultValue = false) {
-  const value = process.env[name];
+  const value = runtimeEnv(name);
   if (value === undefined || value === '') return defaultValue;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
@@ -50,7 +48,7 @@ function isHttpUrl(value: string) {
 export function loadConfig(): ServerConfig {
   const runtimeUrl = env('OAUTH_RUNTIME_URL', 'SUPACLOUD_RUNTIME_URL', 'SUPABASE_URL');
 
-  const configuredRuntimeMode = process.env.RUNTIME_MODE?.trim();
+  const configuredRuntimeMode = runtimeEnv('RUNTIME_MODE')?.trim();
   if (configuredRuntimeMode && configuredRuntimeMode !== 'gotrue') {
     throw new Error('RUNTIME_MODE must be "gotrue"; external OIDC runtimes are not supported');
   }
@@ -81,8 +79,8 @@ export function loadConfig(): ServerConfig {
     trustProxyHeaders: booleanEnv('TRUST_PROXY_HEADERS'),
     runtimeMode: 'gotrue',
     databaseUrl: env('SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL', 'DATABASE_URL'),
-    corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173').split(','),
-    logLevel: (process.env.LOG_LEVEL as ServerConfig['logLevel']) || 'info',
+    corsOrigins: (runtimeEnv('CORS_ORIGINS') || 'http://localhost:5173').split(','),
+    logLevel: (runtimeEnv('LOG_LEVEL') as ServerConfig['logLevel']) || 'info',
   };
   return _config;
 }

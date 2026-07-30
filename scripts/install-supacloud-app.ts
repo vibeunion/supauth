@@ -488,6 +488,28 @@ class SupacloudClient {
 
 function userManagedProjectSecrets(config: ResolvedInstallConfig) {
   return [
+    // CORS 是项目级通用运行时配置；其余 SupAuth 管理配置使用 Function
+    // 专属变量，避免与 SupaCloud 的系统托管名称空间冲突。
+    ...(config.corsOrigins.length > 0
+      ? [{ name: 'CORS_ORIGINS', value: config.corsOrigins.join(',') }]
+      : []),
+  ];
+}
+
+function supauthFunctionRuntimeSecrets(config: ResolvedInstallConfig) {
+  return [
+    { name: ADMIN_SSO_ENV.issuer, value: config.adminSsoIssuer },
+    { name: ADMIN_SSO_ENV.clientId, value: config.adminSsoClientId },
+    ...(config.adminSsoJwksUri
+      ? [{ name: ADMIN_SSO_ENV.jwksUri, value: config.adminSsoJwksUri }]
+      : []),
+    ...(config.adminSsoAudience
+      ? [{ name: ADMIN_SSO_ENV.audience, value: config.adminSsoAudience }]
+      : []),
+    { name: ADMIN_SSO_ENV.redirectUri, value: adminSsoRedirectUri(config) },
+    ...(config.adminSsoPostLogoutRedirectUri
+      ? [{ name: ADMIN_SSO_ENV.postLogoutRedirectUri, value: config.adminSsoPostLogoutRedirectUri }]
+      : []),
     {
       name: ADMIN_SSO_ENV.requireAal2,
       value: parseAdminSsoRequireAal2(config.adminSsoRequireAal2) ? 'true' : 'false',
@@ -500,9 +522,6 @@ function userManagedProjectSecrets(config: ResolvedInstallConfig) {
       : []),
     ...(config.oauthAuthorizationProjectRef
       ? [{ name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF', value: config.oauthAuthorizationProjectRef }]
-      : []),
-    ...(config.corsOrigins.length > 0
-      ? [{ name: 'CORS_ORIGINS', value: config.corsOrigins.join(',') }]
       : []),
   ];
 }
@@ -1048,13 +1067,20 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   if (options.skipSecrets) {
     steps.push({ name: 'runtime-env', status: 'skipped', detail: 'skipSecrets=true' });
   } else if (config.dryRun) {
-    steps.push({ name: 'runtime-env', status: 'planned', detail: 'project runtime secrets' });
+    steps.push({ name: 'runtime-env', status: 'planned', detail: 'SupAuth Function runtime variables and project CORS' });
   } else {
-    await client.request(`/v1/projects/${config.projectRef}/secrets`, {
+    await client.request(`/v1/projects/${config.projectRef}/functions/supauth/secrets`, {
       method: 'POST',
-      body: JSON.stringify(userManagedProjectSecrets(config)),
+      body: JSON.stringify(supauthFunctionRuntimeSecrets(config)),
     });
-    steps.push({ name: 'runtime-env', status: 'done', detail: 'project runtime secrets' });
+    const projectSecrets = userManagedProjectSecrets(config);
+    if (projectSecrets.length > 0) {
+      await client.request(`/v1/projects/${config.projectRef}/secrets`, {
+        method: 'POST',
+        body: JSON.stringify(projectSecrets),
+      });
+    }
+    steps.push({ name: 'runtime-env', status: 'done', detail: 'SupAuth Function runtime variables and project CORS' });
   }
 
   if (options.skipFunctionDeploy) {

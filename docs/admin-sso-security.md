@@ -18,7 +18,13 @@ Admin Console 的生产访问遵循以下边界：
 4. OAuth authorize 请求只有 `code_challenge_method=S256`；token exchange 不带 `client_secret`。
 5. 安装器从 SupaCloud Management API 回读 Admin client，确认 public、`none`、精确单回调和 `authorization_code`/`refresh_token` grant。
 
-默认值 `false` 适用于尚未启用管理员 MFA 的环境。准备开启时，在 SupaCloud Function 的服务器环境设置 `ADMIN_SSO_REQUIRE_AAL2=true` 并重新发布 Function；不要使用 `VITE_*`，也不要通过浏览器配置该策略。如果真实 MFA 提升流程尚未验证，不得设置为 `true`。
+默认值 `false` 适用于尚未启用管理员 MFA 的环境。准备开启时，在 SupaCloud Function 的服务器环境设置逻辑变量 `ADMIN_SSO_REQUIRE_AAL2=true` 并重新发布 Function；SupaCloud 实际保存为 `EDGEFN_SUPAUTH_ADMIN_SSO_REQUIRE_AAL2=true`。不要使用 `VITE_*`，也不要通过浏览器配置该策略。如果真实 MFA 提升流程尚未验证，不得设置为 `true`。
+
+### Function 运行时变量
+
+SupaCloud 保留 `ADMIN_SSO_*` 和 `SUPAUTH_*` 的项目级名称，安装器不能将它们写入项目 `/secrets`。安装器会把每个 SupAuth 逻辑变量写到 `supauth` Function 的 `/functions/supauth/secrets`，由平台以 `EDGEFN_SUPAUTH_<逻辑变量>` 注入。Function 优先读取该专属变量；若该变量不存在才兼容读取原始变量名，显式空值不会回退。
+
+例如，`ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID` 和 `ADMIN_SSO_REQUIRE_AAL2` 分别映射为 `EDGEFN_SUPAUTH_ADMIN_SSO_ISSUER`、`EDGEFN_SUPAUTH_ADMIN_SSO_CLIENT_ID` 和 `EDGEFN_SUPAUTH_ADMIN_SSO_REQUIRE_AAL2`。`CORS_ORIGINS` 仍是普通项目级变量。
 
 ## 受控应急入口
 

@@ -62,7 +62,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 1. 构建 SupaCloud app artifact：`bun run build`
 2. SupaCloud 读取 `artifacts/supacloud-app/supacloud-app-manifest.json`
-3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL`、`SUPAUTH_PUBLIC_URL`、`SUPACLOUD_DATABASE_URL`，以及显式的 `ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID`；管理员 MFA 门禁仅在服务器环境显式设置 `ADMIN_SSO_REQUIRE_AAL2=true` 时开启
+3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL` 和 `SUPACLOUD_DATABASE_URL`。安装器将 SupAuth 的逻辑变量（例如 `SUPAUTH_PUBLIC_URL`、`ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID`）写入 `supauth` Function 专属 secrets，平台以 `EDGEFN_SUPAUTH_<逻辑变量>` 注入；管理员 MFA 门禁仅在逻辑值显式为 `ADMIN_SSO_REQUIRE_AAL2=true` 时开启
 4. 安装器按 manifest 的 V1/V4/V5/V6/V7/V8/V9/V10 顺序，通过 SupaCloud Management API
    对 `SUPACLOUD_DATABASE_URL` 应用幂等 hosted migrations；禁止绕过安装器直连
    执行迁移。V9 独立撤销旧 webhook 表的 Function/PUBLIC 权限，V10 仅在
@@ -93,7 +93,7 @@ Secret Manager；接收端完成新 `X-SupaCloud-*` 签名协议和密钥轮换�
 自动重放，因为旧 `X-SupaOAuth-*` 签名格式与 SupaCloud v1 不兼容。安装成功
 必须由数据库验证确认两张旧表都不存在。
 
-`SUPAUTH_PUBLIC_URL` 是浏览器可见的 SupAuth/Auth 自定义域名，OAuth/SSO 跳转会优先使用它；`SUPACLOUD_RUNTIME_URL` 只用于 GoTrue/Supabase runtime 内部或保留路径探测。仅在反向代理会清洗并独占 `X-Forwarded-*` 请求头时，才设置 `TRUST_PROXY_HEADERS=1`。
+`SUPAUTH_PUBLIC_URL` 是浏览器可见的 SupAuth/Auth 自定义域名，OAuth/SSO 跳转会优先使用它；在 SupaCloud Function 中应由安装器写为 `EDGEFN_SUPAUTH_SUPAUTH_PUBLIC_URL`，不得尝试写入保留的项目级 `SUPAUTH_PUBLIC_URL`。`SUPACLOUD_RUNTIME_URL` 只用于 GoTrue/Supabase runtime 内部或保留路径探测。仅在反向代理会清洗并独占 `X-Forwarded-*` 请求头时，才设置 `TRUST_PROXY_HEADERS=1`。
 
 `RUNTIME_MODE` 省略时等同于 `gotrue`，显式值也只能是 `gotrue`。安装器
 或 Function 发现其他值必须立即失败，不允许发布一个独立 issuer、独立
@@ -112,7 +112,7 @@ allowlist 数量；Admin 只接受精确邮箱，发现任意 domain allowlist �
 或 `VITE_*`。安装器还会从权威 SupaCloud 项目回读 Admin OAuth client，确认
 public、`token_endpoint_auth_method=none`、精确单回调和 PKCE S256。
 
-`ADMIN_SSO_REQUIRE_AAL2` 省略、为空或 `false` 时均不要求 AAL2；其他非空非法值会阻止 Function 启动。无论该值如何，issuer、签名、audience、PKCE S256 和精确邮箱白名单都保持强制。它只能作为 Function 的服务器环境变量注入，禁止使用 `VITE_*`。完整的 AAL2、精确邮箱、PKCE 和 break-glass 基线见
+`ADMIN_SSO_REQUIRE_AAL2` 省略、为空或 `false` 时均不要求 AAL2；其他非空非法值会阻止 Function 启动。SupaCloud 中它的 Function 专属名称为 `EDGEFN_SUPAUTH_ADMIN_SSO_REQUIRE_AAL2`，专属变量即使显式为空也不会回退到项目级同名变量。无论该值如何，issuer、签名、audience、PKCE S256 和精确邮箱白名单都保持强制。它只能作为 Function 的服务器环境变量注入，禁止使用 `VITE_*`。完整的 AAL2、精确邮箱、PKCE 和 break-glass 基线见
 [`docs/admin-sso-security.md`](./admin-sso-security.md)。
 
 `bun run build` 是唯一构建入口。项目尚未发版，因此不保留额外兼容构建别名。
