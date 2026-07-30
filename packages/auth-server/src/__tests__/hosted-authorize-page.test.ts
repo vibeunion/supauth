@@ -1,6 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import { adminConsoleSpaCandidates, hostedPageRoutes, resolveHostedPagePaths } from '../routes/hosted-pages.js';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { getConfig } from '../config/index.js';
+import {
+  adminConsoleRedirectLocation,
+  adminConsoleSpaCandidates,
+  hostedPageRoutes,
+  resolveHostedPagePaths,
+  serveAdminConsolePage,
+} from '../routes/hosted-pages.js';
 
 function request(url: string, init?: RequestInit) {
   const app = new Elysia().use(hostedPageRoutes);
@@ -13,13 +23,39 @@ describe('hostedPageRoutes', () => {
     expect(fromSrc.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
     expect(fromSrc.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
     expect(fromSrc.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
+    expect(fromSrc.logoutHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/logout.html');
     expect(fromSrc.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
 
     const fromDist = resolveHostedPagePaths('/opt/supauth/packages/auth-server/dist', '/opt/supauth');
     expect(fromDist.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
     expect(fromDist.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
     expect(fromDist.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
+    expect(fromDist.logoutHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/logout.html');
     expect(fromDist.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
+
+    const fromActiveVersion = resolveHostedPagePaths(
+      '/opt/supacloud/functions/supauth/.versions/version-123',
+      '/opt/supacloud/functions/supauth',
+    );
+    expect(fromActiveVersion.adminConsoleBuildDirs).toContain(
+      '/opt/supacloud/functions/supauth/.versions/version-123/src/admin-console/build',
+    );
+
+    const fromProjectBundle = resolveHostedPagePaths(
+      '/opt/supacloud/functions/project-ref',
+      '/',
+    );
+    expect(fromProjectBundle.adminConsoleBuildDirs).toContain(
+      '/opt/supacloud/functions/project-ref/.src-supauth/admin-console/build',
+    );
+
+    const fromVersionSource = resolveHostedPagePaths(
+      '/opt/supacloud/functions/project-ref/.versions/supauth/6/src',
+      '/',
+    );
+    expect(fromVersionSource.adminConsoleBuildDirs).toContain(
+      '/opt/supacloud/functions/project-ref/.versions/supauth/6/src/admin-console/build',
+    );
   });
 
   test('Admin Console SPA routes fall back to index.html for client routes', () => {
@@ -39,6 +75,66 @@ describe('hostedPageRoutes', () => {
     ]);
   });
 
+  test('versioned Function Admin assets preserve deep-link fallback and exact static paths', () => {
+    const versionedBuild = '/opt/supacloud/functions/supauth/.versions/version-123/src/admin-console/build';
+
+    expect(adminConsoleSpaCandidates([versionedBuild], 'security/password')).toEqual([
+      `${versionedBuild}/security/password`,
+      `${versionedBuild}/security/password.html`,
+      `${versionedBuild}/security/password/index.html`,
+      `${versionedBuild}/index.html`,
+    ]);
+    expect(adminConsoleSpaCandidates([versionedBuild], '_app/immutable/admin.js')).toEqual([
+      `${versionedBuild}/_app/immutable/admin.js`,
+      `${versionedBuild}/_app/immutable/admin.js.html`,
+      `${versionedBuild}/_app/immutable/admin.js/index.html`,
+    ]);
+  });
+
+  test('Admin Console serves SPA fallbacks and exact static assets from a Function source tree', async () => {
+    const buildDir = mkdtempSync(join(tmpdir(), 'supauth-admin-build-'));
+    mkdirSync(join(buildDir, '_app'), { recursive: true });
+    writeFileSync(join(buildDir, 'index.html'), '<main>Admin Console</main>');
+    writeFileSync(join(buildDir, '_app', 'app.js'), 'export const ready = true;');
+    writeFileSync(join(buildDir, '_app', 'version.json'), '{"version":"test"}');
+
+    try {
+      const page = serveAdminConsolePage([buildDir], 'security/password');
+      const script = serveAdminConsolePage([buildDir], '_app/app.js');
+      const asset = serveAdminConsolePage([buildDir], '_app/version.json');
+
+      expect(page.status).toBe(200);
+      expect(page.headers.get('content-type')).toContain('text/html');
+      expect(await page.text()).toContain('Admin Console');
+      expect(script.status).toBe(200);
+      expect(script.headers.get('content-type')).toContain('text/javascript');
+      expect(script.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get('content-type')).toContain('application/json');
+      expect(await asset.json()).toEqual({ version: 'test' });
+    } finally {
+      rmSync(buildDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Admin Console legacy and detail entry paths resolve to canonical 307 locations', async () => {
+    expect(adminConsoleRedirectLocation(new URL('https://auth.example.com/admin/resources?tab=scopes')))
+      .toBe('/admin/api-resources?tab=scopes');
+    expect(adminConsoleRedirectLocation(new URL('https://auth.example.com/admin/users/user-1?from=audit')))
+      .toBe('/admin/users/user-1/settings?from=audit');
+    expect(adminConsoleRedirectLocation(new URL('https://auth.example.com/admin/users/user-1/settings')))
+      .toBeNull();
+
+    const legacyResponse = await request('https://auth.example.com/admin/sign-in-experience?locale=zh-CN');
+    expect(legacyResponse.status).toBe(307);
+    expect(legacyResponse.headers.get('location'))
+      .toBe('/admin/sign-in-experience/branding?locale=zh-CN');
+
+    const detailResponse = await request('https://auth.example.com/admin/roles/role-1');
+    expect(detailResponse.status).toBe(307);
+    expect(detailResponse.headers.get('location')).toBe('/admin/roles/role-1/general');
+  });
+
   test('GET /oauth/authorize serves hosted authorize html', async () => {
     const response = await request('http://localhost/oauth/authorize?authorization_id=test-authz');
     const body = await response.text();
@@ -46,6 +142,7 @@ describe('hostedPageRoutes', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
+    expect(body).toContain('[hidden] { display: none !important; }');
   });
 
   test('GET /login.html serves the same authorize page', async () => {
@@ -73,6 +170,36 @@ describe('hostedPageRoutes', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<title>SupaOAuth Sign In</title>');
+    expect(body).toContain("params.get('prompt')");
+    expect(body).toContain("hostedAuth.signOut({ scope: 'local' })");
+  });
+
+  test('GET /hosted-auth.js serves the embedded session client without stale caching', async () => {
+    const response = await request('https://auth.example.com/hosted-auth.js');
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('application/javascript');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(body).toContain('supaoauth.hosted.auth.session');
+    expect(body).toContain('/auth/v1');
+  });
+
+  test('GET /logout serves a no-store same-origin hosted logout page', async () => {
+    const requestUrl = 'https://auth.example.com/logout';
+    const response = await request(requestUrl);
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(response.headers.get('content-security-policy')).toContain("connect-src 'self'");
+    expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+    expect(body).toContain("hostedAuth.signOut({ scope: 'local' })");
+    expect(body).toContain(new URL(
+      '/login?logged_out=1',
+      getConfig().publicBaseUrl || requestUrl,
+    ).toString());
   });
 
   test('hosted login page supports config-driven intro text', async () => {
@@ -86,6 +213,8 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('class="auth-panel"');
     expect(body).toContain("grid.className = 'feature-grid';");
     expect(body).toContain("card.className = 'feature-card';");
+    expect(body).toContain('#custom-content > .feature-grid {');
+    expect(body).toContain('grid-column: 1 / -1;');
     expect(body).toContain('branding.description && branding.description.trim()');
     expect(body).toContain('intro.textContent = branding.description.trim();');
     expect(body).toContain("intro.style.display = 'block';");
@@ -106,10 +235,8 @@ describe('hostedPageRoutes', () => {
     expect(body).not.toContain('JSON.parse(raw)');
     expect(body).not.toContain("document.getElementById('custom-content').innerHTML = branding.content");
 
-    const brandingRenderIndex = body.indexOf('renderBrandingContent(branding.content);');
-    const authorizationErrorIndex = body.indexOf('if (experience.authorization_error) {');
-    expect(brandingRenderIndex).toBeGreaterThan(-1);
-    expect(authorizationErrorIndex).toBeGreaterThan(brandingRenderIndex);
+    expect(body).not.toContain('experience.authorization_error');
+    expect(body).not.toContain('experience.authorization');
   });
 
   test('GET /claim serves the account claim page with same-origin public API base', async () => {
@@ -133,7 +260,8 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('title.textContent = branding.page_title;');
     expect(body).toContain('/account-claims/claim');
     expect(body).toContain('data.password_set');
-    expect(body).toContain('function claimErrorMessage(response)');
+    expect(body).toContain('function claimErrorMessage(response, data = {})');
+    expect(body).toContain("data.error.code === 'account_already_claimed'");
     expect(body).toContain("if (response.status >= 500) return t('serverError');");
     expect(body).not.toContain('http://auth.example.com/v1/public');
     expect(body).not.toContain('Example User Center');
@@ -164,12 +292,13 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('<title>SupaOAuth Account Center</title>');
       expect(body).toContain('<h1 id="account-title">账户中心</h1>');
       expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
+      expect(body).toContain('<script src="/hosted-auth.js"></script>');
       expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
       expect(body).toContain('fetch(`${apiBase}/account/config`, { credentials: \'include\' })');
-      expect(body).toContain('fetch(`${apiBase}${path}`, {');
+      expect(body).toContain('hostedAuth.authenticatedFetch(`${apiBase}${path}`, {');
       expect(body).toContain("accountFetch('/account/me')");
       expect(body).toContain("accountFetch('/account/profile'");
-      expect(body).toContain("load('sessions', '/account/sessions')");
+      expect(body).not.toContain("load('sessions', '/account/sessions')");
       expect(body).toContain("load('grants', '/account/grants')");
       expect(body).toContain("load('identities', '/account/identities')");
       expect(body).toContain("load('mfa', '/account/mfa')");
@@ -180,26 +309,45 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain("`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`");
       expect(body).toContain("button.dataset.action === 'unenroll-mfa'");
       expect(body).toContain("accountFetch(`/account/mfa/${encodeURIComponent(id)}`, { method: 'DELETE' })");
-      expect(body).toContain("load('passkeys', '/account/passkeys')");
+      expect(body).not.toContain('/account/passkeys');
       expect(body).toContain("accountFetch('/account/email'");
       expect(body).toContain("accountFetch('/account/phone'");
       expect(body).toContain("accountFetch('/account',");
-      expect(body).toContain("button.dataset.action === 'revoke-session'");
+      expect(body).not.toContain("button.dataset.action === 'revoke-session'");
       expect(body).toContain("button.dataset.action === 'revoke-grant'");
       expect(body).toContain("button.dataset.action === 'unlink-identity'");
-      expect(body).toContain("button.dataset.action === 'revoke-passkey'");
+      expect(body).not.toContain("button.dataset.action === 'revoke-passkey'");
       expect(body).toContain('class="account-actions"');
-      expect(body).toContain('id="manual-token-panel"');
       expect(body).toContain('登录 / 重新登录');
+      expect(body).toContain('id="sign-out"');
+      expect(body).toContain('退出当前设备');
+      expect(body).toContain('data-logout-scope="others"');
+      expect(body).toContain('data-logout-scope="global"');
+      expect(body).not.toContain('/account/logout?scope=');
+      expect(body).toContain('hostedAuth.getSession()');
+      expect(body).toContain("event === 'TOKEN_REFRESHED'");
+      expect(body).toContain("event === 'SIGNED_OUT'");
+      expect(body).toContain('hostedAuth.signOut({ scope })');
       expect(body).toContain('未检测到登录状态。请先登录，登录完成后会自动回到账户中心。');
       expect(body).toContain('function showSignedOutState()');
       expect(body).toContain('function resetAccountView()');
       expect(body).toContain('class="account-section-card active"');
-      expect(body).toContain('document.querySelector(\'.account-section-grid\').hidden = true;');
+      expect(body).toContain('<section class="account-section-grid" aria-label="Account center sections" hidden>');
+      expect(body).toContain('<form id="profile-form" class="profile-form" hidden>');
+      expect(body).toContain('<form id="email-form" class="inline-form" hidden>');
+      expect(body).toContain('<form id="phone-form" class="inline-form" hidden>');
+      expect(body).toContain('<form id="delete-account-form" class="inline-form" hidden>');
+      expect(body).toContain('let accountConfigLoaded = false;');
+      expect(body).toContain("let accountConfig = {\n      enabled: false,");
+      expect(body).toContain('accountSectionGrid.hidden = true;');
+      expect(body).toContain('accountSectionGrid.hidden = false;');
+      expect(body).toContain('if (!accountConfigLoaded || !accountConfig.enabled)');
+      expect(body).toContain('const accountCenterAvailable = await loadAccountConfig();');
+      expect(body).toContain('if (!accountCenterAvailable) return;');
       expect(body).toContain('href="/account/password" data-section="security"');
       expect(body).toContain('href="#account-panel" data-section="profile"');
       expect(body).toContain('data-section="profile"');
-      expect(body).toContain('data-section="sessions"');
+      expect(body).not.toContain('data-section="sessions"');
       expect(body).toContain('data-section="grants"');
       expect(body).toContain('data-section="identities"');
       expect(body).toContain('data-section="mfa"');
@@ -207,6 +355,9 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('data-section="delete-account"');
       expect(body).not.toContain('class="card active"');
       expect(body).not.toContain('/v1/my-account');
+      expect(body).not.toContain('id="manual-token-panel"');
+      expect(body).not.toContain('supaoauth.account.access_token');
+      expect(body).not.toContain('#access_token');
       expect(body).not.toContain('http://auth.example.com/v1/public');
       expect(body).not.toContain('Example User Center');
     }
@@ -218,32 +369,45 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(body).toContain('<form id="login-form" novalidate>');
+    expect(body).toContain('<script src="/hosted-auth.js"></script>');
     expect(body).toContain('function normalizeEmailInput(value)');
     expect(body).toContain("invalidLoginCredentials: 'Account or password does not match. Please check and try again.'");
     expect(body).toContain("invalidLoginCredentials: '账号或密码不匹配，请检查后重试。'");
     expect(body).toContain("value.includes('invalid login credentials')");
     expect(body).toContain("value.includes('invalid_credentials')");
-    expect(body).toContain("setMessage('error', loginResponseMessage(data))");
+    expect(body).toContain("setMessage('error', loginResponseMessage(error))");
     expect(body).toContain('const email = normalizeEmailInput(emailInput.value);');
     expect(body).toContain("setMessage('error', t('emailInvalid'))");
     expect(body).toContain("setMessage('error', t('passwordRequired'))");
     expect(body).toContain("setMessage('error', error && error.message ? error.message : t('networkError'))");
-    expect(body).toContain('function completeStandaloneLogin(accessToken)');
-    expect(body).toContain("sessionStorage.setItem('supaoauth.account.access_token', accessToken)");
-    expect(body).toContain('window.location.href = `/account#access_token=${encodeURIComponent(accessToken)}`;');
-    expect(body).toContain('function isAuthorizationNotFoundError(error)');
-    expect(body).toContain("error.code === 'authorization_not_found'");
-    expect(body).toContain('await completeStandaloneLogin(data.access_token);');
+    expect(body).toContain('hostedAuth.signInWithPassword({ email, password })');
+    expect(body).toContain('function completeStandaloneLogin()');
+    expect(body).toContain("window.location.href = '/account';");
+    expect(body).toContain('completeStandaloneLogin();');
     expect(body).toContain('function safeRedirectUrl(value, allowExternal = false)');
     expect(body).toContain("url.protocol !== 'http:' && url.protocol !== 'https:'");
     expect(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");
     expect(body).toContain('return allowExternal ? url.toString() : `${url.pathname}${url.search}${url.hash}`;');
-    expect(body).toContain('const redirectUrl = approvedRedirectUrl');
-    expect(body).toContain('? safeRedirectUrl(approvedRedirectUrl, true)');
-    expect(body).toContain(': safeRedirectUrl(authorizationRedirectUrl);');
+    expect(body).toContain('await continueAuthorization(session.access_token);');
+    expect(body).toContain('function showConsent(authorization, accessToken)');
+    expect(body).toContain("void submitConsent('approve')");
+    expect(body).toContain("void submitConsent('deny')");
+    expect(body).toContain("authorizationRequest('/consent', authorizationAccessToken");
+    expect(body).not.toContain('/approve');
     expect(body).toContain('? `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`');
     expect(body).toContain(': `${publicApiBase()}/sign-in-experience/resolve`;');
     expect(body).not.toContain('if (!authorizationId) return;');
+    expect(body).not.toContain('grant_type=password');
+    expect(body).not.toContain('supaoauth.account.access_token');
+    expect(body).not.toContain('#access_token');
+  });
+
+  test('hosted login page renders connector names as text instead of executable HTML', async () => {
+    const response = await request('http://localhost/login.html');
+    const html = await response.text();
+
+    expect(html).toContain("connectorLabel.textContent = String(c.name || c.id || 'SSO')");
+    expect(html).not.toContain('`${icon}<span>${c.name}</span>`');
   });
 
   test('hosted login page places social sign-in below the credential panels', async () => {
@@ -263,21 +427,23 @@ describe('hostedPageRoutes', () => {
     expect(footerIndex).toBeGreaterThan(socialSectionIndex);
   });
 
-  test('hosted login page blocks expired OAuth authorization requests', async () => {
+  test('hosted login page defers OAuth authorization authority to GoTrue', async () => {
     const response = await request('http://localhost/login.html');
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).toContain('let authorizationAvailable = !authorizationId;');
     expect(body).toContain("authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.'");
     expect(body).toContain("authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。'");
     expect(body).toContain("authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。'");
-    expect(body).toContain('function disableExpiredAuthorization()');
-    expect(body).toContain('function disableUnavailableAuthorization()');
-    expect(body).toContain('if (!authorizationAvailable) throw new Error(t(\'authorizationExpired\'));');
-    expect(body).toContain('authorizationAvailable = !!experience.authorization;');
-    expect(body).toContain('if (experience.authorization_error) {');
-    expect(body).toContain("setMessage('error', t('authorizationExpired'))");
+    expect(body).toContain("const authorization = await authorizationRequest('', accessToken);");
+    expect(body).toContain('if (authorization.redirect_url) {');
+    expect(body).toContain('showConsent(authorization, accessToken);');
+    expect(body).toContain('id="consent-client-name"');
+    expect(body).toContain('id="consent-scopes"');
+    expect(body).toContain('id="consent-approve"');
+    expect(body).toContain('id="consent-deny"');
+    expect(body).not.toContain('authorizationAvailable');
+    expect(body).not.toContain('experience.authorization');
   });
 
   test('GET / serves the same authorize page', async () => {

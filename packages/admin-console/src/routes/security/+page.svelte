@@ -1,241 +1,562 @@
 <script>
-  import { onMount } from 'svelte';
-  import { t } from '$lib/i18n.js';
+  import { onMount } from "svelte";
+  import { page } from "$app/state";
+  import DetailTabs from "$lib/components/DetailTabs.svelte";
+  import RequestState from "$lib/components/RequestState.svelte";
+  import { t } from "$lib/i18n.js";
+  import { collectionItems, tabFromRoute } from "$lib/resource-page.js";
   import {
     getAuthConfig,
     getAuthConfigRuntimeConsistency,
-    getSignInExperience,
+    getBeforeUserCreatedHookStatus,
+    getSecurityConfig,
+    listTenantConfigs,
     updateAuthConfig,
-    updateSignInExperience,
-  } from '$lib/api/client.js';
+    updateSecurityConfig,
+    upsertTenantConfig,
+  } from "$lib/api/client.js";
 
-  const signInMethodOptions = [
-    { value: 'password', labelKey: 'Password' },
-    { value: 'magic_link', labelKey: 'Magic Link' },
-    { value: 'phone_otp', labelKey: 'Phone OTP' },
-    { value: 'passkey', labelKey: 'Passkey' },
+  const tabs = [
+    { value: "password", labelKey: "detail.password" },
+    { value: "captcha", labelKey: "detail.captcha" },
+    { value: "blocklist", labelKey: "detail.blocklist" },
+    { value: "general", labelKey: "detail.general" },
   ];
+  const tabValues = tabs.map((tab) => tab.value);
+  const standardCharacterPolicy =
+    "abcdefghijklmnopqrstuvwxyz:ABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789";
+  const strongCharacterPolicy = `${standardCharacterPolicy}:!@#$%^&*()_+-=[]{};'\\\\:"|<>?,./\`~`;
 
-  let loading = $state(true);
-  let saving = $state(false);
-  let error = $state(null);
-  let success = $state(null);
+  let authConfig = $state(null);
   let runtimeConsistency = $state(null);
-
-  let securityForm = $state({
-    sign_in_methods: ['password'],
-    sign_up_enabled: true,
-    mfa_required: false,
+  let passwordForm = $state({
     password_min_length: 8,
-    require_uppercase: false,
-    require_lowercase: true,
-    require_numbers: true,
-    require_symbols: false,
+    character_policy: "none",
+  });
+  let captchaForm = $state({
+    provider: "none",
+    enabled: false,
+    secret: "",
+    secret_configured: false,
+  });
+  let blocklistForm = $state({
+    allowed_email_domains: "",
+    blocked_email_domains: "",
+    blocked_oauth_providers: "",
+    allowed_oauth_providers: "",
+    invite_only: false,
+    hook_registered: false,
+    hook_verified: false,
+    hook_reason_code: null,
+  });
+  let generalForm = $state({
     jwt_expiry: 3600,
-    mfa_max_enrolled_factors: 10,
     enable_confirmations: false,
     external_anonymous_users_enabled: false,
+    brute_force_protection: true,
+    max_login_attempts: 10,
   });
+  let loading = $state(true);
+  let saving = $state(false);
+  let saved = $state(false);
+  let error = $state(null);
+  let activeTab = $derived(
+    tabFromRoute(page.params.tab, tabValues, "password"),
+  );
 
-  function setMethod(method, enabled) {
-    if (enabled && !securityForm.sign_in_methods.includes(method)) {
-      securityForm.sign_in_methods = [...securityForm.sign_in_methods, method];
-    }
-    if (!enabled) {
-      securityForm.sign_in_methods = securityForm.sign_in_methods.filter(item => item !== method);
-    }
+  function requiredCharacters() {
+    if (passwordForm.character_policy === "strong")
+      return strongCharacterPolicy;
+    if (passwordForm.character_policy === "standard")
+      return standardCharacterPolicy;
+    return "";
   }
 
-  async function load() {
+  function initializePasswordForm() {
+    const required = authConfig.password_required_characters || "";
+    passwordForm = {
+      password_min_length: authConfig.password_min_length ?? 8,
+      character_policy:
+        required === strongCharacterPolicy
+          ? "strong"
+          : required === standardCharacterPolicy
+            ? "standard"
+            : "none",
+    };
+  }
+
+  function initializeGeneralForm(securityConfig) {
+    generalForm = {
+      jwt_expiry: authConfig.jwt_expiry ?? 3600,
+      enable_confirmations: authConfig.enable_confirmations ?? false,
+      external_anonymous_users_enabled:
+        authConfig.external_anonymous_users_enabled ?? false,
+      brute_force_protection:
+        securityConfig.bruteForceProtection ??
+        securityConfig.brute_force_protection ??
+        true,
+      max_login_attempts:
+        securityConfig.maxLoginAttempts ??
+        securityConfig.max_login_attempts ??
+        10,
+    };
+  }
+
+  function initializeBlocklistForm(authHookConfig, hookStatus) {
+    blocklistForm = {
+      allowed_email_domains: (
+        authHookConfig?.value?.allowed_email_domains || []
+      ).join(", "),
+      blocked_email_domains: (
+        authHookConfig?.value?.blocked_email_domains || []
+      ).join(", "),
+      blocked_oauth_providers: (
+        authHookConfig?.value?.blocked_oauth_providers || []
+      ).join(", "),
+      allowed_oauth_providers: (
+        authHookConfig?.value?.allowed_oauth_providers || []
+      ).join(", "),
+      invite_only: authHookConfig?.value?.invite_only === true,
+      hook_registered: hookStatus?.registered === true,
+      hook_verified: hookStatus?.verified === true,
+      hook_reason_code: hookStatus?.reason_code || null,
+    };
+  }
+
+  function initializeCaptchaForm(captchaConfig) {
+    captchaForm = {
+      provider: "none",
+      enabled: false,
+      secret: "",
+      secret_configured: false,
+      ...(captchaConfig?.value || {}),
+    };
+    captchaForm.secret = "";
+  }
+
+  function initializeForms(
+    securityConfig,
+    captchaConfig,
+    authHookConfig,
+    beforeUserCreatedHookStatus,
+  ) {
+    initializePasswordForm();
+    initializeGeneralForm(securityConfig);
+    initializeBlocklistForm(authHookConfig, beforeUserCreatedHookStatus);
+    initializeCaptchaForm(captchaConfig);
+  }
+
+  async function loadSecurity() {
     loading = true;
     error = null;
-    success = null;
-
+    saved = false;
     try {
-      const [authConfig, signInExperience, consistency] = await Promise.all([
-        getAuthConfig().catch(() => null),
-        getSignInExperience().catch(() => null),
-        getAuthConfigRuntimeConsistency().catch(() => null),
+      const [
+        authResponse,
+        securityResponse,
+        captchaResponse,
+        authHookResponse,
+        consistencyResponse,
+        beforeUserCreatedHookStatus,
+      ] = await Promise.all([
+        getAuthConfig(),
+        getSecurityConfig(),
+        listTenantConfigs("captcha"),
+        listTenantConfigs("auth_hook"),
+        getAuthConfigRuntimeConsistency(),
+        getBeforeUserCreatedHookStatus(),
       ]);
-
-      runtimeConsistency = consistency;
-      securityForm = {
-        sign_in_methods: signInExperience?.sign_in_methods?.length
-          ? signInExperience.sign_in_methods
-          : ['password'],
-        sign_up_enabled: signInExperience?.sign_up_enabled ?? authConfig?.enable_signup ?? true,
-        mfa_required: signInExperience?.mfa_required ?? false,
-        password_min_length: signInExperience?.password_policy?.min_length ?? authConfig?.password_min_length ?? 8,
-        require_uppercase: signInExperience?.password_policy?.require_uppercase ?? false,
-        require_lowercase: signInExperience?.password_policy?.require_lowercase ?? true,
-        require_numbers: signInExperience?.password_policy?.require_numbers ?? true,
-        require_symbols: signInExperience?.password_policy?.require_symbols ?? false,
-        jwt_expiry: authConfig?.jwt_expiry ?? 3600,
-        mfa_max_enrolled_factors: authConfig?.mfa_max_enrolled_factors ?? 10,
-        enable_confirmations: authConfig?.enable_confirmations ?? false,
-        external_anonymous_users_enabled: authConfig?.external_anonymous_users_enabled ?? false,
-      };
-    } catch (e) {
-      error = e.message;
+      authConfig = authResponse;
+      runtimeConsistency = consistencyResponse;
+      initializeForms(
+        securityResponse,
+        collectionItems(captchaResponse).find(
+          (config) => config.key === "default",
+        ),
+        collectionItems(authHookResponse).find(
+          (config) => config.key === "signup_policy",
+        ),
+        beforeUserCreatedHookStatus,
+      );
+    } catch (requestError) {
+      error = requestError;
     }
-
     loading = false;
   }
 
-  async function saveSecurityPolicy() {
+  async function saveCommand(command) {
     saving = true;
+    saved = false;
     error = null;
-    success = null;
-
     try {
-      const passwordMinLength = Number(securityForm.password_min_length) || 8;
-      const jwtExpiry = Number(securityForm.jwt_expiry) || 3600;
-      const mfaMaxFactors = Number(securityForm.mfa_max_enrolled_factors) || 10;
-
-      await Promise.all([
-        updateSignInExperience({
-          sign_in_methods: securityForm.sign_in_methods,
-          sign_up_enabled: securityForm.sign_up_enabled,
-          mfa_required: securityForm.mfa_required,
-          password_policy: {
-            min_length: passwordMinLength,
-            require_uppercase: securityForm.require_uppercase,
-            require_lowercase: securityForm.require_lowercase,
-            require_numbers: securityForm.require_numbers,
-            require_symbols: securityForm.require_symbols,
-          },
-        }),
-        updateAuthConfig({
-          enable_signup: securityForm.sign_up_enabled,
-          disable_signup: !securityForm.sign_up_enabled,
-          enable_confirmations: securityForm.enable_confirmations,
-          external_anonymous_users_enabled: securityForm.external_anonymous_users_enabled,
-          password_min_length: passwordMinLength,
-          jwt_expiry: jwtExpiry,
-          mfa_max_enrolled_factors: mfaMaxFactors,
-        }),
-      ]);
-
-      securityForm.password_min_length = passwordMinLength;
-      securityForm.jwt_expiry = jwtExpiry;
-      securityForm.mfa_max_enrolled_factors = mfaMaxFactors;
-      runtimeConsistency = await getAuthConfigRuntimeConsistency().catch(() => null);
-      success = t('Security policy saved');
-    } catch (e) {
-      error = e.message;
+      await command();
+      await loadSecurity();
+      saved = true;
+    } catch (requestError) {
+      error = requestError;
     }
-
     saving = false;
   }
 
-  onMount(load);
+  function savePasswordPolicy() {
+    return saveCommand(() =>
+      updateAuthConfig({
+        password_min_length: Number(passwordForm.password_min_length),
+        password_required_characters: requiredCharacters(),
+      }),
+    );
+  }
+
+  function saveCaptcha() {
+    const value = {
+      provider: captchaForm.provider,
+      secret_configured: captchaForm.secret_configured,
+    };
+    if (captchaForm.secret) value.secret = captchaForm.secret;
+    return saveCommand(() =>
+      upsertTenantConfig("captcha", "default", {
+        enabled: captchaForm.enabled,
+        value,
+      }),
+    );
+  }
+
+  function saveBlocklist() {
+    return saveCommand(() =>
+      upsertTenantConfig("auth_hook", "signup_policy", {
+        enabled: true,
+        value: {
+          allowed_email_domains: blocklistForm.allowed_email_domains
+            .split(",")
+            .map((domain) => domain.trim())
+            .filter(Boolean),
+          blocked_email_domains: blocklistForm.blocked_email_domains
+            .split(",")
+            .map((domain) => domain.trim())
+            .filter(Boolean),
+          blocked_oauth_providers: blocklistForm.blocked_oauth_providers
+            .split(",")
+            .map((provider) => provider.trim())
+            .filter(Boolean),
+          allowed_oauth_providers: blocklistForm.allowed_oauth_providers
+            .split(",")
+            .map((provider) => provider.trim())
+            .filter(Boolean),
+          invite_only: blocklistForm.invite_only,
+        },
+      }),
+    );
+  }
+
+  function saveGeneral() {
+    return saveCommand(() =>
+      Promise.all([
+        updateAuthConfig({
+          jwt_expiry: Number(generalForm.jwt_expiry),
+          enable_confirmations: generalForm.enable_confirmations,
+          external_anonymous_users_enabled:
+            generalForm.external_anonymous_users_enabled,
+        }),
+        updateSecurityConfig({
+          brute_force_protection: generalForm.brute_force_protection,
+          max_login_attempts: Number(generalForm.max_login_attempts),
+        }),
+      ]),
+    );
+  }
+
+  onMount(loadSecurity);
 </script>
 
-<div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t('Security Policy')}</h2>
-  <button onclick={saveSecurityPolicy} disabled={saving || loading} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
-    {saving ? t('Saving...') : t('Save')}
-  </button>
+<div class="mb-6">
+  <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-600">
+    {t("nav.section.authentication")}
+  </p>
+  <h2 class="mt-2 text-3xl font-bold text-surface-950">
+    {t("Security Policy")}
+  </h2>
+  <p class="mt-2 text-sm text-surface-500">
+    {t(
+      "Only policies that map to the active GoTrue runtime are configurable here.",
+    )}
+  </p>
 </div>
+<DetailTabs {tabs} {activeTab} basePath="/security" />
+{#if saved}<div
+    class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-700"
+  >
+    {t("Saved")}
+  </div>{/if}
 
-{#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">{error}</div>
-{/if}
-
-{#if success}
-  <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-green-700 mb-4">{success}</div>
-{/if}
-
-{#if loading}
-  <p class="text-surface-400">{t('Loading...')}</p>
-{:else}
-  <div class="space-y-6">
-    {#if runtimeConsistency && !runtimeConsistency.consistent}
-      <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
-        {t('Sign-up control-plane setting and GoTrue runtime state are out of sync. Desired state is')}
-        <span class="font-semibold">{runtimeConsistency.desired.signups_enabled ? t('open') : t('closed')}</span>,
-        {t('but runtime is currently')}
-        <span class="font-semibold">{runtimeConsistency.runtime.signups_enabled ? t('open') : t('closed')}</span>.
+<RequestState {loading} {error} onRetry={loadSecurity}>
+  {#if activeTab === "password"}
+    <section class="console-card p-6">
+      <h3 class="text-lg font-semibold text-surface-900">
+        {t("Password Policy")}
+      </h3>
+      <p class="mt-1 text-sm text-surface-500">
+        {t(
+          "The saved character classes are read back from GoTrue password_required_characters.",
+        )}
+      </p>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div>
+          <label
+            for="password-min-length"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Minimum Length")}</label
+          ><input
+            id="password-min-length"
+            type="number"
+            min="6"
+            max="128"
+            bind:value={passwordForm.password_min_length}
+            class="w-full"
+          />
+        </div>
+        <div>
+          <label
+            for="password-character-policy"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Required characters")}</label
+          ><select
+            id="password-character-policy"
+            bind:value={passwordForm.character_policy}
+            class="w-full"
+            ><option value="none">{t("No character requirement")}</option
+            ><option value="standard"
+              >{t("Lowercase, uppercase, and number")}</option
+            ><option value="strong"
+              >{t("Lowercase, uppercase, number, and symbol")}</option
+            ></select
+          >
+        </div>
       </div>
-    {/if}
-
-    <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Sign-in Methods')}</h3>
-      <div class="grid grid-cols-2 gap-4">
-        {#each signInMethodOptions as method (method.value)}
-          <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-            <span class="text-sm font-medium text-surface-800">{t(method.labelKey)}</span>
-            <input
+      <button
+        disabled={saving}
+        onclick={savePasswordPolicy}
+        class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >{saving ? t("Saving...") : t("Save")}</button
+      >
+    </section>
+  {:else if activeTab === "captcha"}
+    <section class="console-card p-6">
+      <h3 class="text-lg font-semibold text-surface-900">CAPTCHA</h3>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div>
+          <label
+            for="captcha-provider"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Provider")}</label
+          ><select
+            id="captcha-provider"
+            bind:value={captchaForm.provider}
+            class="w-full"
+            ><option value="none">{t("Disabled")}</option><option
+              value="hcaptcha">hCaptcha</option
+            ><option value="turnstile">Cloudflare Turnstile</option></select
+          >
+        </div>
+        <div>
+          <label
+            for="captcha-secret"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Secret")}</label
+          ><input
+            id="captcha-secret"
+            type="password"
+            bind:value={captchaForm.secret}
+            placeholder={captchaForm.secret_configured ? "••••••••" : ""}
+            class="w-full"
+          />
+          <p class="mt-1 text-xs text-surface-500">
+            {captchaForm.secret_configured
+              ? t("Secret configured")
+              : t("Secret not configured")}
+          </p>
+        </div>
+      </div>
+      <label
+        class="mt-4 flex items-center justify-between rounded-lg border border-surface-200 p-4"
+        ><span class="font-medium text-surface-900">{t("Enabled")}</span><input
+          type="checkbox"
+          bind:checked={captchaForm.enabled}
+        /></label
+      ><button
+        disabled={saving}
+        onclick={saveCaptcha}
+        class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >{saving ? t("Saving...") : t("Save")}</button
+      >
+    </section>
+  {:else if activeTab === "blocklist"}
+    <section class="console-card p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="text-lg font-semibold text-surface-900">
+            {t("detail.blocklist")}
+          </h3>
+          <p class="mt-1 text-sm text-surface-500">
+            {t(
+              "Enforcement uses the registered GoTrue before-user-created hook and authoritative server-side invitation checks.",
+            )}
+          </p>
+        </div>
+        <span
+          class={blocklistForm.hook_registered && blocklistForm.hook_verified
+            ? "rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"
+            : "rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700"}
+          >{blocklistForm.hook_registered && blocklistForm.hook_verified
+            ? t("Active")
+            : t("Not effective")}</span
+        >
+      </div>
+      {#if blocklistForm.hook_reason_code}
+        <p class="mt-3 text-xs text-amber-700">
+          {t("Runtime verification reason")}: <code
+            >{blocklistForm.hook_reason_code}</code
+          >
+        </p>
+      {/if}
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div>
+          <label
+            for="allowed-domains"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Allowed email domains")}</label
+          ><input
+            id="allowed-domains"
+            bind:value={blocklistForm.allowed_email_domains}
+            class="w-full"
+            placeholder="company.example"
+          />
+        </div>
+        <div>
+          <label
+            for="blocked-domains"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Blocked email domains")}</label
+          ><input
+            id="blocked-domains"
+            bind:value={blocklistForm.blocked_email_domains}
+            class="w-full"
+            placeholder="example.test"
+          />
+        </div>
+        <div>
+          <label
+            for="blocked-providers"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Blocked OAuth providers")}</label
+          ><input
+            id="blocked-providers"
+            bind:value={blocklistForm.blocked_oauth_providers}
+            class="w-full"
+            placeholder="provider-id"
+          />
+        </div>
+        <div>
+          <label
+            for="allowed-providers"
+            class="mb-1 block text-sm font-medium text-surface-700"
+            >{t("Allowed OAuth providers")}</label
+          ><input
+            id="allowed-providers"
+            bind:value={blocklistForm.allowed_oauth_providers}
+            class="w-full"
+            placeholder="google, github"
+          />
+        </div>
+      </div>
+      <label
+        class="mt-4 flex items-center justify-between rounded-lg border border-surface-200 p-4"
+        ><span class="font-medium text-surface-900"
+          >{t("Invite-only sign-up")}</span
+        ><input
+          type="checkbox"
+          bind:checked={blocklistForm.invite_only}
+        /></label
+      ><button
+        disabled={saving}
+        onclick={saveBlocklist}
+        class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >{saving ? t("Saving...") : t("Save")}</button
+      >
+    </section>
+  {:else}
+    <div class="space-y-5">
+      <section class="console-card p-6">
+        <h3 class="text-lg font-semibold text-surface-900">
+          {t("Account Protection")}
+        </h3>
+        <div class="mt-4 grid gap-3 md:grid-cols-2">
+          <label
+            class="flex items-center justify-between rounded-lg border border-surface-200 p-4"
+            ><span class="font-medium text-surface-900"
+              >{t("Email Confirmations")}</span
+            ><input
               type="checkbox"
-              checked={securityForm.sign_in_methods.includes(method.value)}
-              onchange={(e) => setMethod(method.value, e.currentTarget.checked)}
-              class="h-4 w-4"
-            >
-          </label>
-        {/each}
-      </div>
-    </section>
-
-    <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Account Protection')}</h3>
-      <div class="grid grid-cols-2 gap-4">
-        <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">{t('Sign-up Enabled')}</span>
-          <input type="checkbox" bind:checked={securityForm.sign_up_enabled} class="h-4 w-4">
-        </label>
-        <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">{t('MFA Required')}</span>
-          <input type="checkbox" bind:checked={securityForm.mfa_required} class="h-4 w-4">
-        </label>
-        <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">{t('Email Confirmations')}</span>
-          <input type="checkbox" bind:checked={securityForm.enable_confirmations} class="h-4 w-4">
-        </label>
-        <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">{t('Anonymous Users')}</span>
-          <input type="checkbox" bind:checked={securityForm.external_anonymous_users_enabled} class="h-4 w-4">
-        </label>
-      </div>
-    </section>
-
-    <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Password Policy')}</h3>
-      <div class="grid grid-cols-2 gap-4 mb-4">
-        <div>
-          <label for="password-min-length" class="block text-sm font-medium text-surface-700 mb-1">{t('Minimum Length')}</label>
-          <input id="password-min-length" type="number" min="6" max="128" bind:value={securityForm.password_min_length} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
+              bind:checked={generalForm.enable_confirmations}
+            /></label
+          ><label
+            class="flex items-center justify-between rounded-lg border border-surface-200 p-4"
+            ><span class="font-medium text-surface-900"
+              >{t("Anonymous Users")}</span
+            ><input
+              type="checkbox"
+              bind:checked={generalForm.external_anonymous_users_enabled}
+            /></label
+          ><label
+            class="flex items-center justify-between rounded-lg border border-surface-200 p-4"
+            ><span class="font-medium text-surface-900"
+              >{t("Brute Force Protection")}</span
+            ><input
+              type="checkbox"
+              bind:checked={generalForm.brute_force_protection}
+            /></label
+          >
+          <div>
+            <label
+              for="max-attempts"
+              class="mb-1 block text-sm font-medium text-surface-700"
+              >{t("Max Login Attempts")}</label
+            ><input
+              id="max-attempts"
+              type="number"
+              min="1"
+              bind:value={generalForm.max_login_attempts}
+            />
+          </div>
+          <div>
+            <label
+              for="jwt-expiry"
+              class="mb-1 block text-sm font-medium text-surface-700"
+              >{t("JWT Expiry Seconds")}</label
+            ><input
+              id="jwt-expiry"
+              type="number"
+              min="60"
+              bind:value={generalForm.jwt_expiry}
+            />
+          </div>
         </div>
-        <div>
-          <label for="mfa-max-factors" class="block text-sm font-medium text-surface-700 mb-1">{t('MFA Max Factors')}</label>
-          <input id="mfa-max-factors" type="number" min="1" max="20" bind:value={securityForm.mfa_max_enrolled_factors} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-4">
-        <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">{t('Uppercase Letter')}</span>
-          <input type="checkbox" bind:checked={securityForm.require_uppercase} class="h-4 w-4">
-        </label>
-        <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">{t('Lowercase Letter')}</span>
-          <input type="checkbox" bind:checked={securityForm.require_lowercase} class="h-4 w-4">
-        </label>
-        <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">{t('Number')}</span>
-          <input type="checkbox" bind:checked={securityForm.require_numbers} class="h-4 w-4">
-        </label>
-        <label class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3">
-          <span class="text-sm font-medium text-surface-800">{t('Symbol')}</span>
-          <input type="checkbox" bind:checked={securityForm.require_symbols} class="h-4 w-4">
-        </label>
-      </div>
-    </section>
-
-    <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Session Policy')}</h3>
-      <div>
-        <label for="jwt-expiry" class="block text-sm font-medium text-surface-700 mb-1">{t('JWT Expiry Seconds')}</label>
-        <input id="jwt-expiry" type="number" min="60" bind:value={securityForm.jwt_expiry} class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm">
-      </div>
-    </section>
-  </div>
-{/if}
+        <button
+          disabled={saving}
+          onclick={saveGeneral}
+          class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >{saving ? t("Saving...") : t("Save")}</button
+        >
+      </section>
+      <section class="rounded-xl border border-blue-200 bg-blue-50 p-5">
+        <h3 class="font-semibold text-blue-950">
+          {t("tenant.runtimeConsistency")}
+        </h3>
+        <p class="mt-2 text-sm text-blue-800">
+          {runtimeConsistency?.consistent
+            ? t("tenant.consistent")
+            : t("tenant.reviewRequired")}
+        </p>
+      </section>
+    </div>
+  {/if}
+</RequestState>

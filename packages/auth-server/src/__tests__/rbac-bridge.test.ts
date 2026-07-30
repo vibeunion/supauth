@@ -41,7 +41,8 @@ describe('P0-28: RBAC Bridge', () => {
     expect(sql).toContain('supaoauth.legacy_role_for_user');
     expect(sql).toContain('test-project-12345');
     expect(sql).toContain('raw_app_meta_data');
-    expect(sql).toContain("'supaoauth' -> 'roles'");
+    expect(sql).toContain("'supaoauth' -> 'projects' -> 'test-project-12345' -> 'roles'");
+    expect(sql).not.toContain("'supaoauth' -> 'roles'");
     expect(sql).not.toContain('role_assignments');
     expect(sql).not.toContain('supaoauth.roles');
     expect(sql).toContain('admin');
@@ -50,6 +51,13 @@ describe('P0-28: RBAC Bridge', () => {
     expect(sql).toContain('inspector');
     expect(sql).toContain('authenticated');
     expect(sql).toContain('SECURITY DEFINER');
+  });
+
+  it('quotes project refs used in the generated SQL path', () => {
+    const sql = generateCompatibilityHelper("project'oops\ncomment");
+
+    expect(sql).toContain("'projects' -> 'project''oops");
+    expect(sql).not.toContain("project'oops\ncomment");
   });
 
   it('legacy roles map to distinct SupaOAuth roles', () => {

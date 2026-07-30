@@ -110,7 +110,6 @@ export interface SignInExperience {
   };
   sign_in_methods: string[];
   sign_up_enabled: boolean;
-  mfa_required: boolean;
   password_policy: {
     min_length: number;
     require_uppercase: boolean;
@@ -182,14 +181,51 @@ export interface Webhook {
   id: string;
   url: string;
   events: string[];
-  secret: string;
+  secret_configured: boolean;
   enabled: boolean;
   created_at: string;
   updated_at: string;
 }
 
 // Runtime mode
-export type RuntimeMode = 'gotrue' | 'external_oidc';
+/** SupaOAuth delegates the authentication runtime to stock Supabase GoTrue. */
+export type RuntimeMode = 'gotrue';
+
+export interface CapabilityStatus {
+  available: boolean;
+  source: 'gotrue' | 'supacloud' | 'supaoauth';
+  version: string | null;
+  reason_code: string | null;
+}
+
+export interface CapabilitiesResponse {
+  runtime_mode: RuntimeMode;
+  capabilities: Record<string, CapabilityStatus>;
+}
+
+export interface PagedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface CursorResponse<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  next_cursor: string | null;
+}
+
+export interface ApiErrorResponse {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+    correlation_id: string;
+    details?: Record<string, unknown>;
+  };
+}
 
 // Supabase compatibility check result
 export interface CompatibilityCheckResult {

@@ -1,0 +1,4309 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SupaOAuth Management API",
+    "description": "SupaOAuth is a SupaCloud-hosted enterprise IAM and user-center control plane. In gotrue mode, GoTrue remains the OAuth/OIDC runtime and token issuer; SupaOAuth provides hosted UI, product RBAC, organizations, connectors, audit, configuration, and compatibility tooling.",
+    "version": "0.2.0"
+  },
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Server health and project info"
+    },
+    {
+      "name": "Project",
+      "description": "Project-level metadata"
+    },
+    {
+      "name": "Runtime",
+      "description": "OIDC runtime (GoTrue) gateway checks"
+    },
+    {
+      "name": "Applications",
+      "description": "OAuth client application management"
+    },
+    {
+      "name": "Bindings",
+      "description": "Application-resource/scope bindings"
+    },
+    {
+      "name": "Connectors",
+      "description": "Social/enterprise SSO provider management"
+    },
+    {
+      "name": "Resources",
+      "description": "API resource and scope definitions"
+    },
+    {
+      "name": "Scopes",
+      "description": "OAuth scope management"
+    },
+    {
+      "name": "Users",
+      "description": "User CRUD and permission resolution"
+    },
+    {
+      "name": "Organizations",
+      "description": "Organization and member management"
+    },
+    {
+      "name": "Org Templates",
+      "description": "Organization templates for auto-provisioning roles and permissions"
+    },
+    {
+      "name": "Members",
+      "description": "Organization member operations"
+    },
+    {
+      "name": "RBAC",
+      "description": "Role-based access control — roles, permissions, assignments"
+    },
+    {
+      "name": "Permissions",
+      "description": "Permission management under roles"
+    },
+    {
+      "name": "Assignments",
+      "description": "Role assignment and revocation"
+    },
+    {
+      "name": "Auth Config",
+      "description": "GoTrue auth configuration proxy"
+    },
+    {
+      "name": "Sign-in Experience",
+      "description": "Customizable sign-in flow configuration"
+    },
+    {
+      "name": "Compatibility",
+      "description": "Supabase compatibility inspector"
+    },
+    {
+      "name": "Audit",
+      "description": "Admin action audit log queries"
+    },
+    {
+      "name": "Webhooks",
+      "description": "Webhook endpoint management and event delivery"
+    },
+    {
+      "name": "Auth",
+      "description": "Admin console authentication"
+    },
+    {
+      "name": "Storage",
+      "description": "Avatar and branding asset storage proxy"
+    },
+    {
+      "name": "Admin Tools",
+      "description": "RLS migration assistant and SDK tools"
+    },
+    {
+      "name": "Consents",
+      "description": "User consent management for OAuth authorization"
+    },
+    {
+      "name": "Security",
+      "description": "Production security configuration and enforcement"
+    },
+    {
+      "name": "Provisioning",
+      "description": "SupaCloud project provisioning and idempotent reconcile (P0-26: project-scoped)"
+    },
+    {
+      "name": "Enterprise SSO",
+      "description": "Enterprise SSO configuration, domain discovery, JIT provisioning"
+    },
+    {
+      "name": "API Versions",
+      "description": "API version tracking and breaking change detection"
+    },
+    {
+      "name": "Tenant Config",
+      "description": "Captcha, message templates, domains, phrases, branding, and custom profile fields"
+    },
+    {
+      "name": "Consent",
+      "description": "Application consent configuration"
+    },
+    {
+      "name": "Connector Factory",
+      "description": "Connector provider catalog and factory definitions"
+    },
+    {
+      "name": "Invitations",
+      "description": "Organization invitations"
+    },
+    {
+      "name": "JIT",
+      "description": "Organization just-in-time provisioning settings"
+    },
+    {
+      "name": "Account Center",
+      "description": "Bearer-authenticated user profile, OAuth grants, linked identities, TOTP MFA, and scoped logout"
+    },
+    {
+      "name": "Auth Hooks",
+      "description": "Supabase Auth Hooks bridge for signup policy, token shaping, and MFA risk checks"
+    },
+    {
+      "name": "RBAC Bridge",
+      "description": "Legacy role migration and compatibility bridge (P0-28)"
+    },
+    {
+      "name": "Route Gate",
+      "description": "Route/domain integration gate for deployment verification (P0-29)"
+    },
+    {
+      "name": "SSO",
+      "description": "GoTrue-compatible SSO authorization entrypoints"
+    },
+    {
+      "name": "Account Provisioning",
+      "description": "Bulk account provisioning, SupaOAuth user creation, and self-service account claiming"
+    }
+  ],
+  "paths": {
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "postV1AuthLogin",
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "postV1AuthLogout",
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth/identity": {
+      "get": {
+        "operationId": "getV1AuthIdentity",
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth/health": {
+      "get": {
+        "operationId": "getV1AuthHealth",
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/storage/buckets": {
+      "get": {
+        "operationId": "getV1StorageBuckets",
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/storage/buckets/{bucketId}": {
+      "post": {
+        "operationId": "postV1StorageBucketsByBucketId",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "bucketId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/storage/avatar/{userId}": {
+      "post": {
+        "operationId": "postV1StorageAvatarByUserId",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/storage/branding/{assetType}": {
+      "post": {
+        "operationId": "postV1StorageBrandingByAssetType",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "assetType",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/oauth/authorize": {
+      "get": {
+        "operationId": "getOauthAuthorize",
+        "summary": "Serve hosted OAuth authorize page",
+        "tags": [
+          "Public",
+          "Consent"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/login": {
+      "get": {
+        "operationId": "getLogin",
+        "summary": "Serve hosted login path alias",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/claim": {
+      "get": {
+        "operationId": "getClaim",
+        "summary": "Serve account claim page",
+        "tags": [
+          "Public",
+          "Account Provisioning"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/account": {
+      "get": {
+        "operationId": "getAccount",
+        "summary": "Serve hosted account center page",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/account/password": {
+      "get": {
+        "operationId": "getAccountPassword",
+        "summary": "Serve hosted password change page",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/change-password": {
+      "get": {
+        "operationId": "getChange-password",
+        "summary": "Serve hosted password change page alias",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "operationId": "getIndex",
+        "summary": "Serve hosted landing page (alias for authorize)",
+        "tags": [
+          "Public"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/admin": {
+      "get": {
+        "operationId": "getAdmin",
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/sign-in-experience/resolve": {
+      "get": {
+        "operationId": "getV1PublicSign-in-experienceResolve",
+        "summary": "Resolve public effective sign-in experience for hosted login pages",
+        "tags": [
+          "Sign-in Experience",
+          "Public"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/oauth/authorizations/{authorizationId}": {
+      "get": {
+        "operationId": "getV1PublicOauthAuthorizationsByAuthorizationId",
+        "summary": "Get authoritative GoTrue OAuth authorization details",
+        "tags": [
+          "Public",
+          "Consent"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "authorizationId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/oauth/authorizations/{authorizationId}/consent": {
+      "post": {
+        "operationId": "postV1PublicOauthAuthorizationsByAuthorizationIdConsent",
+        "summary": "Submit an authoritative GoTrue OAuth consent decision",
+        "tags": [
+          "Public",
+          "Consent"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "authorizationId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/connectors/{connectorId}/authorize": {
+      "get": {
+        "operationId": "getV1PublicConnectorsByConnectorIdAuthorize",
+        "summary": "Redirect to social/SSO connector authorization",
+        "tags": [
+          "Public",
+          "Connectors"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "connectorId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/phrases/{languageTag}": {
+      "get": {
+        "operationId": "getV1PublicPhrasesByLanguageTag",
+        "summary": "Get custom phrases for a language tag",
+        "tags": [
+          "Public",
+          "Tenant Config"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "languageTag",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account-claims/config": {
+      "get": {
+        "operationId": "getV1PublicAccount-claimsConfig",
+        "summary": "Get public account claim configuration",
+        "tags": [
+          "Public",
+          "Account Provisioning"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account-claims/claim": {
+      "post": {
+        "operationId": "postV1PublicAccount-claimsClaim",
+        "summary": "Claim a pre-provisioned SupaOAuth account",
+        "tags": [
+          "Public",
+          "Account Provisioning"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account-password/change": {
+      "post": {
+        "operationId": "postV1PublicAccount-passwordChange",
+        "summary": "Change password with current credentials",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/config": {
+      "get": {
+        "operationId": "getV1PublicAccountConfig",
+        "summary": "Get public account center configuration",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/me": {
+      "get": {
+        "operationId": "getV1PublicAccountMe",
+        "summary": "Get current account profile with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/profile": {
+      "patch": {
+        "operationId": "patchV1PublicAccountProfile",
+        "summary": "Update current account profile metadata with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/email": {
+      "patch": {
+        "operationId": "patchV1PublicAccountEmail",
+        "summary": "Request current account email change with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/phone": {
+      "patch": {
+        "operationId": "patchV1PublicAccountPhone",
+        "summary": "Request current account phone change with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/grants": {
+      "get": {
+        "operationId": "getV1PublicAccountGrants",
+        "summary": "List current account application grants with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/grants/{clientId}": {
+      "delete": {
+        "operationId": "deleteV1PublicAccountGrantsByClientId",
+        "summary": "Revoke current account application grant with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "clientId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/identities": {
+      "get": {
+        "operationId": "getV1PublicAccountIdentities",
+        "summary": "List current account identities with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/identities/authorize": {
+      "post": {
+        "operationId": "postV1PublicAccountIdentitiesAuthorize",
+        "summary": "Start current account manual identity linking with GoTrue",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/identities/{identityId}": {
+      "delete": {
+        "operationId": "deleteV1PublicAccountIdentitiesByIdentityId",
+        "summary": "Unlink current account identity with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "identityId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/logout": {
+      "post": {
+        "operationId": "postV1PublicAccountLogout",
+        "summary": "Log out the current GoTrue account by scope",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/mfa": {
+      "get": {
+        "operationId": "getV1PublicAccountMfa",
+        "summary": "List current account MFA factors with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/mfa/totp/enroll": {
+      "post": {
+        "operationId": "postV1PublicAccountMfaTotpEnroll",
+        "summary": "Enroll current account TOTP MFA factor with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/mfa/{factorId}/verify": {
+      "post": {
+        "operationId": "postV1PublicAccountMfaByFactorIdVerify",
+        "summary": "Verify current account TOTP MFA factor with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "factorId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/mfa/{factorId}": {
+      "delete": {
+        "operationId": "deleteV1PublicAccountMfaByFactorId",
+        "summary": "Unenroll current account MFA factor with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "factorId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/account/": {
+      "delete": {
+        "operationId": "deleteV1PublicAccount",
+        "summary": "Delete current account with user access token",
+        "tags": [
+          "Public",
+          "Account Center"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-hooks/before-user-created": {
+      "post": {
+        "operationId": "postV1Auth-hooksBefore-user-created",
+        "summary": "Supabase before-user-created hook",
+        "description": "Applies tenant signup policy such as domain allow/block lists, provider allow/block lists, and invite-only mode.",
+        "tags": [
+          "Auth Hooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-hooks/custom-access-token": {
+      "post": {
+        "operationId": "postV1Auth-hooksCustom-access-token",
+        "summary": "Supabase custom-access-token hook",
+        "description": "Reconciles GoTrue-backed organization JIT memberships under app_metadata.supaoauth.projects[projectRef] while preserving Supabase required claims.",
+        "tags": [
+          "Auth Hooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/invitations/{invitationId}/accept": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "invitationId",
+            "required": true
+          }
+        ],
+        "operationId": "postV1OrganizationsByOrgIdInvitationsByInvitationIdAccept",
+        "summary": "Accept an organization invitation",
+        "tags": [
+          "Organizations",
+          "Invitations"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/oauth/sso/authorize": {
+      "get": {
+        "operationId": "getOauthSsoAuthorize",
+        "summary": "Validate OAuth request and redirect to GoTrue authorization endpoint",
+        "tags": [
+          "Public",
+          "SSO",
+          "Consent"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/oauth/sso/authorize": {
+      "get": {
+        "operationId": "getV1PublicOauthSsoAuthorize",
+        "summary": "Validate OAuth request and redirect to GoTrue authorization endpoint",
+        "tags": [
+          "Public",
+          "SSO",
+          "Consent"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "getV1Health",
+        "summary": "Server health check",
+        "tags": [
+          "Health"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/project": {
+      "get": {
+        "operationId": "getV1Project",
+        "summary": "Get project info",
+        "tags": [
+          "Project"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/public/admin-sso-config": {
+      "get": {
+        "operationId": "getV1PublicAdmin-sso-config",
+        "summary": "Get public admin SSO browser configuration",
+        "description": "Returns only public OIDC client metadata needed by the Admin SPA. Secrets, allowlists, and token validation policy stay server-side.",
+        "tags": [
+          "Auth"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/runtime/health": {
+      "get": {
+        "operationId": "getV1RuntimeHealth",
+        "summary": "Check OIDC runtime health",
+        "tags": [
+          "Runtime"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/runtime/oauth-server": {
+      "get": {
+        "operationId": "getV1RuntimeOauth-server",
+        "summary": "Get OAuth server status",
+        "tags": [
+          "Runtime"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/runtime/discovery": {
+      "get": {
+        "operationId": "getV1RuntimeDiscovery",
+        "summary": "OIDC discovery document",
+        "description": "Returns the OpenID Connect discovery document from the underlying GoTrue runtime",
+        "tags": [
+          "Runtime"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/runtime/jwks": {
+      "get": {
+        "operationId": "getV1RuntimeJwks",
+        "summary": "JWKS endpoint",
+        "description": "Returns JSON Web Key Set from the underlying GoTrue runtime",
+        "tags": [
+          "Runtime"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-hooks/registration-guide": {
+      "get": {
+        "operationId": "getV1Auth-hooksRegistration-guide",
+        "summary": "Get GoTrue HTTP Auth Hook registration guide",
+        "tags": [
+          "Auth Hooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-hooks/custom-access-token/status": {
+      "get": {
+        "operationId": "getV1Auth-hooksCustom-access-tokenStatus",
+        "summary": "Get GoTrue custom access-token hook registration status",
+        "tags": [
+          "Auth Hooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-hooks/custom-access-token/verify": {
+      "post": {
+        "operationId": "postV1Auth-hooksCustom-access-tokenVerify",
+        "summary": "Run a synthetic GoTrue custom access-token hook verification",
+        "tags": [
+          "Auth Hooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-hooks/before-user-created/status": {
+      "get": {
+        "operationId": "getV1Auth-hooksBefore-user-createdStatus",
+        "summary": "Get GoTrue before-user-created hook registration status",
+        "tags": [
+          "Auth Hooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-hooks/before-user-created/verify": {
+      "post": {
+        "operationId": "postV1Auth-hooksBefore-user-createdVerify",
+        "summary": "Run a synthetic GoTrue before-user-created hook verification",
+        "tags": [
+          "Auth Hooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "getV1Capabilities",
+        "summary": "Get negotiated GoTrue and SupaCloud capabilities",
+        "tags": [
+          "Project"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/": {
+      "get": {
+        "operationId": "getV1Applications",
+        "summary": "List OAuth applications",
+        "tags": [
+          "Applications"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Applications",
+        "summary": "Create OAuth application",
+        "tags": [
+          "Applications"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "redirect_uris"
+                ],
+                "properties": {
+                  "redirect_uris": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "token_endpoint_auth_method": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "client_secret_basic",
+                      "client_secret_post"
+                    ]
+                  },
+                  "grant_types": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "authorization_code",
+                        "refresh_token"
+                      ]
+                    },
+                    "description": "GoTrue v2.193 supports only 'authorization_code' and 'refresh_token' OAuth client grants"
+                  },
+                  "client_name": {
+                    "type": "string"
+                  },
+                  "client_uri": {
+                    "type": "string"
+                  },
+                  "logo_uri": {
+                    "type": "string"
+                  },
+                  "client_type": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "confidential"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppId",
+        "summary": "Get application by ID",
+        "tags": [
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1ApplicationsByAppId",
+        "summary": "Update application",
+        "tags": [
+          "Applications"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "minProperties": 1,
+                "properties": {
+                  "redirect_uris": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "token_endpoint_auth_method": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "client_secret_basic",
+                      "client_secret_post"
+                    ]
+                  },
+                  "grant_types": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "authorization_code",
+                        "refresh_token"
+                      ]
+                    },
+                    "description": "GoTrue v2.193 supports only 'authorization_code' and 'refresh_token' OAuth client grants"
+                  },
+                  "client_name": {
+                    "type": "string"
+                  },
+                  "client_uri": {
+                    "type": "string"
+                  },
+                  "logo_uri": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1ApplicationsByAppId",
+        "summary": "Delete application",
+        "tags": [
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/rotate-secret": {
+      "post": {
+        "operationId": "postV1ApplicationsByAppIdRotate-secret",
+        "summary": "Rotate client secret",
+        "tags": [
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/consent": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdConsent",
+        "summary": "Get application consent configuration",
+        "tags": [
+          "Applications",
+          "Consent"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1ApplicationsByAppIdConsent",
+        "summary": "Update application consent configuration",
+        "tags": [
+          "Applications",
+          "Consent"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/access-control": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdAccess-control",
+        "summary": "Get application access-control rules",
+        "tags": [
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1ApplicationsByAppIdAccess-control",
+        "summary": "Update application access-control rules",
+        "tags": [
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/sign-in-experience": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdSign-in-experience",
+        "summary": "Get application sign-in experience overrides",
+        "tags": [
+          "Applications",
+          "Sign-in Experience"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1ApplicationsByAppIdSign-in-experience",
+        "summary": "Update application sign-in experience overrides",
+        "tags": [
+          "Applications",
+          "Sign-in Experience"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1ApplicationsByAppIdSign-in-experience",
+        "summary": "Delete application sign-in experience overrides",
+        "tags": [
+          "Applications",
+          "Sign-in Experience"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/bindings": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdBindings",
+        "summary": "List application resource/scope bindings",
+        "tags": [
+          "Applications",
+          "Bindings"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1ApplicationsByAppIdBindings",
+        "summary": "Create application binding",
+        "tags": [
+          "Applications",
+          "Bindings"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/bindings/{bindingId}": {
+      "delete": {
+        "operationId": "deleteV1ApplicationsByAppIdBindingsByBindingId",
+        "summary": "Delete application binding",
+        "tags": [
+          "Applications",
+          "Bindings"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "bindingId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/scopes": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdScopes",
+        "summary": "List application scopes",
+        "tags": [
+          "Applications",
+          "Bindings"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/roles": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdRoles",
+        "summary": "List role assignments for an application",
+        "tags": [
+          "Applications",
+          "RBAC"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/logs": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdLogs",
+        "summary": "List audit logs for an application",
+        "tags": [
+          "Applications",
+          "Audit"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/applications/{appId}/organizations": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdOrganizations",
+        "summary": "List organizations with application access",
+        "tags": [
+          "Applications",
+          "Organizations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/connectors/": {
+      "get": {
+        "operationId": "getV1Connectors",
+        "summary": "List connectors (identity providers)",
+        "tags": [
+          "Connectors"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/connectors/factories": {
+      "get": {
+        "operationId": "getV1ConnectorsFactories",
+        "summary": "List connector factory catalog",
+        "tags": [
+          "Connectors",
+          "Connector Factory"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/connectors/factories/{factoryId}": {
+      "put": {
+        "operationId": "putV1ConnectorsFactoriesByFactoryId",
+        "summary": "Create or update connector factory definition",
+        "tags": [
+          "Connectors",
+          "Connector Factory"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "factoryId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/connectors/from-factory/{factoryId}": {
+      "post": {
+        "operationId": "postV1ConnectorsFrom-factoryByFactoryId",
+        "summary": "Instantiate or update connector from factory",
+        "tags": [
+          "Connectors",
+          "Connector Factory"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "factoryId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/connectors/{connectorId}": {
+      "get": {
+        "operationId": "getV1ConnectorsByConnectorId",
+        "summary": "Get connector by ID",
+        "tags": [
+          "Connectors"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "connectorId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "patch": {
+        "operationId": "patchV1ConnectorsByConnectorId",
+        "summary": "Update connector configuration",
+        "tags": [
+          "Connectors"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "connectorId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/connectors/{connectorId}/authorization-uri": {
+      "get": {
+        "operationId": "getV1ConnectorsByConnectorIdAuthorization-uri",
+        "summary": "Build connector authorization URI preflight",
+        "tags": [
+          "Connectors",
+          "Connector Factory"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "connectorId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/connectors/{connectorId}/test": {
+      "post": {
+        "operationId": "postV1ConnectorsByConnectorIdTest",
+        "summary": "Test connector connectivity",
+        "tags": [
+          "Connectors"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "connectorId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/resources/": {
+      "get": {
+        "operationId": "getV1Resources",
+        "summary": "List API resources",
+        "tags": [
+          "Resources"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Resources",
+        "summary": "Create API resource",
+        "tags": [
+          "Resources"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/resources/{resourceId}": {
+      "get": {
+        "operationId": "getV1ResourcesByResourceId",
+        "summary": "Get API resource by ID",
+        "tags": [
+          "Resources"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "resourceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1ResourcesByResourceId",
+        "summary": "Update API resource",
+        "tags": [
+          "Resources"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "resourceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1ResourcesByResourceId",
+        "summary": "Delete API resource",
+        "tags": [
+          "Resources"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "resourceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/resources/{resourceId}/scopes": {
+      "post": {
+        "operationId": "postV1ResourcesByResourceIdScopes",
+        "summary": "Add scope to resource",
+        "tags": [
+          "Resources",
+          "Scopes"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "resourceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/resources/{resourceId}/scopes/{scopeId}": {
+      "put": {
+        "operationId": "putV1ResourcesByResourceIdScopesByScopeId",
+        "summary": "Update scope under a resource",
+        "tags": [
+          "Resources",
+          "Scopes"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "resourceId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "scopeId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1ResourcesByResourceIdScopesByScopeId",
+        "summary": "Remove scope from resource",
+        "tags": [
+          "Resources",
+          "Scopes"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "resourceId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "scopeId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/resources/{resourceId}/applications": {
+      "get": {
+        "operationId": "getV1ResourcesByResourceIdApplications",
+        "summary": "List application bindings for a resource",
+        "tags": [
+          "Resources",
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "resourceId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/": {
+      "get": {
+        "operationId": "getV1Users",
+        "summary": "List users",
+        "tags": [
+          "Users"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Users",
+        "summary": "Create a GoTrue user through SupaCloud",
+        "tags": [
+          "Users"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}": {
+      "get": {
+        "operationId": "getV1UsersByUserId",
+        "summary": "Get user by ID",
+        "tags": [
+          "Users"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1UsersByUserId",
+        "summary": "Update user profile or metadata through SupaCloud",
+        "tags": [
+          "Users",
+          "Account Center"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1UsersByUserId",
+        "summary": "Delete user",
+        "tags": [
+          "Users"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}/suspend": {
+      "post": {
+        "operationId": "postV1UsersByUserIdSuspend",
+        "summary": "Suspend user through SupaCloud",
+        "tags": [
+          "Users",
+          "Account Center"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}/unsuspend": {
+      "post": {
+        "operationId": "postV1UsersByUserIdUnsuspend",
+        "summary": "Restore (unsuspend) user through SupaCloud",
+        "tags": [
+          "Users",
+          "Account Center"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}/mfa/{factorId}/reset": {
+      "post": {
+        "operationId": "postV1UsersByUserIdMfaByFactorIdReset",
+        "summary": "Reset user MFA factor",
+        "tags": [
+          "Users",
+          "Account Center"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "factorId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}/permissions": {
+      "get": {
+        "operationId": "getV1UsersByUserIdPermissions",
+        "summary": "Resolve effective permissions for a user",
+        "tags": [
+          "Users",
+          "RBAC"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}/roles": {
+      "get": {
+        "operationId": "getV1UsersByUserIdRoles",
+        "summary": "Get role assignments for a user",
+        "tags": [
+          "Users",
+          "RBAC"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}/logs": {
+      "get": {
+        "operationId": "getV1UsersByUserIdLogs",
+        "summary": "List audit logs for a user",
+        "tags": [
+          "Users",
+          "Audit"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}/organizations": {
+      "get": {
+        "operationId": "getV1UsersByUserIdOrganizations",
+        "summary": "List business organizations for a user",
+        "tags": [
+          "Users",
+          "Organizations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/users/{userId}/grants": {
+      "get": {
+        "operationId": "getV1UsersByUserIdGrants",
+        "summary": "List authoritative GoTrue OAuth grants for a user",
+        "tags": [
+          "Users",
+          "OAuth"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/": {
+      "get": {
+        "operationId": "getV1Organizations",
+        "summary": "List organizations",
+        "tags": [
+          "Organizations"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Organizations",
+        "summary": "Create organization",
+        "tags": [
+          "Organizations"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgId",
+        "summary": "Get organization by ID",
+        "tags": [
+          "Organizations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1OrganizationsByOrgId",
+        "summary": "Update organization",
+        "tags": [
+          "Organizations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1OrganizationsByOrgId",
+        "summary": "Delete organization",
+        "tags": [
+          "Organizations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/members": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdMembers",
+        "summary": "List organization members",
+        "tags": [
+          "Organizations",
+          "Members"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1OrganizationsByOrgIdMembers",
+        "summary": "Add member to organization",
+        "tags": [
+          "Organizations",
+          "Members"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/members/{userId}": {
+      "delete": {
+        "operationId": "deleteV1OrganizationsByOrgIdMembersByUserId",
+        "summary": "Remove member from organization",
+        "tags": [
+          "Organizations",
+          "Members"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "patch": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "operationId": "patchV1OrganizationsByOrgIdMembersByUserId",
+        "summary": "Update member role in organization",
+        "tags": [
+          "Organizations",
+          "Members"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/roles": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdRoles",
+        "summary": "Get role assignments for organization",
+        "tags": [
+          "Organizations",
+          "RBAC"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/invitations": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdInvitations",
+        "summary": "List organization invitations",
+        "tags": [
+          "Organizations",
+          "Invitations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "operationId": "postV1OrganizationsByOrgIdInvitations",
+        "summary": "Create organization invitation",
+        "tags": [
+          "Organizations",
+          "Invitations"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "ttl_hours": {
+                    "minimum": 1,
+                    "maximum": 720,
+                    "type": "number"
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "ttl_hours": {
+                    "minimum": 1,
+                    "maximum": 720,
+                    "type": "number"
+                  }
+                }
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  },
+                  "ttl_hours": {
+                    "minimum": 1,
+                    "maximum": 720,
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/invitations/{invitationId}": {
+      "delete": {
+        "operationId": "deleteV1OrganizationsByOrgIdInvitationsByInvitationId",
+        "summary": "Revoke an organization invitation",
+        "tags": [
+          "Organizations",
+          "Invitations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "invitationId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/jit": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdJit",
+        "summary": "Get organization JIT provisioning settings",
+        "tags": [
+          "Organizations",
+          "JIT"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "operationId": "putV1OrganizationsByOrgIdJit",
+        "summary": "Update organization JIT provisioning settings",
+        "tags": [
+          "Organizations",
+          "JIT"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "domains"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "domains": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "domains"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "domains": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "domains"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "domains": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/applications": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdApplications",
+        "summary": "List organization application access",
+        "tags": [
+          "Organizations",
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/applications/{appId}": {
+      "put": {
+        "operationId": "putV1OrganizationsByOrgIdApplicationsByAppId",
+        "summary": "Grant or update organization application access",
+        "tags": [
+          "Organizations",
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1OrganizationsByOrgIdApplicationsByAppId",
+        "summary": "Remove organization application access",
+        "tags": [
+          "Organizations",
+          "Applications"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "appId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/organizations/{orgId}/branding": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdBranding",
+        "summary": "Get organization branding",
+        "tags": [
+          "Organizations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1OrganizationsByOrgIdBranding",
+        "summary": "Update organization branding",
+        "tags": [
+          "Organizations"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "orgId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/roles/": {
+      "get": {
+        "operationId": "getV1Roles",
+        "summary": "List roles",
+        "tags": [
+          "RBAC"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Roles",
+        "summary": "Create role",
+        "tags": [
+          "RBAC"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/roles/{roleId}": {
+      "get": {
+        "operationId": "getV1RolesByRoleId",
+        "summary": "Get role by ID",
+        "tags": [
+          "RBAC"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1RolesByRoleId",
+        "summary": "Update role",
+        "tags": [
+          "RBAC"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1RolesByRoleId",
+        "summary": "Delete role",
+        "tags": [
+          "RBAC"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/roles/{roleId}/permissions": {
+      "post": {
+        "operationId": "postV1RolesByRoleIdPermissions",
+        "summary": "Create permission under role",
+        "tags": [
+          "RBAC",
+          "Permissions"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "get": {
+        "operationId": "getV1RolesByRoleIdPermissions",
+        "summary": "List permissions for role",
+        "tags": [
+          "RBAC",
+          "Permissions"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/roles/{roleId}/permissions/{permissionId}": {
+      "delete": {
+        "operationId": "deleteV1RolesByRoleIdPermissionsByPermissionId",
+        "summary": "Delete permission",
+        "tags": [
+          "RBAC",
+          "Permissions"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "permissionId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/roles/{roleId}/assign": {
+      "get": {
+        "operationId": "getV1RolesByRoleIdAssign",
+        "summary": "List role assignments for role",
+        "tags": [
+          "RBAC",
+          "Assignments"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1RolesByRoleIdAssign",
+        "summary": "Assign role to a user or machine-to-machine application",
+        "tags": [
+          "RBAC",
+          "Assignments"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/roles/{roleId}/assign/{assignmentId}": {
+      "delete": {
+        "operationId": "deleteV1RolesByRoleIdAssignByAssignmentId",
+        "summary": "Revoke role assignment",
+        "tags": [
+          "RBAC",
+          "Assignments"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "roleId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "assignmentId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/sign-in-experience/": {
+      "get": {
+        "operationId": "getV1Sign-in-experience",
+        "summary": "Get sign-in experience configuration",
+        "tags": [
+          "Sign-in Experience"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1Sign-in-experience",
+        "summary": "Update sign-in experience configuration",
+        "tags": [
+          "Sign-in Experience"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/sign-in-experience/resolve": {
+      "get": {
+        "operationId": "getV1Sign-in-experienceResolve",
+        "summary": "Resolve effective sign-in experience for an application",
+        "tags": [
+          "Sign-in Experience",
+          "Applications"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/sign-in-experience/custom-ui-assets": {
+      "post": {
+        "operationId": "postV1Sign-in-experienceCustom-ui-assets",
+        "summary": "Upload custom UI assets (zip) for hosted sign-in page",
+        "tags": [
+          "Sign-in Experience",
+          "Custom UI Assets"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1Sign-in-experienceCustom-ui-assets",
+        "summary": "Delete custom UI assets, revert to default sign-in page",
+        "tags": [
+          "Sign-in Experience",
+          "Custom UI Assets"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-config/": {
+      "get": {
+        "operationId": "getV1Auth-config",
+        "summary": "Get auth configuration (GoTrue)",
+        "tags": [
+          "Auth Config"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "patch": {
+        "operationId": "patchV1Auth-config",
+        "summary": "Update auth configuration (GoTrue)",
+        "tags": [
+          "Auth Config"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/auth-config/runtime-consistency": {
+      "get": {
+        "operationId": "getV1Auth-configRuntime-consistency",
+        "summary": "Compare desired auth config with GoTrue runtime settings",
+        "tags": [
+          "Auth Config"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/": {
+      "get": {
+        "operationId": "getV1Webhooks",
+        "summary": "List webhooks",
+        "tags": [
+          "Webhooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Webhooks",
+        "summary": "Create webhook",
+        "tags": [
+          "Webhooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/events": {
+      "get": {
+        "operationId": "getV1WebhooksEvents",
+        "summary": "List supported webhook events",
+        "tags": [
+          "Webhooks"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/{webhookId}": {
+      "get": {
+        "operationId": "getV1WebhooksByWebhookId",
+        "summary": "Get webhook by ID",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1WebhooksByWebhookId",
+        "summary": "Update webhook",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1WebhooksByWebhookId",
+        "summary": "Delete webhook",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/{webhookId}/logs": {
+      "get": {
+        "operationId": "getV1WebhooksByWebhookIdLogs",
+        "summary": "List webhook delivery and diagnostic logs",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/{webhookId}/rotate-secret": {
+      "post": {
+        "operationId": "postV1WebhooksByWebhookIdRotate-secret",
+        "summary": "Rotate webhook signing secret",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/{webhookId}/test": {
+      "post": {
+        "operationId": "postV1WebhooksByWebhookIdTest",
+        "summary": "Send diagnostic webhook delivery",
+        "description": "SupaCloud generates the webhook.test payload; callers cannot supply event data.",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/{webhookId}/deliveries": {
+      "get": {
+        "operationId": "getV1WebhooksByWebhookIdDeliveries",
+        "summary": "List durable webhook deliveries",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/{webhookId}/deliveries/{deliveryId}": {
+      "get": {
+        "operationId": "getV1WebhooksByWebhookIdDeliveriesByDeliveryId",
+        "summary": "Get webhook delivery detail",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "deliveryId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/webhooks/{webhookId}/deliveries/{deliveryId}/replay": {
+      "post": {
+        "operationId": "postV1WebhooksByWebhookIdDeliveriesByDeliveryIdReplay",
+        "summary": "Replay the exact durable webhook delivery",
+        "tags": [
+          "Webhooks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "webhookId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "deliveryId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/audit/": {
+      "get": {
+        "operationId": "getV1Audit",
+        "summary": "Query audit logs",
+        "description": "Returns admin action audit logs with filtering by event type, resource, actor, and time range",
+        "tags": [
+          "Audit"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/audit/export": {
+      "post": {
+        "operationId": "postV1AuditExport",
+        "summary": "Create an asynchronous audit log export",
+        "tags": [
+          "Audit"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "get": {
+        "operationId": "getV1AuditExport",
+        "summary": "Create an audit log export",
+        "tags": [
+          "Audit"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/audit/export/{exportId}/download": {
+      "get": {
+        "operationId": "getV1AuditExportByExportIdDownload",
+        "summary": "Get audit export download information",
+        "tags": [
+          "Audit"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "exportId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/audit/export/{exportId}": {
+      "get": {
+        "operationId": "getV1AuditExportByExportId",
+        "summary": "Get audit export job status",
+        "tags": [
+          "Audit"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "exportId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/audit/integrity": {
+      "get": {
+        "operationId": "getV1AuditIntegrity",
+        "summary": "Get audit append-only integrity checkpoint status",
+        "tags": [
+          "Audit"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/audit/{logId}": {
+      "get": {
+        "operationId": "getV1AuditByLogId",
+        "summary": "Get audit log detail",
+        "description": "Returns a single audit log entry including request/project correlation details",
+        "tags": [
+          "Audit"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "logId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/compatibility/supabase": {
+      "get": {
+        "operationId": "getV1CompatibilitySupabase",
+        "summary": "Run Supabase compatibility checks",
+        "description": "Checks OIDC discovery, JWKS, endpoints, SupaCloud connectivity, scopes, and runtime RBAC claim strategy",
+        "tags": [
+          "Compatibility"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/admin-tools/authorization-compiler": {
+      "post": {
+        "operationId": "postV1Admin-toolsAuthorization-compiler",
+        "summary": "Compile Supabase-native authorization artifacts",
+        "description": "Generates reviewable RLS, Storage, Realtime, Edge Function, rollback, and negative-test artifacts from SupaOAuth resources. Does NOT apply changes.",
+        "tags": [
+          "Admin Tools"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/admin-tools/authorization-compiler/demo": {
+      "get": {
+        "operationId": "getV1Admin-toolsAuthorization-compilerDemo",
+        "summary": "Authorization compiler demo",
+        "description": "Shows generated Supabase-native authorization artifacts for tables, Storage, Realtime, and Edge Functions.",
+        "tags": [
+          "Admin Tools"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/admin-tools/rls-migration": {
+      "post": {
+        "operationId": "postV1Admin-toolsRls-migration",
+        "summary": "Generate RLS wrapper policies",
+        "description": "Analyzes existing RLS policies and generates wrapper policies that add supaoauth.authorize() alongside existing owner/team conditions. Does NOT modify the database — returns SQL for review.",
+        "tags": [
+          "Admin Tools"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/admin-tools/rls-migration/demo": {
+      "get": {
+        "operationId": "getV1Admin-toolsRls-migrationDemo",
+        "summary": "RLS migration demo with sample policies",
+        "description": "Shows what the migration assistant produces for typical owner/team/admin policies",
+        "tags": [
+          "Admin Tools"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/org-templates/": {
+      "get": {
+        "operationId": "getV1Org-templates",
+        "summary": "List organization templates",
+        "tags": [
+          "Organizations",
+          "Org Templates"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Org-templates",
+        "summary": "Create organization template",
+        "tags": [
+          "Organizations",
+          "Org Templates"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/org-templates/default": {
+      "get": {
+        "operationId": "getV1Org-templatesDefault",
+        "summary": "Get the default organization template",
+        "tags": [
+          "Organizations",
+          "Org Templates"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/org-templates/{templateId}": {
+      "get": {
+        "operationId": "getV1Org-templatesByTemplateId",
+        "summary": "Get organization template by ID",
+        "tags": [
+          "Organizations",
+          "Org Templates"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "templateId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1Org-templatesByTemplateId",
+        "summary": "Update organization template",
+        "tags": [
+          "Organizations",
+          "Org Templates"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "templateId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1Org-templatesByTemplateId",
+        "summary": "Delete organization template",
+        "tags": [
+          "Organizations",
+          "Org Templates"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "templateId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/org-templates/{templateId}/instantiate": {
+      "post": {
+        "operationId": "postV1Org-templatesByTemplateIdInstantiate",
+        "summary": "Create organization from template",
+        "description": "Creates an org with auto-generated roles and permissions from the template. Creator is added as owner with all template roles assigned.",
+        "tags": [
+          "Organizations",
+          "Org Templates"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "templateId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/security-config/": {
+      "get": {
+        "operationId": "getV1Security-config",
+        "summary": "Get security configuration",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1Security-config",
+        "summary": "Update security configuration",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/security-config/status": {
+      "get": {
+        "operationId": "getV1Security-configStatus",
+        "summary": "Get security status summary",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/provisioning/{projectRef}": {
+      "get": {
+        "operationId": "getV1ProvisioningByProjectRef",
+        "summary": "Get provisioning status for a project",
+        "tags": [
+          "Provisioning"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "projectRef",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/provisioning/{projectRef}/reconcile": {
+      "post": {
+        "operationId": "postV1ProvisioningByProjectRefReconcile",
+        "summary": "Idempotent provision/reconcile for a project (scoped to path projectRef)",
+        "description": "Runs SupaCloud-hosted DB migrations, verifies GoTrue config, SupaCloud gateway routes, and storage buckets — all scoped to the requested projectRef. Repeated execution does not drift. P0-26: adapter is project-scoped, not process-scoped.",
+        "tags": [
+          "Provisioning"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "projectRef",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/provisioning/{projectRef}/rollback": {
+      "post": {
+        "operationId": "postV1ProvisioningByProjectRefRollback",
+        "summary": "Reset provisioning records for rollback",
+        "tags": [
+          "Provisioning"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "projectRef",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/enterprise-sso/": {
+      "get": {
+        "operationId": "getV1Enterprise-sso",
+        "summary": "List enterprise SSO configurations",
+        "tags": [
+          "Enterprise SSO"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Enterprise-sso",
+        "summary": "Create enterprise SSO configuration",
+        "tags": [
+          "Enterprise SSO"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/enterprise-sso/domain/{domain}": {
+      "get": {
+        "operationId": "getV1Enterprise-ssoDomainByDomain",
+        "summary": "Find SSO config by email domain (domain discovery)",
+        "tags": [
+          "Enterprise SSO"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "domain",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/enterprise-sso/{id}": {
+      "get": {
+        "operationId": "getV1Enterprise-ssoById",
+        "summary": "Get inbound enterprise SSO configuration",
+        "tags": [
+          "Enterprise SSO"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1Enterprise-ssoById",
+        "summary": "Update enterprise SSO configuration",
+        "tags": [
+          "Enterprise SSO"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1Enterprise-ssoById",
+        "summary": "Delete enterprise SSO configuration",
+        "tags": [
+          "Enterprise SSO"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/api-versions/": {
+      "get": {
+        "operationId": "getV1Api-versions",
+        "summary": "List API version changes",
+        "tags": [
+          "API Versions"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1Api-versions",
+        "summary": "Record an API version change",
+        "tags": [
+          "API Versions"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/api-versions/{version}": {
+      "get": {
+        "operationId": "getV1Api-versionsByVersion",
+        "summary": "Get changes for a specific API version",
+        "tags": [
+          "API Versions"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "version",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/tenant-config/": {
+      "get": {
+        "operationId": "getV1Tenant-config",
+        "summary": "List tenant UX configuration records",
+        "tags": [
+          "Tenant Config"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/tenant-config/{type}/{key}": {
+      "get": {
+        "operationId": "getV1Tenant-configByTypeByKey",
+        "summary": "Get tenant UX configuration record",
+        "tags": [
+          "Tenant Config"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "type",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "key",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "put": {
+        "operationId": "putV1Tenant-configByTypeByKey",
+        "summary": "Create or update tenant UX configuration record",
+        "tags": [
+          "Tenant Config"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "type",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "key",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1Tenant-configByTypeByKey",
+        "summary": "Delete tenant UX configuration record",
+        "tags": [
+          "Tenant Config"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "type",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "key",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/tenant-config/domain/{domain}/check": {
+      "post": {
+        "operationId": "postV1Tenant-configDomainByDomainCheck",
+        "summary": "Check custom domain runtime health",
+        "tags": [
+          "Tenant Config"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "domain",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/tenant/members": {
+      "get": {
+        "operationId": "getV1TenantMembers",
+        "summary": "List project collaborators",
+        "tags": [
+          "Project"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/tenant/members/{memberId}": {
+      "patch": {
+        "operationId": "patchV1TenantMembersByMemberId",
+        "summary": "Update project collaborator role",
+        "tags": [
+          "Project"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "memberId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1TenantMembersByMemberId",
+        "summary": "Remove a project collaborator",
+        "tags": [
+          "Project"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "memberId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/tenant/invitations": {
+      "get": {
+        "operationId": "getV1TenantInvitations",
+        "summary": "List project collaborator invitations",
+        "tags": [
+          "Project"
+        ],
+        "responses": {
+          "200": {}
+        }
+      },
+      "post": {
+        "operationId": "postV1TenantInvitations",
+        "summary": "Invite a project collaborator",
+        "tags": [
+          "Project"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/rbac-bridge/default-policy": {
+      "get": {
+        "operationId": "getV1Rbac-bridgeDefault-policy",
+        "summary": "Get the default RBAC migration policy",
+        "description": "Returns the default mapping from legacy app_metadata.role values to SupaOAuth roles.",
+        "tags": [
+          "RBAC Bridge"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/rbac-bridge/dry-run": {
+      "post": {
+        "operationId": "postV1Rbac-bridgeDry-run",
+        "summary": "Dry-run legacy role import",
+        "description": "Reports what would be migrated without making any changes.",
+        "tags": [
+          "RBAC Bridge"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/rbac-bridge/import": {
+      "post": {
+        "operationId": "postV1Rbac-bridgeImport",
+        "summary": "Execute legacy role import",
+        "description": "Imports legacy app_metadata.role values into SupaOAuth role assignments. Use dry-run first to preview.",
+        "tags": [
+          "RBAC Bridge"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/rbac-bridge/compatibility-helper": {
+      "get": {
+        "operationId": "getV1Rbac-bridgeCompatibility-helper",
+        "summary": "Generate SQL compatibility helper",
+        "description": "Returns a SQL function that bridges SupaOAuth roles to legacy app_metadata.role for backward compatibility.",
+        "tags": [
+          "RBAC Bridge"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/route-gate/": {
+      "get": {
+        "operationId": "getV1Route-gate",
+        "summary": "Run route/domain integration gate",
+        "description": "Validates installed SupAuth Function/Pages routes and preserved Supabase runtime routes on the target SupaCloud project. Reports conflicts, missing routes, and domain health.",
+        "tags": [
+          "Route Gate"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/route-gate/routes": {
+      "get": {
+        "operationId": "getV1Route-gateRoutes",
+        "summary": "Quick route health summary",
+        "tags": [
+          "Route Gate"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/account-provisioning/import": {
+      "post": {
+        "operationId": "postV1Account-provisioningImport",
+        "summary": "Import or sync account provisioning records and optionally create SupaOAuth users",
+        "tags": [
+          "Account Provisioning",
+          "Users"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/account-provisioning/records": {
+      "get": {
+        "operationId": "getV1Account-provisioningRecords",
+        "summary": "List account provisioning records without initial passwords",
+        "tags": [
+          "Account Provisioning"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/account-provisioning/sync": {
+      "post": {
+        "operationId": "postV1Account-provisioningSync",
+        "summary": "Sync employee status changes (suspend/reactivate GoTrue users)",
+        "tags": [
+          "Account Provisioning"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/account-provisioning/sync/reconcile": {
+      "post": {
+        "operationId": "postV1Account-provisioningSyncReconcile",
+        "summary": "Full reconciliation: scan all provisioning records and sync GoTrue user state",
+        "tags": [
+          "Account Provisioning"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    },
+    "/v1/account-provisioning/sync/status": {
+      "get": {
+        "operationId": "getV1Account-provisioningSyncStatus",
+        "summary": "Get employee status distribution counts",
+        "tags": [
+          "Account Provisioning"
+        ],
+        "responses": {
+          "200": {}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {}
+  }
+}

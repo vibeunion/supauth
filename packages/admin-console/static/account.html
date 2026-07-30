@@ -125,13 +125,6 @@
       line-height: 1.5;
     }
 
-    .token-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
-      gap: 10px;
-      margin-top: 14px;
-    }
-
     .account-actions {
       display: flex;
       flex-wrap: wrap;
@@ -159,25 +152,6 @@
       transform: translateY(-1px);
     }
 
-    .advanced-token {
-      margin-top: 20px;
-      border-top: 1px solid var(--line);
-      padding-top: 16px;
-    }
-
-    .advanced-token summary {
-      width: fit-content;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      user-select: none;
-    }
-
-    .advanced-token summary:hover {
-      color: var(--brand);
-    }
-
     .status-note {
       margin-top: 16px;
       color: var(--muted);
@@ -189,7 +163,8 @@
       border-left: 3px solid #cbd5e1;
     }
 
-    input {
+    input,
+    select {
       width: 100%;
       height: 40px;
       border: 1px solid #cbd5e1;
@@ -561,7 +536,6 @@
       .account-section-grid { grid-template-columns: 1fr; }
       .module-grid { grid-template-columns: 1fr; }
       .account-actions { display: grid; }
-      .token-row,
       .profile-form,
       .inline-form { grid-template-columns: 1fr; }
       h1 { font-size: 24px; }
@@ -577,7 +551,7 @@
       <img id="logo" class="logo" alt="">
       <div id="brand-mark" class="brand-mark">SA</div>
       <h1 id="account-title">账户中心</h1>
-      <p id="account-lead" class="lead">管理你的 SupaOAuth 账号资料、安全设置、登录会话、应用授权和登录身份。</p>
+      <p id="account-lead" class="lead">管理你的 SupaOAuth 账号资料、安全设置、应用授权和登录身份。</p>
     </section>
 
     <section id="account-panel" class="panel">
@@ -586,20 +560,14 @@
       <div class="account-actions">
         <a id="login-link" class="button-link" href="/login.html">登录 / 重新登录</a>
         <button id="load-account" class="secondary" type="button">刷新资料</button>
-        <button id="clear-token" class="secondary" type="button">清除本地登录</button>
+        <button id="sign-out" class="secondary" type="button" data-logout-scope="local">退出当前设备</button>
+        <button class="secondary" type="button" data-logout-scope="others">退出其他设备</button>
+        <button class="secondary" type="button" data-logout-scope="global">退出全部设备</button>
       </div>
       <div id="account-status-card" style="display:flex;flex-direction:column;align-items:center;padding:28px 16px;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;margin-top:20px;">
         <svg style="width:48px;height:48px;color:#94a3b8;margin-bottom:12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
         <span id="account-status-note" style="font-size:13.5px;color:var(--muted);font-weight:550;line-height:1.5;">正在检查当前浏览器的登录状态。</span>
       </div>
-      <details id="manual-token-panel" class="advanced-token">
-        <summary>高级：使用 access token 打开</summary>
-        <div class="token-row">
-          <input id="access-token" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴当前用户 access token">
-          <button id="load-account-token" class="primary" type="button">加载资料</button>
-          <button id="clear-token-field" class="secondary" type="button">清除</button>
-        </div>
-      </details>
       <div id="account-message" class="message" role="status"></div>
       <div id="profile-details" class="profile-details">
         <div class="profile-row" data-profile-field="email">
@@ -623,17 +591,11 @@
           <button class="copy-btn" type="button" onclick="navigator.clipboard.writeText(document.getElementById('profile-name').textContent).then(() => { this.textContent = '已复制'; setTimeout(() => this.textContent = '复制', 1500); }).catch(() => {})" style="font-size: 11.5px; height: 28px; padding: 0 10px; border: 1px solid rgba(19, 115, 111, 0.15); border-radius: 4px; color: var(--brand); background: #edf5f4; cursor: pointer;">复制</button>
         </div>
       </div>
-      <form id="profile-form" class="profile-form">
+      <form id="profile-form" class="profile-form" hidden>
         <input id="profile-name-input" name="name" type="text" autocomplete="name" placeholder="显示名称">
         <button id="save-profile" class="primary" type="submit">保存资料</button>
       </form>
       <div id="module-grid" class="module-grid">
-        <section class="module-card" aria-label="登录会话" data-module="sessions">
-          <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>登录会话</h3>
-          <ul id="sessions-list" class="module-list">
-            <li>加载账号后显示。</li>
-          </ul>
-        </section>
         <section class="module-card" aria-label="应用授权" data-module="grants">
           <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>应用授权</h3>
           <ul id="grants-list" class="module-list">
@@ -645,15 +607,19 @@
           <ul id="identities-list" class="module-list">
             <li>加载账号后显示。</li>
           </ul>
+          <form id="identity-link-form" class="inline-form" hidden>
+            <select id="identity-link-provider" aria-label="选择要绑定的登录身份"></select>
+            <button class="secondary" type="submit">绑定身份</button>
+          </form>
         </section>
         <section class="module-card" aria-label="联系信息" data-module="contact">
           <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>联系信息</h3>
           <div class="module-stack">
-            <form id="email-form" class="inline-form">
+            <form id="email-form" class="inline-form" hidden>
               <input id="email-input" name="email" type="email" autocomplete="email" placeholder="新邮箱">
               <button class="secondary" type="submit">验证邮箱</button>
             </form>
-            <form id="phone-form" class="inline-form">
+            <form id="phone-form" class="inline-form" hidden>
               <input id="phone-input" name="phone" type="tel" autocomplete="tel" placeholder="新手机号">
               <button class="secondary" type="submit">验证手机号</button>
             </form>
@@ -674,16 +640,10 @@
               </form>
             </div>
           </section>
-        <section class="module-card" aria-label="Passkey" data-module="passkeys">
-          <h3><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>Passkey</h3>
-          <ul id="passkeys-list" class="module-list">
-            <li>加载账号后显示。</li>
-          </ul>
-        </section>
         <section class="module-card danger-card" aria-label="注销账号" data-module="delete-account">
           <h3><svg style="width:16px;height:16px;color:#ef4444" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>注销账号</h3>
           <p>输入 DELETE 后注销当前账号。</p>
-          <form id="delete-account-form" class="inline-form">
+          <form id="delete-account-form" class="inline-form" hidden>
             <input id="delete-confirmation" name="confirmation" type="text" autocomplete="off" placeholder="DELETE">
             <button type="submit">注销</button>
           </form>
@@ -692,7 +652,7 @@
       </div>
     </section>
 
-    <section class="account-section-grid" aria-label="Account center sections">
+    <section class="account-section-grid" aria-label="Account center sections" hidden>
       <a class="account-section-card active" href="#account-panel" data-section="profile">
         <span>
           <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>个人资料</h2>
@@ -707,14 +667,6 @@
           <p>使用当前密码验证身份并更新登录密码。</p>
         </span>
         <span class="tag">修改密码</span>
-      </a>
-
-      <a class="account-section-card active" href="#account-panel" data-section="sessions">
-        <span>
-          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>登录会话</h2>
-          <p>查看当前账号的会话记录，并撤销不再使用的会话。</p>
-        </span>
-        <span class="tag">查看会话</span>
       </a>
 
       <a class="account-section-card active" href="#account-panel" data-section="grants">
@@ -735,8 +687,8 @@
 
       <a class="account-section-card active" href="#account-panel" data-section="mfa">
         <span>
-          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>MFA / Passkey</h2>
-          <p>查看多因素认证和 Passkey，移除不再使用的认证方式。</p>
+          <h2><svg style="width:16px;height:16px;color:var(--brand)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>TOTP MFA</h2>
+          <p>查看和管理由 GoTrue 保存的 TOTP 认证因子。</p>
         </span>
         <span class="tag">管理安全因子</span>
       </a>
@@ -761,17 +713,16 @@
     <p class="footer">需要登录或找回密码时，请返回 <a class="link" href="/login.html">登录页</a>。</p>
   </main>
 
+  <script src="/hosted-auth.js"></script>
   <script>
     const apiBase = (window.__SUPAOAUTH_PUBLIC_API_BASE__ || '/v1/public').replace(/\/$/, '');
+    const hostedAuth = window.SupaOAuthHostedAuth;
     const brandMark = document.getElementById('brand-mark');
     const logo = document.getElementById('logo');
     const title = document.getElementById('account-title');
     const lead = document.getElementById('account-lead');
-    const tokenInput = document.getElementById('access-token');
     const loadAccountButton = document.getElementById('load-account');
-    const loadAccountTokenButton = document.getElementById('load-account-token');
-    const clearTokenButton = document.getElementById('clear-token');
-    const clearTokenFieldButton = document.getElementById('clear-token-field');
+    const logoutButtons = document.querySelectorAll('[data-logout-scope]');
     const accountStatusNote = document.getElementById('account-status-note');
     const message = document.getElementById('account-message');
     const profileDetails = document.getElementById('profile-details');
@@ -782,17 +733,19 @@
     const profileName = document.getElementById('profile-name');
     const profileNameInput = document.getElementById('profile-name-input');
     const moduleGrid = document.getElementById('module-grid');
-    const sessionsList = document.getElementById('sessions-list');
+    const accountPanel = document.getElementById('account-panel');
+    const accountSectionGrid = document.querySelector('.account-section-grid');
     const grantsList = document.getElementById('grants-list');
     const identitiesList = document.getElementById('identities-list');
-      const mfaList = document.getElementById('mfa-list');
-      const startTotpEnrollButton = document.getElementById('start-totp-enroll');
-      const totpEnroll = document.getElementById('totp-enroll');
-      const totpQr = document.getElementById('totp-qr');
-      const totpUri = document.getElementById('totp-uri');
-      const totpVerifyForm = document.getElementById('totp-verify-form');
-      const totpCodeInput = document.getElementById('totp-code');
-      const passkeysList = document.getElementById('passkeys-list');
+    const identityLinkForm = document.getElementById('identity-link-form');
+    const identityLinkProvider = document.getElementById('identity-link-provider');
+    const mfaList = document.getElementById('mfa-list');
+    const startTotpEnrollButton = document.getElementById('start-totp-enroll');
+    const totpEnroll = document.getElementById('totp-enroll');
+    const totpQr = document.getElementById('totp-qr');
+    const totpUri = document.getElementById('totp-uri');
+    const totpVerifyForm = document.getElementById('totp-verify-form');
+    const totpCodeInput = document.getElementById('totp-code');
     const emailForm = document.getElementById('email-form');
     const phoneForm = document.getElementById('phone-form');
     const emailInput = document.getElementById('email-input');
@@ -801,22 +754,25 @@
     const deleteConfirmationInput = document.getElementById('delete-confirmation');
     const deleteAccountLinkWrap = document.getElementById('delete-account-link-wrap');
     const deleteAccountLink = document.getElementById('delete-account-link');
-      const tokenStoreKey = 'supaoauth.account.access_token';
-      let pendingTotpFactorId = '';
-      let accountConfig = {
-      enabled: true,
+    let pendingTotpFactorId = '';
+    let accountConfigLoaded = false;
+    let accountConfig = {
+      enabled: false,
       profile: { edit_mode: 'read_only', fields: ['name', 'email', 'phone'] },
       security: {
         password_change: true,
         mfa: false,
-        passkeys: false,
         email_change: false,
         phone_change: false,
       },
-      sessions: { enabled: false },
       grants: { enabled: false },
       identities: { enabled: false },
       delete_account: { enabled: false, url: null },
+    };
+    let providerLinkingCapability = {
+      available: false,
+      providers: [],
+      redirect_to: null,
     };
 
     function applyBranding(branding) {
@@ -825,7 +781,7 @@
       if (branding.page_title) {
         document.title = `${branding.page_title} Account Center`;
         brand.setAttribute('aria-label', branding.page_title);
-        if (lead) lead.textContent = `管理你的 ${branding.page_title} 账号资料、安全设置、登录会话、应用授权和登录身份。`;
+        if (lead) lead.textContent = `管理你的 ${branding.page_title} 账号资料、安全设置、应用授权和登录身份。`;
       }
 
       if (branding.primary_color) {
@@ -852,34 +808,57 @@
     function moduleEnabled(name) {
       if (name === 'profile') return accountConfig.profile && accountConfig.profile.edit_mode !== 'disabled';
       if (name === 'security') return accountConfig.security && accountConfig.security.password_change;
-      if (name === 'sessions') return accountConfig.sessions && accountConfig.sessions.enabled;
       if (name === 'grants') return accountConfig.grants && accountConfig.grants.enabled;
       if (name === 'identities') return accountConfig.identities && accountConfig.identities.enabled;
-      if (name === 'mfa') return accountConfig.security && (accountConfig.security.mfa || accountConfig.security.passkeys);
+      if (name === 'mfa') return accountConfig.security && accountConfig.security.mfa;
       if (name === 'contact') return accountConfig.security && (accountConfig.security.email_change || accountConfig.security.phone_change);
       if (name === 'delete-account') return accountConfig.delete_account && accountConfig.delete_account.enabled;
-      if (name === 'passkeys') return accountConfig.security && accountConfig.security.passkeys;
       return true;
     }
 
-    function applyAccountConfig(config) {
+    function applyProviderLinkingCapability(capability) {
+      const capabilityPayload = capability && capability.available === true ? capability : {};
+      providerLinkingCapability = {
+        available: capabilityPayload.available === true,
+        providers: Array.isArray(capabilityPayload.providers)
+          ? capabilityPayload.providers.filter((provider) => typeof provider === 'string')
+          : [],
+        redirect_to: typeof capabilityPayload.redirect_to === 'string' ? capabilityPayload.redirect_to : null,
+      };
+      identityLinkProvider.replaceChildren();
+      for (const provider of providerLinkingCapability.providers) {
+        const option = document.createElement('option');
+        option.value = provider;
+        option.textContent = provider;
+        identityLinkProvider.appendChild(option);
+      }
+      identityLinkForm.hidden = !moduleEnabled('identities')
+        || !providerLinkingCapability.available
+        || providerLinkingCapability.providers.length === 0
+        || !providerLinkingCapability.redirect_to;
+    }
+
+    function applyAccountConfig(config, capabilities) {
       const next = config || {};
       accountConfig = {
         ...accountConfig,
         ...next,
         profile: { ...accountConfig.profile, ...(next.profile || {}) },
         security: { ...accountConfig.security, ...(next.security || {}) },
-        sessions: { ...accountConfig.sessions, ...(next.sessions || {}) },
         grants: { ...accountConfig.grants, ...(next.grants || {}) },
         identities: { ...accountConfig.identities, ...(next.identities || {}) },
         delete_account: { ...accountConfig.delete_account, ...(next.delete_account || {}) },
       };
       if (!accountConfig.enabled) {
-        document.getElementById('account-panel').hidden = true;
-        document.querySelector('.account-section-grid').hidden = true;
+        accountPanel.hidden = true;
+        accountSectionGrid.hidden = true;
         setMessage('error', '账号中心当前未启用。');
         return;
       }
+
+      accountPanel.hidden = false;
+      accountSectionGrid.hidden = false;
+      applyProviderLinkingCapability(capabilities && capabilities.provider_linking);
 
       document.querySelectorAll('[data-section]').forEach((element) => {
         const section = element.getAttribute('data-section');
@@ -893,7 +872,7 @@
       profileForm.hidden = !(accountConfig.profile && accountConfig.profile.edit_mode === 'editable');
       emailForm.hidden = !(accountConfig.security && accountConfig.security.email_change);
       phoneForm.hidden = !(accountConfig.security && accountConfig.security.phone_change);
-      deleteAccountForm.hidden = !!(accountConfig.delete_account && accountConfig.delete_account.url);
+      deleteAccountForm.hidden = !accountConfig.delete_account?.enabled || !!accountConfig.delete_account.url;
       if (accountConfig.delete_account && accountConfig.delete_account.url) {
         deleteAccountLink.href = accountConfig.delete_account.url;
         deleteAccountLinkWrap.hidden = false;
@@ -912,11 +891,26 @@
     }
 
     async function loadAccountConfig() {
+      accountConfigLoaded = false;
       try {
         const response = await fetch(`${apiBase}/account/config`, { credentials: 'include' });
-        const data = await response.json().catch(() => null);
-        if (response.ok && data && data.config) applyAccountConfig(data.config);
-      } catch {}
+        const configResponse = await response.json().catch(() => null);
+        if (!response.ok
+          || !configResponse
+          || !configResponse.config
+          || typeof configResponse.config !== 'object'
+          || Array.isArray(configResponse.config)) {
+          setMessage('error', '无法加载账户中心功能配置。');
+          return false;
+        }
+        applyAccountConfig(configResponse.config, configResponse.capabilities);
+        accountConfigLoaded = true;
+        return accountConfig.enabled;
+      } catch {
+        accountConfigLoaded = false;
+        setMessage('error', '无法连接账户中心配置服务。');
+        return false;
+      }
     }
 
     function setMessage(type, text) {
@@ -949,35 +943,14 @@
       accountStatusNote.textContent = '已加载当前账号，可在下方查看和管理资料。';
     }
 
-    function readHashAccessToken() {
-      if (!window.location.hash) return '';
-      const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      const token = params.get('access_token') || '';
-      if (token) {
-        history.replaceState(null, document.title, window.location.pathname + window.location.search);
-      }
-      return token;
+    function readableError(error, fallback) {
+      return error && typeof error.message === 'string' && error.message.trim()
+        ? error.message
+        : fallback;
     }
 
-    function storedAccessToken() {
-      try {
-        return sessionStorage.getItem(tokenStoreKey) || localStorage.getItem(tokenStoreKey) || '';
-      } catch {
-        return '';
-      }
-    }
-
-    function persistAccessToken(token) {
-      try {
-        sessionStorage.setItem(tokenStoreKey, token);
-      } catch {}
-    }
-
-    function forgetAccessToken() {
-      try {
-        sessionStorage.removeItem(tokenStoreKey);
-        localStorage.removeItem(tokenStoreKey);
-      } catch {}
+    function authErrorEndsSession(error) {
+      return error && ['session_missing', 'refresh_failed'].includes(error.code);
     }
 
     function displayUser(user) {
@@ -1001,12 +974,14 @@
 
     function itemLabel(item, fallback) {
       if (!item || typeof item !== 'object') return fallback;
-      return item.name || item.display_name || item.email || item.provider || item.applicationId || item.application_id || item.id || fallback;
+      const client = item.client && typeof item.client === 'object' ? item.client : {};
+      return client.name || client.id || item.name || item.display_name || item.email || item.provider || item.id || fallback;
     }
 
       function itemId(item) {
         if (!item || typeof item !== 'object') return '';
-        return item.id || item.session_id || item.identity_id || item.consent_id || '';
+        const client = item.client && typeof item.client === 'object' ? item.client : {};
+        return client.id || item.id || item.identity_id || '';
       }
 
       function renderModuleList(list, items, emptyText, action) {
@@ -1028,15 +1003,11 @@
             button.type = 'button';
             button.dataset.action = action;
             button.dataset.id = id;
-            button.textContent = action === 'revoke-session'
-              ? '撤销会话'
-              : action === 'revoke-grant'
+            button.textContent = action === 'revoke-grant'
                 ? '撤销授权'
                 : action === 'unlink-identity'
                   ? '解绑身份'
-                  : action === 'unenroll-mfa'
-                    ? '解绑 MFA'
-                    : '移除 Passkey';
+                  : '解绑 MFA';
             li.appendChild(button);
           }
           list.appendChild(li);
@@ -1075,21 +1046,35 @@
       }
 
     async function accountFetch(path, options = {}) {
-      const token = tokenInput.value.trim();
-      if (!token) {
-        showSignedOutState();
+      if (!hostedAuth) {
+        setMessage('error', '登录组件加载失败，请刷新页面后重试。');
         return null;
       }
-      persistAccessToken(token);
-      const response = await fetch(`${apiBase}${path}`, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          ...(options.headers || {}),
-        },
-      });
+      const headers = new Headers(options.headers || {});
+      if (options.body && !headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+      }
+      let response;
+      try {
+        response = await hostedAuth.authenticatedFetch(`${apiBase}${path}`, {
+          ...options,
+          headers,
+        });
+      } catch (error) {
+        if (authErrorEndsSession(error)) {
+          resetAccountView();
+          showSignedOutState();
+        }
+        setMessage('error', readableError(error, '账号认证请求失败，请稍后重试。'));
+        return null;
+      }
       const data = await response.json().catch(() => null);
+      if (response.status === 401) {
+        resetAccountView();
+        showSignedOutState();
+        setMessage('error', '登录状态已失效，请重新登录。');
+        return null;
+      }
       if (!response.ok || !data || data.success === false) {
         const apiMessage = data && data.error && data.error.message ? data.error.message : '账号请求失败。';
         setMessage('error', apiMessage);
@@ -1099,9 +1084,12 @@
     }
 
     async function loadAccount() {
+      if (!accountConfigLoaded || !accountConfig.enabled) {
+        setMessage('error', '无法加载账户中心功能配置。');
+        return;
+      }
       clearMessage();
       loadAccountButton.disabled = true;
-      loadAccountTokenButton.disabled = true;
       showLoadingState();
       try {
         const data = await accountFetch('/account/me');
@@ -1110,11 +1098,10 @@
         await loadAccountModules();
         showLoadedState();
         setMessage('ok', '账号资料已加载。');
-      } catch {
-        setMessage('error', '无法连接账号中心，请稍后重试。');
+      } catch (error) {
+        setMessage('error', readableError(error, '无法连接账号中心，请稍后重试。'));
       } finally {
         loadAccountButton.disabled = false;
-        loadAccountTokenButton.disabled = false;
       }
     }
 
@@ -1149,16 +1136,11 @@
           const data = await accountFetch(path);
           return [key, data];
         };
-        if (moduleEnabled('sessions')) requests.push(load('sessions', '/account/sessions'));
         if (moduleEnabled('grants')) requests.push(load('grants', '/account/grants'));
         if (moduleEnabled('identities')) requests.push(load('identities', '/account/identities'));
         if (accountConfig.security && accountConfig.security.mfa) requests.push(load('mfa', '/account/mfa'));
-        if (accountConfig.security && accountConfig.security.passkeys) requests.push(load('passkeys', '/account/passkeys'));
 
         const results = Object.fromEntries(await Promise.all(requests));
-        if (moduleEnabled('sessions')) {
-          renderModuleList(sessionsList, results.sessions && results.sessions.items, '没有活跃会话记录。', 'revoke-session');
-        }
         if (moduleEnabled('grants')) {
           renderModuleList(grantsList, results.grants && results.grants.items, '没有应用授权记录。', 'revoke-grant');
         }
@@ -1168,8 +1150,48 @@
         if (accountConfig.security && accountConfig.security.mfa) {
           renderModuleList(mfaList, results.mfa && results.mfa.items, '没有 MFA 因子。', 'unenroll-mfa');
         }
-        if (accountConfig.security && accountConfig.security.passkeys) {
-          renderModuleList(passkeysList, results.passkeys && results.passkeys.items, '没有 Passkey。', 'revoke-passkey');
+      }
+
+      function providerAuthorizationRedirect(candidateUrl) {
+        if (typeof candidateUrl !== 'string') return null;
+        try {
+          const authorizationUrl = new URL(candidateUrl);
+          if (!['http:', 'https:'].includes(authorizationUrl.protocol)
+            || authorizationUrl.username
+            || authorizationUrl.password) return null;
+          return authorizationUrl.toString();
+        } catch {
+          return null;
+        }
+      }
+
+      async function startIdentityLink(event) {
+        event.preventDefault();
+        if (identityLinkForm.hidden || !providerLinkingCapability.redirect_to) {
+          setMessage('error', '身份绑定功能当前不可用。');
+          return;
+        }
+        const submitButton = identityLinkForm.querySelector('button');
+        submitButton.disabled = true;
+        try {
+          const linkResponse = await accountFetch('/account/identities/authorize', {
+            method: 'POST',
+            body: JSON.stringify({
+              provider: identityLinkProvider.value,
+              redirect_to: providerLinkingCapability.redirect_to,
+            }),
+          });
+          if (!linkResponse) return;
+          const redirectUrl = providerAuthorizationRedirect(linkResponse.authorization && linkResponse.authorization.url);
+          if (!redirectUrl) {
+            setMessage('error', '认证运行时返回了无效的身份绑定地址。');
+            return;
+          }
+          window.location.assign(redirectUrl);
+        } catch (error) {
+          setMessage('error', readableError(error, '无法启动身份绑定，请稍后重试。'));
+        } finally {
+          submitButton.disabled = false;
         }
       }
 
@@ -1223,16 +1245,12 @@
       if (!id) return;
       button.disabled = true;
       try {
-        if (button.dataset.action === 'revoke-session') {
-          await accountFetch(`/account/sessions/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
-        } else if (button.dataset.action === 'revoke-grant') {
+        if (button.dataset.action === 'revoke-grant') {
           await accountFetch(`/account/grants/${encodeURIComponent(id)}`, { method: 'DELETE' });
         } else if (button.dataset.action === 'unlink-identity') {
           await accountFetch(`/account/identities/${encodeURIComponent(id)}`, { method: 'DELETE' });
         } else if (button.dataset.action === 'unenroll-mfa') {
           await accountFetch(`/account/mfa/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        } else if (button.dataset.action === 'revoke-passkey') {
-          await accountFetch(`/account/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
         }
         await loadAccountModules();
         setMessage('ok', '账号项目已更新。');
@@ -1286,12 +1304,50 @@
         body: JSON.stringify({ confirmation: 'DELETE' }),
       });
       if (data) {
-        forgetAccessToken();
-        tokenInput.value = '';
-        profileDetails.classList.remove('active');
-        profileForm.classList.remove('active');
-        moduleGrid.classList.remove('active');
-        setMessage('ok', '账号已注销。');
+        const { error } = await hostedAuth.signOut();
+        resetAccountView();
+        showSignedOutState();
+        setMessage(error ? 'error' : 'ok', error
+          ? `账号已注销；${readableError(error, '本地已退出，但服务端撤销失败。')}`
+          : '账号已注销并退出登录。');
+      }
+    }
+
+    async function signOutAccount(event) {
+      if (!hostedAuth) {
+        setMessage('error', '登录组件加载失败，请刷新页面后重试。');
+        return;
+      }
+      const button = event.currentTarget;
+      const scope = button.dataset.logoutScope;
+      button.disabled = true;
+      try {
+        const { error } = await hostedAuth.signOut({ scope });
+        if (error) {
+          setMessage('error', readableError(error, '认证服务未能完成退出。'));
+          return;
+        }
+        if (scope === 'others') {
+          setMessage('ok', '已退出其他设备，当前设备保持登录。');
+          return;
+        }
+        resetAccountView();
+        showSignedOutState();
+        setMessage('ok', '已安全退出登录。');
+      } catch (error) {
+        setMessage('error', `退出登录失败：${readableError(error, '未知错误')}`);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function handleAuthStateChange(event, session) {
+      if (event === 'TOKEN_REFRESHED' && session) {
+        accountStatusNote.textContent = '登录状态已自动续期，可继续管理账号。';
+      }
+      if (event === 'SIGNED_OUT') {
+        resetAccountView();
+        showSignedOutState();
       }
     }
 
@@ -1305,20 +1361,9 @@
       .catch(() => {});
 
     loadAccountButton.addEventListener('click', loadAccount);
-    loadAccountTokenButton.addEventListener('click', loadAccount);
-      clearTokenButton.addEventListener('click', () => {
-        tokenInput.value = '';
-        forgetAccessToken();
-        resetAccountView();
-        showSignedOutState();
-      });
-      clearTokenFieldButton.addEventListener('click', () => {
-        tokenInput.value = '';
-        forgetAccessToken();
-        resetAccountView();
-        setMessage('ok', '本地令牌已清除。');
-      });
+    logoutButtons.forEach((button) => button.addEventListener('click', signOutAccount));
     profileForm.addEventListener('submit', saveProfile);
+      identityLinkForm.addEventListener('submit', startIdentityLink);
       moduleGrid.addEventListener('click', handleModuleAction);
       startTotpEnrollButton.addEventListener('click', startTotpEnrollment);
       totpVerifyForm.addEventListener('submit', verifyTotpEnrollment);
@@ -1326,14 +1371,32 @@
     phoneForm.addEventListener('submit', updatePhone);
     deleteAccountForm.addEventListener('submit', deleteAccount);
 
+    if (hostedAuth) {
+      hostedAuth.onAuthStateChange(handleAuthStateChange);
+    }
+
     (async () => {
-      await loadAccountConfig();
-      const initialToken = readHashAccessToken() || storedAccessToken();
-      if (initialToken && accountConfig.enabled) {
-        tokenInput.value = initialToken;
-        loadAccount();
-      } else if (accountConfig.enabled) {
-        showSignedOutState();
+      const accountCenterAvailable = await loadAccountConfig();
+      if (!accountCenterAvailable) return;
+      if (!hostedAuth) {
+        setMessage('error', '登录组件加载失败，请刷新页面后重试。');
+        return;
+      }
+      try {
+        const { data, error } = await hostedAuth.getSession();
+        if (error) {
+          resetAccountView();
+          setMessage('error', `无法恢复登录状态：${readableError(error, '未知错误')}`);
+          return;
+        }
+        if (data.session) {
+          await loadAccount();
+        } else {
+          showSignedOutState();
+        }
+      } catch (error) {
+        resetAccountView();
+        setMessage('error', `无法恢复登录状态：${readableError(error, '未知错误')}`);
       }
     })();
   </script>

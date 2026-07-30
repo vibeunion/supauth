@@ -16,9 +16,13 @@ export interface RbacDbVerification {
   authorizeExists?: boolean;
   hasPermissionExists?: boolean;
   hasOrgPermissionExists?: boolean;
+  currentProjectClaimsExists?: boolean;
   authorizeGranted?: boolean;
   hasPermissionGranted?: boolean;
   hasOrgPermissionGranted?: boolean;
+  currentProjectClaimsGranted?: boolean;
+  legacyWebhooksAbsent?: boolean;
+  legacyWebhookDeliveriesAbsent?: boolean;
   unsafePolicies?: UnsafePolicyRow[];
   error?: string;
 }
@@ -41,12 +45,16 @@ async function probe(sql: ReturnType<typeof postgres>): Promise<RbacDbVerificati
       SELECT
         to_regprocedure('supaoauth.authorize(text, uuid)') AS authorize_oid,
         to_regprocedure('supaoauth.has_permission(text, uuid)') AS has_permission_oid,
-        to_regprocedure('supaoauth.has_org_permission(uuid, text)') AS has_org_permission_oid
+        to_regprocedure('supaoauth.has_org_permission(uuid, text)') AS has_org_permission_oid,
+        to_regprocedure('supaoauth.current_project_claims()') AS current_project_claims_oid
     )
     SELECT
       authorize_oid IS NOT NULL AS authorize_exists,
       has_permission_oid IS NOT NULL AS has_permission_exists,
       has_org_permission_oid IS NOT NULL AS has_org_permission_exists,
+      current_project_claims_oid IS NOT NULL AS current_project_claims_exists,
+      to_regclass('supaoauth.webhooks') IS NULL AS legacy_webhooks_absent,
+      to_regclass('supaoauth.webhook_deliveries') IS NULL AS legacy_webhook_deliveries_absent,
       CASE
         WHEN authorize_oid IS NULL THEN NULL
         ELSE has_function_privilege('authenticated', authorize_oid, 'EXECUTE')
@@ -58,29 +66,45 @@ async function probe(sql: ReturnType<typeof postgres>): Promise<RbacDbVerificati
       CASE
         WHEN has_org_permission_oid IS NULL THEN NULL
         ELSE has_function_privilege('authenticated', has_org_permission_oid, 'EXECUTE')
-      END AS has_org_permission_granted
+      END AS has_org_permission_granted,
+      CASE
+        WHEN current_project_claims_oid IS NULL THEN NULL
+        ELSE has_function_privilege('authenticated', current_project_claims_oid, 'EXECUTE')
+      END AS current_project_claims_granted
     FROM helpers`;
   const helperRow = ((helperState as unknown as Array<{
     authorize_exists: boolean | null;
     has_permission_exists: boolean | null;
     has_org_permission_exists: boolean | null;
+    current_project_claims_exists: boolean | null;
+    legacy_webhooks_absent: boolean | null;
+    legacy_webhook_deliveries_absent: boolean | null;
     authorize_granted: boolean | null;
     has_permission_granted: boolean | null;
     has_org_permission_granted: boolean | null;
+    current_project_claims_granted: boolean | null;
   }>)[0] ?? {
     authorize_exists: null,
     has_permission_exists: null,
     has_org_permission_exists: null,
+    current_project_claims_exists: null,
+    legacy_webhooks_absent: null,
+    legacy_webhook_deliveries_absent: null,
     authorize_granted: null,
     has_permission_granted: null,
     has_org_permission_granted: null,
+    current_project_claims_granted: null,
   });
   result.authorizeExists = helperRow.authorize_exists === true;
   result.hasPermissionExists = helperRow.has_permission_exists === true;
   result.hasOrgPermissionExists = helperRow.has_org_permission_exists === true;
+  result.currentProjectClaimsExists = helperRow.current_project_claims_exists === true;
+  result.legacyWebhooksAbsent = helperRow.legacy_webhooks_absent === true;
+  result.legacyWebhookDeliveriesAbsent = helperRow.legacy_webhook_deliveries_absent === true;
   result.authorizeGranted = helperRow.authorize_granted === true;
   result.hasPermissionGranted = helperRow.has_permission_granted === true;
   result.hasOrgPermissionGranted = helperRow.has_org_permission_granted === true;
+  result.currentProjectClaimsGranted = helperRow.current_project_claims_granted === true;
 
   // RB-7：扫描 RLS 策略，发现把 JWT role claim 当作业务权限的不安全模式。
   const pattern = String.raw`request\.jwt\.claim\.role|auth\.jwt\(\)\s*->>\s*'role'`;

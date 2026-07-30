@@ -15,12 +15,12 @@ const root = resolve(new URL('..', import.meta.url).pathname);
 const artifactDir = resolve(root, process.env.SUPAUTH_SUPACLOUD_ARTIFACT_DIR || 'artifacts/supacloud-app');
 const skipBuild = Bun.argv.includes('--skip-build');
 
-function run(command: string[]) {
+function run(command: string[], options: { env?: Record<string, string | undefined> } = {}) {
   const result = Bun.spawnSync(command, {
     cwd: root,
     stdout: 'inherit',
     stderr: 'inherit',
-    env: process.env,
+    env: { ...process.env, ...options.env },
   });
   if (result.exitCode !== 0) process.exit(result.exitCode);
 }
@@ -39,7 +39,15 @@ mkdirSync(artifactDir, { recursive: true });
 
 if (!skipBuild) {
   run(['bun', 'run', '--filter', '@supauth/auth-server', 'build']);
-  run(['bun', 'run', '--filter', '@supauth/admin-console', 'build']);
+  run(['bun', 'run', '--filter', '@supauth/admin-console', 'build'], {
+    env: {
+      VITE_AUTH_SERVER_URL: '/api',
+      VITE_ADMIN_SSO_ISSUER: '',
+      VITE_SSO_ISSUER: '',
+      VITE_ADMIN_SSO_CLIENT_ID: '',
+      VITE_SSO_CLIENT_ID: '',
+    },
+  });
 }
 
 const functionBundle = resolve(root, 'packages/auth-server/dist/supacloud-function/supacloud-function.js');
@@ -49,6 +57,7 @@ const hostedAuthorize = resolve(adminStaticDir, 'authorize.html');
 const hostedClaim = resolve(adminStaticDir, 'claim.html');
 const hostedChangePassword = resolve(adminStaticDir, 'change-password.html');
 const hostedAccount = resolve(adminStaticDir, 'account.html');
+const hostedLogout = resolve(adminStaticDir, 'logout.html');
 const openapiPath = resolve(artifactDir, 'openapi.json');
 const manifestPath = resolve(artifactDir, 'supacloud-app-manifest.json');
 
@@ -58,6 +67,7 @@ requireFile(hostedAuthorize);
 requireFile(hostedClaim);
 requireFile(hostedChangePassword);
 requireFile(hostedAccount);
+requireFile(hostedLogout);
 
 run(['bun', 'run', 'scripts/export-openapi.ts', openapiPath]);
 

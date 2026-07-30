@@ -1,19 +1,21 @@
 {
   "name": "@supauth/admin-console",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "test": "bun test --isolate src",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json --threshold error"
   },
   "dependencies": {
+    "@supabase/auth-js": "2.110.9",
     "@supauth/shared": "workspace:*",
-    "@svadmin/core": "^0.25.4",
-    "@svadmin/sso": "^0.9.0",
+    "@svadmin/core": "0.32.2",
+    "@svadmin/sso": "0.11.3",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/svelte-query": "^6.1.29",
     "tailwindcss": "^4.3.0"

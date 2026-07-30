@@ -1,7 +1,8 @@
 // Account provisioning and public self-service account claiming.
 
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import { getConfig } from '../config/index.js';
+import { getSupaCloudAdapter, getSupaCloudAdapterForProject, type SupaCloudAdapter } from '../supacloud/adapter.js';
 import * as accountProvisioning from '../repositories/account-provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
@@ -146,19 +147,6 @@ function userEmail(user: Record<string, unknown>): string {
   return typeof source?.email === 'string' ? source.email.toLowerCase() : '';
 }
 
-function userExternalKey(user: Record<string, unknown>): string {
-  const source = unwrapUser(user);
-  const appMetadata = isRecord(source?.app_metadata) ? source.app_metadata : {};
-  const supaoauth = isRecord(appMetadata.supaoauth) ? appMetadata.supaoauth : {};
-  const externalType = typeof supaoauth.external_type === 'string'
-    ? supaoauth.external_type
-    : (typeof supaoauth.employee_id === 'string' ? 'employee' : '');
-  const typedIdKey = externalType ? `${externalType.replace(/[^a-zA-Z0-9_]/g, '_')}_id` : '';
-  const typedExternalId = typedIdKey && typeof supaoauth[typedIdKey] === 'string' ? String(supaoauth[typedIdKey]) : '';
-  const externalId = typeof supaoauth.external_id === 'string' ? supaoauth.external_id : typedExternalId;
-  return externalId ? `${externalType}:${externalId}` : '';
-}
-
 function unwrapUser(value: Record<string, unknown>): Record<string, unknown> {
   for (const key of ['user', 'data']) {
     const nested = value[key];
@@ -167,32 +155,50 @@ function unwrapUser(value: Record<string, unknown>): Record<string, unknown> {
   return value;
 }
 
+export function resolveAccountClaimPasswordProjectRefs(input: {
+  projectRef?: string;
+  oauthAuthorizationProjectRef?: string;
+  extraProjectRefs?: string;
+}) {
+  const refs = new Set<string>();
+  for (const value of [
+    input.projectRef,
+    input.oauthAuthorizationProjectRef,
+    ...(input.extraProjectRefs || '').split(','),
+  ]) {
+    const ref = String(value || '').trim();
+    if (ref) refs.add(ref);
+  }
+  return [...refs];
+}
+
+async function updateUserPasswordWithAdapter(
+  targetAdapter: SupaCloudAdapter,
+  target: accountProvisioning.AccountClaimPasswordUpdateTarget,
+  password: string,
+) {
+  await targetAdapter.updateUser(target.userId, { password });
+}
+
 async function updateClaimedUserPassword(
   target: accountProvisioning.AccountClaimPasswordUpdateTarget,
   password: string,
 ) {
-  const existing = unwrapUser(await adapter.getUser(target.userId) as Record<string, unknown>);
-  await adapter.updateUser(target.userId, {
-    email: typeof existing.email === 'string' ? existing.email : target.email,
-    password,
-    user_metadata: isRecord(existing.user_metadata) ? existing.user_metadata : {},
-    app_metadata: isRecord(existing.app_metadata) ? existing.app_metadata : {},
+  const config = getConfig();
+  const projectRefs = resolveAccountClaimPasswordProjectRefs({
+    projectRef: config.projectRef,
+    oauthAuthorizationProjectRef: config.oauthAuthorizationProjectRef,
+    extraProjectRefs: process.env.SUPAUTH_ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS
+      || process.env.ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS,
   });
-}
 
-function typedExternalIdMetadata(record: accountProvisioning.AccountProvisioningImportRecord) {
-  const externalType = (record.external_type || 'generic').trim();
-  if (!externalType || externalType === 'generic') return {};
-  const key = `${externalType.replace(/[^a-zA-Z0-9_]/g, '_')}_id`;
-  return { [key]: record.external_id };
-}
-
-function externalKey(record: accountProvisioning.AccountProvisioningImportRecord) {
-  return `${record.external_type || 'generic'}:${accountProvisioning.normalizeExternalId(record.external_id || '')}`;
+  for (const projectRef of projectRefs) {
+    const targetAdapter = projectRef === config.projectRef ? adapter : getSupaCloudAdapterForProject(projectRef);
+    await updateUserPasswordWithAdapter(targetAdapter, target, password);
+  }
 }
 
 function buildUserPayload(record: accountProvisioning.AccountProvisioningImportRecord, password?: string) {
-  const metadata = record.metadata || {};
   return {
     email: record.email,
     ...(password ? { password } : {}),
@@ -203,16 +209,6 @@ function buildUserPayload(record: accountProvisioning.AccountProvisioningImportR
       full_name: record.display_name,
       ...(record.profile || {}),
     },
-    app_metadata: {
-      supaoauth: {
-        ...typedExternalIdMetadata(record),
-        external_id: record.external_id,
-        external_type: record.external_type || 'generic',
-        source_status: record.source_status || 'active',
-        source: metadata.source || 'account-provisioning',
-        profile: record.profile || {},
-      },
-    },
   };
 }
 
@@ -221,12 +217,7 @@ export function mergeUserPayload(
   record: accountProvisioning.AccountProvisioningImportRecord,
   password?: string,
 ) {
-  const appMetadata = isRecord(user.app_metadata) ? user.app_metadata : {};
   const userMetadata = isRecord(user.user_metadata) ? user.user_metadata : {};
-  const existingSupaOAuth = isRecord(appMetadata.supaoauth) ? appMetadata.supaoauth : {};
-  const payload = buildUserPayload(record);
-  const nextAppMetadata: Record<string, unknown> = isRecord(payload.app_metadata) ? payload.app_metadata : {};
-  const nextSupaOAuth = isRecord(nextAppMetadata.supaoauth) ? nextAppMetadata.supaoauth : {};
 
   return {
     ...(password ? { password } : {}),
@@ -236,13 +227,6 @@ export function mergeUserPayload(
       name: record.display_name,
       full_name: record.display_name,
       ...(record.profile || {}),
-    },
-    app_metadata: {
-      ...appMetadata,
-      supaoauth: {
-        ...existingSupaOAuth,
-        ...nextSupaOAuth,
-      },
     },
   };
 }
@@ -263,15 +247,13 @@ export function resolveProvisioningInitialPassword(
 }
 
 async function audit(eventType: string, resourceId: string, details?: Record<string, unknown>) {
-  try {
-    await auditRepo.logAudit({
-      eventType,
-      actorType: 'admin',
-      resourceType: 'account_provisioning_record',
-      resourceId,
-      details,
-    });
-  } catch {}
+  await auditRepo.logAudit({
+    eventType,
+    actorType: 'admin',
+    resourceType: 'account_provisioning_record',
+    resourceId,
+    details,
+  });
 }
 
 export function createPublicAccountClaimRoutes(options?: {
@@ -346,6 +328,16 @@ export function createPublicAccountClaimRoutes(options?: {
         return { success: false, error: { code: 'account_not_found', message: 'Account not found.' } };
       }
       if (result.status === 'already_claimed') {
+        if (passwordMode === 'set_on_claim') {
+          set.status = 409;
+          return {
+            success: false,
+            error: {
+              code: 'account_already_claimed',
+              message: 'Account has already been claimed.',
+            },
+          };
+        }
         return {
           success: true,
           status: result.status,
@@ -400,8 +392,9 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
     const byEmail = new Map<string, Record<string, unknown>>(
       users.map(user => [userEmail(user), user] as [string, Record<string, unknown>]).filter(([email]) => !!email),
     );
-    const byExternalKey = new Map<string, Record<string, unknown>>(
-      users.map(user => [userExternalKey(user), user] as [string, Record<string, unknown>]).filter(([key]) => !!key),
+    const byId = new Map<string, Record<string, unknown>>(
+      users.map(user => [userId(user), user] as [string | null, Record<string, unknown>])
+        .filter((entry): entry is [string, Record<string, unknown>] => entry[0] !== null),
     );
 
     // Auto-generate pinyin emails for records without explicit email
@@ -418,12 +411,10 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
         if (r.email?.trim()) existingLocals.add(r.email.trim().toLowerCase().split('@')[0]);
       }
       // Also include existing provisioning records
-      try {
-        const existingRecords = await accountProvisioning.listAccountProvisioningRecords(500, 0);
-        for (const er of existingRecords) {
-          if (er.email) existingLocals.add(er.email.split('@')[0]);
-        }
-      } catch {}
+      const existingRecords = await accountProvisioning.listAccountProvisioningRecords(500, 0);
+      for (const existingRecord of existingRecords) {
+        if (existingRecord.email) existingLocals.add(existingRecord.email.split('@')[0]);
+      }
       generatedEmails = batchGenerateEmails(
         needsEmail.map(r => ({ display_name: r.display_name, external_id: r.external_id || '' })),
         existingLocals,
@@ -436,7 +427,6 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       const externalId = accountProvisioning.normalizeExternalId(record.external_id || '');
       const sourceStatus = record.source_status || 'active';
       const statusIsActive = ['active', '正常'].includes(sourceStatus);
-      const key = externalKey({ ...record, external_id: externalId });
 
       // Auto-generate email if not provided
       if (!record.email?.trim() && generatedEmails.has(externalId)) {
@@ -446,16 +436,22 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       }
       if (!statusIsActive) {
         summary.skipped += 1;
-        const existingUser = byExternalKey.get(key);
-        if (createUsers && !dryRun && existingUser) {
-          const id = userId(existingUser);
-          if (id) {
-            try {
+        if (createUsers && !dryRun) {
+          try {
+            const existingRecord = await accountProvisioning.findRecordByExternalId(
+              externalId,
+              record.external_type || 'generic',
+            );
+            const existingUser = existingRecord?.userId
+              ? byId.get(existingRecord.userId)
+              : byEmail.get(record.email.toLowerCase());
+            const id = existingUser ? userId(existingUser) : null;
+            if (id) {
               await adapter.suspendUser(id, { reason: 'account_provisioning_status', source_status: sourceStatus });
               summary.users_suspended += 1;
-            } catch (e) {
-              summary.errors.push({ external_id: externalId, error: e instanceof Error ? e.message : String(e) });
             }
+          } catch (e) {
+            summary.errors.push({ external_id: externalId, error: e instanceof Error ? e.message : String(e) });
           }
         }
         continue;
@@ -465,8 +461,10 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       if (dryRun) continue;
 
       try {
-        const existingUser = byExternalKey.get(key) || byEmail.get(record.email.toLowerCase());
         const existingProvisioningRecord = await accountProvisioning.findRecordByExternalId(externalId, record.external_type || 'generic');
+        const existingUser = existingProvisioningRecord?.userId
+          ? byId.get(existingProvisioningRecord.userId)
+          : byEmail.get(record.email.toLowerCase());
         const password = resolveProvisioningInitialPassword(record, existingProvisioningRecord);
         let userIdForRecord = existingUser ? userId(existingUser) : null;
 
@@ -544,7 +542,7 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       dry_run: payload.dry_run,
     });
   }, {
-    detail: { summary: 'Sync employee status changes (suspend/reactivate GoTrue users)', tags: ['Account Provisioning', 'Sync'] },
+    detail: { summary: 'Sync employee status changes (suspend/reactivate GoTrue users)', tags: ['Account Provisioning'] },
   })
   .post('/sync/reconcile', async ({ body }) => {
     const payload = body as { external_type?: string; dry_run?: boolean; batch_size?: number };
@@ -554,12 +552,12 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       batchSize: payload.batch_size,
     });
   }, {
-    detail: { summary: 'Full reconciliation: scan all provisioning records and sync GoTrue user state', tags: ['Account Provisioning', 'Sync'] },
+    detail: { summary: 'Full reconciliation: scan all provisioning records and sync GoTrue user state', tags: ['Account Provisioning'] },
   })
   .get('/sync/status', async ({ query }) => {
     const externalType = String(query.external_type || 'employee');
     const counts = await accountProvisioning.countBySourceStatus(externalType);
     return { external_type: externalType, counts };
   }, {
-    detail: { summary: 'Get employee status distribution counts', tags: ['Account Provisioning', 'Sync'] },
+    detail: { summary: 'Get employee status distribution counts', tags: ['Account Provisioning'] },
   });

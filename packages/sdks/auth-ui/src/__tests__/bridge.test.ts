@@ -1,10 +1,30 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import {
+  buildHostedLogoutUrl,
   buildHostedBrandingCss,
   buildSupabaseAuthUiConfig,
   mapConnectorsToSupabaseProviders,
   resolveSupabaseAuthUiConfig,
 } from '../index.js';
+
+describe('buildHostedLogoutUrl', () => {
+  it('builds the central hosted logout URL with RP logout context', () => {
+    expect(buildHostedLogoutUrl({
+      supauthUrl: 'https://auth.example.test/auth/v1',
+      clientId: 'business-app',
+      idTokenHint: 'header.payload.signature',
+      postLogoutRedirectUri: 'https://app.example.test/login',
+      state: 'signed-out',
+    })).toBe('https://auth.example.test/logout?client_id=business-app&id_token_hint=header.payload.signature&post_logout_redirect_uri=https%3A%2F%2Fapp.example.test%2Flogin&state=signed-out');
+  });
+
+  it('rejects partial redirect validation context', () => {
+    expect(() => buildHostedLogoutUrl({
+      supauthUrl: 'https://auth.example.test',
+      postLogoutRedirectUri: 'https://app.example.test/login',
+    })).toThrow('must be provided together');
+  });
+});
 
 describe('sdk-auth-ui bridge helpers', () => {
   const baseExperience = {
@@ -16,7 +36,6 @@ describe('sdk-auth-ui bridge helpers', () => {
     },
     sign_in_methods: ['password'],
     sign_up_enabled: true,
-    mfa_required: false,
     password_policy: {
       min_length: 8,
       require_uppercase: false,
@@ -80,7 +99,6 @@ describe('resolveSupabaseAuthUiConfig', () => {
           branding: { primary_color: '#2563eb' },
           sign_in_methods: ['password'],
           sign_up_enabled: true,
-          mfa_required: false,
           password_policy: {
             min_length: 8,
             require_uppercase: false,

@@ -34,6 +34,7 @@ export interface EdgeFunctionTarget {
 }
 
 export interface AuthorizationCompileRequest {
+  project_ref?: string;
   tables?: AuthorizationTableTarget[];
   storage_buckets?: StorageBucketTarget[];
   realtime_channels?: RealtimeChannelTarget[];
@@ -136,7 +137,7 @@ function buildStoragePredicate(target: StorageBucketTarget, permission: string):
     clauses.push(`(storage.foldername(name))[1] = auth.uid()::text`);
   }
   if (target.organization_path_prefix) {
-    clauses.push(`(storage.foldername(name))[1] = (auth.jwt() -> 'app_metadata' -> 'supaoauth' ->> 'current_org_id')`);
+    clauses.push(`(storage.foldername(name))[1] = (supaoauth.current_project_claims() ->> 'current_org_id')`);
   }
   clauses.push(rbac);
   return clauses.length > 2
@@ -160,7 +161,7 @@ function buildStoragePolicy(target: StorageBucketTarget, operation: Authorizatio
 
 function buildRealtimePolicy(target: RealtimeChannelTarget): string {
   const orgPredicate = target.organization_claim
-    ? ` AND (auth.jwt() -> 'app_metadata' -> 'supaoauth' ->> ${quoteLiteral(target.organization_claim)}) IS NOT NULL`
+    ? ` AND (supaoauth.current_project_claims() ->> ${quoteLiteral(target.organization_claim)}) IS NOT NULL`
     : '';
   return [
     `-- Realtime Authorization template for topic: ${target.topic}`,
@@ -170,9 +171,11 @@ function buildRealtimePolicy(target: RealtimeChannelTarget): string {
   ].join('\n');
 }
 
-function buildEdgeFunctionMiddleware(target: EdgeFunctionTarget): string {
+function buildEdgeFunctionMiddleware(target: EdgeFunctionTarget, projectRef?: string): string {
   const orgLine = target.require_organization
-    ? "const organizationId = claims.app_metadata?.supaoauth?.current_org_id;\nif (!organizationId) return new Response('Missing organization context', { status: 403 });\n"
+    ? projectRef
+      ? `const projectClaims = claims.app_metadata?.supaoauth?.schema_version === 2\n  ? claims.app_metadata.supaoauth.projects?.[${JSON.stringify(projectRef)}]\n  : undefined;\nconst organizationId = projectClaims?.current_org_id;\nif (!organizationId) return new Response('Missing organization context', { status: 403 });\n`
+      : "const projectClaims = undefined;\nif (!projectClaims) return new Response('Missing project authorization context', { status: 403 });\n"
     : '';
   return [
     `// ${target.name}: SupaOAuth Edge Function authorization gate`,
@@ -205,6 +208,9 @@ export function compileAuthorizationPlan(request: AuthorizationCompileRequest = 
   const realtimeStatements: string[] = [];
   const rollbackStatements: string[] = [];
   const permissionNames: string[] = [];
+  if (!request.project_ref && request.edge_functions?.some((target) => target.require_organization)) {
+    warnings.push('project_ref is required for project-scoped Edge Function organization claims; generated middleware fails closed.');
+  }
 
   for (const table of request.tables || []) {
     if (!table.table) {
@@ -259,7 +265,7 @@ export function compileAuthorizationPlan(request: AuthorizationCompileRequest = 
   }).map(fn => ({
     name: fn.name,
     permission: fn.permission,
-    middleware: buildEdgeFunctionMiddleware(fn),
+    middleware: buildEdgeFunctionMiddleware(fn, request.project_ref),
     negative_tests: [
       `${fn.name}: request without bearer token returns 401`,
       `${fn.name}: valid token without ${fn.permission} returns 403`,

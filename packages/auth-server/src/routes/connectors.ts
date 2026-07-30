@@ -6,15 +6,17 @@ import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import * as connectorRepo from '../repositories/connectors.js';
+import { pagedResponse } from '../utils/api-contract.js';
+import { withoutSecrets } from '../utils/secrets.js';
 
 const adapter = getSupaCloudAdapter();
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
-  try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
+  await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
 async function fireWebhook(eventType: string, data: Record<string, unknown>) {
-  try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
+  await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data));
 }
 
 export interface ProviderInfo {
@@ -65,7 +67,8 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
       adapter.listProviders() as Promise<ProviderInfo[]>,
       connectorRepo.listConnectorConfigs(),
     ]);
-    return mergeProvidersWithConnectorConfigs(Array.isArray(providers) ? providers : [], connectorConfigs);
+    const providerPage = pagedResponse<ProviderInfo>(providers);
+    return pagedResponse(withoutSecrets(mergeProvidersWithConnectorConfigs(providerPage.items, connectorConfigs)));
   }, {
     detail: { summary: 'List connectors (identity providers)', tags: ['Connectors'] },
   })
@@ -101,14 +104,14 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
       name: providerName(created, params.factoryId),
       category: providerCategory(created),
       enabled: data.enabled === true,
-      config: data,
+      config: withoutSecrets(data),
     });
     await audit('connector.factory.instantiate', 'connector_factory', params.factoryId);
-    return created;
+    return withoutSecrets(created);
   }, {
     detail: { summary: 'Instantiate or update connector from factory', tags: ['Connectors', 'Connector Factory'] },
   })
-  .get('/:connectorId', async ({ params }) => adapter.getProvider(params.connectorId), {
+  .get('/:connectorId', async ({ params }) => withoutSecrets(await adapter.getProvider(params.connectorId)), {
     detail: { summary: 'Get connector by ID', tags: ['Connectors'] },
   })
   .get('/:connectorId/authorization-uri', async ({ params, query }) => {
@@ -142,19 +145,18 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
         name: providerName(updated, params.connectorId),
         category: providerCategory(updated),
         enabled: data.enabled === true,
-        config: data,
+        config: withoutSecrets(data),
       });
     }
     await audit('connector.update', 'connector', params.connectorId);
     await fireWebhook('connector.updated', { connector_id: params.connectorId });
     const config = await connectorRepo.getConnectorConfig(params.connectorId);
-    return mergeProvidersWithConnectorConfigs([updated], config ? [config] : [])[0];
+    return withoutSecrets(mergeProvidersWithConnectorConfigs([updated], config ? [config] : [])[0]);
   }, {
     detail: { summary: 'Update connector configuration', tags: ['Connectors'] },
   })
   .post('/:connectorId/test', async ({ params }) => {
-    const provider = await adapter.getProvider(params.connectorId);
-    return { connector_id: params.connectorId, status: provider ? 'reachable' : 'unreachable' };
+    return withoutSecrets(await adapter.testProvider(params.connectorId));
   }, {
     detail: { summary: 'Test connector connectivity', tags: ['Connectors'] },
   });

@@ -4,7 +4,15 @@
 
 import { Elysia } from 'elysia';
 import path from 'node:path';
-import { EMBEDDED_ACCOUNT_HTML, EMBEDDED_AUTHORIZE_HTML, EMBEDDED_CHANGE_PASSWORD_HTML, EMBEDDED_CLAIM_HTML } from '../generated/hosted-pages.js';
+import {
+  EMBEDDED_ACCOUNT_HTML,
+  EMBEDDED_AUTHORIZE_HTML,
+  EMBEDDED_CHANGE_PASSWORD_HTML,
+  EMBEDDED_CLAIM_HTML,
+  EMBEDDED_HOSTED_SESSION_JS,
+  EMBEDDED_LOGOUT_HTML,
+} from '../generated/hosted-pages.js';
+import { LOGOUT_PAGE_HEADERS, resolvePostLogoutRedirect } from './logout-page.js';
 
 function uniquePaths(paths: string[]) {
   return [...new Set(paths.map(candidate => path.normalize(candidate)))];
@@ -12,6 +20,9 @@ function uniquePaths(paths: string[]) {
 
 export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = process.cwd()) {
   const adminConsoleBuildDirs = uniquePaths([
+    path.resolve(importMetaDir, 'admin-console/build'),
+    path.resolve(importMetaDir, '.src-supauth/admin-console/build'),
+    path.resolve(importMetaDir, 'src/admin-console/build'),
     path.resolve(importMetaDir, '../../../admin-console/build'),
     path.resolve(importMetaDir, '../../admin-console/build'),
     path.resolve(cwd, '../admin-console/build'),
@@ -50,6 +61,14 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
     ...adminConsoleBuildDirs.map(dir => path.join(dir, 'account.html')),
   ]);
 
+  const logoutHtmlCandidates = uniquePaths([
+    path.resolve(importMetaDir, '../../../admin-console/static/logout.html'),
+    path.resolve(importMetaDir, '../../admin-console/static/logout.html'),
+    path.resolve(cwd, '../admin-console/static/logout.html'),
+    path.resolve(cwd, 'packages/admin-console/static/logout.html'),
+    ...adminConsoleBuildDirs.map(dir => path.join(dir, 'logout.html')),
+  ]);
+
   const customUiDirs = uniquePaths([
     path.resolve(importMetaDir, '../../custom-ui'),
     path.resolve(importMetaDir, '../custom-ui'),
@@ -63,6 +82,7 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
     claimHtmlCandidates,
     changePasswordHtmlCandidates,
     accountHtmlCandidates,
+    logoutHtmlCandidates,
     customUiDirs,
   };
 }
@@ -70,6 +90,25 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
 const hostedPagePaths = resolveHostedPagePaths();
 const PUBLIC_API_BASE_PLACEHOLDER = 'window.__SUPAOAUTH_PUBLIC_API_BASE__ = null;';
 const SAME_ORIGIN_PUBLIC_API_BASE = '/v1/public';
+const STATIC_CONTENT_TYPES = new Map([
+  ['.css', 'text/css; charset=utf-8'],
+  ['.gif', 'image/gif'],
+  ['.html', 'text/html; charset=utf-8'],
+  ['.ico', 'image/x-icon'],
+  ['.jpeg', 'image/jpeg'],
+  ['.jpg', 'image/jpeg'],
+  ['.js', 'text/javascript; charset=utf-8'],
+  ['.json', 'application/json; charset=utf-8'],
+  ['.mjs', 'text/javascript; charset=utf-8'],
+  ['.otf', 'font/otf'],
+  ['.png', 'image/png'],
+  ['.svg', 'image/svg+xml'],
+  ['.ttf', 'font/ttf'],
+  ['.txt', 'text/plain; charset=utf-8'],
+  ['.webp', 'image/webp'],
+  ['.woff', 'font/woff'],
+  ['.woff2', 'font/woff2'],
+]);
 const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="14" fill="#0f172a"/>
   <path d="M19 22.5c0-5.2 4.2-9.5 9.5-9.5H48v9H28.5a.5.5 0 0 0-.5.5V28h17v8H28v5.5c0 .3.2.5.5.5H48v9H28.5c-5.3 0-9.5-4.3-9.5-9.5v-19Z" fill="#f8fafc"/>
@@ -97,6 +136,45 @@ export function adminConsoleSpaCandidates(buildDirs: string[], sub: string) {
       : [];
     return shouldFallbackToIndex ? [...candidates, path.join(dir, 'index.html')] : candidates;
   });
+}
+
+const LEGACY_ADMIN_REDIRECTS = new Map([
+  ['/admin', '/admin/get-started'],
+  ['/admin/audit', '/admin/audit-logs'],
+  ['/admin/settings', '/admin/tenant-settings/settings'],
+  ['/admin/account-center', '/admin/sign-in-experience/account-center'],
+  ['/admin/operations', '/admin/tenant-settings/diagnostics'],
+  ['/admin/consents', '/admin/applications'],
+  ['/admin/tenant-config', '/admin/tenant-settings/advanced'],
+  ['/admin/tenant-settings', '/admin/tenant-settings/settings'],
+  ['/admin/org-templates', '/admin/organization-template'],
+  ['/admin/resources', '/admin/api-resources'],
+  ['/admin/sign-in-experience', '/admin/sign-in-experience/branding'],
+  ['/admin/security', '/admin/security/password'],
+]);
+
+const ADMIN_DETAIL_DEFAULT_TABS = new Map([
+  ['applications', 'settings'],
+  ['users', 'settings'],
+  ['organizations', 'settings'],
+  ['roles', 'general'],
+  ['api-resources', 'general'],
+  ['webhooks', 'settings'],
+  ['enterprise-sso', 'connection'],
+]);
+
+export function adminConsoleRedirectLocation(requestUrl: URL) {
+  const pathname = requestUrl.pathname.replace(/\/$/, '') || '/';
+  const legacyTarget = LEGACY_ADMIN_REDIRECTS.get(pathname);
+  if (legacyTarget) return `${legacyTarget}${requestUrl.search}`;
+
+  const detailMatch = pathname.match(/^\/admin\/([^/]+)\/([^/]+)$/);
+  const defaultTab = detailMatch
+    ? ADMIN_DETAIL_DEFAULT_TABS.get(detailMatch[1])
+    : undefined;
+  return defaultTab
+    ? `${pathname}/${defaultTab}${requestUrl.search}`
+    : null;
 }
 
 async function loadAuthorizeHtml(): Promise<string | null> {
@@ -163,6 +241,11 @@ async function loadAccountHtml(): Promise<string | null> {
   return EMBEDDED_ACCOUNT_HTML;
 }
 
+async function loadLogoutHtml(): Promise<string | null> {
+  const htmlFile = await findFirstExistingFile(hostedPagePaths.logoutHtmlCandidates);
+  return htmlFile ? htmlFile.text() : EMBEDDED_LOGOUT_HTML;
+}
+
 function renderAuthorizeHtml(html: string) {
   return html.replace(
     PUBLIC_API_BASE_PLACEHOLDER,
@@ -174,6 +257,14 @@ function renderPublicHtml(html: string) {
   return html.replace(
     PUBLIC_API_BASE_PLACEHOLDER,
     `window.__SUPAOAUTH_PUBLIC_API_BASE__ = ${JSON.stringify(SAME_ORIGIN_PUBLIC_API_BASE)};`,
+  );
+}
+
+function renderLogoutHtml(html: string, redirectUri: string) {
+  const encodedRedirect = JSON.stringify(redirectUri).replace(/</g, '\\u003c');
+  return html.replace(
+    'window.__SUPAOAUTH_POST_LOGOUT_REDIRECT__ = null;',
+    `window.__SUPAOAUTH_POST_LOGOUT_REDIRECT__ = ${encodedRedirect};`,
   );
 }
 
@@ -207,7 +298,12 @@ function serveFirstStaticFile(fileCandidates: string[]) {
   for (const candidate of fileCandidates) {
     const file = Bun.file(candidate);
     if (file.size) {
-      return new Response(file);
+      return new Response(file, {
+        headers: {
+          'content-type': STATIC_CONTENT_TYPES.get(path.extname(candidate).toLowerCase()) || 'application/octet-stream',
+          'x-content-type-options': 'nosniff',
+        },
+      });
     }
   }
   return null;
@@ -222,7 +318,36 @@ function serveFavicon() {
   });
 }
 
+function adminConsoleRedirectResponse(request: Request) {
+  const location = adminConsoleRedirectLocation(new URL(request.url));
+  return location
+    ? new Response(null, { status: 307, headers: { location } })
+    : null;
+}
+
+export function serveAdminConsolePage(buildDirs: string[], sub: string) {
+  return serveFirstStaticFile(
+    adminConsoleSpaCandidates(buildDirs, sub),
+  ) || new Response('Not Found', { status: 404 });
+}
+
+async function serveLogoutPage(request: Request, query: Record<string, unknown>) {
+  const html = await loadLogoutHtml();
+  if (!html) return new Response('Not Found', { status: 404 });
+  const redirectUri = await resolvePostLogoutRedirect(request, query);
+  return new Response(renderLogoutHtml(html, redirectUri), { headers: LOGOUT_PAGE_HEADERS });
+}
+
 export const hostedPageRoutes = new Elysia()
+  .get('/hosted-auth.js', () => new Response(EMBEDDED_HOSTED_SESSION_JS, {
+    headers: {
+      'content-type': 'application/javascript; charset=utf-8',
+      'cache-control': 'no-store',
+    },
+  }), {
+    detail: { summary: 'Serve hosted authentication session client', tags: ['Public'] },
+  })
+
   .get('/favicon.ico', serveFavicon, {
     detail: { summary: 'Serve hosted favicon', tags: ['Public'] },
   })
@@ -279,6 +404,18 @@ export const hostedPageRoutes = new Elysia()
     return renderAuthorizeHtml(html);
   }, {
     detail: { summary: 'Serve hosted authorize page alias', tags: ['Public', 'Consent'] },
+  })
+
+  .get('/logout', ({ query, request }) => (
+    serveLogoutPage(request, query as Record<string, unknown>)
+  ), {
+    detail: { summary: 'End the current SupAuth session', tags: ['Public'] },
+  })
+
+  .get('/logout.html', ({ query, request }) => (
+    serveLogoutPage(request, query as Record<string, unknown>)
+  ), {
+    detail: { summary: 'End the current SupAuth session HTML alias', tags: ['Public'] },
   })
 
   .get('/claim', async ({ set }) => {
@@ -398,14 +535,16 @@ export const hostedPageRoutes = new Elysia()
     return resp;
   })
 
+  .get('/admin', ({ request }) => (
+    adminConsoleRedirectResponse(request) || serveAdminConsolePage(hostedPagePaths.adminConsoleBuildDirs, '')
+  ))
+
   // Admin console SPA pages: /admin/*
-  .get('/admin/*', ({ params }) => {
+  .get('/admin/*', ({ params, request }) => {
+    const redirectResponse = adminConsoleRedirectResponse(request);
+    if (redirectResponse) return redirectResponse;
     const sub = (params as Record<string, string>)['*'] || '';
-    const resp = serveFirstStaticFile(
-      adminConsoleSpaCandidates(hostedPagePaths.adminConsoleBuildDirs, sub),
-    );
-    if (!resp) return new Response('Not Found', { status: 404 });
-    return resp;
+    return serveAdminConsolePage(hostedPagePaths.adminConsoleBuildDirs, sub);
   })
 
   // robots.txt

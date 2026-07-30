@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { withRequestContext } from '../auth/request-context.js';
 
 describe('Webhook delivery — buildEvent', () => {
-  it('builds event envelope with type, payload, and timestamp', async () => {
+  it('builds event envelope with stable id, type, and versioned timestamp', async () => {
     process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
     process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
     process.env.PROJECT_REF = 'test-ref';
@@ -10,24 +11,49 @@ describe('Webhook delivery — buildEvent', () => {
     process.env.RUNTIME_MODE = 'gotrue';
 
     const { buildEvent } = await import('../repositories/webhook-delivery.js');
-    const event = buildEvent('user.created', { user_id: 'u1' });
+    const event = withRequestContext({ requestId: 'build-envelope-request' }, () => (
+      buildEvent('user.created', { user_id: 'u1' })
+    ));
+    expect(event.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(event.type).toBe('user.created');
     expect(event.payload).toEqual({ user_id: 'u1' });
-    expect(event.timestamp).toBeDefined();
-    expect(new Date(event.timestamp).toISOString()).toBe(event.timestamp);
+    expect(event.occurred_at).toBeDefined();
+    expect(new Date(event.occurred_at).toISOString()).toBe(event.occurred_at);
+    expect(event.api_version).toBe('2026-07-01');
   });
 
   it('builds event with empty payload', async () => {
     const { buildEvent } = await import('../repositories/webhook-delivery.js');
-    const event = buildEvent('test.event', {});
+    const event = withRequestContext({ requestId: 'empty-payload-request' }, () => (
+      buildEvent('test.event', {})
+    ));
     expect(event.payload).toEqual({});
   });
 
   it('builds event with nested payload', async () => {
     const { buildEvent } = await import('../repositories/webhook-delivery.js');
-    const event = buildEvent('organization.created', { name: 'acme', settings: { public: true } });
+    const event = withRequestContext({ requestId: 'nested-payload-request' }, () => (
+      buildEvent('organization.created', { name: 'acme', settings: { public: true } })
+    ));
     expect(event.payload.name).toBe('acme');
     expect((event.payload as any).settings.public).toBe(true);
+  });
+
+  it('derives a stable UUID from request ID and event type for retries', async () => {
+    const { buildEvent } = await import('../repositories/webhook-delivery.js');
+    const firstId = withRequestContext({ requestId: 'webhook-retry-request' }, () => (
+      buildEvent('user.updated', { attempt: 1 }).id
+    ));
+    const retriedId = withRequestContext({ requestId: 'webhook-retry-request' }, () => (
+      buildEvent('user.updated', { attempt: 2 }).id
+    ));
+    const differentEventId = withRequestContext({ requestId: 'webhook-retry-request' }, () => (
+      buildEvent('user.suspended', {}).id
+    ));
+
+    expect(retriedId).toBe(firstId);
+    expect(differentEventId).not.toBe(firstId);
+    expect(firstId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 });
 
@@ -42,7 +68,9 @@ describe('Webhook delivery — SUPPORTED_WEBHOOK_EVENTS', () => {
 
     const { SUPPORTED_WEBHOOK_EVENTS } = await import('../repositories/webhook-delivery.js');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('user.created');
-    expect(SUPPORTED_WEBHOOK_EVENTS).toContain('user.signed_in');
+    expect(SUPPORTED_WEBHOOK_EVENTS).toContain('user.updated');
+    expect(SUPPORTED_WEBHOOK_EVENTS).toContain('user.suspended');
+    expect(SUPPORTED_WEBHOOK_EVENTS).toContain('user.unsuspended');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('user.deleted');
   });
 
@@ -51,7 +79,6 @@ describe('Webhook delivery — SUPPORTED_WEBHOOK_EVENTS', () => {
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('application.created');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('application.updated');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('application.deleted');
-    expect(SUPPORTED_WEBHOOK_EVENTS).toContain('application.secret_created');
   });
 
   it('includes organization events', async () => {
@@ -59,13 +86,14 @@ describe('Webhook delivery — SUPPORTED_WEBHOOK_EVENTS', () => {
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('organization.created');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('organization.invitation_created');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('organization.member_added');
+    expect(SUPPORTED_WEBHOOK_EVENTS).toContain('organization.member_updated');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('organization.member_removed');
   });
 
-  it('includes consent and role events', async () => {
+  it('includes role events but no unsupported consent events', async () => {
     const { SUPPORTED_WEBHOOK_EVENTS } = await import('../repositories/webhook-delivery.js');
-    expect(SUPPORTED_WEBHOOK_EVENTS).toContain('consent.granted');
-    expect(SUPPORTED_WEBHOOK_EVENTS).toContain('consent.revoked');
+    expect(SUPPORTED_WEBHOOK_EVENTS).not.toContain('consent.granted');
+    expect(SUPPORTED_WEBHOOK_EVENTS).not.toContain('consent.revoked');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('role.assigned');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('role.revoked');
   });
@@ -77,15 +105,28 @@ describe('Webhook delivery — SUPPORTED_WEBHOOK_EVENTS', () => {
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('organization.created_from_template');
   });
 
-  it('has at least 17 events', async () => {
-    const { SUPPORTED_WEBHOOK_EVENTS } = await import('../repositories/webhook-delivery.js');
-    expect(SUPPORTED_WEBHOOK_EVENTS.length).toBeGreaterThanOrEqual(17);
+  it('exposes delivery guarantees without legacy unsupported events', async () => {
+    const { SUPPORTED_WEBHOOK_EVENTS, WEBHOOK_EVENT_CATALOG } = await import('../repositories/webhook-delivery.js');
+    expect(WEBHOOK_EVENT_CATALOG.find((entry) => entry.type === 'organization.member_added')?.guarantee).toBe('transactional');
+    expect(WEBHOOK_EVENT_CATALOG.find((entry) => entry.type === 'organization.member_updated')?.guarantee).toBe('transactional');
+    expect(WEBHOOK_EVENT_CATALOG.find((entry) => entry.type === 'role.assigned')?.guarantee).toBe('transactional');
+    expect(WEBHOOK_EVENT_CATALOG.find((entry) => entry.type === 'user.created')?.guarantee).toBe('post_mutation');
+    expect(WEBHOOK_EVENT_CATALOG.find((entry) => entry.type === 'application.created')?.guarantee).toBe('post_mutation');
+    expect(WEBHOOK_EVENT_CATALOG.find((entry) => entry.type === 'connector.updated')?.guarantee).toBe('post_mutation');
+    expect(WEBHOOK_EVENT_CATALOG.find((entry) => entry.type === 'org_template.created')?.guarantee).toBe('post_mutation');
+    expect(SUPPORTED_WEBHOOK_EVENTS).not.toContain('user.signed_in');
+    expect(SUPPORTED_WEBHOOK_EVENTS).not.toContain('application.secret_created');
+  });
+
+  it('fails closed when no request ID is available for event identity', async () => {
+    const { buildEvent } = await import('../repositories/webhook-delivery.js');
+    expect(() => buildEvent('user.created', {})).toThrow('active request ID');
   });
 });
 
 describe('Webhook delivery — SupaCloud managed pipeline', () => {
   const originalFetch = globalThis.fetch;
-  const calls: Array<{ url: string; method: string; body?: string }> = [];
+  const calls: Array<{ url: string; method: string; body?: string; headers?: Headers }> = [];
 
   beforeEach(() => {
     process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
@@ -101,6 +142,7 @@ describe('Webhook delivery — SupaCloud managed pipeline', () => {
         url,
         method: init?.method || 'GET',
         body: typeof init?.body === 'string' ? init.body : undefined,
+        headers: new Headers(init?.headers),
       });
       return Promise.resolve(Response.json({ queued: true }));
     }) as unknown as typeof fetch;
@@ -112,7 +154,9 @@ describe('Webhook delivery — SupaCloud managed pipeline', () => {
 
   it('submits events to SupaCloud instead of delivering locally', async () => {
     const { buildEvent, dispatchEvent } = await import('../repositories/webhook-delivery.js');
-    const event = buildEvent('application.created', { client_id: 'client-one' });
+    const event = withRequestContext({ requestId: 'pipeline-request' }, () => (
+      buildEvent('application.created', { client_id: 'client-one' })
+    ));
 
     await dispatchEvent(event);
 
@@ -121,100 +165,24 @@ describe('Webhook delivery — SupaCloud managed pipeline', () => {
     expect(calls[0].method).toBe('POST');
     expect(url.pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')).toBe('/v1/projects/{projectRef}/webhooks/events');
     expect(JSON.parse(calls[0].body || '{}')).toEqual(event);
+    expect(calls[0].headers?.get('Idempotency-Key')).toBe(event.id);
   });
 });
 
 describe('Webhook delivery — module exports', () => {
-  it('exports dispatchEvent function', async () => {
+  it('exports only the SupaCloud event facade, not a local delivery worker', async () => {
     const mod = await import('../repositories/webhook-delivery.js');
     expect(typeof mod.dispatchEvent).toBe('function');
+    expect('processPendingDeliveries' in mod).toBe(false);
+    expect('deliverWebhookOnce' in mod).toBe(false);
   });
 
   it('exports WebhookEvent type (constructor check)', async () => {
     const { buildEvent } = await import('../repositories/webhook-delivery.js');
-    const event = buildEvent('test', {});
+    const event = withRequestContext({ requestId: 'module-export-request' }, () => buildEvent('test', {}));
     expect(event).toHaveProperty('type');
     expect(event).toHaveProperty('payload');
-    expect(event).toHaveProperty('timestamp');
-  });
-});
-
-describe('Webhook delivery — DB-backed queue functions', () => {
-  it('exports processPendingDeliveries function', async () => {
-    process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-    process.env.PROJECT_REF = 'test-ref';
-    process.env.DATABASE_URL = 'postgres://test';
-    process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
-    process.env.RUNTIME_MODE = 'gotrue';
-
-    const mod = await import('../repositories/webhook-delivery.js');
-    expect(typeof mod.processPendingDeliveries).toBe('function');
-  });
-
-  it('processPendingDeliveries returns a number', async () => {
-    const { processPendingDeliveries } = await import('../repositories/webhook-delivery.js');
-    // Without a real DB, this will throw internally and return 0 or throw.
-    // The function must exist and be callable.
-    expect(typeof processPendingDeliveries).toBe('function');
-  });
-});
-
-
-// ─── Behavior: stable X-SupaOAuth-Delivery-Id (idempotency key) ───────────
-// The delivery id must be a stable idempotency key so webhook consumers can
-// dedupe retries and stale reclaim deliveries. These tests mock fetch to
-// capture the request headers and assert the id is the caller-supplied value,
-// not a per-call Date.now() timestamp.
-
-describe('Webhook delivery — stable delivery id (idempotency key)', () => {
-  let originalFetch: typeof globalThis.fetch;
-  let lastHeaders: Record<string, string> = {};
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-    lastHeaders = {};
-    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
-      lastHeaders = (init?.headers as Record<string, string>) || {};
-      return Promise.resolve(new Response('{}', { status: 200 }));
-    }) as unknown as typeof fetch;
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it('passes caller-supplied deliveryId verbatim as X-SupaOAuth-Delivery-Id', async () => {
-    const { deliverWebhookOnce, buildEvent } = await import('../repositories/webhook-delivery.js');
-    // logAudit throws without a DB; the header is captured before that, so we
-    // assert inside catch after fetch has run.
-    try {
-      await deliverWebhookOnce('wh-1', 'http://example.test', 'secret', buildEvent('user.created', { id: 'u1' }), 'del-stable-123');
-    } catch {
-      // expected: no DB for audit
-    }
-    expect(lastHeaders['X-SupaOAuth-Delivery-Id']).toBe('del-stable-123');
-  });
-
-  it('does not use a Date.now()-based id (which would change per call)', async () => {
-    const { deliverWebhookOnce, buildEvent } = await import('../repositories/webhook-delivery.js');
-    try {
-      await deliverWebhookOnce('wh-1', 'http://example.test', 'secret', buildEvent('user.created', {}), 'fixed-key');
-    } catch {
-      // expected: no DB for audit
-    }
-    // Must be exactly the provided key, never `${webhookId}-${Date.now()}`
-    expect(lastHeaders['X-SupaOAuth-Delivery-Id']).not.toMatch(/^wh-1-\d+$/);
-  });
-
-  it('generates a UUID when deliveryId is omitted (not a timestamp)', async () => {
-    const { deliverWebhookOnce, buildEvent } = await import('../repositories/webhook-delivery.js');
-    try {
-      await deliverWebhookOnce('wh-1', 'http://example.test', 'secret', buildEvent('user.created', {}));
-    } catch {
-      // expected: no DB for audit
-    }
-    // UUID v4-ish format, never `${webhookId}-${Date.now()}`
-    expect(lastHeaders['X-SupaOAuth-Delivery-Id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(event).toHaveProperty('occurred_at');
+    expect(event).toHaveProperty('api_version');
   });
 });

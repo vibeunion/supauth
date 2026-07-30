@@ -2,7 +2,7 @@
 
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
-import { apiResources, scopes } from '../db/schema.js';
+import { apiResources, applicationBindings, scopes } from '../db/schema.js';
 
 export async function listResources() {
   const db = getDb();
@@ -74,4 +74,24 @@ export async function addScope(resourceId: string, data: { name: string; descrip
 export async function removeScope(scopeId: string) {
   const db = getDb();
   await db.delete(scopes).where(eq(scopes.id, scopeId));
+}
+
+export async function updateScope(scopeId: string, data: { name?: string; description?: string }) {
+  const db = getDb();
+  const [scope] = await db.update(scopes).set(data).where(eq(scopes.id, scopeId)).returning();
+  return scope;
+}
+
+export async function resourceBindings(resourceId: string) {
+  const db = getDb();
+  return db.select().from(applicationBindings).where(eq(applicationBindings.resourceId, resourceId));
+}
+
+export async function scopeHasBindings(scopeId: string): Promise<boolean> {
+  const db = getDb();
+  const bindings = await db.select({ id: applicationBindings.id })
+    .from(applicationBindings)
+    .where(eq(applicationBindings.scopeId, scopeId))
+    .limit(1);
+  return bindings.length > 0;
 }

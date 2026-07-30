@@ -131,6 +131,7 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     expect(metadata.response_types_supported || []).toContain('code');
     expect(metadata.grant_types_supported || []).toContain('authorization_code');
     expect(metadata.grant_types_supported || []).toContain('refresh_token');
+    expect(metadata.grant_types_supported || []).not.toContain('urn:ietf:params:oauth:grant-type:token-exchange');
     expect(metadata.code_challenge_methods_supported || []).toContain('S256');
   });
 
@@ -146,14 +147,27 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     expect(oidcMetadata.jwks_uri).toBe(oauthMetadata.jwks_uri);
   });
 
-  liveIt('rejects unsupported OAuth grant types', async () => {
+  liveIt('rejects the client_credentials grant', async () => {
     const metadata = await getOAuthMetadata();
-    const res = await postForm(metadata.token_endpoint, {
-      grant_type: 'client_credentials',
-    });
+    const response = await postForm(metadata.token_endpoint, { grant_type: 'client_credentials' });
 
-    expect([400, 401, 405]).toContain(res.status);
-    expect(res.ok).toBe(false);
+    expect([400, 401, 405]).toContain(response.status);
+    expect(response.ok).toBe(false);
+  });
+
+  clientLiveIt('rejects RFC 8693 token exchange with stock GoTrue semantics', async () => {
+    const metadata = await getOAuthMetadata();
+    const response = await postForm(metadata.token_endpoint, {
+      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+      client_id: CLIENT_ID,
+      client_secret: TOKEN_AUTH_METHOD === 'client_secret_post' ? CLIENT_SECRET : undefined,
+      subject_token: 'stock-gotrue-token-exchange-probe',
+    }, tokenAuthHeaders());
+
+    expect(response.status).toBe(400);
+    expect(response.ok).toBe(false);
+    const body = await response.json() as JsonObject;
+    expect(body.error).toBe('unsupported_grant_type');
   });
 
   liveIt('does not expose UserInfo without a bearer token', async () => {
@@ -221,7 +235,7 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     expect(body.access_token).toBeDefined();
     expect(body.token_type).toBe('bearer');
     expect(body.expires_in).toBeDefined();
-    expectGrantedOAuthScope(body);
+    if (body.scope !== undefined) expectGrantedOAuthScope(body);
 
     const { payload } = decodeJwt(String(body.access_token));
     expectSupabaseOAuthAccessTokenPayload(payload, metadata.issuer);
@@ -293,9 +307,7 @@ function expectSupabaseOAuthAccessTokenPayload(payload: JsonObject, issuer: stri
     expect(payload.client_id).toBe(CLIENT_ID);
   }
 
-  if (typeof payload.sub === 'string') {
-    expect(payload.user_id).toBe(payload.sub);
-  }
+  expectGrantedOAuthScope(payload);
 }
 
 function expectGrantedOAuthScope(body: JsonObject): void {

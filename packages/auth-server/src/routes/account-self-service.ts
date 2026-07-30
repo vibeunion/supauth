@@ -4,10 +4,10 @@
 
 import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
-import * as consentRepo from '../repositories/consents.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import { capabilityUnavailable } from '../utils/api-contract.js';
 
 interface AccountFailure {
   ok: false;
@@ -23,8 +23,25 @@ interface AccountSuccess {
 
 type AccountResult = AccountSuccess | AccountFailure;
 
-type ListResult = { items: unknown[]; total: number };
+type ListOperationResult = { ok: true; items: unknown[]; total: number } | AccountFailure;
 type MfaOperationResult = { ok: true; data: Record<string, unknown> } | AccountFailure;
+type LogoutScope = 'local' | 'global' | 'others';
+type GoTruePayloadResult = { ok: true; payload: unknown } | AccountFailure;
+type AccessTokenApplicationResult = { ok: true; clientId: string | null } | AccountFailure;
+
+export interface ProviderLinkingCapability {
+  available: boolean;
+  source: 'gotrue';
+  version: string | null;
+  reason_code: string | null;
+  providers: string[];
+  redirect_to: string | null;
+}
+
+interface ProviderLinkRequest {
+  provider: string;
+  redirectTo: string;
+}
 
 type AccountCenterConfig = {
   enabled: boolean;
@@ -35,17 +52,18 @@ type AccountCenterConfig = {
   security: {
     password_change: boolean;
     mfa: boolean;
-    passkeys: boolean;
     email_change: boolean;
     phone_change: boolean;
   };
-  sessions: { enabled: boolean };
   grants: { enabled: boolean };
   identities: { enabled: boolean };
   delete_account: { enabled: boolean; url: string | null };
 };
 
 const adapter = getSupaCloudAdapter();
+
+const NON_OAUTH_PROVIDER_CONFIG_NAMES = new Set(['anonymous_users', 'email', 'phone']);
+const OAUTH_PROVIDER_NAME_PATTERN = /^(?:[a-z][a-z0-9_]{0,63}|custom:[a-z0-9][a-z0-9_-]{0,63})$/;
 
 const BLOCKED_PROFILE_KEYS = new Set([
   'app_metadata',
@@ -67,11 +85,9 @@ const DEFAULT_ACCOUNT_CENTER_CONFIG: AccountCenterConfig = {
   security: {
     password_change: true,
     mfa: false,
-    passkeys: false,
     email_change: false,
     phone_change: false,
   },
-  sessions: { enabled: false },
   grants: { enabled: false },
   identities: { enabled: false },
   delete_account: { enabled: false, url: null },
@@ -112,6 +128,71 @@ function asSafeUrl(value: unknown) {
   }
 }
 
+function unavailableProviderLinking(reasonCode: string): ProviderLinkingCapability {
+  return {
+    available: false,
+    source: 'gotrue',
+    version: null,
+    reason_code: reasonCode,
+    providers: [],
+    redirect_to: null,
+  };
+}
+
+function enabledOAuthProviders(authConfig: Record<string, unknown>) {
+  const providers = Object.entries(authConfig).flatMap(([key, enabled]) => {
+    const match = key.match(/^external_(.+)_enabled$/);
+    if (enabled !== true || !match) return [];
+    const provider = match[1];
+    if (NON_OAUTH_PROVIDER_CONFIG_NAMES.has(provider) || !OAUTH_PROVIDER_NAME_PATTERN.test(provider)) return [];
+    return [provider];
+  });
+  return Array.from(new Set(providers)).sort();
+}
+
+function accountCenterRedirect(publicBaseUrl: string) {
+  try {
+    const base = new URL(publicBaseUrl);
+    if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) return null;
+    return new URL('/account', base).toString();
+  } catch {
+    return null;
+  }
+}
+
+export function resolveProviderLinkingCapability(
+  authConfig: Record<string, unknown>,
+  publicBaseUrl: string,
+): ProviderLinkingCapability {
+  // v2.193 linking-domain groups affect automatic email matching; GoTrue gates this manual ceremony separately.
+  if (authConfig.manual_linking_enabled !== true) return unavailableProviderLinking('manual_linking_disabled');
+
+  const providers = enabledOAuthProviders(authConfig);
+  if (providers.length === 0) return unavailableProviderLinking('oauth_provider_unavailable');
+
+  const redirectTo = accountCenterRedirect(publicBaseUrl);
+  if (!redirectTo) return unavailableProviderLinking('account_redirect_unavailable');
+
+  return {
+    available: true,
+    source: 'gotrue',
+    version: null,
+    reason_code: null,
+    providers,
+    redirect_to: redirectTo,
+  };
+}
+
+async function readProviderLinkingCapability(): Promise<ProviderLinkingCapability> {
+  try {
+    const authConfig = await adapter.getAuthConfig();
+    if (!isRecord(authConfig)) return unavailableProviderLinking('invalid_auth_config');
+    return resolveProviderLinkingCapability(authConfig, getConfig().publicBaseUrl);
+  } catch {
+    return unavailableProviderLinking('auth_config_unavailable');
+  }
+}
+
 export function sanitizeAccountCenterConfig(config: unknown): AccountCenterConfig {
   const row = isRecord(config) ? config : {};
   const value = isRecord(row.value) ? row.value : row;
@@ -128,11 +209,9 @@ export function sanitizeAccountCenterConfig(config: unknown): AccountCenterConfi
     security: {
       password_change: asBoolean(security.password_change, DEFAULT_ACCOUNT_CENTER_CONFIG.security.password_change),
       mfa: asBoolean(security.mfa, DEFAULT_ACCOUNT_CENTER_CONFIG.security.mfa),
-      passkeys: asBoolean(security.passkeys, DEFAULT_ACCOUNT_CENTER_CONFIG.security.passkeys),
       email_change: asBoolean(security.email_change, DEFAULT_ACCOUNT_CENTER_CONFIG.security.email_change),
       phone_change: asBoolean(security.phone_change, DEFAULT_ACCOUNT_CENTER_CONFIG.security.phone_change),
     },
-    sessions: { enabled: asModuleEnabled(value.sessions, DEFAULT_ACCOUNT_CENTER_CONFIG.sessions.enabled) },
     grants: { enabled: asModuleEnabled(value.grants, DEFAULT_ACCOUNT_CENTER_CONFIG.grants.enabled) },
     identities: { enabled: asModuleEnabled(value.identities, DEFAULT_ACCOUNT_CENTER_CONFIG.identities.enabled) },
     delete_account: {
@@ -148,15 +227,49 @@ function bearerToken(headers: Record<string, string | undefined>): string | null
   return match ? match[1].trim() : null;
 }
 
+function decodedJwtPayload(encodedPayload: string): Record<string, unknown> | null {
+  try {
+    const parsedPayload: unknown = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+    return isRecord(parsedPayload) ? parsedPayload : null;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+function accessTokenApplication(accessToken: string): AccessTokenApplicationResult {
+  const segments = accessToken.split('.');
+  if (segments.length !== 3 || !/^[A-Za-z0-9_-]+$/.test(segments[1])) {
+    return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token is not a valid JWT.' };
+  }
+  const tokenPayload = decodedJwtPayload(segments[1]);
+  if (!tokenPayload) {
+    return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token payload is invalid.' };
+  }
+  if (tokenPayload.client_id === undefined) return { ok: true, clientId: null };
+  if (typeof tokenPayload.client_id !== 'string' || !tokenPayload.client_id.trim() || tokenPayload.client_id.length > 255) {
+    return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token client_id is invalid.' };
+  }
+  return { ok: true, clientId: tokenPayload.client_id };
+}
+
+function goTrueRoute(routePath: string) {
+  const separator = routePath.indexOf('?');
+  return separator === -1
+    ? { pathname: routePath, search: '' }
+    : { pathname: routePath.slice(0, separator), search: routePath.slice(separator) };
+}
+
 function buildGoTrueApiUrl(baseUrl: string, routePath: string) {
   const base = new URL(baseUrl);
   base.pathname = base.pathname.replace(/\/+$/, '');
   if (!base.pathname.endsWith('/auth/v1')) {
     base.pathname = `${base.pathname}/auth/v1`.replace(/\/+/g, '/');
   }
-  const normalizedPath = routePath.startsWith('/') ? routePath : `/${routePath}`;
+  const route = goTrueRoute(routePath);
+  const normalizedPath = route.pathname.startsWith('/') ? route.pathname : `/${route.pathname}`;
   base.pathname = `${base.pathname}${normalizedPath}`.replace(/\/+/g, '/');
-  base.search = '';
+  base.search = route.search;
   base.hash = '';
   return base.toString();
 }
@@ -164,9 +277,10 @@ function buildGoTrueApiUrl(baseUrl: string, routePath: string) {
 function buildRawGoTrueApiUrl(baseUrl: string, routePath: string) {
   const base = new URL(baseUrl);
   base.pathname = base.pathname.replace(/\/+$/, '');
-  const normalizedPath = routePath.startsWith('/') ? routePath : `/${routePath}`;
+  const route = goTrueRoute(routePath);
+  const normalizedPath = route.pathname.startsWith('/') ? route.pathname : `/${route.pathname}`;
   base.pathname = `${base.pathname}${normalizedPath}`.replace(/\/+/g, '/');
-  base.search = '';
+  base.search = route.search;
   base.hash = '';
   return base.toString();
 }
@@ -214,7 +328,7 @@ async function readJson(response: Response) {
   const text = await response.text().catch(() => '');
   if (!text.trim()) return null;
   try {
-    return JSON.parse(text) as Record<string, unknown>;
+    return JSON.parse(text) as unknown;
   } catch {
     return null;
   }
@@ -226,10 +340,6 @@ function accountUnavailable(message = 'Authentication runtime is unavailable.'):
 
 function invalidToken(): AccountFailure {
   return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token is invalid or expired.' };
-}
-
-function notFound(code: string, message: string): AccountFailure {
-  return { ok: false, status: 404, code, message };
 }
 
 function forbidden(code: string, message: string): AccountFailure {
@@ -332,18 +442,52 @@ function normalizePhone(body: unknown): string | AccountFailure {
   return phone;
 }
 
-function normalizeName(body: unknown): string | AccountFailure {
-  const input = isRecord(body) ? body : {};
-  const name = typeof input.name === 'string' ? input.name.trim() : '';
-  if (!name || name.length > 80) {
-    return {
-      ok: false,
-      status: 400,
-      code: 'invalid_name',
-      message: 'Provide a passkey name up to 80 characters.',
-    };
+function normalizeLogoutScope(value: unknown): LogoutScope | AccountFailure {
+  if (value === 'local' || value === 'global' || value === 'others') return value;
+  return {
+    ok: false,
+    status: 400,
+    code: 'invalid_logout_scope',
+    message: 'Logout scope must be local, global, or others.',
+  };
+}
+
+function invalidAccountRequest(code: string, message: string): AccountFailure {
+  return { ok: false, status: 400, code, message };
+}
+
+function normalizedAccountRedirect(requestedRedirect: unknown, allowedRedirect: string | null) {
+  if (typeof requestedRedirect !== 'string' || !allowedRedirect) return null;
+  try {
+    const requested = new URL(requestedRedirect);
+    const allowed = new URL(allowedRedirect);
+    const matchesAccountCenter = requested.origin === allowed.origin
+      && requested.pathname === allowed.pathname
+      && !requested.search
+      && !requested.hash
+      && !requested.username
+      && !requested.password;
+    return matchesAccountCenter ? allowed.toString() : null;
+  } catch {
+    return null;
   }
-  return name;
+}
+
+function normalizeProviderLinkRequest(
+  body: unknown,
+  capability: ProviderLinkingCapability,
+): ProviderLinkRequest | AccountFailure {
+  const input = isRecord(body) ? body : {};
+  const provider = typeof input.provider === 'string' ? input.provider : '';
+  if (!OAUTH_PROVIDER_NAME_PATTERN.test(provider) || !capability.providers.includes(provider)) {
+    return invalidAccountRequest('provider_not_allowed', 'Provider is not enabled for manual identity linking.');
+  }
+
+  const redirectTo = normalizedAccountRedirect(input.redirect_to, capability.redirect_to);
+  if (!redirectTo) {
+    return invalidAccountRequest('invalid_redirect_to', 'redirect_to must target this account center.');
+  }
+  return { provider, redirectTo };
 }
 
 function normalizeTotpEnrollment(body: unknown) {
@@ -381,16 +525,6 @@ function challengeIdFrom(body: unknown): string | null {
   return typeof challengeId === 'string' && challengeId.trim() ? challengeId.trim() : null;
 }
 
-function passkeyIdFrom(value: unknown) {
-  if (!isRecord(value)) return '';
-  const id = value.id || value.passkey_id || value.credential_id;
-  return typeof id === 'string' ? id : '';
-}
-
-function currentUserPasskey(items: unknown[], passkeyId: string) {
-  return items.find((item) => passkeyIdFrom(item) === passkeyId) || null;
-}
-
 function mfaFactorsFromUser(user: Record<string, unknown>) {
   const candidates = [user.factors, user.mfa_factors];
   for (const candidate of candidates) {
@@ -399,15 +533,6 @@ function mfaFactorsFromUser(user: Record<string, unknown>) {
   const appMetadata = isRecord(user.app_metadata) ? user.app_metadata : {};
   if (Array.isArray(appMetadata.mfa_factors)) return appMetadata.mfa_factors;
   return [];
-}
-
-function toListResponse(value: unknown): ListResult {
-  if (Array.isArray(value)) return { items: value, total: value.length };
-  if (isRecord(value) && Array.isArray(value.items)) {
-    const items = value.items;
-    return { items, total: typeof value.total === 'number' ? value.total : items.length };
-  }
-  return { items: [], total: 0 };
 }
 
 function publicMfaEnrollmentPayload(payload: Record<string, unknown>) {
@@ -426,90 +551,114 @@ function publicMfaEnrollmentPayload(payload: Record<string, unknown>) {
   };
 }
 
-async function fetchGoTrueJsonWithUserToken(
-  accessToken: string,
-  routePath: string,
-  init: RequestInit,
-  failureCode: string,
-  fallbackMessage: string,
-  options: {
-    fetchImpl?: typeof fetch;
-    runtimeBaseUrls?: string[];
-    emptySuccessData?: Record<string, unknown>;
-  } = {},
-): Promise<MfaOperationResult> {
-  const fetchImpl = options.fetchImpl || fetch;
-  const bases = goTrueBaseCandidates(options.runtimeBaseUrls);
+function goTrueErrorMessage(payload: unknown, fallbackMessage: string) {
+  if (!isRecord(payload)) return fallbackMessage;
+  for (const field of ['message', 'msg', 'error_description', 'error']) {
+    if (typeof payload[field] === 'string' && payload[field].trim()) return payload[field];
+  }
+  return fallbackMessage;
+}
+
+async function requestGoTrueWithUserToken(input: {
+  accessToken: string;
+  routePath: string;
+  init: RequestInit;
+  failureCode: string;
+  fallbackMessage: string;
+  fetchImpl?: typeof fetch;
+  runtimeBaseUrls?: string[];
+}): Promise<GoTruePayloadResult> {
+  const bases = goTrueBaseCandidates(input.runtimeBaseUrls);
   if (bases.length === 0) return accountUnavailable('Authentication runtime is not configured.');
 
-  let lastError: unknown = null;
-  let responseFailure: AccountFailure | null = null;
+  let lastNetworkError: unknown = null;
   for (const base of bases) {
-    for (const url of goTrueRequestUrls(base, routePath)) {
+    const urls = goTrueRequestUrls(base, input.routePath);
+    for (const [urlIndex, url] of urls.entries()) {
       try {
-        const response = await fetchImpl(url, {
-          ...init,
+        const response = await (input.fetchImpl || fetch)(url, {
+          ...input.init,
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-            ...(init.headers || {}),
+            Authorization: `Bearer ${input.accessToken}`,
+            ...(input.init.headers || {}),
           },
-          signal: init.signal || AbortSignal.timeout(5000),
+          signal: input.init.signal || AbortSignal.timeout(5000),
         });
         const payload = await readJson(response);
-        if (response.status === 401 || response.status === 403) {
-          return invalidToken();
-        }
-        if (response.ok && !isRecord(payload) && options.emptySuccessData) {
-          return { ok: true, data: options.emptySuccessData };
-        }
-        if (!response.ok || !isRecord(payload)) {
-          responseFailure ??= {
-            ok: false,
-            status: response.status,
-            code: failureCode,
-            message: typeof payload?.message === 'string' ? payload.message : fallbackMessage,
-          };
-          continue;
-        }
-        return { ok: true, data: payload };
+        if (response.status === 401 || response.status === 403) return invalidToken();
+        if (response.ok) return { ok: true, payload };
+        if (response.status === 404 && urlIndex < urls.length - 1) continue;
+        return {
+          ok: false,
+          status: response.status,
+          code: input.failureCode,
+          message: goTrueErrorMessage(payload, input.fallbackMessage),
+        };
       } catch (error) {
-        lastError = error;
+        lastNetworkError = error;
       }
     }
   }
 
-  if (responseFailure) return responseFailure;
-  return accountUnavailable(lastError instanceof Error ? lastError.message : undefined);
+  return accountUnavailable(lastNetworkError instanceof Error ? lastNetworkError.message : undefined);
+}
+
+async function fetchGoTrueJsonWithUserToken(input: {
+  accessToken: string;
+  routePath: string;
+  init: RequestInit;
+  failureCode: string;
+  fallbackMessage: string;
+  fetchImpl?: typeof fetch;
+  runtimeBaseUrls?: string[];
+  emptySuccessData?: Record<string, unknown>;
+}): Promise<MfaOperationResult> {
+  const response = await requestGoTrueWithUserToken({
+    accessToken: input.accessToken,
+    routePath: input.routePath,
+    init: input.init,
+    failureCode: input.failureCode,
+    fallbackMessage: input.fallbackMessage,
+    fetchImpl: input.fetchImpl,
+    runtimeBaseUrls: input.runtimeBaseUrls,
+  });
+  if (!response.ok) return response;
+  if (isRecord(response.payload)) return { ok: true, data: response.payload };
+  if (response.payload === null && input.emptySuccessData) {
+    return { ok: true, data: input.emptySuccessData };
+  }
+  return {
+    ok: false,
+    status: 502,
+    code: 'invalid_gotrue_response',
+    message: 'Authentication runtime returned an invalid response.',
+  };
 }
 
 async function auditProfileUpdate(user: Record<string, unknown>, keys: string[]) {
   const userId = typeof user.id === 'string' ? user.id : undefined;
   if (!userId) return;
 
-  try {
-    await auditRepo.logAudit({
-      eventType: 'my_account.profile.updated',
-      actorId: userId,
-      actorType: 'user',
-      resourceType: 'user',
-      resourceId: userId,
-      details: { fields: keys },
-    });
-  } catch {}
+  await auditRepo.logAudit({
+    eventType: 'my_account.profile.updated',
+    actorId: userId,
+    actorType: 'user',
+    resourceType: 'user',
+    resourceId: userId,
+    details: { fields: keys },
+  });
 }
 
 async function auditAccountEvent(eventType: string, userId: string, details?: Record<string, unknown>) {
-  try {
-    await auditRepo.logAudit({
-      eventType,
-      actorId: userId,
-      actorType: 'user',
-      resourceType: 'user',
-      resourceId: userId,
-      details,
-    });
-  } catch {}
+  await auditRepo.logAudit({
+    eventType,
+    actorId: userId,
+    actorType: 'user',
+    resourceType: 'user',
+    resourceId: userId,
+    details,
+  });
 }
 
 export async function getAccountWithGoTrue(
@@ -519,14 +668,15 @@ export async function getAccountWithGoTrue(
     runtimeBaseUrls?: string[];
   } = {},
 ): Promise<AccountResult> {
-  const result = await fetchGoTrueJsonWithUserToken(
+  const result = await fetchGoTrueJsonWithUserToken({
     accessToken,
-    '/user',
-    { method: 'GET' },
-    'account_lookup_failed',
-    'Account lookup failed.',
-    options,
-  );
+    routePath: '/user',
+    init: { method: 'GET' },
+    failureCode: 'account_lookup_failed',
+    fallbackMessage: 'Account lookup failed.',
+    fetchImpl: options.fetchImpl,
+    runtimeBaseUrls: options.runtimeBaseUrls,
+  });
   if (!result.ok) return result;
   return { ok: true, user: sanitizeUser(result.data) };
 }
@@ -540,17 +690,18 @@ export async function updateAccountProfileWithGoTrue(
     audit?: boolean;
   } = {},
 ): Promise<AccountResult> {
-  const result = await fetchGoTrueJsonWithUserToken(
+  const result = await fetchGoTrueJsonWithUserToken({
     accessToken,
-    '/user',
-    {
+    routePath: '/user',
+    init: {
       method: 'PUT',
       body: JSON.stringify({ data }),
     },
-    'profile_update_failed',
-    'Profile update failed.',
-    options,
-  );
+    failureCode: 'profile_update_failed',
+    fallbackMessage: 'Profile update failed.',
+    fetchImpl: options.fetchImpl,
+    runtimeBaseUrls: options.runtimeBaseUrls,
+  });
   if (!result.ok) return result;
   const user = sanitizeUser(result.data);
   if (options.audit !== false) {
@@ -567,17 +718,17 @@ export async function updateAccountContactWithGoTrue(
     runtimeBaseUrls?: string[];
   } = {},
 ): Promise<AccountResult> {
-  const result = await fetchGoTrueJsonWithUserToken(
+  const result = await fetchGoTrueJsonWithUserToken({
     accessToken,
-    '/user',
-    {
+    routePath: '/user',
+    init: {
       method: 'PUT',
       body: JSON.stringify(data),
     },
-    'contact_update_failed',
-    'Contact update failed.',
-    options,
-  );
+    failureCode: 'contact_update_failed',
+    fallbackMessage: 'Contact update failed.',
+    ...options,
+  });
   if (!result.ok) return result;
   return { ok: true, user: sanitizeUser(result.data) };
 }
@@ -590,10 +741,10 @@ export async function enrollTotpMfaWithGoTrue(
     runtimeBaseUrls?: string[];
   } = {},
 ): Promise<MfaOperationResult> {
-  const result = await fetchGoTrueJsonWithUserToken(
+  const result = await fetchGoTrueJsonWithUserToken({
     accessToken,
-    '/factors',
-    {
+    routePath: '/factors',
+    init: {
       method: 'POST',
       body: JSON.stringify({
         factor_type: 'totp',
@@ -601,10 +752,10 @@ export async function enrollTotpMfaWithGoTrue(
         ...(input.issuer ? { issuer: input.issuer } : {}),
       }),
     },
-    'mfa_enrollment_failed',
-    'MFA enrollment failed.',
-    options,
-  );
+    failureCode: 'mfa_enrollment_failed',
+    fallbackMessage: 'MFA enrollment failed.',
+    ...options,
+  });
   if (!result.ok) return result;
   return { ok: true, data: publicMfaEnrollmentPayload(result.data) };
 }
@@ -621,17 +772,17 @@ export async function verifyTotpMfaWithGoTrue(
   const encodedFactorId = encodeURIComponent(factorId);
   let challengeId = input.challengeId || null;
   if (!challengeId) {
-    const challenge = await fetchGoTrueJsonWithUserToken(
+    const challenge = await fetchGoTrueJsonWithUserToken({
       accessToken,
-      `/factors/${encodedFactorId}/challenge`,
-      {
+      routePath: `/factors/${encodedFactorId}/challenge`,
+      init: {
         method: 'POST',
         body: JSON.stringify({}),
       },
-      'mfa_challenge_failed',
-      'MFA challenge failed.',
-      options,
-    );
+      failureCode: 'mfa_challenge_failed',
+      fallbackMessage: 'MFA challenge failed.',
+      ...options,
+    });
     if (!challenge.ok) return challenge;
     const rawChallengeId = challenge.data.id || challenge.data.challenge_id;
     challengeId = typeof rawChallengeId === 'string' ? rawChallengeId : null;
@@ -645,20 +796,20 @@ export async function verifyTotpMfaWithGoTrue(
     }
   }
 
-  return fetchGoTrueJsonWithUserToken(
+  return fetchGoTrueJsonWithUserToken({
     accessToken,
-    `/factors/${encodedFactorId}/verify`,
-    {
+    routePath: `/factors/${encodedFactorId}/verify`,
+    init: {
       method: 'POST',
       body: JSON.stringify({
         code: input.code,
         challenge_id: challengeId,
       }),
     },
-    'mfa_verification_failed',
-    'MFA verification failed.',
-    options,
-  );
+    failureCode: 'mfa_verification_failed',
+    fallbackMessage: 'MFA verification failed.',
+    ...options,
+  });
 }
 
 export async function unenrollMfaFactorWithGoTrue(
@@ -670,76 +821,136 @@ export async function unenrollMfaFactorWithGoTrue(
   } = {},
 ): Promise<MfaOperationResult> {
   const encodedFactorId = encodeURIComponent(factorId);
-  return fetchGoTrueJsonWithUserToken(
+  return fetchGoTrueJsonWithUserToken({
     accessToken,
-    `/factors/${encodedFactorId}`,
-    { method: 'DELETE' },
-    'mfa_unenroll_failed',
-    'MFA factor unenroll failed.',
-    {
-      ...options,
-      emptySuccessData: { id: factorId, status: 'unenrolled' },
-    },
-  );
+    routePath: `/factors/${encodedFactorId}`,
+    init: { method: 'DELETE' },
+    failureCode: 'mfa_unenroll_failed',
+    fallbackMessage: 'MFA factor unenroll failed.',
+    ...options,
+    emptySuccessData: { id: factorId, status: 'unenrolled' },
+  });
 }
 
-async function listCurrentUserSessions(userId: string) {
-  return toListResponse(await adapter.listUserSessions(userId));
-}
-
-async function revokeCurrentUserSession(userId: string, sessionId: string) {
-  const result = await adapter.revokeUserSession(userId, sessionId);
-  await auditAccountEvent('my_account.session.revoked', userId, { session_id: sessionId });
-  return result;
-}
-
-async function listCurrentUserGrants(userId: string) {
-  return toListResponse(await consentRepo.listUserConsents(userId));
-}
-
-async function revokeCurrentUserGrant(userId: string, consentId: string) {
-  const grants = await consentRepo.listUserConsents(userId);
-  if (!grants.some((grant) => grant.id === consentId)) {
-    return notFound('grant_not_found', 'Grant was not found for the current account.');
+export async function listOAuthGrantsWithGoTrue(
+  accessToken: string,
+  options: { fetchImpl?: typeof fetch; runtimeBaseUrls?: string[] } = {},
+): Promise<ListOperationResult> {
+  const response = await requestGoTrueWithUserToken({
+    accessToken,
+    routePath: '/user/oauth/grants',
+    init: { method: 'GET' },
+    failureCode: 'oauth_grants_lookup_failed',
+    fallbackMessage: 'Application grants lookup failed.',
+    ...options,
+  });
+  if (!response.ok) return response;
+  if (Array.isArray(response.payload)) {
+    return { ok: true, items: response.payload, total: response.payload.length };
   }
-  const result = await consentRepo.revokeConsent(consentId);
-  await auditAccountEvent('my_account.grant.revoked', userId, { consent_id: consentId });
-  return result;
+  return {
+    ok: false,
+    status: 502,
+    code: 'invalid_gotrue_response',
+    message: 'Authentication runtime returned an invalid grants response.',
+  };
 }
 
-async function unlinkCurrentUserIdentity(userId: string, identityId: string) {
-  const result = await adapter.unlinkUserIdentity(userId, identityId);
-  await auditAccountEvent('my_account.identity.unlinked', userId, { identity_id: identityId });
-  return result;
+export function revokeOAuthGrantWithGoTrue(
+  accessToken: string,
+  clientId: string,
+  options: { fetchImpl?: typeof fetch; runtimeBaseUrls?: string[] } = {},
+): Promise<MfaOperationResult> {
+  return fetchGoTrueJsonWithUserToken({
+    accessToken,
+    routePath: `/user/oauth/grants?client_id=${encodeURIComponent(clientId)}`,
+    init: { method: 'DELETE' },
+    failureCode: 'oauth_grant_revoke_failed',
+    fallbackMessage: 'Application grant revocation failed.',
+    ...options,
+    emptySuccessData: { client_id: clientId, status: 'revoked' },
+  });
+}
+
+export function unlinkIdentityWithGoTrue(
+  accessToken: string,
+  identityId: string,
+  options: { fetchImpl?: typeof fetch; runtimeBaseUrls?: string[] } = {},
+): Promise<MfaOperationResult> {
+  return fetchGoTrueJsonWithUserToken({
+    accessToken,
+    routePath: `/user/identities/${encodeURIComponent(identityId)}`,
+    init: { method: 'DELETE' },
+    failureCode: 'identity_unlink_failed',
+    fallbackMessage: 'Identity unlink failed.',
+    ...options,
+  });
+}
+
+function providerAuthorizationUrl(payload: unknown) {
+  if (!isRecord(payload) || typeof payload.url !== 'string') return null;
+  try {
+    const authorizationUrl = new URL(payload.url);
+    if (!['http:', 'https:'].includes(authorizationUrl.protocol)
+      || authorizationUrl.username
+      || authorizationUrl.password) return null;
+    return authorizationUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+export async function authorizeIdentityLinkWithGoTrue(
+  accessToken: string,
+  request: ProviderLinkRequest,
+  options: { fetchImpl?: typeof fetch; runtimeBaseUrls?: string[] } = {},
+): Promise<MfaOperationResult> {
+  const query = new URLSearchParams({
+    provider: request.provider,
+    redirect_to: request.redirectTo,
+    skip_http_redirect: 'true',
+  });
+  const response = await requestGoTrueWithUserToken({
+    accessToken,
+    routePath: `/user/identities/authorize?${query.toString()}`,
+    init: { method: 'GET', redirect: 'manual' },
+    failureCode: 'identity_link_authorization_failed',
+    fallbackMessage: 'Identity linking could not be started.',
+    ...options,
+  });
+  if (!response.ok) return response;
+
+  const url = providerAuthorizationUrl(response.payload);
+  if (!url) {
+    return {
+      ok: false,
+      status: 502,
+      code: 'invalid_gotrue_response',
+      message: 'Authentication runtime returned an invalid identity linking URL.',
+    };
+  }
+  return { ok: true, data: { provider: request.provider, url } };
+}
+
+export function logoutWithGoTrue(
+  accessToken: string,
+  scope: LogoutScope,
+  options: { fetchImpl?: typeof fetch; runtimeBaseUrls?: string[] } = {},
+): Promise<MfaOperationResult> {
+  return fetchGoTrueJsonWithUserToken({
+    accessToken,
+    routePath: `/logout?scope=${scope}`,
+    init: { method: 'POST' },
+    failureCode: 'logout_failed',
+    fallbackMessage: 'Logout failed.',
+    ...options,
+    emptySuccessData: { scope, status: 'logged_out' },
+  });
 }
 
 async function readAccountCenterConfig() {
   const config = await tenantConfigRepo.getTenantConfig('account_center', 'default');
   return sanitizeAccountCenterConfig(config || {});
-}
-
-async function listCurrentUserPasskeys(userId: string) {
-  return toListResponse(await adapter.listUserPasskeys(userId));
-}
-
-async function renameCurrentUserPasskey(userId: string, passkeyId: string, name: string) {
-  const passkeys = await listCurrentUserPasskeys(userId);
-  if (!currentUserPasskey(passkeys.items, passkeyId)) {
-    return notFound('passkey_not_found', 'Passkey was not found for the current account.');
-  }
-  const result = await adapter.renamePasskey(passkeyId, { name });
-  await auditAccountEvent('my_account.passkey.renamed', userId, { passkey_id: passkeyId });
-  return result;
-}
-
-async function revokeCurrentUserPasskey(userId: string, passkeyId: string) {
-  const passkeys = await listCurrentUserPasskeys(userId);
-  if (!currentUserPasskey(passkeys.items, passkeyId)) {
-    return notFound('passkey_not_found', 'Passkey was not found for the current account.');
-  }
-  const result = await adapter.revokePasskey(passkeyId);
-  await auditAccountEvent('my_account.passkey.revoked', userId, { passkey_id: passkeyId });
-  return result;
 }
 
 async function deleteCurrentUserAccount(userId: string) {
@@ -753,14 +964,12 @@ export function createPublicAccountRoutes(options?: {
   updateProfile?: (accessToken: string, data: Record<string, unknown>) => Promise<AccountResult>;
   updateContact?: (accessToken: string, data: { email?: string; phone?: string }) => Promise<AccountResult>;
   getConfig?: () => Promise<AccountCenterConfig>;
-  listSessions?: (userId: string) => Promise<ListResult>;
-  revokeSession?: (userId: string, sessionId: string) => Promise<unknown>;
-  listGrants?: (userId: string) => Promise<ListResult>;
-  revokeGrant?: (userId: string, consentId: string) => Promise<unknown | AccountFailure>;
-  unlinkIdentity?: (userId: string, identityId: string) => Promise<unknown>;
-  listPasskeys?: (userId: string) => Promise<ListResult>;
-  renamePasskey?: (userId: string, passkeyId: string, name: string) => Promise<unknown | AccountFailure>;
-  revokePasskey?: (userId: string, passkeyId: string) => Promise<unknown | AccountFailure>;
+  getProviderLinkingCapability?: () => Promise<ProviderLinkingCapability>;
+  listGrants?: (accessToken: string) => Promise<ListOperationResult>;
+  revokeGrant?: (accessToken: string, clientId: string) => Promise<MfaOperationResult>;
+  authorizeIdentityLink?: (accessToken: string, request: ProviderLinkRequest) => Promise<MfaOperationResult>;
+  unlinkIdentity?: (accessToken: string, identityId: string) => Promise<MfaOperationResult>;
+  logout?: (accessToken: string, scope: LogoutScope) => Promise<MfaOperationResult>;
   enrollTotpMfa?: (accessToken: string, input: { friendly_name: string; issuer?: string }) => Promise<MfaOperationResult>;
   verifyTotpMfa?: (accessToken: string, factorId: string, input: { code: string; challengeId?: string | null }) => Promise<MfaOperationResult>;
   unenrollMfa?: (accessToken: string, factorId: string) => Promise<MfaOperationResult>;
@@ -772,21 +981,19 @@ export function createPublicAccountRoutes(options?: {
   const updateProfile = options?.updateProfile || updateAccountProfileWithGoTrue;
   const updateContact = options?.updateContact || updateAccountContactWithGoTrue;
   const getPublicConfig = options?.getConfig || readAccountCenterConfig;
-  const listSessions = options?.listSessions || listCurrentUserSessions;
-  const revokeSession = options?.revokeSession || revokeCurrentUserSession;
-  const listGrants = options?.listGrants || listCurrentUserGrants;
-  const revokeGrant = options?.revokeGrant || revokeCurrentUserGrant;
-  const unlinkIdentity = options?.unlinkIdentity || unlinkCurrentUserIdentity;
-  const listPasskeys = options?.listPasskeys || listCurrentUserPasskeys;
-  const renamePasskey = options?.renamePasskey || renameCurrentUserPasskey;
-  const revokePasskey = options?.revokePasskey || revokeCurrentUserPasskey;
+  const getProviderLinking = options?.getProviderLinkingCapability || readProviderLinkingCapability;
+  const listGrants = options?.listGrants || listOAuthGrantsWithGoTrue;
+  const revokeGrant = options?.revokeGrant || revokeOAuthGrantWithGoTrue;
+  const authorizeIdentityLink = options?.authorizeIdentityLink || authorizeIdentityLinkWithGoTrue;
+  const unlinkIdentity = options?.unlinkIdentity || unlinkIdentityWithGoTrue;
+  const logout = options?.logout || logoutWithGoTrue;
   const enrollTotpMfa = options?.enrollTotpMfa || enrollTotpMfaWithGoTrue;
   const verifyTotpMfa = options?.verifyTotpMfa || verifyTotpMfaWithGoTrue;
   const unenrollMfa = options?.unenrollMfa || unenrollMfaFactorWithGoTrue;
   const resolvePermissions = options?.resolvePermissions || ((userId: string, orgId?: string, applicationId?: string) =>
     adapter.resolveUserPermissions(userId, orgId, applicationId));
-    const deleteAccount = options?.deleteAccount || deleteCurrentUserAccount;
-    const auditEvent = options?.auditEvent || auditAccountEvent;
+  const deleteAccount = options?.deleteAccount || deleteCurrentUserAccount;
+  const auditEvent = options?.auditEvent || auditAccountEvent;
 
   async function requireAccount(headers: Record<string, string | undefined>, set: { status?: unknown }) {
     const token = bearerToken(headers);
@@ -831,7 +1038,12 @@ export function createPublicAccountRoutes(options?: {
 
   return new Elysia({ prefix: '/v1/public/account' })
     .get('/config', async () => {
-      return { success: true, config: await getPublicConfig() };
+      const [config, providerLinking] = await Promise.all([getPublicConfig(), getProviderLinking()]);
+      return {
+        success: true,
+        config,
+        capabilities: { provider_linking: providerLinking },
+      };
     }, {
       detail: { summary: 'Get public account center configuration', tags: ['Public', 'Account Center'] },
     })
@@ -854,6 +1066,29 @@ export function createPublicAccountRoutes(options?: {
         return {
           success: false,
           error: { code: 'application_id_required', message: 'A valid application_id is required.' },
+        };
+      }
+      if (orgId && orgId.length > 255) {
+        set.status = 400;
+        return {
+          success: false,
+          error: { code: 'invalid_org_id', message: 'The org_id is too long.' },
+        };
+      }
+      // Cases: ordinary session, matching OAuth client, malformed JWT payload, and cross-client query.
+      const tokenApplication = accessTokenApplication(account.token);
+      if (!tokenApplication.ok) {
+        set.status = tokenApplication.status;
+        return { success: false, error: { code: tokenApplication.code, message: tokenApplication.message } };
+      }
+      if (tokenApplication.clientId && tokenApplication.clientId !== applicationId) {
+        set.status = 403;
+        return {
+          success: false,
+          error: {
+            code: 'application_context_mismatch',
+            message: 'The access token is bound to a different application.',
+          },
         };
       }
       const resolved = await resolvePermissions(account.userId, orgId || undefined, applicationId);
@@ -943,33 +1178,15 @@ export function createPublicAccountRoutes(options?: {
     }, {
       detail: { summary: 'Request current account phone change with user access token', tags: ['Public', 'Account Center'] },
     })
-    .get('/sessions', async ({ headers, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
-      if (!account.ok) return account.response;
-      const feature = await requireFeature(
-        set,
-        (config) => config.sessions.enabled,
-        'sessions_disabled',
-        'Session management is disabled for this account center.',
-      );
-      if (!feature.ok) return feature.response;
-      return { success: true, ...(await listSessions(account.userId)) };
+    .get('/sessions', async () => {
+      throw capabilityUnavailable('gotrue_user_session_listing');
     }, {
-      detail: { summary: 'List current account sessions with user access token', tags: ['Public', 'Account Center'] },
+      detail: { hide: true },
     })
-    .post('/sessions/:sessionId/revoke', async ({ headers, params, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
-      if (!account.ok) return account.response;
-      const feature = await requireFeature(
-        set,
-        (config) => config.sessions.enabled,
-        'sessions_disabled',
-        'Session management is disabled for this account center.',
-      );
-      if (!feature.ok) return feature.response;
-      return { success: true, result: await revokeSession(account.userId, params.sessionId) };
+    .post('/sessions/:sessionId/revoke', async () => {
+      throw capabilityUnavailable('gotrue_user_session_revoke_by_id');
     }, {
-      detail: { summary: 'Revoke current account session with user access token', tags: ['Public', 'Account Center'] },
+      detail: { hide: true },
     })
     .get('/grants', async ({ headers, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);
@@ -981,11 +1198,16 @@ export function createPublicAccountRoutes(options?: {
         'Application grants management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
-      return { success: true, ...(await listGrants(account.userId)) };
+      const grantList = await listGrants(account.token);
+      if (!grantList.ok) {
+        set.status = grantList.status;
+        return { success: false, error: { code: grantList.code, message: grantList.message } };
+      }
+      return { success: true, items: grantList.items, total: grantList.total };
     }, {
       detail: { summary: 'List current account application grants with user access token', tags: ['Public', 'Account Center'] },
     })
-    .delete('/grants/:consentId', async ({ headers, params, set }) => {
+    .delete('/grants/:clientId', async ({ headers, params, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -995,13 +1217,13 @@ export function createPublicAccountRoutes(options?: {
         'Application grants management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
-      const result = await revokeGrant(account.userId, params.consentId);
-      if (isFailure(result as AccountFailure)) {
-        const failure = result as AccountFailure;
-        set.status = failure.status;
-        return { success: false, error: { code: failure.code, message: failure.message } };
+      const grantRevocation = await revokeGrant(account.token, params.clientId);
+      if (!grantRevocation.ok) {
+        set.status = grantRevocation.status;
+        return { success: false, error: { code: grantRevocation.code, message: grantRevocation.message } };
       }
-      return { success: true, result };
+      await auditEvent('my_account.grant.revoked', account.userId, { client_id: params.clientId });
+      return { success: true, result: grantRevocation.data };
     }, {
       detail: { summary: 'Revoke current account application grant with user access token', tags: ['Public', 'Account Center'] },
     })
@@ -1020,6 +1242,45 @@ export function createPublicAccountRoutes(options?: {
     }, {
       detail: { summary: 'List current account identities with user access token', tags: ['Public', 'Account Center'] },
     })
+    .post('/identities/authorize', async ({ headers, body, set }) => {
+      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+      if (!account.ok) return account.response;
+      const feature = await requireFeature(
+        set,
+        (config) => config.identities.enabled,
+        'identities_disabled',
+        'Identity management is disabled for this account center.',
+      );
+      if (!feature.ok) return feature.response;
+
+      const capability = await getProviderLinking();
+      if (!capability.available) {
+        set.status = 501;
+        return {
+          success: false,
+          error: {
+            code: 'capability_unavailable',
+            message: 'Manual provider linking is not enabled in GoTrue.',
+            reason_code: capability.reason_code,
+          },
+        };
+      }
+
+      const linkRequest = normalizeProviderLinkRequest(body, capability);
+      if (isFailure(linkRequest)) {
+        set.status = linkRequest.status;
+        return { success: false, error: { code: linkRequest.code, message: linkRequest.message } };
+      }
+
+      const authorization = await authorizeIdentityLink(account.token, linkRequest);
+      if (!authorization.ok) {
+        set.status = authorization.status;
+        return { success: false, error: { code: authorization.code, message: authorization.message } };
+      }
+      return { success: true, authorization: authorization.data };
+    }, {
+      detail: { summary: 'Start current account manual identity linking with GoTrue', tags: ['Public', 'Account Center'] },
+    })
     .delete('/identities/:identityId', async ({ headers, params, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);
       if (!account.ok) return account.response;
@@ -1030,90 +1291,48 @@ export function createPublicAccountRoutes(options?: {
         'Identity management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
-      return { success: true, result: await unlinkIdentity(account.userId, params.identityId) };
+      const identityUnlink = await unlinkIdentity(account.token, params.identityId);
+      if (!identityUnlink.ok) {
+        set.status = identityUnlink.status;
+        return { success: false, error: { code: identityUnlink.code, message: identityUnlink.message } };
+      }
+      await auditEvent('my_account.identity.unlinked', account.userId, { identity_id: params.identityId });
+      return { success: true, result: identityUnlink.data };
     }, {
       detail: { summary: 'Unlink current account identity with user access token', tags: ['Public', 'Account Center'] },
     })
-    .get('/passkeys', async ({ headers, set }) => {
+    .post('/logout', async ({ headers, query, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);
       if (!account.ok) return account.response;
-      const feature = await requireFeature(
-        set,
-        (config) => config.security.passkeys,
-        'passkeys_disabled',
-        'Passkey management is disabled for this account center.',
-      );
-      if (!feature.ok) return feature.response;
-      return { success: true, ...(await listPasskeys(account.userId)) };
-    }, {
-      detail: { summary: 'List current account passkeys with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .post('/passkeys/register', async ({ headers, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
-      if (!account.ok) return account.response;
-      const feature = await requireFeature(
-        set,
-        (config) => config.security.passkeys,
-        'passkeys_disabled',
-        'Passkey management is disabled for this account center.',
-      );
-      if (!feature.ok) return feature.response;
-      set.status = 501;
-      return {
-        success: false,
-        error: {
-          code: 'passkey_registration_unsupported',
-          message: 'Passkey registration requires a WebAuthn ceremony endpoint and is not enabled for this hosted account center yet.',
-        },
-      };
-    }, {
-      detail: { summary: 'Passkey registration placeholder for account center', tags: ['Public', 'Account Center'] },
-    })
-    .put('/passkeys/:passkeyId/rename', async ({ headers, params, body, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
-      if (!account.ok) return account.response;
-      const feature = await requireFeature(
-        set,
-        (config) => config.security.passkeys,
-        'passkeys_disabled',
-        'Passkey management is disabled for this account center.',
-      );
-      if (!feature.ok) return feature.response;
-      const name = normalizeName(body);
-      if (isFailure(name as AccountFailure)) {
-        const failure = name as AccountFailure;
-        set.status = failure.status;
-        return { success: false, error: { code: failure.code, message: failure.message } };
+      const scope = normalizeLogoutScope(query.scope);
+      if (typeof scope !== 'string') {
+        set.status = scope.status;
+        return { success: false, error: { code: scope.code, message: scope.message } };
       }
-      const result = await renamePasskey(account.userId, params.passkeyId, name as string);
-      if (isFailure(result as AccountFailure)) {
-        const failure = result as AccountFailure;
-        set.status = failure.status;
-        return { success: false, error: { code: failure.code, message: failure.message } };
+      const logoutOperation = await logout(account.token, scope);
+      if (!logoutOperation.ok) {
+        set.status = logoutOperation.status;
+        return { success: false, error: { code: logoutOperation.code, message: logoutOperation.message } };
       }
-      return { success: true, result };
+      await auditEvent('my_account.logged_out', account.userId, { scope });
+      return { success: true, result: logoutOperation.data };
     }, {
-      detail: { summary: 'Rename current account passkey with user access token', tags: ['Public', 'Account Center'] },
+      detail: { summary: 'Log out the current GoTrue account by scope', tags: ['Public', 'Account Center'] },
     })
-    .delete('/passkeys/:passkeyId', async ({ headers, params, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
-      if (!account.ok) return account.response;
-      const feature = await requireFeature(
-        set,
-        (config) => config.security.passkeys,
-        'passkeys_disabled',
-        'Passkey management is disabled for this account center.',
-      );
-      if (!feature.ok) return feature.response;
-      const result = await revokePasskey(account.userId, params.passkeyId);
-      if (isFailure(result as AccountFailure)) {
-        const failure = result as AccountFailure;
-        set.status = failure.status;
-        return { success: false, error: { code: failure.code, message: failure.message } };
-      }
-      return { success: true, result };
+    .get('/passkeys', async () => {
+      throw capabilityUnavailable('gotrue_passkey_ceremony');
     }, {
-      detail: { summary: 'Revoke current account passkey with user access token', tags: ['Public', 'Account Center'] },
+      detail: { hide: true },
+    })
+    .put('/passkeys/:passkeyId/rename', async () => {
+      throw capabilityUnavailable('gotrue_passkey_ceremony');
+    }, {
+      detail: { hide: true },
+    })
+    .delete('/passkeys/:passkeyId', async () => {
+      throw capabilityUnavailable('gotrue_passkey_ceremony');
+    }, {
+      detail: { hide: true },
     })
       .get('/mfa', async ({ headers, set }) => {
       const account = await requireAccount(headers as Record<string, string | undefined>, set);

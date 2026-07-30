@@ -13,6 +13,7 @@ describe('ServerConfig', () => {
     delete process.env.SUPACLOUD_MASTER_TOKEN;
     delete process.env.SUPACLOUD_INTERNAL_TOKEN;
     delete process.env.SUPACLOUD_SERVICE_TOKEN;
+    delete process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
     delete process.env.PROJECT_REF;
     delete process.env.SUPACLOUD_PROJECT_REF;
     delete process.env.SUPABASE_PROJECT_REF;
@@ -63,6 +64,7 @@ describe('ServerConfig', () => {
   it('passes validation with all required fields', () => {
     process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
     process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
+    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-0123456789abcdef';
     process.env.PROJECT_REF = 'test-ref';
     process.env.OAUTH_RUNTIME_URL = 'http://localhost:9999';
     process.env.DATABASE_URL = 'postgres://localhost/supaoauth';
@@ -74,6 +76,7 @@ describe('ServerConfig', () => {
   it('uses SupaCloud project injected env aliases', () => {
     process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
     process.env.SUPACLOUD_INTERNAL_TOKEN = 'internal-token';
+    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'internal-bff-signing-secret-0123456789abcdef';
     process.env.SUPACLOUD_PROJECT_REF = 'project-from-supacloud';
     process.env.SUPACLOUD_RUNTIME_URL = 'https://runtime.example.test';
     process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
@@ -91,6 +94,7 @@ describe('ServerConfig', () => {
   it('accepts the SupaCloud edge-runtime internal management URL alias', () => {
     process.env.SUPACLOUD_INTERNAL_SUPABASE_URL = 'http://127.0.0.1:9090';
     process.env.SUPACLOUD_INTERNAL_TOKEN = 'internal-token';
+    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'edge-bff-signing-secret-0123456789abcdef';
     process.env.SUPACLOUD_PROJECT_REF = 'project-from-supacloud';
     process.env.SUPACLOUD_RUNTIME_URL = 'https://runtime.example.test';
     process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
@@ -144,11 +148,23 @@ describe('ServerConfig', () => {
     expect(config.databaseUrl).toBe('postgres://supacloud/project');
   });
 
-  it('rejects invalid runtime mode', () => {
-    process.env.RUNTIME_MODE = 'invalid';
-    const config = loadConfig();
-    const errors = validateConfig(config);
-    expect(errors).toContain('RUNTIME_MODE must be "gotrue" or "external_oidc"');
+  it('fails closed for every non-GoTrue runtime mode', () => {
+    for (const runtimeMode of ['external_oidc', 'invalid']) {
+      process.env.RUNTIME_MODE = runtimeMode;
+      expect(() => loadConfig()).toThrow('RUNTIME_MODE must be "gotrue"');
+    }
+  });
+
+  it('requires an independent 32-character BFF signing secret', () => {
+    const missing = validateConfig(loadConfig());
+    expect(missing).toContain('SUPAOAUTH_BFF_SIGNING_SECRET is required');
+
+    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'short-secret';
+    expect(validateConfig(loadConfig())).toContain('SUPAOAUTH_BFF_SIGNING_SECRET must be at least 32 characters');
+
+    process.env.SUPACLOUD_MASTER_TOKEN = 'shared-token-that-is-at-least-32-characters';
+    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'shared-token-that-is-at-least-32-characters';
+    expect(validateConfig(loadConfig())).toContain('SUPAOAUTH_BFF_SIGNING_SECRET must be independent from the SupaCloud token');
   });
 
   it('uses custom port from env', () => {
@@ -165,14 +181,14 @@ describe('ServerConfig', () => {
     expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3210');
   });
 
-  it('prefers SupaCloud internal runtime URL over stale legacy OAuth runtime URL', () => {
+  it('prefers dedicated OAuth internal runtime URL over stale SupaCloud runtime URL', () => {
     process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
     process.env.OAUTH_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3372';
     process.env.SUPACLOUD_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3367';
 
     const config = loadConfig();
 
-    expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3367');
+    expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3372');
   });
 
   it('uses a dedicated OAuth authorization project ref when configured', () => {

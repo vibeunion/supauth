@@ -228,26 +228,10 @@ describeLive('SupaCloud adapter live contract', () => {
     }
   });
 
-  itMutation('reports optional session/MFA/domain capabilities when fixture IDs are provided', async () => {
+  itMutation('reports optional MFA and domain capabilities when fixture values are provided', async () => {
     const userId = process.env.SUPACLOUD_LIVE_USER_ID;
-    const sessionId = process.env.SUPACLOUD_LIVE_SESSION_ID;
-    const identityId = process.env.SUPACLOUD_LIVE_IDENTITY_ID;
     const factorId = process.env.SUPACLOUD_LIVE_MFA_FACTOR_ID;
     const domain = process.env.SUPACLOUD_LIVE_DOMAIN;
-
-    if (userId && sessionId) {
-      await adapter.revokeUserSession(userId, sessionId);
-      recordCapability('/v1/projects/:ref/auth/users/:userId/sessions/:sessionId/revoke', 'POST', true);
-    } else {
-      recordCapability('/v1/projects/:ref/auth/users/:userId/sessions/:sessionId/revoke', 'POST', false, 'fixture env missing');
-    }
-
-    if (userId && identityId) {
-      await adapter.unlinkUserIdentity(userId, identityId);
-      recordCapability('/v1/projects/:ref/auth/users/:userId/identities/:identityId', 'DELETE', true);
-    } else {
-      recordCapability('/v1/projects/:ref/auth/users/:userId/identities/:identityId', 'DELETE', false, 'fixture env missing');
-    }
 
     if (userId && factorId) {
       await adapter.resetUserMfa(userId, factorId);

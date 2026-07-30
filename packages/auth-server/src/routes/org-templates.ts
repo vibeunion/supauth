@@ -6,11 +6,11 @@ import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
-  try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
+  await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
 async function fireWebhook(eventType: string, data: Record<string, unknown>) {
-  try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
+  await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data));
 }
 
 export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })

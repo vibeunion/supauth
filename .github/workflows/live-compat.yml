@@ -15,6 +15,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.repository == 'zuohuadong/supauth'
     env:
       PATH: /Users/zhd/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      GIT_SSH_COMMAND: ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/Users/zhd/.ssh/known_hosts
 
     steps:
       - name: Use SSH for GitHub checkout
@@ -33,6 +34,11 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Check live runner clock against GoTrue
+        env:
+          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_SUPABASE_AUTH_URL || secrets.LIVE_OAUTH_RUNTIME_URL }}
+        run: bun run scripts/check-live-clock-skew.ts
+
       - name: Run strict Supabase Auth compatibility suite
         env:
           REQUIRE_SUPABASE_AUTH_COMPAT: '1'
@@ -47,6 +53,10 @@ jobs:
           OAUTH21_TOKEN_AUTH_METHOD: ${{ secrets.LIVE_OAUTH21_TOKEN_AUTH_METHOD }}
           OAUTH21_CLIENT_SECRET: ${{ secrets.LIVE_OAUTH21_CLIENT_SECRET }}
           SUPABASE_ANON_KEY: ${{ secrets.LIVE_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_FULLSTACK_URL: ${{ secrets.LIVE_SUPABASE_FULLSTACK_URL }}
+          SUPABASE_FULLSTACK_ANON_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_ANON_KEY || secrets.LIVE_SUPABASE_ANON_KEY }}
+          SUPABASE_FULLSTACK_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_SERVICE_ROLE_KEY || secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
           SUPABASE_TEST_PASSWORD: ${{ secrets.LIVE_SUPABASE_TEST_PASSWORD }}
         run: |

@@ -1,15 +1,93 @@
 // Application management routes with OpenAPI annotations
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
-import { getSupaCloudAdapter, getSupaCloudAdapterForProject, isSupaCloudApiError } from '../supacloud/adapter.js';
+import { getSupaCloudAdapter, getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
 import * as bindingRepo from '../repositories/bindings.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import * as appControlRepo from '../repositories/application-control.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
+import { ApiContractError, capabilityUnavailable, cursorResponse, pagedResponse } from '../utils/api-contract.js';
 
 const adapter = getSupaCloudAdapter();
+const GOTRUE_OAUTH_GRANT_TYPES = ['authorization_code', 'refresh_token'] as const;
+const grantTypesOpenApiSchema = {
+  type: 'array',
+  minItems: 1,
+  items: { type: 'string', enum: [...GOTRUE_OAUTH_GRANT_TYPES] },
+  description: "GoTrue v2.193 supports only 'authorization_code' and 'refresh_token' OAuth client grants",
+};
+const editableOAuthClientProperties = {
+  redirect_uris: { type: 'array', minItems: 1, maxItems: 10, items: { type: 'string' } },
+  token_endpoint_auth_method: {
+    type: 'string',
+    enum: ['none', 'client_secret_basic', 'client_secret_post'],
+  },
+  grant_types: grantTypesOpenApiSchema,
+  client_name: { type: 'string' },
+  client_uri: { type: 'string' },
+  logo_uri: { type: 'string' },
+};
+const createOAuthClientRequestBody = openApiRequestBody({
+  type: 'object',
+  required: ['redirect_uris'],
+  properties: {
+    ...editableOAuthClientProperties,
+    client_type: { type: 'string', enum: ['public', 'confidential'] },
+  },
+});
+const updateOAuthClientRequestBody = openApiRequestBody({
+  type: 'object',
+  minProperties: 1,
+  properties: {
+    ...editableOAuthClientProperties,
+  },
+});
+
+function openApiRequestBody(schema: Record<string, unknown>) {
+  return { required: true, content: { 'application/json': { schema } } };
+}
+
+function oauthClientInput(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiContractError(400, 'invalid_request_body', 'OAuth client request body must be a JSON object');
+  }
+  return body as Record<string, unknown>;
+}
+
+function assertSupportedGrantTypes(grantTypes: unknown): asserts grantTypes is string[] {
+  if (!Array.isArray(grantTypes) || grantTypes.some((grantType) => typeof grantType !== 'string')) {
+    throw invalidGrantTypes();
+  }
+  const unsupportedGrantTypes = grantTypes.filter(
+    (grantType) => !GOTRUE_OAUTH_GRANT_TYPES.includes(grantType as typeof GOTRUE_OAUTH_GRANT_TYPES[number]),
+  );
+  if (unsupportedGrantTypes.length > 0) throw invalidGrantTypes(unsupportedGrantTypes);
+}
+
+function invalidGrantTypes(unsupportedGrantTypes: string[] = []) {
+  return new ApiContractError(
+    400,
+    'unsupported_grant_type',
+    "grant_types must only contain 'authorization_code' and/or 'refresh_token' for stock GoTrue v2.193",
+    { allowed_grant_types: [...GOTRUE_OAUTH_GRANT_TYPES], unsupported_grant_types: unsupportedGrantTypes },
+  );
+}
+
+function validateCreateGrantTypes(input: Record<string, unknown>) {
+  if (!Object.hasOwn(input, 'grant_types')) return;
+  const grantTypes = input.grant_types;
+  assertSupportedGrantTypes(grantTypes);
+  if (grantTypes.length === 0) throw invalidGrantTypes();
+}
+
+function validateUpdateGrantTypes(input: Record<string, unknown>) {
+  if (!Object.hasOwn(input, 'grant_types')) return;
+  const grantTypes = input.grant_types;
+  assertSupportedGrantTypes(grantTypes);
+  if (grantTypes.length === 0) throw invalidGrantTypes();
+}
 
 function oauthClientAdapter() {
   const oauthProjectRef = getConfig().oauthAuthorizationProjectRef;
@@ -17,79 +95,36 @@ function oauthClientAdapter() {
 }
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
-  try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
+  await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
-async function fireWebhook(eventType: string, data: Record<string, unknown>) {
-  try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
-}
-
-const LIST_KEYS = ['items', 'data', 'clients', 'oauth_clients', 'applications', 'secrets'] as const;
-
-function listInfo(value: unknown): { items: unknown[]; total?: number } | null {
-  if (Array.isArray(value)) return { items: value };
-  if (!value || typeof value !== 'object') return null;
-
-  const record = value as Record<string, unknown>;
-  for (const key of LIST_KEYS) {
-    const candidate = record[key];
-    if (Array.isArray(candidate)) return { items: candidate };
-    if (candidate && typeof candidate === 'object' && Array.isArray((candidate as Record<string, unknown>).items)) {
-      const nested = candidate as { items: unknown[]; total?: unknown };
-      return {
-        items: nested.items,
-        total: typeof nested.total === 'number' ? nested.total : undefined,
-      };
-    }
-  }
-
-  return null;
-}
-
-function toListResponse(value: unknown) {
-  const list = listInfo(value);
-  if (list) {
-    const total = value && typeof value === 'object' && typeof (value as { total?: unknown }).total === 'number'
-      ? (value as { total: number }).total
-      : list.total ?? list.items.length;
-    return { items: list.items, total };
-  }
-  return { items: [], total: 0 };
-}
-
-function getSecretId(secret: unknown) {
-  if (!secret || typeof secret !== 'object') return undefined;
-  const record = secret as Record<string, unknown>;
-  return String(record.secret_id || record.secretId || record.id || '');
-}
-
-function unsupportedClientSecretsResponse() {
-  return new Response(JSON.stringify({
-    error: 'not_supported',
-    message: 'This SupaCloud cluster does not support per-client secret lifecycle APIs. Use Rotate Secret for the current OAuth client.',
-  }), {
-    status: 501,
-    headers: { 'content-type': 'application/json' },
-  });
+async function fireWebhook(eventType: string, payload: Record<string, unknown>) {
+  await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, payload));
 }
 
 export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
-  .get('/', async () => {
+  .get('/', async ({ query }) => {
     const res = await oauthClientAdapter().listOAuthClients();
     await audit('application.list', 'application', 'all');
-    return toListResponse(res);
+    return pagedResponse(res, { page: query.page, limit: query.limit });
   }, {
     detail: { summary: 'List OAuth applications', tags: ['Applications'] },
   })
 
   .post('/', async ({ body }) => {
-    const created = await oauthClientAdapter().createOAuthClient(body as Record<string, unknown>);
+    const input = oauthClientInput(body);
+    validateCreateGrantTypes(input);
+    const created = await oauthClientAdapter().createOAuthClient(input);
     const clientId = String((created as Record<string, unknown>).client_id);
-    await audit('application.create', 'application', clientId, { name: (body as Record<string, unknown>).client_name });
+    await audit('application.create', 'application', clientId, { name: input.client_name });
     await fireWebhook('application.created', { client_id: clientId });
     return created;
   }, {
-    detail: { summary: 'Create OAuth application', tags: ['Applications'] },
+    detail: {
+      summary: 'Create OAuth application',
+      tags: ['Applications'],
+      requestBody: createOAuthClientRequestBody,
+    },
   })
 
   .get('/:appId', async ({ params }) => oauthClientAdapter().getOAuthClient(params.appId), {
@@ -97,12 +132,18 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .put('/:appId', async ({ params, body }) => {
-    const updated = await oauthClientAdapter().updateOAuthClient(params.appId, body as Record<string, unknown>);
+    const input = oauthClientInput(body);
+    validateUpdateGrantTypes(input);
+    const updated = await oauthClientAdapter().updateOAuthClient(params.appId, input);
     await audit('application.update', 'application', params.appId);
     await fireWebhook('application.updated', { client_id: params.appId });
     return updated;
   }, {
-    detail: { summary: 'Update application', tags: ['Applications'] },
+    detail: {
+      summary: 'Update application',
+      tags: ['Applications'],
+      requestBody: updateOAuthClientRequestBody,
+    },
   })
 
   .delete('/:appId', async ({ params }) => {
@@ -122,56 +163,27 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   })
 
   .get('/:appId/secrets', async ({ params }) => {
-    return toListResponse(await oauthClientAdapter().listClientSecrets(params.appId));
+    throw capabilityUnavailable('oauth_client_secret_lifecycle', `Per-client secret lists are unavailable for ${params.appId}`);
   }, {
-    detail: { summary: 'List application client secrets', tags: ['Applications', 'Secrets'] },
+    detail: { hide: true },
   })
 
-  .post('/:appId/secrets', async ({ params, body }) => {
-    const data = body as { name?: string; expires_at?: string };
-    let secret: unknown;
-    try {
-      secret = await oauthClientAdapter().createClientSecret(params.appId, {
-        name: data.name,
-        expires_at: data.expires_at,
-      });
-    } catch (error) {
-      if (isSupaCloudApiError(error, [404, 501])) return unsupportedClientSecretsResponse();
-      throw error;
-    }
-    await audit('application.secret.create', 'application', params.appId, { secret_id: getSecretId(secret) });
-    await fireWebhook('application.secret_created', { client_id: params.appId, secret_id: getSecretId(secret) });
-    return secret;
+  .post('/:appId/secrets', async ({ params }) => {
+    throw capabilityUnavailable('oauth_client_secret_lifecycle', `Additional client secrets are unavailable for ${params.appId}`);
   }, {
-    detail: { summary: 'Create application client secret', tags: ['Applications', 'Secrets'] },
+    detail: { hide: true },
   })
 
   .post('/:appId/secrets/:secretId/disable', async ({ params }) => {
-    let secret: unknown;
-    try {
-      secret = await oauthClientAdapter().disableClientSecret(params.appId, params.secretId);
-    } catch (error) {
-      if (isSupaCloudApiError(error, [404, 501])) return unsupportedClientSecretsResponse();
-      throw error;
-    }
-    await audit('application.secret.disable', 'application', params.appId, { secret_id: params.secretId });
-    return secret;
+    throw capabilityUnavailable('oauth_client_secret_lifecycle', `Secret ${params.secretId} cannot be disabled independently`);
   }, {
-    detail: { summary: 'Disable application client secret', tags: ['Applications', 'Secrets'] },
+    detail: { hide: true },
   })
 
   .delete('/:appId/secrets/:secretId', async ({ params }) => {
-    let secret: unknown;
-    try {
-      secret = await oauthClientAdapter().deleteClientSecret(params.appId, params.secretId);
-    } catch (error) {
-      if (isSupaCloudApiError(error, [404, 501])) return unsupportedClientSecretsResponse();
-      throw error;
-    }
-    await audit('application.secret.delete', 'application', params.appId, { secret_id: params.secretId });
-    return secret;
+    throw capabilityUnavailable('oauth_client_secret_lifecycle', `Secret ${params.secretId} cannot be deleted independently`);
   }, {
-    detail: { summary: 'Delete application client secret', tags: ['Applications', 'Secrets'] },
+    detail: { hide: true },
   })
 
   .get('/:appId/consent', async ({ params }) => {
@@ -205,6 +217,39 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     });
   }, {
     detail: { summary: 'Update application consent configuration', tags: ['Applications', 'Consent'] },
+  })
+
+  .get('/:appId/access-control', async ({ params }) => {
+    const settings = await appControlRepo.getApplicationConsentSettings(params.appId);
+    return settings || {
+      applicationId: params.appId,
+      userScopes: [],
+      organizationScopes: [],
+      allowedOrganizationIds: [],
+      requireExplicitConsent: true,
+      customData: {},
+    };
+  }, {
+    detail: { summary: 'Get application access-control rules', tags: ['Applications'] },
+  })
+
+  .put('/:appId/access-control', async ({ params, body }) => {
+    const input = body as {
+      user_scopes?: string[];
+      organization_scopes?: string[];
+      allowed_organization_ids?: string[];
+      require_explicit_consent?: boolean;
+      custom_data?: Record<string, unknown>;
+    };
+    return appControlRepo.upsertApplicationConsentSettings(params.appId, {
+      userScopes: input.user_scopes,
+      organizationScopes: input.organization_scopes,
+      allowedOrganizationIds: input.allowed_organization_ids,
+      requireExplicitConsent: input.require_explicit_consent,
+      customData: input.custom_data,
+    });
+  }, {
+    detail: { summary: 'Update application access-control rules', tags: ['Applications'] },
   })
 
   .get('/:appId/sign-in-experience', async ({ params }) => {
@@ -276,4 +321,28 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     return { items: scopes, total: scopes.length };
   }, {
     detail: { summary: 'List application scopes', tags: ['Applications', 'Bindings'] },
+  })
+
+  .get('/:appId/roles', async ({ params }) => {
+    return pagedResponse(await adapter.listApplicationRoleAssignments(params.appId));
+  }, {
+    detail: { summary: 'List role assignments for an application', tags: ['Applications', 'RBAC'] },
+  })
+
+  .get('/:appId/logs', async ({ params, query }) => {
+    const logs = await adapter.queryAuditLogs({
+      resource_type: 'application',
+      resource_id: params.appId,
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return cursorResponse(logs, { limit: query.limit });
+  }, {
+    detail: { summary: 'List audit logs for an application', tags: ['Applications', 'Audit'] },
+  })
+
+  .get('/:appId/organizations', async ({ params }) => {
+    return pagedResponse(await adapter.listApplicationOrganizations(params.appId));
+  }, {
+    detail: { summary: 'List organizations with application access', tags: ['Applications', 'Organizations'] },
   });

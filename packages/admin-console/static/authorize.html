@@ -7,6 +7,7 @@
     <title>SupaOAuth Sign In</title>
     <style>
       * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
       :root { --primary: #2563eb; }
       html, body { height: 100%; }
       body {
@@ -117,6 +118,11 @@
       }
       .brand-panel #custom-content { margin: 0; }
       .brand-panel #custom-content:empty { display: none; }
+      #custom-content > .feature-grid {
+        grid-column: 1 / -1;
+        width: 100%;
+        min-width: 0;
+      }
       .brand-panel #custom-content img,
       .brand-panel #custom-content svg {
         max-width: 100%;
@@ -376,6 +382,22 @@
         flex: 1;
         border-bottom: 1px solid #e5e7eb;
       }
+      .consent-panel[hidden] { display: none; }
+      .consent-panel h2 { margin: 0; color: #0f172a; font-size: 24px; }
+      .consent-panel p { color: #64748b; line-height: 1.6; }
+      .consent-client {
+        margin: 20px 0;
+        padding: 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #f8fafc;
+      }
+      .consent-client strong { display: block; color: #0f172a; font-size: 17px; }
+      .consent-client a { color: var(--primary); font-size: 13px; }
+      .consent-scopes { margin: 12px 0 22px; padding-left: 20px; color: #334155; }
+      .consent-scopes li { margin: 7px 0; }
+      .consent-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .consent-deny { border: 1px solid #cbd5e1; background: #fff; color: #334155; }
       .divider span { padding: 0 12px; }
       .forgot-link {
         display: inline-block;
@@ -466,15 +488,32 @@
         <div id="social-divider" class="divider" style="display:none"><span id="or-text">or</span></div>
         <div id="social-section" class="social-buttons" style="display:none"></div>
 
+        <section id="consent-panel" class="consent-panel" hidden>
+          <h2 id="consent-title">Authorize application</h2>
+          <p id="consent-description">Review the requested access before continuing.</p>
+          <div class="consent-client">
+            <strong id="consent-client-name"></strong>
+            <a id="consent-client-uri" hidden></a>
+          </div>
+          <p id="consent-scopes-label">This application requests:</p>
+          <ul id="consent-scopes" class="consent-scopes"></ul>
+          <div class="consent-actions">
+            <button id="consent-deny" type="button" class="consent-deny">Deny</button>
+            <button id="consent-approve" type="button">Approve</button>
+          </div>
+        </section>
+
         <div id="footer" class="footer">SupaOAuth User Center</div>
       </main>
     </div>
 
+    <script src="/hosted-auth.js"></script>
     <script>
+      const hostedAuth = window.SupaOAuthHostedAuth;
       const params = new URLSearchParams(window.location.search);
       const authorizationId = params.get('authorization_id') || '';
-      let authorizationRedirectUrl = params.get('redirect_to') || '';
-      let authorizationAvailable = !authorizationId;
+      const forceLogin = (params.get('prompt') || '').split(/\s+/).includes('login');
+      let authorizationAccessToken = '';
       let hasCustomPageTitle = false;
       let hasCustomButtonLabel = false;
       let signUpEnabled = false;
@@ -503,6 +542,13 @@
           authorizationFailed: 'Authorization approval failed',
           authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.',
           authorizationUnavailable: 'This sign-in request cannot be verified right now. Please return to the application and start sign-in again.',
+          consentTitle: 'Authorize application',
+          consentDescription: 'Review the requested access before continuing.',
+          consentScopes: 'This application requests:',
+          consentUnknownClient: 'OAuth application',
+          consentNoScopes: 'Basic account access',
+          approve: 'Approve',
+          deny: 'Deny',
           signIn: 'Sign In',
           signUp: 'Sign Up',
           forgotPassword: 'Forgot Password',
@@ -539,6 +585,13 @@
           authorizationFailed: '授权确认失败',
           authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。',
           authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。',
+          consentTitle: '授权应用',
+          consentDescription: '继续前请确认该应用请求的访问权限。',
+          consentScopes: '该应用请求以下权限：',
+          consentUnknownClient: 'OAuth 应用',
+          consentNoScopes: '基础账号访问',
+          approve: '允许',
+          deny: '拒绝',
           signIn: '登录',
           signUp: '注册',
           forgotPassword: '忘记密码',
@@ -618,6 +671,11 @@
         document.getElementById('tab-signup').textContent = t('signUp');
         document.getElementById('tab-forgot').textContent = t('forgotPassword');
         document.getElementById('or-text').textContent = t('or');
+        document.getElementById('consent-title').textContent = t('consentTitle');
+        document.getElementById('consent-description').textContent = t('consentDescription');
+        document.getElementById('consent-scopes-label').textContent = t('consentScopes');
+        document.getElementById('consent-approve').textContent = t('approve');
+        document.getElementById('consent-deny').textContent = t('deny');
         document.getElementById('footer').textContent = renderFooter();
         if (!hasCustomPageTitle) {
           document.title = t('documentTitle');
@@ -660,7 +718,11 @@
 
       function responseMessage(data, fallback) {
         if (!data || typeof data !== 'object') return fallback;
-        return data.msg || data.error_description || data.error || fallback;
+        return data.msg
+          || data.error_description
+          || data.message
+          || (typeof data.error === 'string' ? data.error : '')
+          || fallback;
       }
 
       function apiErrorCode(data) {
@@ -675,16 +737,9 @@
         return error;
       }
 
-      function isAuthorizationNotFoundError(error) {
-        return !!(error && error.code === 'authorization_not_found');
-      }
-
-      async function completeStandaloneLogin(accessToken) {
-        try {
-          sessionStorage.setItem('supaoauth.account.access_token', accessToken);
-        } catch {}
+      function completeStandaloneLogin() {
         setMessage('ok', t('redirecting'));
-        window.location.href = `/account#access_token=${encodeURIComponent(accessToken)}`;
+        window.location.href = '/account';
       }
 
       function normalizeEmailInput(value) {
@@ -722,25 +777,6 @@
         return responseMessage(data, t('loginFailed'));
       }
 
-      function buildAuthorizeUrl(authorization) {
-        const next = new URL('/auth/v1/oauth/authorize', window.location.origin);
-        const fields = {
-          client_id: authorization.client_id,
-          redirect_uri: authorization.redirect_uri,
-          response_type: authorization.response_type || 'code',
-          scope: authorization.scope,
-          state: authorization.state,
-          resource: authorization.resource,
-          code_challenge: authorization.code_challenge,
-          code_challenge_method: authorization.code_challenge_method,
-          nonce: authorization.nonce,
-        };
-        Object.entries(fields).forEach(([key, value]) => {
-          if (value) next.searchParams.set(key, value);
-        });
-        return `${next.pathname}${next.search}`;
-      }
-
       function safeRedirectUrl(value, allowExternal = false) {
         if (!value) return '';
         try {
@@ -753,36 +789,97 @@
         }
       }
 
-      async function approveAuthorization(accessToken) {
-        if (!authorizationId) return null;
-        if (!authorizationAvailable) throw new Error(t('authorizationExpired'));
-        const res = await fetch(`${publicApiBase()}/oauth/authorizations/${encodeURIComponent(authorizationId)}/approve`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+      async function authorizationRequest(path, accessToken, options = {}) {
+        const res = await fetch(
+          `${publicApiBase()}/oauth/authorizations/${encodeURIComponent(authorizationId)}${path}`,
+          {
+            ...options,
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              ...(options.headers || {}),
+            },
+          },
+        );
         const data = await res.json().catch(() => null);
         if (!res.ok) {
           throw createApiError(data, t('authorizationFailed'));
         }
-        return data && typeof data === 'object' ? data.redirect_url || null : null;
+        return data && typeof data === 'object' ? data : {};
       }
 
-      function disableExpiredAuthorization() {
-        authorizationAvailable = false;
-        setMessage('error', t('authorizationExpired'));
-        ['email', 'password', 'submit'].forEach((id) => {
-          const el = document.getElementById(id);
-          if (el) el.disabled = true;
-        });
+      function redirectToAuthorizationResult(result) {
+        const redirectUrl = safeRedirectUrl(result && result.redirect_url, true);
+        if (!redirectUrl) throw new Error(t('authorizationFailed'));
+        setMessage('ok', t('redirecting'));
+        window.location.href = redirectUrl;
       }
 
-      function disableUnavailableAuthorization() {
-        authorizationAvailable = false;
-        setMessage('error', t('authorizationUnavailable'));
-        ['email', 'password', 'submit'].forEach((id) => {
-          const el = document.getElementById(id);
-          if (el) el.disabled = true;
-        });
+      function scopeNames(scope) {
+        const names = String(scope || '').split(/\s+/).filter(Boolean);
+        return names.length > 0 ? names : [t('consentNoScopes')];
+      }
+
+      function showConsent(authorization, accessToken) {
+        authorizationAccessToken = accessToken;
+        document.getElementById('tabs-nav').hidden = true;
+        document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+        document.getElementById('social-divider').style.display = 'none';
+        document.getElementById('social-section').style.display = 'none';
+
+        const client = authorization.client && typeof authorization.client === 'object'
+          ? authorization.client
+          : {};
+        document.getElementById('consent-client-name').textContent = client.name || t('consentUnknownClient');
+        const clientUri = document.getElementById('consent-client-uri');
+        const safeClientUri = safeRedirectUrl(client.uri, true);
+        clientUri.hidden = !safeClientUri;
+        if (safeClientUri) {
+          clientUri.href = safeClientUri;
+          clientUri.textContent = safeClientUri;
+        }
+
+        const scopeList = document.getElementById('consent-scopes');
+        scopeList.replaceChildren();
+        for (const scope of scopeNames(authorization.scope)) {
+          const scopeItem = document.createElement('li');
+          scopeItem.textContent = scope;
+          scopeList.appendChild(scopeItem);
+        }
+        document.getElementById('consent-panel').hidden = false;
+        clearMessage();
+      }
+
+      async function continueAuthorization(accessToken) {
+        if (!authorizationId) {
+          completeStandaloneLogin();
+          return;
+        }
+        const authorization = await authorizationRequest('', accessToken);
+        if (authorization.redirect_url) {
+          redirectToAuthorizationResult(authorization);
+          return;
+        }
+        showConsent(authorization, accessToken);
+      }
+
+      async function submitConsent(action) {
+        const approveButton = document.getElementById('consent-approve');
+        const denyButton = document.getElementById('consent-deny');
+        approveButton.disabled = true;
+        denyButton.disabled = true;
+        try {
+          const decision = await authorizationRequest('/consent', authorizationAccessToken, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action }),
+          });
+          redirectToAuthorizationResult(decision);
+        } catch (error) {
+          setMessage('error', error && error.message ? error.message : t('authorizationFailed'));
+        } finally {
+          approveButton.disabled = false;
+          denyButton.disabled = false;
+        }
       }
 
       // ─── Tab switching ────────────────────────────────────────────────
@@ -801,6 +898,13 @@
         switchTab('forgot');
       });
 
+      document.getElementById('consent-approve').addEventListener('click', () => {
+        void submitConsent('approve');
+      });
+      document.getElementById('consent-deny').addEventListener('click', () => {
+        void submitConsent('deny');
+      });
+
       // ─── Social login ────────────────────────────────────────────────
       function renderSocialButtons(connectors) {
         if (!connectors || !connectors.length) return;
@@ -816,7 +920,10 @@
           btn.type = 'button';
           btn.className = 'social-btn';
           const icon = icons[c.id] || '';
-          btn.innerHTML = `${icon}<span>${c.name}</span>`;
+          if (icon) btn.insertAdjacentHTML('afterbegin', icon);
+          const connectorLabel = document.createElement('span');
+          connectorLabel.textContent = String(c.name || c.id || 'SSO');
+          btn.appendChild(connectorLabel);
           btn.addEventListener('click', () => {
             const url = new URL(`${publicApiBase()}/connectors/${encodeURIComponent(c.id)}/authorize`, window.location.origin);
             // Forward current OAuth params so the flow continues after social login
@@ -932,7 +1039,9 @@
           if (data && data.phrases && typeof data.phrases === 'object' && Object.keys(data.phrases).length > 0) {
             phraseOverrides[locale] = data.phrases;
           }
-        } catch {}
+        } catch (error) {
+          console.warn('Failed to load localized sign-in phrases', error);
+        }
       }
 
       // ─── Load experience (branding + connectors + custom content) ───────────
@@ -943,19 +1052,10 @@
         try {
           const res = await fetch(url, { credentials: 'include' });
           if (!res.ok) {
-            if (authorizationId) disableUnavailableAuthorization();
+            if (authorizationId) setMessage('error', t('authorizationUnavailable'));
             return;
           }
           const experience = await res.json();
-          if (authorizationId) {
-            authorizationAvailable = !!experience.authorization;
-            if (!authorizationAvailable) {
-              disableExpiredAuthorization();
-            }
-          }
-          if (experience.authorization) {
-            if (!authorizationRedirectUrl) authorizationRedirectUrl = buildAuthorizeUrl(experience.authorization);
-          }
           const branding = experience.branding || {};
 
           // Branding
@@ -1000,11 +1100,6 @@
 
           renderBrandingContent(branding.content);
 
-          if (experience.authorization_error) {
-            if (authorizationId) disableUnavailableAuthorization();
-            return;
-          }
-
           // Social connectors
           if (experience.connectors && experience.connectors.length > 0) {
             renderSocialButtons(experience.connectors);
@@ -1020,7 +1115,7 @@
           document.getElementById('forgot-password-link').style.display = '';
           document.getElementById('tab-forgot').style.display = '';
         } catch {
-          if (authorizationId) disableUnavailableAuthorization();
+          if (authorizationId) setMessage('error', t('authorizationUnavailable'));
         }
       }
 
@@ -1032,10 +1127,6 @@
         const email = normalizeEmailInput(emailInput.value);
         const password = passwordInput.value;
         emailInput.value = email;
-        if (!authorizationAvailable) {
-          setMessage('error', t('authorizationExpired'));
-          return;
-        }
         if (!email) {
           setMessage('error', t('emailRequired'));
           emailInput.focus();
@@ -1056,43 +1147,20 @@
         const originalText = button.textContent;
         button.textContent = t('signingIn');
         try {
-          const res = await fetch('/auth/v1/token?grant_type=password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              email,
-              password,
-            }),
-          });
-          const data = await res.json().catch(() => null);
-          if (!res.ok) {
-            setMessage('error', loginResponseMessage(data));
+          if (!hostedAuth) {
+            throw new Error('登录组件加载失败，请刷新页面后重试。');
+          }
+          const { data, error } = await hostedAuth.signInWithPassword({ email, password });
+          if (error) {
+            setMessage('error', loginResponseMessage(error));
             return;
           }
-          if (!data || typeof data !== 'object' || !data.access_token) {
+          const session = data && data.session;
+          if (!session || !session.access_token) {
             setMessage('error', t('loginFailed'));
             return;
           }
-          let approvedRedirectUrl = null;
-          try {
-            approvedRedirectUrl = await approveAuthorization(data.access_token);
-          } catch (error) {
-            if (isAuthorizationNotFoundError(error)) {
-              await completeStandaloneLogin(data.access_token);
-              return;
-            }
-            throw error;
-          }
-          const redirectUrl = approvedRedirectUrl
-            ? safeRedirectUrl(approvedRedirectUrl, true)
-            : safeRedirectUrl(authorizationRedirectUrl);
-          if (redirectUrl) {
-            setMessage('ok', t('redirecting'));
-            window.location.href = redirectUrl;
-          } else {
-            await completeStandaloneLogin(data.access_token);
-          }
+          await continueAuthorization(session.access_token);
         } catch (error) {
           setMessage('error', error && error.message ? error.message : t('networkError'));
         } finally {
@@ -1179,6 +1247,20 @@
         await loadPhrases(currentLocale);
         applyLocale(currentLocale);
         await loadExperience();
+        if (forceLogin && hostedAuth) {
+          const { error } = await hostedAuth.signOut({ scope: 'local' });
+          const sessionAlreadyMissing = error && (error.status === 401 || error.name === 'AuthSessionMissingError');
+          if (error && !sessionAlreadyMissing) {
+            setMessage('error', responseMessage(error, t('networkError')));
+          }
+          return;
+        }
+        if (authorizationId && hostedAuth) {
+          const { data, error } = await hostedAuth.getSession();
+          if (!error && data && data.session && data.session.access_token) {
+            await continueAuthorization(data.session.access_token);
+          }
+        }
       }
       init();
     </script>

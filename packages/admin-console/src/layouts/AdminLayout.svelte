@@ -2,31 +2,33 @@
   import { base, resolve } from '$app/paths';
   import { page } from '$app/state';
   import { t } from '$lib/i18n.js';
+  import { createAdminLogoutController } from '$lib/admin-logout.js';
   import { brand, loadBrand } from '$lib/brand.svelte.js';
+  import { navigationSections, isNavigationEntryActive } from '$lib/navigation.js';
+  import { initializeAdminAuthProvider, supaoauthAuthProvider } from '$lib/providers/auth.js';
   let { children } = $props();
+  let loggingOut = $state(false);
+  let logoutError = $state('');
 
   // 启动时拉取系统品牌名（sign-in-experience.page_title）
   loadBrand();
 
-  const navItems = [
-    { path: '/dashboard', labelKey: 'nav.overview', icon: '◉' },
-    { path: '/applications', labelKey: 'nav.applications', icon: '⬡' },
-    { path: '/connectors', labelKey: 'nav.connectors', icon: '⊕' },
-    { path: '/resources', labelKey: 'nav.resources', icon: '◆' },
-    { path: '/roles', labelKey: 'nav.roles', icon: '★' },
-    { path: '/users', labelKey: 'nav.users', icon: '⊙' },
-    { path: '/organizations', labelKey: 'nav.organizations', icon: '⬢' },
-    { path: '/org-templates', labelKey: 'nav.orgTemplates', icon: '▦' },
-    { path: '/consents', labelKey: 'nav.consents', icon: '✓' },
-    { path: '/enterprise-sso', labelKey: 'nav.enterpriseSso', icon: '⇄' },
-    { path: '/account-center', labelKey: 'nav.accountCenter', icon: '◎' },
-    { path: '/tenant-config', labelKey: 'nav.tenantConfig', icon: '◧' },
-    { path: '/security', labelKey: 'nav.security', icon: '◇' },
-    { path: '/operations', labelKey: 'nav.operations', icon: '⌁' },
-    { path: '/settings', labelKey: 'nav.settings', icon: '⚙' },
-    { path: '/webhooks', labelKey: 'nav.webhooks', icon: '↗' },
-    { path: '/audit', labelKey: 'nav.audit', icon: '≡' },
-  ];
+  const logoutController = createAdminLogoutController({
+    initializeProvider: initializeAdminAuthProvider,
+    logout: () => supaoauthAuthProvider.logout({}),
+    browserOrigin: () => window.location.origin,
+    navigate: (url) => window.location.assign(url),
+    failureMessage: () => t('auth.logoutFailed'),
+    unsafeRedirectMessage: () => t('auth.logoutUnsafeRedirect'),
+    onStateChange: (state) => {
+      loggingOut = state.pending;
+      logoutError = state.error;
+    },
+  });
+
+  function handleLogout() {
+    return logoutController.run();
+  }
 </script>
 
 <div class="flex h-screen bg-surface-50 font-sans">
@@ -41,36 +43,60 @@
       </p>
     </div>
 
-    <div class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-      {#each navItems as item (item.path)}
-        {@const itemHref = `${base}${item.path}`}
-        {@const isActive = page.url.pathname === itemHref || page.url.pathname === `${itemHref}/`}
-        <a
-          href={resolve(item.path)}
-          class={[
-            'flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] font-medium transition-all duration-150 relative group',
-            isActive
-              ? 'bg-brand-50/70 text-brand-600 font-semibold'
-              : 'text-surface-600 hover:bg-surface-50 hover:text-surface-900',
-          ].join(' ')}
-        >
-          {#if isActive}
-            <div class="absolute left-0 top-2 bottom-2 w-[3px] bg-brand-600 rounded-r-md"></div>
-          {/if}
+    <div class="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
+      {#each navigationSections as navigationSection (navigationSection.labelKey)}
+        <section aria-labelledby={navigationSection.labelKey}>
+          <p id={navigationSection.labelKey} class="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-surface-400">
+            {t(navigationSection.labelKey)}
+          </p>
+          <div class="space-y-1">
+            {#each navigationSection.entries as navigationEntry (navigationEntry.path)}
+              {@const isActive = isNavigationEntryActive(page.url.pathname, base, navigationEntry.path)}
+              <a
+                href={resolve(navigationEntry.path)}
+                aria-current={isActive ? 'page' : undefined}
+                class={[
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] font-medium transition-all duration-150 relative group',
+                  isActive
+                    ? 'bg-brand-50/70 text-brand-600 font-semibold'
+                    : 'text-surface-600 hover:bg-surface-50 hover:text-surface-900',
+                ].join(' ')}
+              >
+                {#if isActive}
+                  <div class="absolute left-0 top-2 bottom-2 w-[3px] bg-brand-600 rounded-r-md"></div>
+                {/if}
 
-          <span class={[
-            'text-[16px] transition-colors duration-150',
-            isActive ? 'text-brand-600' : 'text-surface-400 group-hover:text-surface-600'
-          ].join(' ')}>
-            {item.icon}
-          </span>
-          {t(item.labelKey)}
-        </a>
+                <span class={[
+                  'text-[16px] transition-colors duration-150',
+                  isActive ? 'text-brand-600' : 'text-surface-400 group-hover:text-surface-600'
+                ].join(' ')}>
+                  {navigationEntry.icon}
+                </span>
+                {t(navigationEntry.labelKey)}
+              </a>
+            {/each}
+          </div>
+        </section>
       {/each}
     </div>
 
-    <div class="px-6 py-4 border-t border-surface-100 text-xs text-surface-400 font-medium bg-surface-50/50">
-      {brand.systemName}
+    <div class="px-4 py-4 border-t border-surface-100 bg-surface-50/50">
+      <p class="px-2 text-xs text-surface-400 font-medium">{brand.systemName}</p>
+      <button
+        type="button"
+        onclick={handleLogout}
+        disabled={loggingOut}
+        aria-busy={loggingOut}
+        class="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-surface-600 shadow-xs transition-colors hover:border-surface-300 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10 7V5.75A1.75 1.75 0 0 1 11.75 4h6.5A1.75 1.75 0 0 1 20 5.75v12.5A1.75 1.75 0 0 1 18.25 20h-6.5A1.75 1.75 0 0 1 10 18.25V17M14 12H3m0 0 3.5-3.5M3 12l3.5 3.5" />
+        </svg>
+        {loggingOut ? t('auth.loggingOut') : t('auth.logout')}
+      </button>
+      {#if logoutError}
+        <p class="mt-2 px-2 text-xs leading-5 text-red-600" role="alert">{logoutError}</p>
+      {/if}
     </div>
   </nav>
 

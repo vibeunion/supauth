@@ -4,7 +4,7 @@ SupaOAuth must remain fully compatible with the Supabase ecosystem. Any feature 
 
 The enterprise IAM rule is: **SupaOAuth enhances Supabase Auth, it does not replace Supabase Auth**. Enterprise user-center, organization, permission-governance, audit, and approval features live above the Supabase-compatible runtime. They must not change the public GoTrue protocol surface that existing Supabase applications, SDKs, PostgREST, Storage, Realtime, Edge Functions, and RLS policies rely on.
 
-The upstream version rule is: **SupaOAuth must work with the stock upstream GoTrue/Supabase Auth runtime and official Supabase SDKs**. In `runtime_mode=gotrue`, a supported deployment must not require a SupaOAuth-patched GoTrue binary, a forked `@supabase/supabase-js`, a forked Auth UI package, or custom `/auth/v1/*` semantics. SupaOAuth integrations must use documented GoTrue/Supabase extension points, SupaCloud Management API, SupaCloud Functions/Pages, additive metadata under `app_metadata.supaoauth`, and compatibility gates that can be rerun when SupaCloud upgrades the upstream runtime.
+The upstream version rule is: **SupaOAuth must work with the stock upstream GoTrue/Supabase Auth runtime and official Supabase SDKs**. A supported deployment must not require a SupaOAuth-patched GoTrue binary, a forked `@supabase/supabase-js`, a forked Auth UI package, or custom `/auth/v1/*` semantics. SupaOAuth integrations must use documented GoTrue/Supabase extension points, SupaCloud Management API, SupaCloud Functions/Pages, additive schema-v2 metadata at `app_metadata.supaoauth.projects[projectRef]`, and compatibility gates that can be rerun when SupaCloud upgrades the upstream runtime.
 
 ## Must-Compatible (Release Blocker)
 
@@ -28,9 +28,42 @@ SupaOAuth must tolerate SupaCloud upgrading the underlying GoTrue/Supabase Auth 
 
 - `/auth/v1/*` remains owned by the upstream GoTrue runtime; SupaOAuth must not shadow it with a private protocol implementation.
 - GoTrue discovery, JWKS, token, refresh, MFA, user, and OAuth endpoints are treated as upstream contracts, not SupaOAuth-owned internals.
-- SupaOAuth-specific behavior belongs in SupaCloud Functions/Pages, SupaCloud Management API facade calls, Auth Hooks, additive `app_metadata.supaoauth`, or installed compatibility helpers.
+- SupaOAuth-specific behavior belongs in SupaCloud Functions/Pages, SupaCloud Management API facade calls, Auth Hooks, the additive schema-v2 `app_metadata.supaoauth.projects[projectRef]` projection, or installed compatibility helpers.
 - Any missing platform capability should be added to SupaCloud or upstream integration layers, not by requiring a custom GoTrue fork for normal `gotrue` mode.
 - Release gates must keep live Supabase Auth compatibility checks runnable against the current deployed upstream version.
+
+The release matrix retains unmodified GoTrue v2.192.0 as the regression floor
+and uses unmodified v2.193.0 as the current runtime target. Each version must run
+the same strict 25-test `bun run test:supabase-auth-compat` gate with zero
+failures and zero skips. Coverage includes password/session/refresh, OAuth
+authorization code with PKCE, UserInfo, TOTP/AAL, owner-based PostgREST RLS,
+private Storage isolation, Realtime Postgres Changes, Edge Functions, and the
+exact RFC 8693 `unsupported_grant_type` response. On v2.193.0 the TOTP case also
+deletes the verified factor through the admin API, refreshes the same session,
+and requires its JWT to downgrade from `aal2` to `aal1` while AMR remains a list
+of authentication `method` entries. The disposable database and Function assets
+are versioned under `tests/fixtures/supabase-auth-compat/`.
+
+Before upgrading either version, back up the tenant `auth` schema. The stock
+v2.192.0 startup applies the additive
+`20260625000000_add_custom_claims_allowlist.up.sql` migration, which adds
+`auth.custom_oauth_providers.custom_claims_allowlist text[] NOT NULL DEFAULT
+'{}'`; acceptance must read that column back after GoTrue starts. The
+v2.192.0-to-v2.193.0 upstream compare contains no new migration file, so the
+v2.193.0 rollout must not invent or run a SupaOAuth migration for this upgrade.
+
+GoTrue v2.193.0 provider-linking domains remain opt-in.
+`GOTRUE_EXPERIMENTAL_PROVIDER_LINKING_DOMAINS` is passed only when an
+administrator supplies a non-empty mapping such as
+`custom:github=social,custom:google=social`. The deprecated
+`experimental.providers_with_own_linking_domain` list is accepted only as
+one-way migration input, normalized into the canonical map, and never rendered
+as the deprecated GoTrue environment variable.
+
+This automatic linking-domain experiment is distinct from GoTrue manual
+identity linking. The Account Center manual ceremony is separately opt-in and
+requires both `manual_linking_enabled=true` in authoritative GoTrue auth config
+and the Account Center identities module to be enabled.
 
 ### SC-2: auth.users
 
@@ -66,25 +99,18 @@ SupaOAuth must also preserve common Supabase metadata claims when they are prese
 | `app_metadata` | GoTrue | Authorization-safe custom RLS claims and SupaOAuth enterprise projection |
 | `user_metadata` | GoTrue | User profile claims; do not use for authorization |
 
-SupaOAuth may add a small namespaced object under `app_metadata.supaoauth`, but must never remove or alter the above required claims or existing metadata claims. Business roles must not replace the top-level `role` claim. Large permission sets should not be copied into every token by default; use a compact role/permission version and resolve full permissions through SupaCloud/SupaOAuth APIs or bounded RLS projections where needed.
+SupaOAuth may add a schema-v2 container at `app_metadata.supaoauth`, but must never remove or alter the above required claims or existing metadata claims. The root contains only `schema_version`, `projects`, and valid `hook` metadata; current enterprise authorization fields live only at `app_metadata.supaoauth.projects[projectRef]`. Business roles must not replace the top-level `role` claim. Large permission sets should not be copied into every token by default; use a compact role/permission version and resolve full permissions through SupaCloud/SupaOAuth APIs or bounded RLS projections where needed.
 
-OAuth 2.1 access tokens must also preserve `user_id` and `client_id`. Tokens returned by the refresh-token grant are still Supabase JWTs and must pass the same standard-claim, runtime-role, `user_id`/`client_id`, and no-top-level-`supaoauth:*` checks. `user_id` should continue to match `sub`; `client_id` is the OAuth client boundary that RLS or application APIs can use for client-specific access control.
+OAuth 2.1 access tokens must also preserve `client_id` and `scope`. Tokens returned by the refresh-token grant are still Supabase JWTs and must pass the same standard-claim, runtime-role, OAuth-client/scope, and no-top-level-`supaoauth:*` checks. User identity remains in the standard `sub` claim; stock GoTrue v2.192+ does not require a separate `user_id` claim. `client_id` is the OAuth client boundary that RLS or application APIs can use for client-specific access control.
 
-OAuth response `scope` must remain the granted standard scope string. Treat scopes as Supabase OAuth response/UserInfo/ID-token metadata; do not translate enterprise permissions into OAuth scope claims unless a future Supabase-compatible custom-scope mode is explicitly enabled for a project. Database access remains controlled by RLS, usually through `auth.uid()`, `auth.jwt() ->> 'client_id'`, and SupaOAuth versioned permission lookups.
+OAuth `scope` must remain the granted standard scope string. GoTrue carries it in the OAuth access-token JWT; the token endpoint response may omit `scope` when it is unchanged from the request. Treat scopes as Supabase OAuth/UserInfo/ID-token metadata; do not translate enterprise permissions into OAuth scope claims unless a future Supabase-compatible custom-scope mode is explicitly enabled for a project. Database access remains controlled by RLS, usually through `auth.uid()`, `auth.jwt() ->> 'client_id'`, and SupaOAuth versioned permission lookups.
 
 ### SC-4: OIDC Discovery and JWKS
 
-In `runtime_mode=gotrue`:
 - GoTrue's `/.well-known/openid-configuration` is the authoritative discovery document
 - GoTrue's `/.well-known/oauth-authorization-server` is the authoritative OAuth 2.1 authorization-server metadata document
 - GoTrue's `/.well-known/jwks.json` is the authoritative key set
 - SupaOAuth does not replace or proxy these endpoints with its own signing
-
-In `runtime_mode=external_oidc`:
-- SupaOAuth or an external IdP provides OIDC discovery and JWKS
-- The issuer must use asymmetric key signing (RS256, ES256, etc.)
-- Supabase must be configured for third-party auth trusting the external issuer
-- Tokens intended for Supabase APIs should still preserve the Supabase access-token shape and prefer `app_metadata.supaoauth` for enterprise metadata
 
 ### SC-5: Supabase API Paths
 
@@ -110,28 +136,20 @@ SupaOAuth must work inside a SupaCloud-created project:
 - SupAuth Management API is a Function facade over SupaCloud Management API plus SupAuth overlay data
 - No standalone SupAuth service, systemd unit, pm2 process, webhook worker, or SupAuth-owned cron is supported
 
-### SC-7: Dual Runtime Mode
+### SC-7: Single GoTrue Runtime
 
-**gotrue mode (default)**:
 - GoTrue is the token issuer
 - JWT is signed with the GoTrue JWT secret
 - SupaOAuth is the control plane and BFF only
 - All Supabase SDK flows work without modification
 - The underlying GoTrue/Supabase Auth service can be a stock upstream version provided by SupaCloud
-
-**external_oidc mode (advanced)**:
-- An external IdP (SupaOAuth or third-party) is the token issuer
-- Supabase is configured with third-party auth
-- Requires OIDC discovery + asymmetric JWKS
-- JWT claims must map to what Supabase RLS expects
-- Business roles and permission hints should keep the `app_metadata.supaoauth` shape by default
-- Must be explicitly enabled per project; not the default
+- `RUNTIME_MODE` is fixed to `gotrue`; any other configured value fails validation
 
 ## Optional-Compatible
 
 ### SC-8: Row Level Security Extensions
 
-SupaOAuth may enhance RLS by adding a namespaced object under `app_metadata.supaoauth`:
+SupaOAuth may enhance RLS with the current project's object under `app_metadata.supaoauth.projects[projectRef]`:
 
 - `roles` — bounded compact SupaOAuth role names or IDs
 - `current_org_id` / `organization_ids` — current and accessible organization context
@@ -139,7 +157,7 @@ SupaOAuth may enhance RLS by adding a namespaced object under `app_metadata.supa
 - `permissions` — bounded resolved permission set for RLS helper compatibility
 - `roles_count` / `permissions_count` plus `rbac_version` / `permissions_version` — cache invalidation and full-lookup markers for APIs that resolve roles or permissions outside the JWT
 
-These claims are additive. They must not replace GoTrue's built-in claims, and they should stay small enough for cookie and proxy header limits.
+These claims are additive. They must not replace GoTrue's built-in claims. Roles are limited to 64, permissions to 256, and the complete project projection to 16 KiB. Oversize, unavailable, v1, or missing-project projections fail closed instead of partially authorizing.
 
 RLS policies should keep native `auth.uid()` / `auth.jwt()` owner checks and use SupaOAuth helpers only as additive enterprise gates, for example `supaoauth.has_permission(...)` or `supaoauth.has_org_permission(...)`.
 
@@ -155,39 +173,30 @@ RLS policies should keep native `auth.uid()` / `auth.jwt()` owner checks and use
 - `supabase-js` Functions client continues to inject the token automatically
 - SupaOAuth does not modify the Edge Functions auth chain
 
-## Incompatible (Requires Documentation)
+## Custom Claims Namespace
 
-### IC-1: External OIDC Mode Limitations
-
-When using `runtime_mode=external_oidc`:
-- GoTrue's built-in `supabase-js` flows may not work directly
-- Third-party auth configuration in Supabase is required
-- Token claims mapping may differ from GoTrue defaults
-- This mode is opt-in and must be documented separately
-
-### IC-2: Custom Claims Namespace
-
-SupaOAuth-added claims use the `app_metadata.supaoauth` namespace:
-- They are projected from SupaCloud-managed RBAC or added by a Supabase-compatible auth hook.
-- They must be treated as optional by business code until the installed project has enabled the projection.
-- RLS policies using `app_metadata.supaoauth` must account for the object being absent.
+SupaOAuth-added claims use `app_metadata.supaoauth.projects[projectRef]`:
+- SupaCloud projects the RBAC fields; the Supabase-compatible auth hook adds only bounded JIT membership and valid hook metadata.
+- The root schema is exactly version `2`. Legacy root-level RBAC fields are not read or dual-written.
+- RLS must use `supaoauth.current_project_claims()` or the higher-level authorization helpers so v1, absent, truncated, and unavailable projections fail closed.
 
 ## Verification Checklist
 
 For each release, verify:
 
-- [ ] `supabase-js` can sign in, get session, refresh token, sign out
-- [ ] OAuth 2.1 metadata, authorization-code + PKCE, refresh-token, UserInfo, and unsupported-grant behavior pass `tests/integration/supabase-compat/oauth21.test.ts` against a real runtime
-- [ ] `auth.users` is the primary identity table (no parallel user table in gotrue mode)
-- [ ] JWT contains all required Supabase Auth claims (`iss`, `aud`, `exp`, `iat`, `sub`, `role`, `aal`, `session_id`, `email`, `phone`, `is_anonymous`)
-- [ ] JWT keeps authorization metadata in `app_metadata.supaoauth`, not the top-level `role` claim
-- [ ] OIDC discovery document is accessible at `/.well-known/openid-configuration`
-- [ ] OAuth authorization-server metadata is accessible at `/.well-known/oauth-authorization-server`
-- [ ] JWKS is accessible at `/.well-known/jwks.json`
-- [ ] Supabase API paths (`/auth/v1/*`, `/rest/v1/*`, `/storage/v1/*`, `/realtime/v1/*`) remain functional
-- [ ] No SupaOAuth-patched GoTrue binary, forked `supabase-js`, forked Auth UI package, or private `/auth/v1/*` behavior is required in `runtime_mode=gotrue`
-- [ ] No management tokens or service-role keys appear in browser-visible code or `VITE_*` variables
-- [ ] Self-hosted deployment works without Supabase Cloud
-- [ ] `runtime_mode=gotrue` works with zero SupaOAuth-specific claims in the JWT
-- [ ] `runtime_mode=external_oidc` provides valid OIDC discovery + asymmetric JWKS
-- [ ] `runtime_mode=external_oidc` keeps business authorization metadata under `app_metadata.supaoauth` by default
+- [x] `supabase-js` can sign in, get session, refresh token, sign out
+- [x] OAuth 2.1 metadata, authorization-code + PKCE, refresh-token, UserInfo, and unsupported-grant behavior pass `tests/integration/supabase-compat/oauth21.test.ts` against a real runtime
+- [x] `auth.users` is the primary identity table (no parallel user table in gotrue mode)
+- [x] JWT contains all required Supabase Auth claims (`iss`, `aud`, `exp`, `iat`, `sub`, `role`, `aal`, `session_id`, `email`, `phone`, `is_anonymous`)
+- [x] JWT keeps authorization metadata in the schema-v2 `app_metadata.supaoauth.projects[projectRef]` entry, not the top-level `role` claim
+- [x] OIDC discovery document is accessible at `/.well-known/openid-configuration`
+- [x] OAuth authorization-server metadata is accessible at `/.well-known/oauth-authorization-server`
+- [x] JWKS is accessible at `/.well-known/jwks.json`
+- [x] A real GoTrue JWT passes owner-based RLS, private Storage isolation, Realtime Postgres Changes, and a JWT-protected Function via `tests/integration/supabase-compat/full-stack.test.ts`
+- [x] Supabase API paths (`/auth/v1/*`, `/rest/v1/*`, `/storage/v1/*`, `/realtime/v1/*`, `/functions/v1/*`) remain functional
+- [x] No SupaOAuth-patched GoTrue binary, forked `supabase-js`, forked Auth UI package, or private `/auth/v1/*` behavior is required in `runtime_mode=gotrue`
+- [x] No management tokens or service-role keys appear in browser-visible code or `VITE_*` variables
+- [x] Self-hosted deployment works without Supabase Cloud
+- [x] `runtime_mode=gotrue` works with zero SupaOAuth-specific claims in the JWT
+- [x] Token Exchange remains unsupported by GoTrue and is not advertised by SupaOAuth
+- [x] No PAT, subject-token, outbound SAML IdP, recovery-code, or independent issuer surface is installed

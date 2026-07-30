@@ -173,16 +173,14 @@ function invalidCurrentPassword(): PasswordChangeFailure {
 }
 
 async function auditPasswordChange(userId: string | undefined, email: string) {
-  try {
-    await auditRepo.logAudit({
-      eventType: 'my_account.password.changed',
-      actorId: userId || email,
-      actorType: 'user',
-      resourceType: 'user',
-      resourceId: userId || email,
-      details: { method: 'password' },
-    });
-  } catch {}
+  await auditRepo.logAudit({
+    eventType: 'my_account.password.changed',
+    actorId: userId || email,
+    actorType: 'user',
+    resourceType: 'user',
+    resourceId: userId || email,
+    details: { method: 'password' },
+  });
 }
 
 export async function changePasswordWithGoTrue(
@@ -190,9 +188,11 @@ export async function changePasswordWithGoTrue(
   options: {
     fetchImpl?: typeof fetch;
     runtimeBaseUrls?: string[];
+    auditImpl?: typeof auditPasswordChange;
   } = {},
 ): Promise<PasswordChangeResult> {
   const fetchImpl = options.fetchImpl || fetch;
+  const auditImpl = options.auditImpl || auditPasswordChange;
   const bases = goTrueBaseCandidates(options.runtimeBaseUrls);
   if (bases.length === 0) {
     return {
@@ -236,6 +236,8 @@ export async function changePasswordWithGoTrue(
   }
 
   let updateLastError: unknown = null;
+  let updatedUserId: string | undefined;
+  let passwordUpdated = false;
   for (const base of bases) {
     try {
       const response = await fetchImpl(buildGoTrueApiUrl(base, '/user'), {
@@ -256,20 +258,26 @@ export async function changePasswordWithGoTrue(
           message: typeof payload?.message === 'string' ? payload.message : 'Password update failed.',
         };
       }
-      const userId = userIdFromTokenPayload(tokenPayload) || (typeof payload?.id === 'string' ? payload.id : undefined);
-      await auditPasswordChange(userId, input.email);
-      return { ok: true, userId };
+      updatedUserId = userIdFromTokenPayload(tokenPayload)
+        || (typeof payload?.id === 'string' ? payload.id : undefined);
+      passwordUpdated = true;
+      break;
     } catch (error) {
       updateLastError = error;
     }
   }
 
-  return {
-    ok: false,
-    status: 502,
-    code: 'runtime_unavailable',
-    message: updateLastError instanceof Error ? updateLastError.message : 'Authentication runtime is unavailable.',
-  };
+  if (!passwordUpdated) {
+    return {
+      ok: false,
+      status: 502,
+      code: 'runtime_unavailable',
+      message: updateLastError instanceof Error ? updateLastError.message : 'Authentication runtime is unavailable.',
+    };
+  }
+
+  await auditImpl(updatedUserId, input.email);
+  return { ok: true, userId: updatedUserId };
 }
 
 export function createPublicAccountPasswordRoutes(options?: {

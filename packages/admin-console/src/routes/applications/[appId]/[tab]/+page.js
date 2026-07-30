@@ -1,0 +1,4 @@
+import { createDetailTabGuard } from '$lib/detail-route.js';
+
+export const ssr = false;
+export const load = createDetailTabGuard(['settings', 'roles', 'logs', 'branding', 'permissions', 'rules', 'organizations']);

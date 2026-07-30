@@ -55,6 +55,21 @@ function runtimeUrl(candidate: RuntimeCandidate, path: string) {
   return `${candidate.base}${candidate.prefix}${normalizedPath}`;
 }
 
+function publicLogoutEndpoint(): string | null {
+  const configured = getConfig().publicBaseUrl;
+  if (!configured) return null;
+  try {
+    const url = new URL(configured);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/logout`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 async function fetchJson(url: string) {
   const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
   if (!res.ok) throw new Error(`Runtime fetch failed: ${res.status}`);
@@ -118,12 +133,10 @@ export async function checkRuntimeHealth(): Promise<RuntimeHealth> {
 
 export async function getDiscovery(): Promise<Record<string, unknown>> {
   try {
-    const { json: disc, candidate } = await fetchFirstRuntimeJson('/.well-known/openid-configuration');
-    // GoTrue 不提供 end_session_endpoint，SupaOAuth 在 discovery 层补上。
-    // 让 @svadmin/sso 等标准 OIDC RP 可以通过 RP-initiated logout 清除 GoTrue session。
-    if (!disc.end_session_endpoint) {
-      disc.end_session_endpoint = runtimeUrl(candidate, '/logout');
-    }
+    const { json: disc } = await fetchFirstRuntimeJson('/.well-known/openid-configuration');
+    const logoutEndpoint = publicLogoutEndpoint();
+    if (logoutEndpoint) disc.end_session_endpoint = logoutEndpoint;
+    else delete disc.end_session_endpoint;
     return disc;
   } catch {
     throw new Error('Discovery fetch failed');

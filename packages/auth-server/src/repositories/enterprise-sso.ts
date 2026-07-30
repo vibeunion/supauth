@@ -29,6 +29,13 @@ export async function getEnterpriseSSOConfig(connectorId: string) {
   return rows[0] || null;
 }
 
+export async function getEnterpriseSSOConfigById(id: string) {
+  const db = getDb();
+  const rows = await db.select().from(enterpriseSSOConfig)
+    .where(eq(enterpriseSSOConfig.id, id)).limit(1);
+  return rows[0] || null;
+}
+
 /** Create enterprise SSO config */
 export async function createEnterpriseSSOConfig(data: {
   connectorId: string;

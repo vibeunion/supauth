@@ -4,6 +4,8 @@ export const SUPAOAUTH_CLAIMS_NAMESPACE = 'supaoauth';
 
 export const SUPAOAUTH_APP_METADATA_KEY = 'supaoauth';
 
+export const SUPAOAUTH_APP_METADATA_SCHEMA_VERSION = 2 as const;
+
 export const SUPABASE_RUNTIME_ROLES = ['anon', 'authenticated', 'service_role'] as const;
 
 export type SupabaseRuntimeRole = typeof SUPABASE_RUNTIME_ROLES[number];
@@ -36,8 +38,8 @@ export const SUPABASE_METADATA_CLAIMS = [
 export type SupabaseMetadataClaim = typeof SUPABASE_METADATA_CLAIMS[number];
 
 export const SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS = [
-  'user_id',
   'client_id',
+  'scope',
 ] as const;
 
 export type SupabaseOAuthAccessTokenClaim = typeof SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS[number];
@@ -51,8 +53,8 @@ export const SUPABASE_OAUTH_STANDARD_SCOPES = [
 
 export type SupabaseOAuthStandardScope = typeof SUPABASE_OAUTH_STANDARD_SCOPES[number];
 
-// Legacy/advanced namespaced claims. The default external_oidc strategy still
-// prefers app_metadata.supaoauth so Supabase RLS policies keep the same shape.
+// These removed top-level names are exported so trust boundaries can reject
+// them explicitly. Schema v2 never reads or emits them.
 export const SUPAOAUTH_CLAIM_KEYS = [
   'supaoauth:roles',
   'supaoauth:org_id',
@@ -60,6 +62,19 @@ export const SUPAOAUTH_CLAIM_KEYS = [
   'supaoauth:scopes',
   'supaoauth:permissions',
 ] as const;
+
+// One shared bound keeps GoTrue projection, previews, and SDK-visible metadata aligned.
+export const SUPAOAUTH_ROLE_PROJECTION_LIMIT = 64;
+
+export const SUPAOAUTH_PERMISSION_PROJECTION_LIMIT = 256;
+
+export const SUPAOAUTH_PROJECT_PROJECTION_BYTE_LIMIT = 16 * 1024;
+
+export const SUPAOAUTH_NAMESPACE_PROJECTION_BYTE_LIMIT = 64 * 1024;
+
+export const SUPAOAUTH_ORGANIZATION_MEMBERSHIP_LIMIT = 50;
+
+export const SUPAOAUTH_ORGANIZATION_MEMBERSHIP_FIELD_LENGTH_LIMIT = 128;
 
 export interface SupaOAuthJWTClaims {
   // Standard Supabase claims
@@ -77,21 +92,21 @@ export interface SupaOAuthJWTClaims {
   app_metadata?: Record<string, unknown>;
   user_metadata?: Record<string, unknown>;
 
-  // Supabase OAuth server access-token claims
-  user_id?: string;
+  // Supabase OAuth server access-token claims (stock GoTrue v2.192+)
   client_id?: string;
+  scope?: string;
 
-  // SupaOAuth namespaced claims (legacy explicit external_oidc projection only)
-  'supaoauth:roles'?: string[];
-  'supaoauth:org_id'?: string;
-  'supaoauth:org_role'?: string;
-  'supaoauth:scopes'?: string[];
-  'supaoauth:permissions'?: string[];
+  /** @deprecated Stock GoTrue uses the standard `sub` claim for the user ID. */
+  user_id?: string;
 }
 
-export interface SupaOAuthAppMetadata {
-  rbac_version?: number;
-  permissions_version?: number;
+export interface SupaOAuthOrganizationMembershipProjection {
+  organization_id: string;
+  slug: string;
+  role: string;
+}
+
+export interface SupaOAuthPermissionSetProjection {
   roles?: string[];
   roles_count?: number;
   roles_truncated?: boolean;
@@ -100,52 +115,78 @@ export interface SupaOAuthAppMetadata {
   permissions_count?: number;
   permissions_truncated?: boolean;
   permissions_projection_limit?: number;
-  org_ids?: string[];
+  scopes?: string[];
+}
+
+export interface SupaOAuthApplicationProjection extends SupaOAuthPermissionSetProjection {
+  organization_ids?: string[];
+  organizations?: Record<string, SupaOAuthPermissionSetProjection>;
+}
+
+export interface SupaOAuthProjectProjection extends SupaOAuthPermissionSetProjection {
+  application_id?: string;
+  rbac_version?: number;
+  permissions_version?: number;
+  organization_ids?: string[];
+  organizations?: Record<string, SupaOAuthPermissionSetProjection>;
+  applications?: Record<string, SupaOAuthApplicationProjection>;
+  organization_memberships?: SupaOAuthOrganizationMembershipProjection[];
+  organization_memberships_total?: number;
+  organization_memberships_truncated?: boolean;
   current_org_id?: string;
   current_org_role?: string;
+  rbac_synced_at?: string;
+  scopes_count?: number;
+  organization_ids_count?: number;
+  organizations_count?: number;
+  applications_count?: number;
+  truncated?: boolean;
+  projection_limit?: number;
+  projection_unavailable?: boolean;
+}
+
+export interface SupaOAuthHookMetadata {
+  version: 1;
+  authentication_method: string;
+  processed_at: string;
+}
+
+export interface SupaOAuthAppMetadata {
+  schema_version: typeof SUPAOAUTH_APP_METADATA_SCHEMA_VERSION;
+  projects: Record<string, SupaOAuthProjectProjection>;
+  hook?: SupaOAuthHookMetadata;
 }
 
 // Mapping strategy: how SupaOAuth concepts map to JWT claims in each mode
 export interface ClaimsMappingStrategy {
-  mode: 'gotrue' | 'external_oidc';
+  mode: 'gotrue';
   roles: {
     location: 'app_metadata' | 'jwt_claim';
-    key: string; // e.g. 'app_metadata.supaoauth.roles' or 'supaoauth:roles'
+    key: string;
   };
   organization: {
     location: 'app_metadata' | 'jwt_claim';
     key: string;
   };
   scopes: {
-    location: 'management_api' | 'jwt_claim';
+    location: 'app_metadata' | 'management_api' | 'jwt_claim';
     key: string;
   };
   permissions: {
-    location: 'management_api' | 'jwt_claim';
+    location: 'app_metadata' | 'management_api' | 'jwt_claim';
+    key: string;
+  };
+  applications: {
+    location: 'app_metadata' | 'management_api';
     key: string;
   };
 }
 
 export const GOTRUE_CLAIMS_STRATEGY: ClaimsMappingStrategy = {
   mode: 'gotrue',
-  roles: { location: 'app_metadata', key: 'app_metadata.supaoauth.roles' },
-  organization: { location: 'app_metadata', key: 'app_metadata.supaoauth.current_org_id' },
-  scopes: { location: 'management_api', key: '' },
-  permissions: { location: 'management_api', key: '' },
-};
-
-export const EXTERNAL_OIDC_CLAIMS_STRATEGY: ClaimsMappingStrategy = {
-  mode: 'external_oidc',
-  roles: { location: 'app_metadata', key: 'app_metadata.supaoauth.roles' },
-  organization: { location: 'app_metadata', key: 'app_metadata.supaoauth.current_org_id' },
-  scopes: { location: 'management_api', key: '' },
-  permissions: { location: 'management_api', key: '' },
-};
-
-export const LEGACY_EXTERNAL_OIDC_TOP_LEVEL_CLAIMS_STRATEGY: ClaimsMappingStrategy = {
-  mode: 'external_oidc',
-  roles: { location: 'jwt_claim', key: 'supaoauth:roles' },
-  organization: { location: 'jwt_claim', key: 'supaoauth:org_id' },
-  scopes: { location: 'jwt_claim', key: 'supaoauth:scopes' },
-  permissions: { location: 'jwt_claim', key: 'supaoauth:permissions' },
+  roles: { location: 'app_metadata', key: 'app_metadata.supaoauth.projects.{projectRef}.roles' },
+  organization: { location: 'app_metadata', key: 'app_metadata.supaoauth.projects.{projectRef}.current_org_id' },
+  scopes: { location: 'app_metadata', key: 'app_metadata.supaoauth.projects.{projectRef}.scopes' },
+  permissions: { location: 'app_metadata', key: 'app_metadata.supaoauth.projects.{projectRef}.permissions' },
+  applications: { location: 'app_metadata', key: 'app_metadata.supaoauth.projects.{projectRef}.applications' },
 };

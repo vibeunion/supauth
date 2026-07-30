@@ -1,49 +1,76 @@
-# Logto Interface Gap Analysis
+# Logto Interface Comparison — GoTrue-only
 
-日期：2026-05-25
+日期：2026-07-19
 
-## Source
+## 参考范围
 
-- Logto 源码：`/Users/zhd/Documents/Codex/2026-05-25/logto-interface-compare/logto-source-b92d584`
-- Logto commit：`b92d584bc8c40399058c2c3a59f632c464d5708e`
+- Logto 源码基线：`b92d584bc8c40399058c2c3a59f632c464d5708e`
 - Logto 接口来源：`packages/core/src/routes/**/*.openapi.json`
-- Logto 接口规模：76 个 OpenAPI 片段，230 个 path，341 个 operation
-- SupaOAuth 接口来源：`bun run scripts/export-openapi.ts /tmp/supaoauth-openapi-current.json`
-- SupaOAuth 当前规模：79 个 path，110 个 operation
+- SupaOAuth 接口来源：`bun run scripts/export-openapi.ts`
 
-## 判断原则
+“模仿 Logto”只表示对齐菜单分组、资源详情层级、权限边界和成熟管理体验，
+不表示复制 Logto 的 issuer、协议扩展、视觉资产或云计费能力。
 
-SupaOAuth 不应 1:1 复刻 Logto。默认架构仍是：
+## 权威边界
 
-- GoTrue 负责 Supabase-compatible Auth runtime、token、session、JWKS、OIDC 核心协议。
-- SupaOAuth 负责 Logto-like product control plane、metadata、组织/RBAC/consent、管理 API 和 admin console。
-- SupaCloud 负责 infra orchestration、Kong route、GoTrue env injection、Storage/Pages/Functions 等运行时编排。
+- GoTrue 独占 `auth.users`、Identity、OAuth clients/Grants、JWT/JWKS、
+  Session、Refresh Token、MFA 和 `/auth/v1/*`。
+- SupaCloud 独占 Applications 控制面元数据、业务 Organizations、RBAC、
+  tenant collaborators、Webhook、Audit、Providers 和 Secret Manager。
+- SupaOAuth 是 BFF、Admin Console 和 additive overlay；管理 facade 不改变
+  底层资源权威。
 
-因此，Logto 的 OIDC runtime、legacy interaction runtime、部分 cloud-only/protected-app 能力不直接进入 SupaOAuth 默认实现；但与独立 IdP 产品体验、B2B 组织授权、第三方应用 consent、连接器配置和生产运维相关的接口，应补齐。
+## 功能对比
 
-## Interface Comparison
+状态使用“已完成”、“部分完成（保留边界）”或“因 GoTrue/Supabase 兼容边界不适用”。
 
-| Logto 接口族 | Logto 代表接口 | SupaOAuth 当前覆盖 | 是否需要实现 |
-| --- | --- | --- | --- |
-| Applications | `/api/applications`, `/api/applications/{id}/secrets`, `/api/applications/{id}/roles`, `/api/applications/{id}/user-consent-scopes`, `/api/applications/{id}/users/{userId}/consent-organizations`, per-app sign-in experience | 已有应用 CRUD、secret rotate、resource/scope bindings；缺多 secret 生命周期、第三方应用 consent 配置、app custom data、per-app branding/sign-in experience | 需要。第三方 OAuth client 和无停机 secret rotation 是生产能力 |
-| Users / My account | `/api/my-account/*`, `/api/users/{userId}/profile`, sessions, identities, MFA verifications, grants, personal access tokens | 已有 user list/get/delete、roles/permissions、passkeys；缺用户自助账号中心、admin 侧 profile/session/identity/MFA proxy | 需要。GoTrue 可继续做 runtime，但 SupaOAuth 需要账号中心 BFF |
-| Organizations | `/api/organization-roles`, `/api/organization-scopes`, `/api/organizations/{id}/users/*`, `/api/organizations/{id}/applications/*`, JIT email domains / SSO connectors / roles, invitations | 已有 organizations CRUD、members、org templates、enterprise SSO 基线；缺邀请、显式 JIT 管理接口、组织应用/M2M 绑定、组织 roles/scopes first-class API | 需要。B2B / multi-tenant IdP 的核心能力 |
-| Connectors | `/api/connector-factories`, `/api/connectors/{id}/authorization-uri`, `/api/connectors/{factoryId}/test`, `/api/sso-connector-providers`, captcha provider | 已有 connector list/get/update/test 和 enterprise-sso 配置；缺 provider catalog、typed config schema、authorization-uri preflight、captcha provider config | 需要。否则 connector 配置仍偏手工，难以生产自助 |
-| Email / verification / templates | `/api/email-templates`, `/api/verification-codes`, `/api/experience/verification/*` | 主要依赖 GoTrue/SupaCloud runtime；SupaOAuth 仅有 security-config 和 storage proxy | 需要控制面代理。不要重写验证码 runtime，但要能管理 SMTP/SMS/captcha/template 配置 |
-| Experience / Sign-in UI | `/api/experience/*`, `/api/sign-in-exp/*`, custom UI assets, well-known phrases | 已有 sign-in-experience 配置和 branding storage；缺 phrases/custom UI assets/custom profile fields/check-password 等 | 部分需要。默认不替换 GoTrue runtime，但产品层需要 branding、phrases、profile fields、password policy proxy |
-| Webhooks / logs | `/api/hooks/{id}/recent-logs`, `/api/hooks/{id}/test`, `/api/hooks/{id}/signing-key`, `/api/logs/{id}` | 已有 webhook CRUD/events/rotate-secret 和 audit list；缺 delivery logs、test、replay、audit detail | 需要。生产排障和 webhook onboarding 必需 |
-| Domains / config | `/api/domains`, `/api/configs/oidc/*`, admin console config | 已有 provisioning、runtime discovery/JWKS、auth-config proxy；缺 custom domain/SSL 生命周期、OIDC key/config 可视化、admin console public config | 需要。通过 SupaCloud/Kong/GoTrue 编排实现，不直接绕过 SupaCloud |
-| SAML / token exchange / PAT | `/api/saml-applications`, `/api/subject-tokens`, `/api/users/{userId}/personal-access-tokens`, one-time tokens | 基本未覆盖 | 暂不列入 GA 必做。SAML app、token exchange、PAT 属扩展产品线；除非目标客户明确需要，否则先做 decision spike |
+| Logto 域/功能 | SupaOAuth GoTrue-only 实现 | 状态 |
+| --- | --- | :---: |
+| Applications | CRUD、单一 GoTrue client secret 轮换、Roles、Logs、Branding、Permissions、Rules、Organizations | 已完成 |
+| Users | 创建、服务端分页搜索、Settings、Roles、Logs、Organizations、只读 GoTrue Grants；不虚构管理员 session、identity unlink 或 Grant 撤销 | 已完成 |
+| My account | 当前用户 Bearer profile、GoTrue Grants、由 `manual_linking_enabled` 单独 opt-in 的 Identity linking/unlinking、TOTP 与 `local`/`global`/`others` scoped logout | 已完成 |
+| Organizations | 业务组织、Members、Invitations、JIT、Machine-to-machine Applications、Branding | 已完成 |
+| Roles / permissions | 用户或应用 XOR 分配、目标存在性校验、查询与撤销 | 已完成 |
+| API resources / scopes | General、Permissions、资源编辑、Scope 生命周期和绑定冲突检查 | 已完成 |
+| Connectors / CAPTCHA | 入站连接器目录、typed config、测试、CAPTCHA 配置；secret 仅在 SupaCloud Secret Manager | 已完成 |
+| Enterprise SSO | GoTrue/SupaCloud 支持的入站 SAML/OIDC Connection、Experience 和可证实的 IdP-initiated 配置 | 已完成 |
+| Sign-in experience | Branding、Sign-up and sign-in、Collect user profile、Account center、Content | 已完成 |
+| Security | Password policy、CAPTCHA、Blocklist、General；保存后权威 read-back | 已完成 |
+| MFA | GoTrue TOTP、因子容量、用户因子和真实 AAL 状态 | 已完成 |
+| Customize JWT | GoTrue Custom Access Token Hook 注册/验证；必需 claims 与顶层 `role` 保护 | 已完成 |
+| Webhooks | SupaCloud durable outbox、重试、DLQ、幂等、版本化签名、delivery 详情及按 delivery ID 重放；Organization/RBAC 事件与其 SupaCloud 变更同事务，GoTrue 用户和跨系统管理事件保留 post-mutation 边界 | 部分完成（保留跨系统原子性边界） |
+| Audit logs | 权威 actor/request ID、cursor 分页、递归脱敏、详情、导出、append-only 与完整性 checkpoint | 已完成 |
+| Tenant members | 项目协作者、邀请、角色更新、最后 Owner 保护和服务端授权 | 已完成 |
+| RFC 8693 Token Exchange、Subject Token、通用 One-time Bearer Token | stock GoTrue 不提供对应产品语义；Token Exchange 继续返回 `unsupported_grant_type` | 因 GoTrue/Supabase 兼容边界不适用 |
+| Personal Access Token / PAT 换 JWT | 会建立 GoTrue 之外的长期凭据与换签路径 | 因 GoTrue/Supabase 兼容边界不适用 |
+| Outbound SAML Application / SupaOAuth 作为 SAML IdP | 当前产品只支持入站企业 SSO | 因 GoTrue/Supabase 兼容边界不适用 |
+| 任意 Inline Hooks | stock GoTrue 没有对应同步触发点；仅使用文档化 Auth Hooks | 因 GoTrue/Supabase 兼容边界不适用 |
+| Passkey 产品入口、MFA 备份码 | 当前没有经过完整验收的 GoTrue ceremony，且不建立本地 credential/recovery store | 因 GoTrue/Supabase 兼容边界不适用 |
+| `external_oidc` issuer、独立 discovery/JWKS、Session/MFA/签名密钥 | 唯一运行时为 `gotrue`；其他值在启动/安装时失败 | 因 GoTrue/Supabase 兼容边界不适用 |
 
-## New Tasks To Track
+## Webhook 保证边界
 
-这些缺口已经追加到 `progress.md`：
+- `organization.created`、`organization.invitation_created`、
+  `organization.member_added`、`organization.member_updated`、
+  `organization.member_removed`、
+  `role.assigned`、`role.revoked` 标记为 `transactional`：业务变更和
+  SupaCloud outbox 写入在同一个控制面数据库事务内提交。
+- 用户、Application、Connector 和 Organization Template 的已发布事件标记为
+  `post_mutation`：底层变更成功后再向 SupaCloud 提交事件。GoTrue mutation 与
+  SupaCloud outbox 之间没有跨系统事务或 saga，不宣称原子性。
+- durable 投递、重试和重放保证从事件成功进入 SupaCloud outbox 后开始。若
+  post-mutation 提交失败，已成功的底层变更不会由 Webhook 层自动回滚。
+- `/v1/webhooks/events` 继续返回兼容的 `events: string[]`，并通过 `catalog`
+  为每个真实生产事件返回 `transactional` 或 `post_mutation` 元数据。没有真实
+  生产者的事件不列入支持目录。
 
-- P0-24 Application secret lifecycle and third-party consent configuration
-- P1-12 Account Center and admin user management proxy
-- P1-13 Organization invitation, JIT, and organization application APIs
-- P1-14 Connector factory, provider catalog, captcha, and template configuration
-- P1-15 Webhook delivery diagnostics and audit detail
-- P1-16 Domain, branding, phrases, and custom profile fields
-- P2-7 SAML / token exchange / PAT decision spike
+## 契约
 
+- 控制面浏览器请求只访问 `/api/v1/*`；认证 ceremony 才访问
+  `/auth/v1/*`。
+- 404、501 与上游不可用不得转换为空列表；错误保留 `code`、`message`、
+  `correlation_id`。
+- 兼容窗口中的已移除路由必须从导航和 OpenAPI 隐藏，并返回
+  `capability_unavailable`；窗口结束后删除。
+- GoTrue Grants 是唯一有效 OAuth 授权事实源；SupaOAuth consent 记录仅用于
+  策略与决策审计。

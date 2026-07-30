@@ -200,7 +200,7 @@ describe('getDiscovery', () => {
     expect((result.end_session_endpoint as string)).toContain('/logout');
   });
 
-  it('preserves existing end_session_endpoint if GoTrue provides one', async () => {
+  it('replaces a runtime end_session_endpoint with the public hosted endpoint', async () => {
     const originalEndpoint = 'http://runtime.test/auth/v1/session/end';
     const doc = {
       issuer: 'http://runtime.test/auth/v1',
@@ -218,7 +218,7 @@ describe('getDiscovery', () => {
 
     const { getDiscovery } = await import('../runtime/index.js');
     const result = await getDiscovery();
-    expect(result.end_session_endpoint).toBe(originalEndpoint);
+    expect(result.end_session_endpoint).toBe('http://auth.test/logout');
   });
 
   it('throws on non-2xx response', async () => {
@@ -290,7 +290,7 @@ describe('public admin SSO config', () => {
       client_id: 'supaoauth-admin-console',
       redirect_uri: 'https://auth.example.test/admin',
       post_logout_redirect_uri: 'https://auth.example.test/admin/login',
-      gotrue_logout_url: 'https://auth.example.test/auth/v1/logout',
+      end_session_endpoint: 'https://auth.example.test/logout',
     });
     expect(Object.keys(config)).not.toContain('audience');
     expect(Object.keys(config)).not.toContain('allowed_emails');

@@ -128,16 +128,16 @@ export const supaoauthMenuItems: MenuItem[] = [
   { name: 'identity', label: 'Identity', icon: 'fingerprint', children: [
     { name: 'applications', label: 'Applications', icon: 'key-round', href: '/admin/applications' },
     { name: 'connectors', label: 'Connectors', icon: 'plug', href: '/admin/connectors' },
-    { name: 'resources', label: 'API Resources', icon: 'server', href: '/admin/resources' },
+    { name: 'resources', label: 'API Resources', icon: 'server', href: '/admin/api-resources' },
   ]},
   { name: 'users-orgs', label: 'Users & Orgs', icon: 'users', children: [
     { name: 'users', label: 'Users', icon: 'user', href: '/admin/users' },
     { name: 'organizations', label: 'Organizations', icon: 'building-2', href: '/admin/organizations' },
   ]},
   { name: 'security', label: 'Security Policy', icon: 'shield-check', href: '/admin/security' },
-  { name: 'settings', label: 'Settings', icon: 'settings', href: '/admin/settings' },
+  { name: 'settings', label: 'Tenant settings', icon: 'settings', href: '/admin/tenant-settings' },
   { name: 'system', label: 'System', icon: 'cpu', children: [
     { name: 'webhooks', label: 'Webhooks', icon: 'webhook', href: '/admin/webhooks' },
-    { name: 'audit', label: 'Audit Logs', icon: 'scroll-text', href: '/admin/audit' },
+    { name: 'audit', label: 'Audit Logs', icon: 'scroll-text', href: '/admin/audit-logs' },
   ]},
 ];

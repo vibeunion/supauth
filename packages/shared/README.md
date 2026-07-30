@@ -31,7 +31,6 @@ import {
   SUPABASE_REQUIRED_CLAIMS,
   SUPABASE_METADATA_CLAIMS,
   GOTRUE_CLAIMS_STRATEGY,
-  EXTERNAL_OIDC_CLAIMS_STRATEGY,
   type SupaOAuthJWTClaims,
   type SupaOAuthAppMetadata,
   type ClaimsMappingStrategy,
@@ -48,8 +47,13 @@ import {
 - **Sign-in Experience types**: `SignInExperience`, `ApplicationSignInExperience`, `EffectiveSignInExperience`, `PublicEffectiveSignInExperience`
 - **Audit types**: `AuditLogEntry`
 - **Webhook types**: `Webhook`
-- **Runtime types**: `RuntimeMode`, `CompatibilityCheckResult`
+- **Runtime types**: `RuntimeMode`（唯一值为 `gotrue`）、`CompatibilityCheckResult`
 - **Claims mapping**: `SupaOAuthJWTClaims`, `SupaOAuthAppMetadata`, `ClaimsMappingStrategy`
+
+`@supauth/shared` 不提供独立 issuer、独立 JWKS 或替代 Session/MFA 类型。
+认证运行时始终由 stock GoTrue 提供，企业授权扩展只进入有界的
+`app_metadata.supaoauth.projects[projectRef]`。`supaoauth` 根只包含
+`schema_version`、`projects` 和合法 `hook` 元数据；旧根级 RBAC 字段不会读取或双写。
 
 ## License
 

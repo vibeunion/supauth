@@ -22,6 +22,7 @@ function createFixture() {
   writeFileSync(join(root, adminDir, 'claim.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'change-password.html'), '<!doctype html>');
   writeFileSync(join(root, adminDir, 'account.html'), '<!doctype html>');
+  writeFileSync(join(root, adminDir, 'logout.html'), '<!doctype html>');
   writeFileSync(join(root, openapiPath), JSON.stringify({ openapi: '3.0.3', paths: {} }));
 
   const manifest = createSupacloudAppManifest({
@@ -34,15 +35,32 @@ function createFixture() {
   return { root, artifactDir };
 }
 
-function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?: string) {
+interface MockFetchRequest {
+  url: URL;
+  init?: RequestInit;
+}
+
+function mockFetch(
+  overrides: Record<string, number> = {},
+  ssoAuthorizeLocation?: string,
+  requestLog: MockFetchRequest[] = [],
+  responseHeaders: Record<string, HeadersInit> = {},
+) {
   const defaultStatuses: Record<string, number> = {
     '/api/v1/health': 200,
+    '/api/v1/capabilities': 401,
     '/v1/auth-config': 401,
     '/v1/public/sign-in-experience/resolve': 200,
-    '/admin/security': 200,
+    '/admin': 307,
+    '/admin/get-started': 200,
+    '/admin/security': 307,
+    '/admin/security/password': 200,
+    '/admin/_app/version.json': 200,
     '/login': 200,
     '/login.html': 200,
     '/authorize.html': 200,
+    '/logout': 200,
+    '/logout.html': 200,
     '/account': 200,
     '/account.html': 200,
     '/account/password': 200,
@@ -52,15 +70,19 @@ function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?
     '/oauth/authorize': 400,
     '/auth/v1/oauth/authorize': 302,
     '/auth/v1/health': 200,
+    '/auth/v1/.well-known/openid-configuration': 200,
+    '/auth/v1/.well-known/jwks.json': 200,
     '/rest/v1/': 401,
     '/storage/v1/bucket': 401,
     '/realtime/v1/websocket': 400,
-    '/functions/v1/': 404,
+    '/functions/v1/': 400,
+    '/functions/v1/supauth/api/v1/health': 200,
     ...overrides,
   };
 
-  return async (input: string | URL) => {
+  return async (input: string | URL, init?: RequestInit) => {
     const url = new URL(String(input));
+    requestLog.push({ url, init });
     if (url.pathname === '/oauth/sso/authorize' && url.searchParams.has('client_id')) {
       const location = overrides['/oauth/sso/authorize'] === 302
         ? ssoAuthorizeLocation || 'https://auth.example.test/auth/v1/oauth/authorize?client_id=app_123'
@@ -68,26 +90,71 @@ function mockFetch(overrides: Record<string, number> = {}, ssoAuthorizeLocation?
       return new Response('redirect', { status: 302, headers: { location } });
     }
     const status = defaultStatuses[url.pathname] ?? 404;
-    return new Response(status === 200 ? 'ok' : 'probe', { status });
+    const headers = new Headers(responseHeaders[url.pathname]);
+    if (url.pathname === '/admin' && status === 307 && !headers.has('location')) {
+      headers.set('location', '/admin/get-started');
+    }
+    if (url.pathname === '/admin/security' && status === 307 && !headers.has('location')) {
+      headers.set('location', '/admin/security/password');
+    }
+    if (url.pathname === '/admin/get-started' && status === 200 && !headers.has('content-type')) {
+      headers.set('content-type', 'text/html; charset=utf-8');
+    }
+    if (url.pathname === '/admin/security/password' && status === 200 && !headers.has('content-type')) {
+      headers.set('content-type', 'text/html; charset=utf-8');
+    }
+    if (url.pathname === '/admin/_app/version.json' && status === 200 && !headers.has('content-type')) {
+      headers.set('content-type', 'application/json; charset=utf-8');
+    }
+    return new Response(status === 200 ? 'ok' : 'probe', { status, headers });
   };
 }
 
 describe('SupaCloud installed app verifier', () => {
   it('accepts an installed SupAuth app with Function, Pages, and preserved runtime routes', async () => {
     const { root, artifactDir } = createFixture();
+    const requestLog: MockFetchRequest[] = [];
 
-    const result = await verifySupacloudInstalledApp({
+    const verification = await verifySupacloudInstalledApp({
       root,
       artifactDir,
       baseUrl: 'https://auth.example.test',
       runtimeUrl: 'https://project.example.test',
-      fetchImpl: mockFetch(),
+      fetchImpl: mockFetch({}, undefined, requestLog),
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.offlineArtifactOk).toBe(true);
-    expect(result.errors).toEqual([]);
-    expect(result.probes.every((probe) => probe.ok)).toBe(true);
+    const realtimeRequest = requestLog.find(({ url }) => url.pathname === '/realtime/v1/websocket');
+    const realtimeHeaders = new Headers(realtimeRequest?.init?.headers);
+
+    expect(verification.ok).toBe(true);
+    expect(verification.offlineArtifactOk).toBe(true);
+    expect(verification.errors).toEqual([]);
+    expect(verification.probes.every((probe) => probe.ok)).toBe(true);
+    expect(verification.probes.find((probe) => probe.name === 'functions_preserved')?.status).toBe(400);
+    expect(verification.probes.find((probe) => probe.name === 'supauth_function_health_preserved')?.status).toBe(200);
+    expect(realtimeRequest?.url.searchParams.get('vsn')).toBe('1.0.0');
+    expect(realtimeHeaders.get('connection')).toBe('Upgrade');
+    expect(realtimeHeaders.get('upgrade')).toBe('websocket');
+    expect(realtimeHeaders.get('sec-websocket-version')).toBe('13');
+    expect(realtimeHeaders.get('sec-websocket-key')).toBe('dGhlIHNhbXBsZSBub25jZQ==');
+  });
+
+  it('accepts SupaCloud 0.50.2 protected PostgREST schema responses', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ '/rest/v1/': 403 }),
+    });
+
+    expect(verification.ok).toBe(true);
+    expect(verification.probes.find((probe) => probe.name === 'postgrest_preserved')).toMatchObject({
+      ok: true,
+      status: 403,
+    });
   });
 
   it('fails instead of pretending live verification passed when deployed URLs are missing', async () => {
@@ -119,6 +186,97 @@ describe('SupaCloud installed app verifier', () => {
     expect(result.errors).toContain('supauth_health_api_strip_prefix failed: expected HTTP 200, got HTTP 404');
   });
 
+  it('rejects a missing Admin Console redirect target or static asset', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({
+        '/admin/security/password': 404,
+        '/admin/_app/version.json': 404,
+      }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors).toContain('admin_console_page failed: redirect target expected HTTP 200, got HTTP 404');
+    expect(verification.errors).toContain('admin_console_static_asset failed: expected HTTP 200, got HTTP 404');
+  });
+
+  it('rejects a missing exact Admin Console root route', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ '/admin': 404 }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors).toContain(
+      'admin_console_root failed: expected HTTP 307 to same-origin /admin/get-started, got HTTP 404 Location <empty>',
+    );
+  });
+
+  it('rejects an Admin Console root redirect to the wrong location', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({}, undefined, [], {
+        '/admin': { location: '/admin/login' },
+      }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors).toContain(
+      'admin_console_root failed: expected HTTP 307 to same-origin /admin/get-started, got HTTP 307 Location /admin/login',
+    );
+  });
+
+  it('rejects a missing Admin Console root redirect target', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ '/admin/get-started': 404 }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors).toContain(
+      'admin_console_root failed: redirect target expected HTTP 200, got HTTP 404',
+    );
+  });
+
+  it('rejects unsafe Admin Console response media types', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const verification = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({}, undefined, [], {
+        '/admin/security/password': { 'content-type': 'application/octet-stream' },
+        '/admin/_app/version.json': { 'content-type': 'application/octet-stream' },
+      }),
+    });
+
+    expect(verification.ok).toBe(false);
+    expect(verification.errors.some((error) => error.includes('expected text/html'))).toBe(true);
+    expect(verification.errors.some((error) => error.includes('expected application/json'))).toBe(true);
+  });
+
   it('rejects missing PostgREST, Storage, or Realtime runtime routes instead of accepting generic 404s', async () => {
     const { root, artifactDir } = createFixture();
 
@@ -136,10 +294,25 @@ describe('SupaCloud installed app verifier', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.errors).toContain('postgrest_preserved failed: expected HTTP status in [200, 401, 406], got HTTP 404');
+    expect(result.errors).toContain('postgrest_preserved failed: expected HTTP status in [200, 401, 403, 406], got HTTP 404');
     expect(result.errors).toContain('storage_preserved failed: expected HTTP status in [200, 401], got HTTP 404');
-    expect(result.errors).toContain('realtime_preserved failed: expected HTTP status in [200, 400, 403, 426], got HTTP 404');
+    expect(result.errors).toContain('realtime_preserved failed: expected HTTP status in [400, 401, 403, 426], got HTTP 404');
     expect(result.errors.some((error) => error.includes('functions_preserved'))).toBe(false);
+  });
+
+  it('rejects a missing named SupAuth Function even when the empty slug response is valid', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ '/functions/v1/supauth/api/v1/health': 404 }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('supauth_function_health_preserved failed: expected HTTP 200, got HTTP 404');
   });
 
   it('rejects a manifest hash mismatch', async () => {

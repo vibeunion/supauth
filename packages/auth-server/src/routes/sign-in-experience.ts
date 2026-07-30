@@ -4,12 +4,15 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 import * as connectorRepo from '../repositories/connectors.js';
+import { ApiContractError } from '../utils/api-contract.js';
+import { containsSecret, withoutSecrets } from '../utils/secrets.js';
 import * as auditRepo from '../repositories/audit.js';
+import * as consentRepo from '../repositories/consents.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import { getConfig } from '../config/index.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { mkdir, unlink, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, unlink, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
 const adapter = getSupaCloudAdapter();
@@ -18,7 +21,7 @@ const config = getConfig();
 const CUSTOM_UI_DIR = path.resolve(import.meta.dir, '../../custom-ui');
 
 async function audit(eventType: string, resourceType: string, resourceId: string) {
-  try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin' }); } catch {}
+  await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin' });
 }
 
 function runtimeInternalUrl(path: string) {
@@ -292,19 +295,17 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
           const subDir = path.join(tmpDir, f);
           const stat = await Bun.file(subDir).stat();
           if (stat && stat.isDirectory()) {
-            try {
-              const subFiles = await readdir(subDir);
-              if (subFiles.includes('index.html')) {
-                hasIndexHtml = true;
-                // Move contents up one level
-                for (const sf of subFiles) {
-                  const src = path.join(subDir, sf);
-                  const dst = path.join(tmpDir, sf);
-                  const p = Bun.spawnSync(['mv', src, dst]);
-                }
-                break;
+            const subFiles = await readdir(subDir);
+            if (subFiles.includes('index.html')) {
+              hasIndexHtml = true;
+              // Move contents up because zip archives commonly add one root folder.
+              for (const sf of subFiles) {
+                const src = path.join(subDir, sf);
+                const dst = path.join(tmpDir, sf);
+                await rename(src, dst);
               }
-            } catch {}
+              break;
+            }
           }
         }
       }
@@ -319,7 +320,7 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
         const existing = await readdir(CUSTOM_UI_DIR);
         for (const f of existing) {
           if (!f.startsWith('.tmp-')) {
-            await rm(path.join(CUSTOM_UI_DIR, f), { recursive: true, force: true }).catch(() => {});
+            await rm(path.join(CUSTOM_UI_DIR, f), { recursive: true, force: true });
           }
         }
       }
@@ -329,7 +330,7 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
         if (f === 'assets.zip') continue;
         const src = path.join(tmpDir, f);
         const dst = path.join(CUSTOM_UI_DIR, f);
-        Bun.spawnSync(['mv', src, dst]);
+        await rename(src, dst);
       }
 
       // Write marker
@@ -345,7 +346,11 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
       return { assets_id: assetsId, filename: file.name };
     } catch (error) {
       // Cleanup on failure
-      await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      try {
+        await rm(tmpDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.error(`Failed to clean custom UI upload directory: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      }
       set.status = 500;
       return { error: 'upload_failed', message: error instanceof Error ? error.message : 'Unknown error' };
     }
@@ -355,14 +360,12 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
   })
 
   .delete('/custom-ui-assets', async () => {
-    try {
-      const files = await readdir(CUSTOM_UI_DIR);
-      for (const f of files) {
-        if (f.endsWith('.json') || f.endsWith('.html') || f.endsWith('.zip')) {
-          await unlink(path.join(CUSTOM_UI_DIR, f)).catch(() => {});
-        }
+    const files = existsSync(CUSTOM_UI_DIR) ? await readdir(CUSTOM_UI_DIR) : [];
+    for (const f of files) {
+      if (f.endsWith('.json') || f.endsWith('.html') || f.endsWith('.zip')) {
+        await unlink(path.join(CUSTOM_UI_DIR, f));
       }
-    } catch {}
+    }
     await audit('sign_in_experience.custom_ui_deleted', 'custom_ui_assets', 'all');
     return { status: 'deleted' };
   }, {
@@ -372,18 +375,7 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
 export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sign-in-experience' })
   .get('/resolve', async ({ query }) => {
     const q = query as Record<string, unknown>;
-    let applicationId = typeof q.application_id === 'string' ? q.application_id : undefined;
-    let authorization: Awaited<ReturnType<typeof sieRepo.getOAuthAuthorizationContext>> | null = null;
-    let authorizationError: string | null = null;
-    if (!applicationId && typeof q.authorization_id === 'string') {
-      try {
-        authorization = await sieRepo.getOAuthAuthorizationContext(q.authorization_id);
-        applicationId = authorization?.client_id || undefined;
-      } catch (error) {
-        authorizationError = 'authorization_lookup_failed';
-        console.warn(`Failed to resolve OAuth authorization context: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+    const applicationId = typeof q.application_id === 'string' ? q.application_id : undefined;
     const [experience, connectors] = await Promise.all([
       sieRepo.resolveSignInExperience(applicationId, await getSupaCloudSignInSource(applicationId)),
       getEnabledConnectors(),
@@ -393,8 +385,9 @@ export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sig
       connectors,
       sign_up_enabled: experience?.sign_up_enabled ?? true,
     };
-    if (authorizationError) return { ...result, authorization_error: authorizationError };
-    return authorization ? { ...result, authorization } : result;
+    return typeof q.authorization_id === 'string'
+      ? { ...result, authorization_pending_authentication: true }
+      : result;
   }, {
     detail: { summary: 'Resolve public effective sign-in experience for hosted login pages', tags: ['Sign-in Experience', 'Public'] },
   });
@@ -409,12 +402,19 @@ export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors
 
     const q = query as Record<string, unknown>;
     const redirectUri = typeof q.redirect_uri === 'string' ? q.redirect_uri : '';
+    const authorizationId = typeof q.authorization_id === 'string' ? q.authorization_id : '';
     const state = typeof q.state === 'string' ? q.state : '';
 
     // Build GoTrue OAuth authorize URL for this provider
     const goTrueUrl = new URL('/auth/v1/authorize', config.oauthRuntimeUrl);
     goTrueUrl.searchParams.set('provider', params.connectorId);
-    if (redirectUri) goTrueUrl.searchParams.set('redirect_to', redirectUri);
+    if (authorizationId) {
+      const authorizationReturnUrl = new URL('/oauth/authorize', config.publicBaseUrl);
+      authorizationReturnUrl.searchParams.set('authorization_id', authorizationId);
+      goTrueUrl.searchParams.set('redirect_to', authorizationReturnUrl.toString());
+    } else if (redirectUri) {
+      goTrueUrl.searchParams.set('redirect_to', redirectUri);
+    }
     if (state) goTrueUrl.searchParams.set('state', state);
 
     // Forward any OAuth params from the original authorize request
@@ -458,55 +458,130 @@ export const publicCustomUiRoutes = new Elysia({ prefix: '/v1/public/custom-ui' 
     detail: { summary: 'Serve custom UI assets for hosted sign-in page', tags: ['Public', 'Custom UI Assets'] },
   });
 
+function oauthBearerToken(headers: Record<string, string | undefined>) {
+  return headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1] || null;
+}
+
+async function getGoTrueAuthorization(authorizationId: string, accessToken: string) {
+  return fetchGoTrueJson(`/oauth/authorizations/${authorizationId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
+async function submitGoTrueConsent(
+  authorizationId: string,
+  accessToken: string,
+  action: 'approve' | 'deny',
+) {
+  return fetchGoTrueJson(`/oauth/authorizations/${authorizationId}/consent`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ action }),
+  });
+}
+
+function goTrueOAuthPayload(
+  result: Awaited<ReturnType<typeof fetchGoTrueJson>>,
+  set: { status?: number | string },
+) {
+  if (!result.response.ok) set.status = result.response.status;
+  return result.payload || {};
+}
+
+function consentDecisionContext(payload: Record<string, unknown> | null) {
+  const client = payload?.client as Record<string, unknown> | undefined;
+  const user = payload?.user as Record<string, unknown> | undefined;
+  if (typeof client?.id !== 'string' || typeof user?.id !== 'string') {
+    throw new ApiContractError(
+      502,
+      'invalid_upstream_response',
+      'GoTrue authorization details omitted the client or user identifier',
+    );
+  }
+  return {
+    applicationId: client.id,
+    userId: user.id,
+    requestedScopes: typeof payload?.scope === 'string'
+      ? payload.scope.split(/\s+/).filter(Boolean)
+      : [],
+  };
+}
+
+async function completeGoTrueConsent(
+  authorizationId: string,
+  accessToken: string,
+  action: 'approve' | 'deny',
+) {
+  const authorization = await getGoTrueAuthorization(authorizationId, accessToken);
+  if (!authorization.response.ok || typeof authorization.payload?.redirect_url === 'string') {
+    return authorization;
+  }
+  const decisionContext = consentDecisionContext(authorization.payload);
+  const consent = await submitGoTrueConsent(authorizationId, accessToken, action);
+  if (consent.response.ok) {
+    await recordConsentDecision(authorizationId, action, decisionContext);
+  }
+  return consent;
+}
+
+async function recordConsentDecision(
+  authorizationId: string,
+  action: 'approve' | 'deny',
+  context: ReturnType<typeof consentDecisionContext>,
+) {
+  const decision = action === 'approve' ? 'approved' : 'denied';
+  await consentRepo.recordOAuthConsentDecision({ authorizationId, ...context, decision });
+  await auditRepo.logAudit({
+    eventType: `oauth_consent.${decision}`,
+    actorId: context.userId,
+    actorType: 'user',
+    resourceType: 'application',
+    resourceId: context.applicationId,
+    details: { authorization_id: authorizationId, requested_scopes: context.requestedScopes },
+  });
+}
+
 export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
-  .post('/authorizations/:authorizationId/approve', async ({ headers, params, set }) => {
-    const authorizationHeader = headers.authorization || '';
-    const match = authorizationHeader.match(/^Bearer\s+(.+)$/i);
-    if (!match) {
+  .get('/authorizations/:authorizationId', async ({ headers, params, set }) => {
+    const accessToken = oauthBearerToken(headers);
+    if (!accessToken) {
       set.status = 401;
       return { error: 'missing_bearer_token' };
     }
-
-    const accessToken = match[1];
-    let userResult: Awaited<ReturnType<typeof fetchGoTrueJson>>;
     try {
-      userResult = await fetchGoTrueJson('/user', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      return goTrueOAuthPayload(
+        await getGoTrueAuthorization(params.authorizationId, accessToken),
+        set,
+      );
     } catch (error) {
       set.status = 502;
       return {
-        error: 'gotrue_user_lookup_failed',
-        error_description: error instanceof Error ? error.message : 'GoTrue user lookup failed',
+        error: 'gotrue_authorization_lookup_failed',
+        error_description: error instanceof Error ? error.message : 'GoTrue authorization lookup failed',
       };
     }
-    const userRes = userResult.response;
-    if (!userRes.ok) {
+  }, {
+    detail: { summary: 'Get authoritative GoTrue OAuth authorization details', tags: ['Public', 'Consent'] },
+  })
+  .post('/authorizations/:authorizationId/consent', async ({ headers, params, body, set }) => {
+    const accessToken = oauthBearerToken(headers);
+    if (!accessToken) {
       set.status = 401;
-      return { error: 'invalid_bearer_token' };
+      return { error: 'missing_bearer_token' };
     }
-    const user = userResult.payload as { id?: string } | null;
-    if (!user?.id) {
-      set.status = 401;
-      return { error: 'invalid_user' };
+    const action = (body as { action?: unknown } | null)?.action;
+    if (action !== 'approve' && action !== 'deny') {
+      set.status = 400;
+      return { error: 'validation_failed', message: "action must be 'approve' or 'deny'" };
     }
-
-    const bound = await sieRepo.bindAuthorizationToUser(params.authorizationId, user.id);
-    if (!bound) {
-      set.status = 404;
-      return { error: 'authorization_not_found' };
-    }
-
-    let consentResult: Awaited<ReturnType<typeof fetchGoTrueJson>>;
     try {
-      consentResult = await fetchGoTrueJson(`/oauth/authorizations/${params.authorizationId}/consent`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action: 'approve' }),
-      });
+      return goTrueOAuthPayload(
+        await completeGoTrueConsent(params.authorizationId, accessToken, action),
+        set,
+      );
     } catch (error) {
       set.status = 502;
       return {
@@ -514,28 +589,61 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
         error_description: error instanceof Error ? error.message : 'GoTrue consent approval failed',
       };
     }
-    const consentRes = consentResult.response;
-    const payload = consentResult.payload || {};
-    if (!consentRes.ok) {
-      set.status = consentRes.status;
-      return payload;
-    }
-    return payload;
   }, {
-    detail: { summary: 'Approve hosted OAuth authorization after SupaOAuth login', tags: ['Public', 'Consent'] },
+    detail: { summary: 'Submit an authoritative GoTrue OAuth consent decision', tags: ['Public', 'Consent'] },
   });
 
 export const authConfigRoutes = new Elysia({ prefix: '/v1/auth-config' })
-  .get('/', async () => adapter.getAuthConfig(), {
+  .get('/', async () => withoutSecrets(await adapter.getAuthConfig()), {
     detail: { summary: 'Get auth configuration (GoTrue)', tags: ['Auth Config'] },
   })
   .get('/runtime-consistency', async () => getAuthConfigRuntimeConsistency(), {
     detail: { summary: 'Compare desired auth config with GoTrue runtime settings', tags: ['Auth Config'] },
   })
   .patch('/', async ({ body }) => {
-    const updated = await adapter.updateAuthConfig(body as Record<string, unknown>);
+    const requested = authConfigPatch(body);
+    await adapter.updateAuthConfig(requested);
+    const updated = await adapter.getAuthConfig() as Record<string, unknown>;
+    assertAuthConfigReadBack(requested, updated);
     await audit('auth_config.update', 'auth_config', config.projectRef);
-    return updated;
+    return withoutSecrets(updated);
   }, {
     detail: { summary: 'Update auth configuration (GoTrue)', tags: ['Auth Config'] },
   });
+
+const GOTRUE_PASSWORD_CHARACTER_POLICIES = new Set([
+  '',
+  'abcdefghijklmnopqrstuvwxyz:ABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789',
+  "abcdefghijklmnopqrstuvwxyz:ABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789:!@#$%^&*()_+-=[]{};'\\:\"|<>?,./`~",
+]);
+
+function authConfigPatch(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiContractError(400, 'invalid_auth_config', 'Auth configuration must be an object');
+  }
+  const requested = body as Record<string, unknown>;
+  if (containsSecret(requested)) {
+    throw new ApiContractError(400, 'secret_not_allowed', 'Use a secret-backed typed configuration endpoint for auth secrets');
+  }
+  const minimumLength = requested.password_min_length;
+  if (minimumLength !== undefined && (!Number.isInteger(minimumLength) || Number(minimumLength) < 6 || Number(minimumLength) > 128)) {
+    throw new ApiContractError(400, 'invalid_password_policy', 'password_min_length must be an integer from 6 to 128');
+  }
+  const requiredCharacters = requested.password_required_characters;
+  if (requiredCharacters !== undefined && (typeof requiredCharacters !== 'string' || !GOTRUE_PASSWORD_CHARACTER_POLICIES.has(requiredCharacters))) {
+    throw new ApiContractError(400, 'invalid_password_policy', 'password_required_characters cannot be represented exactly by GoTrue');
+  }
+  return requested;
+}
+
+function assertAuthConfigReadBack(requested: Record<string, unknown>, runtime: Record<string, unknown>) {
+  const mismatched = Object.entries(requested)
+    .filter(([key]) => key === 'password_min_length' || key === 'password_required_characters')
+    .filter(([key, value]) => runtime[key] !== value)
+    .map(([key]) => key);
+  if (mismatched.length > 0) {
+    throw new ApiContractError(502, 'runtime_config_mismatch', 'GoTrue auth configuration read-back did not match the requested policy', {
+      fields: mismatched,
+    });
+  }
+}

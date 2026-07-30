@@ -31,6 +31,7 @@ describe('account password self-service', () => {
     }, {
       fetchImpl: fetchImpl as typeof fetch,
       runtimeBaseUrls: ['https://auth.example.test'],
+      auditImpl: async () => {},
     });
 
     expect(result).toEqual({ ok: true, userId: 'user-1' });
@@ -38,6 +39,25 @@ describe('account password self-service', () => {
       'https://auth.example.test/auth/v1/token?grant_type=password',
       'https://auth.example.test/auth/v1/user',
     ]);
+  });
+
+  test('does not misclassify or swallow an audit failure after GoTrue updates the password', async () => {
+    const fetchImpl = async (url: string | URL | Request) => {
+      if (String(url).includes('/token?grant_type=password')) {
+        return Response.json({ access_token: 'user-access-token', user: { id: 'user-1' } });
+      }
+      return Response.json({ id: 'user-1' });
+    };
+
+    await expect(changePasswordWithGoTrue({
+      email: 'user@example.test',
+      currentPassword: 'OldPass123!',
+      newPassword: 'NewPass123!',
+    }, {
+      fetchImpl: fetchImpl as typeof fetch,
+      runtimeBaseUrls: ['https://auth.example.test'],
+      auditImpl: async () => { throw new Error('audit unavailable'); },
+    })).rejects.toThrow('audit unavailable');
   });
 
   test('does not update password when current password is invalid', async () => {

@@ -22,27 +22,36 @@ describe('SupaCloudAdapter contract', () => {
   it('has all required methods', () => {
     const adapter = new SupaCloudAdapter();
     const requiredMethods = [
-      'getProject', 'getAuthConfig', 'updateAuthConfig',
+      'getProject', 'getCapabilities', 'getAuthConfig', 'updateAuthConfig',
       'getOAuthServerStatus', 'listOAuthClients', 'createOAuthClient',
       'getOAuthClient', 'updateOAuthClient', 'deleteOAuthClient',
       'regenerateClientSecret', 'listProviders', 'getProvider',
-      'updateProvider', 'listUsers', 'getUser', 'deleteUser', 'updateUser',
-      'listUserSessions', 'recordUserSession', 'revokeUserSession',
+      'updateProvider', 'testProvider', 'listUsers', 'createUser', 'getUser', 'deleteUser', 'updateUser',
+      'listUserSessions', 'revokeUserSession',
       'getUserRoleAssignments', 'resolveUserPermissions',
-      'listUserPasskeys', 'registerUserPasskey', 'renamePasskey', 'revokePasskey',
+      'listUserOrganizations', 'listUserOAuthGrants', 'revokeUserOAuthGrant',
+      'listApplicationOAuthGrants',
       'listOrganizations', 'createOrganization', 'getOrganization',
       'updateOrganization', 'deleteOrganization', 'addOrganizationMember',
       'removeOrganizationMember', 'updateOrganizationMember',
+      'listOrganizationMembers',
       'getOrgRoleAssignments', 'listOrganizationInvitations',
-      'createOrganizationInvitation', 'updateOrganizationInvitationStatus',
-      'getOrganizationJitSettings', 'updateOrganizationJitSettings',
-      'listOrganizationApplications', 'updateOrganizationApplication',
-      'deleteOrganizationApplication', 'listRoles', 'createRole', 'getRole',
+      'createOrganizationInvitation', 'acceptOrganizationInvitation', 'revokeOrganizationInvitation',
+      'getOrganizationJitSettings', 'updateOrganizationJitSettings', 'reconcileOrganizationJitMemberships',
+      'listOrganizationApplications', 'bindOrganizationApplication',
+      'deleteOrganizationApplication', 'getOrganizationBranding', 'updateOrganizationBranding',
+      'listRoles', 'createRole', 'getRole',
       'updateRole', 'deleteRole', 'listRolePermissions', 'createPermission',
       'deletePermission', 'assignRole', 'listRoleAssignments', 'revokeRole',
+      'listApplicationRoleAssignments', 'listApplicationOrganizations',
       'queryAuditLogs', 'getAuditLog', 'recordAuditEvent', 'listWebhooks', 'createWebhook',
+      'exportAuditLogs', 'getAuditExport', 'downloadAuditExport', 'getAuditIntegrity',
       'getWebhook', 'updateWebhook', 'deleteWebhook', 'rotateWebhookSecret',
-      'listWebhookLogs', 'testWebhook', 'replayWebhook', 'enqueueWebhookEvent',
+      'listWebhookLogs', 'testWebhook', 'enqueueWebhookEvent',
+      'listWebhookDeliveries', 'getWebhookDelivery', 'replayWebhookDelivery',
+      'listTenantMembers', 'updateTenantMember', 'removeTenantMember',
+      'listTenantInvitations', 'createTenantInvitation', 'verifySignupInvitation',
+      'getAuthHookStatus', 'verifyAuthHook', 'verifyAuthHookMessage',
       'listStorageBuckets', 'getStorageBucket', 'createStorageBucket',
       'deleteStorageBucket', 'uploadFile', 'deleteFile', 'createSignedUrl', 'getPublicUrl',
       'verifyGatewayRoutes', 'getProjectRef', 'getTargetInfo',
@@ -63,7 +72,99 @@ describe('SupaCloudAdapter contract', () => {
     expect(adapter).toBeDefined();
   });
 
-  it('encodes OAuth client and secret path segments', async () => {
+  it('uses canonical organization mutation paths and payloads', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ path: string; method: string; body: string | null; authorization: string | null }> = [];
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        path: new URL(url).pathname,
+        method: init?.method || 'GET',
+        body: typeof init?.body === 'string' ? init.body : null,
+        authorization: new Headers(init?.headers).get('authorization'),
+      });
+      return Promise.resolve(Response.json({ ok: true }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.updateOrganizationMember('org/one', 'user/one', { role: 'admin' });
+      await adapter.acceptOrganizationInvitation(
+        'org/one',
+        'invite/one',
+        { token: 'token-one' },
+        'bearer gotrue-user-token',
+      );
+      await adapter.revokeOrganizationInvitation('org/one', 'invite/one');
+      await adapter.updateOrganizationJitSettings('org/one', { enabled: true, domains: ['example.test'] });
+      await adapter.reconcileOrganizationJitMemberships('user-one');
+      await adapter.bindOrganizationApplication('org/one', 'app/one');
+
+      expect(calls.map(call => [call.method, call.path, call.body])).toEqual([
+        ['PATCH', '/v1/projects/test-ref/organizations/org%2Fone/members/user%2Fone', '{"role":"admin"}'],
+        ['POST', '/v1/projects/test-ref/organizations/org%2Fone/invitations/invite%2Fone/accept', '{"token":"token-one"}'],
+        ['DELETE', '/v1/projects/test-ref/organizations/org%2Fone/invitations/invite%2Fone', null],
+        ['PUT', '/v1/projects/test-ref/organizations/org%2Fone/jit', '{"enabled":true,"domains":["example.test"]}'],
+        ['POST', '/v1/projects/test-ref/organizations/jit/reconcile', '{"user_id":"user-one"}'],
+        ['POST', '/v1/projects/test-ref/organizations/org%2Fone/applications', '{"application_id":"app/one"}'],
+      ]);
+      expect(calls[1]?.authorization).toBe('Bearer gotrue-user-token');
+      expect(calls[1]?.authorization).not.toBe('Bearer test-token');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('rejects invitation acceptance without a user bearer before calling SupaCloud', async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = mock(() => {
+      calls += 1;
+      return Promise.resolve(Response.json({ ok: true }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await expect(adapter.acceptOrganizationInvitation(
+        'org-one',
+        'invite-one',
+        { token: 'token-one' },
+        'Bearer token with spaces',
+      )).rejects.toThrow('GoTrue user bearer token');
+      expect(calls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('keeps audit downloads on the BFF and proxies file headers', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url).pathname;
+      if (path.endsWith('/download')) {
+        return Promise.resolve(new Response('{"event":"one"}\n', {
+          headers: { 'content-type': 'application/x-ndjson', 'content-disposition': 'attachment; filename="audit.jsonl"' },
+        }));
+      }
+      return Promise.resolve(Response.json({ id: 'export-one', status: 'completed', download_url: '/v1/projects/test-ref/audit/exports/export-one/download' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      const created = await adapter.exportAuditLogs({}) as Record<string, unknown>;
+      const status = await adapter.getAuditExport('export-one') as Record<string, unknown>;
+      const download = await adapter.downloadAuditExport('export-one');
+
+      expect(created.download_url).toBe('/v1/audit/export/export-one/download');
+      expect(status.download_url).toBe('/v1/audit/export/export-one/download');
+      expect(download.headers.get('content-disposition')).toContain('audit.jsonl');
+      expect(await download.text()).toBe('{"event":"one"}\n');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('encodes OAuth client path segments', async () => {
     const originalFetch = globalThis.fetch;
     const urls: string[] = [];
     globalThis.fetch = mock((input: string | URL | Request) => {
@@ -75,11 +176,9 @@ describe('SupaCloudAdapter contract', () => {
     try {
       const adapter = new SupaCloudAdapter();
       await adapter.getOAuthClient('../../config/auth');
-      await adapter.disableClientSecret('client/one', 'secret/two');
 
       expect(urls[0]).toContain('/auth/oauth-clients/..%2F..%2Fconfig%2Fauth');
       expect(urls[0]).not.toContain('/projects/test-ref/config/auth');
-      expect(urls[1]).toContain('/auth/oauth-clients/client%2Fone/secrets/secret%2Ftwo/disable');
     } finally {
       globalThis.fetch = originalFetch;
     }

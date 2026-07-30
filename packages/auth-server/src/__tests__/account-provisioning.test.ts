@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 import {
   createPublicAccountClaimRoutes,
   mergeUserPayload,
+  resolveAccountClaimPasswordProjectRefs,
   resolveProvisioningInitialPassword,
   sanitizeAccountClaimConfig,
 } from '../routes/account-provisioning.js';
@@ -84,6 +85,19 @@ describe('account provisioning and claiming', () => {
       password: { mode: 'show_initial_password', min_length: 6 },
       phrases: {},
     });
+  });
+
+  test('resolves password update target projects for external hosted auth', () => {
+    expect(resolveAccountClaimPasswordProjectRefs({
+      projectRef: 'business-project',
+      oauthAuthorizationProjectRef: 'central-auth-project',
+      extraProjectRefs: 'central-auth-project, backup-auth-project, ',
+    })).toEqual(['business-project', 'central-auth-project', 'backup-auth-project']);
+
+    expect(resolveAccountClaimPasswordProjectRefs({
+      projectRef: 'same-project',
+      oauthAuthorizationProjectRef: 'same-project',
+    })).toEqual(['same-project']);
   });
 
   test('public claim config route exposes sanitized configuration', async () => {
@@ -184,6 +198,43 @@ describe('account provisioning and claiming', () => {
     expect(typeof receivedInput?.updatePassword).toBe('function');
   });
 
+  test('public claim route rejects repeat claims after a password was set on claim', async () => {
+    const app = new Elysia().use(createPublicAccountClaimRoutes({
+      getConfig: async () => sanitizeAccountClaimConfig({
+        value: { password: { mode: 'set_on_claim', min_length: 8 } },
+      }),
+      claimAccount: async () => ({
+        status: 'already_claimed',
+        email: 'zhangsan@example.com',
+        claimedAt: new Date('2026-06-09T00:00:00.000Z'),
+      }),
+    }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        display_name: '张三',
+        external_id: '10086',
+        external_type: 'employee',
+        new_password: 'NewPass123!',
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toEqual({
+      success: false,
+      error: {
+        code: 'account_already_claimed',
+        message: 'Account has already been claimed.',
+      },
+    });
+    expect(body.email).toBeUndefined();
+    expect(body.initial_password).toBeUndefined();
+    expect(body.password_set).toBeUndefined();
+  });
+
   test('public claim route does not return password after it was claimed', async () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({}),
@@ -262,7 +313,7 @@ describe('account provisioning and claiming', () => {
     expect(password).toBeUndefined();
   });
 
-  test('existing user updates can reset the password while preserving metadata', () => {
+  test('existing user updates preserve profile metadata without rewriting authorization metadata', () => {
     const payload = mergeUserPayload({
       email: 'old@example.com',
       user_metadata: { locale: 'zh-CN' },
@@ -286,14 +337,6 @@ describe('account provisioning and claiming', () => {
       full_name: '张三',
       department: 'Engineering',
     });
-    expect(payload.app_metadata).toMatchObject({
-      role: 'authenticated',
-      supaoauth: {
-        existing: true,
-        employee_id: '10086',
-        external_id: '10086',
-        external_type: 'employee',
-      },
-    });
+    expect(payload).not.toHaveProperty('app_metadata');
   });
 });

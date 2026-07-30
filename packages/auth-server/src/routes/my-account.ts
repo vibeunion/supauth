@@ -1,90 +1,20 @@
-// User self-service account center routes. The runtime user/session source is
-// GoTrue via SupaCloud; SupaOAuth keeps consent overlay and audit state.
-
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
-import * as consentRepo from '../repositories/consents.js';
-import * as auditRepo from '../repositories/audit.js';
-import { sanitizeSelfProfileUpdatePayload, userUpdateFailureBody } from './user-update-policy.js';
+import { capabilityUnavailable } from '../utils/api-contract.js';
 
-const adapter = getSupaCloudAdapter();
-
-function currentUserId(headers: Record<string, string | undefined>) {
-  return headers['x-supaoauth-user-id'] || headers['x-user-id'] || null;
+function legacyAccountRouteUnavailable(): never {
+  throw capabilityUnavailable(
+    'gotrue_bearer_account_self_service',
+    'Use the Bearer-authenticated /v1/public/account endpoints for account self-service.',
+  );
 }
 
-async function audit(eventType: string, userId: string, details?: Record<string, unknown>) {
-  try {
-    await auditRepo.logAudit({ eventType, actorId: userId, actorType: 'user', resourceType: 'user', resourceId: userId, details });
-  } catch {}
-}
-
-function toListResponse(value: unknown) {
-  if (Array.isArray(value)) return { items: value, total: value.length };
-  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
-    const items = (value as { items: unknown[]; total?: unknown }).items;
-    return { items, total: typeof (value as { total?: unknown }).total === 'number' ? (value as { total: number }).total : items.length };
-  }
-  return { items: [], total: 0 };
-}
+const hiddenRoute = { detail: { hide: true } };
 
 export const myAccountRoutes = new Elysia({ prefix: '/v1/my-account' })
-  .derive(({ headers }) => {
-    const userId = currentUserId(headers);
-    return { currentUserId: userId };
-  })
-  .get('/profile', async ({ currentUserId }) => {
-    if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    return adapter.getUser(currentUserId);
-  }, {
-    detail: { summary: 'Get current account profile', tags: ['Account Center'] },
-  })
-  .patch('/profile', async ({ currentUserId, body, set }) => {
-    if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    const payload = sanitizeSelfProfileUpdatePayload(body);
-    if (!payload.ok) {
-      set.status = payload.status;
-      return userUpdateFailureBody(payload);
-    }
-
-    const result = await adapter.updateUser(currentUserId, payload.data);
-    await audit('my_account.profile.updated', currentUserId);
-    return result;
-  }, {
-    detail: { summary: 'Update current account profile', tags: ['Account Center'] },
-  })
-  .get('/sessions', async ({ currentUserId }) => {
-    if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    return toListResponse(await adapter.listUserSessions(currentUserId));
-  }, {
-    detail: { summary: 'List current account sessions', tags: ['Account Center'] },
-  })
-  .post('/sessions/:sessionId/revoke', async ({ currentUserId, params }) => {
-    if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    return adapter.revokeUserSession(currentUserId, params.sessionId);
-  }, {
-    detail: { summary: 'Revoke current account session', tags: ['Account Center'] },
-  })
-  .delete('/identities/:identityId', async ({ currentUserId, params }) => {
-    if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    const result = await adapter.unlinkUserIdentity(currentUserId, params.identityId);
-    await audit('my_account.identity.unlinked', currentUserId, { identity_id: params.identityId });
-    return result;
-  }, {
-    detail: { summary: 'Unlink current account identity', tags: ['Account Center'] },
-  })
-  .get('/grants', async ({ currentUserId }) => {
-    if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    const items = await consentRepo.listUserConsents(currentUserId);
-    return { items, total: items.length };
-  }, {
-    detail: { summary: 'List current account OAuth grants', tags: ['Account Center'] },
-  })
-  .delete('/grants/:consentId', async ({ currentUserId, params }) => {
-    if (!currentUserId) return new Response('Missing account user id', { status: 401 });
-    const result = await consentRepo.revokeConsent(params.consentId);
-    await audit('my_account.grant.revoked', currentUserId, { consent_id: params.consentId });
-    return result;
-  }, {
-    detail: { summary: 'Revoke current account OAuth grant', tags: ['Account Center'] },
-  });
+  .get('/profile', legacyAccountRouteUnavailable, hiddenRoute)
+  .patch('/profile', legacyAccountRouteUnavailable, hiddenRoute)
+  .get('/sessions', legacyAccountRouteUnavailable, hiddenRoute)
+  .post('/sessions/:sessionId/revoke', legacyAccountRouteUnavailable, hiddenRoute)
+  .delete('/identities/:identityId', legacyAccountRouteUnavailable, hiddenRoute)
+  .get('/grants', legacyAccountRouteUnavailable, hiddenRoute)
+  .delete('/grants/:clientId', legacyAccountRouteUnavailable, hiddenRoute);

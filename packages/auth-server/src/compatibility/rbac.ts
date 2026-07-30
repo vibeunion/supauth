@@ -4,7 +4,6 @@
 // required install-time secret.
 
 import { getDiscovery } from '../runtime/index.js';
-import { getConfig } from '../config/index.js';
 
 // ─── RBAC-specific compatibility checks ────────────────────────────────
 
@@ -17,8 +16,6 @@ export interface RBACCheckResult {
 
 export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
   const results: RBACCheckResult[] = [];
-  const config = getConfig();
-
   // RB-4: Check JWT role claim is not used for business RBAC
   try {
     const disc = await getDiscovery();
@@ -26,21 +23,12 @@ export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
     const idTokenAlgs = discObj.id_token_signing_alg_values_supported as string[];
     const defaultAlg = idTokenAlgs?.[0];
 
-    if (config.runtimeMode === 'gotrue') {
-      results.push({
-        check_id: 'rb-4-gotrue-jwt-role-safe',
-        status: 'pass',
-        message: `In gotrue mode, JWT role claim remains a Supabase runtime role ('anon'/'authenticated'/'service_role'). SupaOAuth does not write business roles into the top-level role claim.`,
-        details: { runtime_mode: 'gotrue', signing_alg: defaultAlg || 'unknown' },
-      });
-    } else {
-      results.push({
-        check_id: 'rb-4-external-oidc-role-claim',
-        status: 'warn',
-        message: 'In external_oidc mode, JWT may contain externally issued claims. Verify that business roles preserve the app_metadata.supaoauth shape and never replace the top-level Supabase role claim.',
-        details: { runtime_mode: 'external_oidc', expected_namespace: 'app_metadata.supaoauth' },
-      });
-    }
+    results.push({
+      check_id: 'rb-4-gotrue-jwt-role-safe',
+      status: 'pass',
+      message: `In gotrue mode, JWT role claim remains a Supabase runtime role ('anon'/'authenticated'/'service_role'). SupaOAuth does not write business roles into the top-level role claim.`,
+      details: { runtime_mode: 'gotrue', signing_alg: defaultAlg || 'unknown' },
+    });
   } catch {
     results.push({
       check_id: 'rb-4-jwt-role-check',

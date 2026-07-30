@@ -6,32 +6,54 @@ import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import {
   mergeAdminUserAppMetadata,
+  sanitizeAdminUserCreatePayload,
   sanitizeAdminUserUpdatePayload,
   userUpdateFailureBody,
 } from './user-update-policy.js';
+import { capabilityUnavailable, cursorResponse, pagedResponse } from '../utils/api-contract.js';
+import { withoutSecrets } from '../utils/secrets.js';
 
 const adapter = getSupaCloudAdapter();
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
-  try { await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details }); } catch {}
+  await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
 async function fireWebhook(eventType: string, data: Record<string, unknown>) {
-  try { await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data)); } catch {}
+  await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data));
 }
 
-function toListResponse(value: unknown) {
-  if (Array.isArray(value)) return { items: value, total: value.length };
-  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown }).items)) {
-    const items = (value as { items: unknown[]; total?: unknown }).items;
-    return { items, total: typeof (value as { total?: unknown }).total === 'number' ? (value as { total: number }).total : items.length };
-  }
-  return { items: [], total: 0 };
+function gotrueGrantPage(upstream: unknown) {
+  const page = pagedResponse<Record<string, unknown>>(upstream);
+  return { ...page, items: page.items.map((grant) => ({ ...grant, source: 'gotrue' })) };
 }
 
 export const userRoutes = new Elysia({ prefix: '/v1/users' })
-  .get('/', async () => adapter.listUsers(), {
+  .get('/', async ({ query }) => {
+    const pagination = { page: query.page, limit: query.limit };
+    const users = await adapter.listUsers({
+      page: query.page,
+      limit: query.limit,
+      search: query.search,
+      email: query.email,
+    });
+    return pagedResponse(users, pagination);
+  }, {
     detail: { summary: 'List users', tags: ['Users'] },
+  })
+  .post('/', async ({ body, set }) => {
+    const payload = sanitizeAdminUserCreatePayload(body);
+    if (!payload.ok) {
+      set.status = payload.status;
+      return userUpdateFailureBody(payload);
+    }
+    const created = await adapter.createUser(payload.data);
+    const userId = String((created as Record<string, unknown>).id || '');
+    await audit('user.create', 'user', userId);
+    await fireWebhook('user.created', { user_id: userId });
+    return withoutSecrets(created);
+  }, {
+    detail: { summary: 'Create a GoTrue user through SupaCloud', tags: ['Users'] },
   })
   .get('/:userId', async ({ params }) => adapter.getUser(params.userId), {
     detail: { summary: 'Get user by ID', tags: ['Users'] },
@@ -76,28 +98,25 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
   }, {
     detail: { summary: 'Delete user', tags: ['Users'] },
   })
-  .get('/:userId/sessions', async ({ params }) => {
-    return toListResponse(await adapter.listUserSessions(params.userId));
+  .get('/:userId/sessions', async () => {
+    throw capabilityUnavailable('gotrue_admin_user_sessions');
   }, {
-    detail: { summary: 'List tracked account-center sessions for user', tags: ['Users', 'Account Center'] },
+    detail: { hide: true },
   })
-  .post('/:userId/sessions', async ({ params, body }) => {
-    const data = body as { session_id: string; metadata?: Record<string, unknown> };
-    return adapter.recordUserSession(params.userId, data as Record<string, unknown>);
+  .post('/:userId/sessions', async () => {
+    throw capabilityUnavailable('gotrue_admin_user_sessions');
   }, {
-    detail: { summary: 'Record account-center session metadata', tags: ['Users', 'Account Center'] },
+    detail: { hide: true },
   })
-  .post('/:userId/sessions/:sessionId/revoke', async ({ params }) => {
-    return adapter.revokeUserSession(params.userId, params.sessionId);
+  .post('/:userId/sessions/:sessionId/revoke', async () => {
+    throw capabilityUnavailable('gotrue_admin_user_sessions');
   }, {
-    detail: { summary: 'Revoke user session', tags: ['Users', 'Account Center'] },
+    detail: { hide: true },
   })
-  .delete('/:userId/identities/:identityId', async ({ params }) => {
-    const result = await adapter.unlinkUserIdentity(params.userId, params.identityId);
-    await audit('user.identity.unlink', 'user', params.userId, { identity_id: params.identityId });
-    return result;
+  .delete('/:userId/identities/:identityId', async () => {
+    throw capabilityUnavailable('gotrue_admin_identity_unlink');
   }, {
-    detail: { summary: 'Unlink user social or SSO identity', tags: ['Users', 'Account Center'] },
+    detail: { hide: true },
   })
   .post('/:userId/mfa/:factorId/reset', async ({ params }) => {
     const result = await adapter.resetUserMfa(params.userId, params.factorId);
@@ -114,7 +133,37 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
     detail: { summary: 'Resolve effective permissions for a user', tags: ['Users', 'RBAC'] },
   })
   .get('/:userId/roles', async ({ params, query }) => {
-    return toListResponse(await adapter.getUserRoleAssignments(params.userId, query.application_id as string | undefined));
+    const applicationId = query.application_id as string | undefined;
+    return pagedResponse(await adapter.getUserRoleAssignments(params.userId, applicationId));
   }, {
     detail: { summary: 'Get role assignments for a user', tags: ['Users', 'RBAC'] },
+  })
+  .get('/:userId/logs', async ({ params, query }) => {
+    const logs = await adapter.queryAuditLogs({
+      resource_type: 'user',
+      resource_id: params.userId,
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return cursorResponse(logs, { limit: query.limit });
+  }, {
+    detail: { summary: 'List audit logs for a user', tags: ['Users', 'Audit'] },
+  })
+  .get('/:userId/organizations', async ({ params }) => {
+    return pagedResponse(await adapter.listUserOrganizations(params.userId));
+  }, {
+    detail: { summary: 'List business organizations for a user', tags: ['Users', 'Organizations'] },
+  })
+  .get('/:userId/grants', async ({ params, query }) => {
+    const grants = await adapter.listUserOAuthGrants(params.userId, {
+      include_revoked: query.include_revoked,
+    });
+    return gotrueGrantPage(grants);
+  }, {
+    detail: { summary: 'List authoritative GoTrue OAuth grants for a user', tags: ['Users', 'OAuth'] },
+  })
+  .delete('/:userId/grants/:clientId', async () => {
+    throw capabilityUnavailable('gotrue_admin_oauth_grants');
+  }, {
+    detail: { hide: true },
   });

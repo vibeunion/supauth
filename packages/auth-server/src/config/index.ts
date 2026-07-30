@@ -6,24 +6,21 @@ export interface ServerConfig {
   nodeEnv: string;
   supacloudApiUrl: string;
   supacloudMasterToken: string;
+  supaoauthBffSigningSecret: string;
   projectRef: string;
   oauthAuthorizationProjectRef: string;
   oauthRuntimeUrl: string;
   oauthRuntimeInternalUrl: string;
   publicBaseUrl: string;
   trustProxyHeaders: boolean;
-  runtimeMode: 'gotrue' | 'external_oidc';
+  /** The only supported auth runtime. GoTrue owns users, sessions and tokens. */
+  runtimeMode: 'gotrue';
   databaseUrl: string;
   corsOrigins: string[];
   logLevel: 'debug' | 'info' | 'warn' | 'error';
-  // OIDC Provider (external_oidc mode only)
-  oidcIssuer: string;
-  oidcSigningKeyPath: string;
-  oidcRsaSigningKeyPath: string;
-  oidcSessionTtlSec: number;
-  oidcCodeTtlSec: number;
-  oidcRefreshTokenTtlSec: number;
 }
+
+const MIN_BFF_SIGNING_SECRET_LENGTH = 32;
 
 let _config: ServerConfig | null = null;
 
@@ -53,6 +50,11 @@ function isHttpUrl(value: string) {
 export function loadConfig(): ServerConfig {
   const runtimeUrl = env('OAUTH_RUNTIME_URL', 'SUPACLOUD_RUNTIME_URL', 'SUPABASE_URL');
 
+  const configuredRuntimeMode = process.env.RUNTIME_MODE?.trim();
+  if (configuredRuntimeMode && configuredRuntimeMode !== 'gotrue') {
+    throw new Error('RUNTIME_MODE must be "gotrue"; external OIDC runtimes are not supported');
+  }
+
   _config = {
     port: parseInt(process.env.PORT || '4010', 10),
     host: process.env.HOST || '0.0.0.0',
@@ -64,32 +66,41 @@ export function loadConfig(): ServerConfig {
       'SUPACLOUD_INTERNAL_SUPABASE_URL',
     ),
     supacloudMasterToken: env('SUPACLOUD_MASTER_TOKEN', 'SUPACLOUD_INTERNAL_TOKEN', 'SUPACLOUD_SERVICE_TOKEN'),
+    supaoauthBffSigningSecret: env('SUPAOAUTH_BFF_SIGNING_SECRET'),
     projectRef: env('PROJECT_REF', 'SUPACLOUD_PROJECT_REF', 'SUPABASE_PROJECT_REF'),
     oauthAuthorizationProjectRef: env(
+      'SUPACLOUD_AUTH_AUTHORITY_REF',
       'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF',
       'OAUTH_AUTHORIZATION_PROJECT_REF',
       'GOTRUE_AUTHORIZATION_PROJECT_REF',
     ),
     oauthRuntimeUrl: runtimeUrl,
-    oauthRuntimeInternalUrl: env('SUPACLOUD_RUNTIME_INTERNAL_URL', 'OAUTH_RUNTIME_INTERNAL_URL', 'GOTRUE_INTERNAL_URL') || runtimeUrl,
+    // OAuth 专用内部地址必须优先，避免遗留的 SupaCloud 地址把已更新的 GoTrue 运行地址覆盖。
+    oauthRuntimeInternalUrl: env('OAUTH_RUNTIME_INTERNAL_URL', 'SUPACLOUD_RUNTIME_INTERNAL_URL', 'GOTRUE_INTERNAL_URL') || runtimeUrl,
     publicBaseUrl: env('SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL', 'OAUTH_PUBLIC_BASE_URL'),
     trustProxyHeaders: booleanEnv('TRUST_PROXY_HEADERS'),
-    runtimeMode: (process.env.RUNTIME_MODE as ServerConfig['runtimeMode']) || 'gotrue',
+    runtimeMode: 'gotrue',
     databaseUrl: env('SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL', 'DATABASE_URL'),
     corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173').split(','),
     logLevel: (process.env.LOG_LEVEL as ServerConfig['logLevel']) || 'info',
-    oidcIssuer: process.env.OAUTH_ISSUER || '',
-    oidcSigningKeyPath: process.env.OIDC_SIGNING_KEY_PATH || '',
-    oidcRsaSigningKeyPath: process.env.OIDC_RSA_SIGNING_KEY_PATH || '',
-    oidcSessionTtlSec: parseInt(process.env.OIDC_SESSION_TTL_SEC || '1209600', 10), // 14 days
-    oidcCodeTtlSec: parseInt(process.env.OIDC_CODE_TTL_SEC || '300', 10), // 5 min
-    oidcRefreshTokenTtlSec: parseInt(process.env.OIDC_REFRESH_TOKEN_TTL_SEC || '2592000', 10), // 30 days
   };
   return _config;
 }
 
 export function getConfig(): ServerConfig {
   return _config ?? loadConfig();
+}
+
+export function validateBffSigningSecret(config: Pick<ServerConfig, 'supaoauthBffSigningSecret' | 'supacloudMasterToken'>): string | undefined {
+  const secret = config.supaoauthBffSigningSecret;
+  if (!secret) return 'SUPAOAUTH_BFF_SIGNING_SECRET is required';
+  if (secret.length < MIN_BFF_SIGNING_SECRET_LENGTH) {
+    return 'SUPAOAUTH_BFF_SIGNING_SECRET must be at least 32 characters';
+  }
+  if (secret === config.supacloudMasterToken) {
+    return 'SUPAOAUTH_BFF_SIGNING_SECRET must be independent from the SupaCloud token';
+  }
+  return undefined;
 }
 
 export function validateConfig(config: ServerConfig): string[] {
@@ -107,14 +118,10 @@ export function validateConfig(config: ServerConfig): string[] {
     errors.push('SUPAUTH_PUBLIC_URL or AUTH_PUBLIC_URL is required when NODE_ENV=production');
   }
   if (!config.databaseUrl) errors.push('DATABASE_URL or SUPACLOUD_DATABASE_URL is required');
-  if (!['gotrue', 'external_oidc'].includes(config.runtimeMode)) {
-    errors.push('RUNTIME_MODE must be "gotrue" or "external_oidc"');
-  }
-  if (config.runtimeMode === 'external_oidc') {
-    if (!config.oidcIssuer) errors.push('OAUTH_ISSUER is required in external_oidc mode');
-    if (!config.oidcSigningKeyPath && !config.oidcRsaSigningKeyPath) {
-      errors.push('OIDC_SIGNING_KEY_PATH or OIDC_RSA_SIGNING_KEY_PATH is required in external_oidc mode');
-    }
+  const bffSigningSecretError = validateBffSigningSecret(config);
+  if (bffSigningSecretError) errors.push(bffSigningSecretError);
+  if (config.runtimeMode !== 'gotrue') {
+    errors.push('RUNTIME_MODE must be "gotrue"; external OIDC runtimes are not supported');
   }
   return errors;
 }

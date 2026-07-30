@@ -214,19 +214,3 @@ describe('Supabase Compatibility Inspector', () => {
     expect(checkIds).not.toContain('rb-7-unsafe-rls-patterns');
   });
 });
-
-describe('SC-5 external_oidc signing check — contract verification', () => {
-  it('asymmetric signing algorithms are correctly identified', () => {
-    const asymmetricAlgs = ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512', 'PS256', 'PS384', 'PS512'];
-    expect(asymmetricAlgs).toContain('ES256');
-    expect(asymmetricAlgs).toContain('RS256');
-    expect(asymmetricAlgs).not.toContain('HS256');
-  });
-
-  it('symmetric algorithms are not in the asymmetric list', () => {
-    const asymmetricAlgs = ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512', 'PS256', 'PS384', 'PS512'];
-    expect(asymmetricAlgs).not.toContain('HS256');
-    expect(asymmetricAlgs).not.toContain('HS384');
-    expect(asymmetricAlgs).not.toContain('HS512');
-  });
-});

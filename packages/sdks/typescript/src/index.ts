@@ -18,6 +18,7 @@ import type {
   AuditLogEntry,
   Webhook,
   RuntimeMode,
+  CapabilitiesResponse,
   CompatibilityCheckResult,
 } from '@supauth/shared';
 
@@ -25,6 +26,15 @@ import type {
 interface ListResponse<T> {
   items: T[];
   total: number;
+  page?: number;
+  limit?: number;
+}
+
+interface CursorListResponse<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  next_cursor: string | null;
 }
 
 interface HealthResponse {
@@ -146,22 +156,6 @@ interface WebhookDeliveryLog {
   [key: string]: unknown;
 }
 
-interface UserConsent {
-  id: string;
-  userId?: string;
-  user_id?: string;
-  applicationId?: string;
-  application_id?: string;
-  scopeId?: string | null;
-  scope_id?: string | null;
-  organizationId?: string | null;
-  organization_id?: string | null;
-  grantedAt?: string;
-  granted_at?: string;
-  revokedAt?: string | null;
-  revoked_at?: string | null;
-}
-
 interface OrganizationTemplate {
   id: string;
   name: string;
@@ -198,32 +192,6 @@ interface EnterpriseSSOConfig {
   role_mapping?: Record<string, string>;
 }
 
-interface Passkey {
-  id: string;
-  userId?: string;
-  user_id?: string;
-  credentialId?: string;
-  credential_id?: string;
-  name?: string | null;
-  createdAt?: string;
-  created_at?: string;
-  lastUsedAt?: string | null;
-  last_used_at?: string | null;
-}
-
-interface ApplicationSecret {
-  id: string;
-  applicationId?: string;
-  application_id?: string;
-  secretId?: string;
-  secret_id?: string;
-  name: string;
-  status: string;
-  expiresAt?: string | null;
-  expires_at?: string | null;
-  secret?: string;
-}
-
 interface ApplicationConsentSettings {
   user_scopes?: string[];
   organization_scopes?: string[];
@@ -243,10 +211,8 @@ interface OrganizationInvitation {
 }
 
 interface OrganizationJitSettings {
-  email_domains?: string[];
-  sso_connector_ids?: string[];
-  default_role_ids?: string[];
   enabled: boolean;
+  domains: string[];
 }
 
 interface ConnectorFactory {
@@ -273,9 +239,9 @@ interface TenantConfig {
 interface AuthHookRegistrationGuide {
   before_user_created: string;
   custom_access_token: string;
-  mfa_verification_attempt: string;
-  secret_header: string;
-  required_env: string;
+  protocol: 'standard-webhooks-v1';
+  required_headers: string[];
+  secret_format: string;
 }
 
 // ─── RLS Migration Assistant types ──────────────────────
@@ -395,7 +361,7 @@ export class SupaOAuthClient {
     this.accessToken = token;
   }
 
-  private async request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  private requestHeaders(options: RequestInit): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string>),
@@ -403,13 +369,26 @@ export class SupaOAuthClient {
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
-    const res = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
+    return headers;
+  }
+
+  private async response(path: string, options: RequestInit = {}): Promise<Response> {
+    const res = await fetch(`${this.baseUrl}${path}`, { ...options, headers: this.requestHeaders(options) });
     if (!res.ok) {
       const body = await res.text();
       throw new SupaOAuthAPIError(res.status, body, path);
     }
+    return res;
+  }
+
+  private async request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+    const res = await this.response(path, options);
     if (res.status === 204) return null as T;
     return res.json() as Promise<T>;
+  }
+
+  private async requestBlob(path: string): Promise<Blob> {
+    return (await this.response(path)).blob();
   }
 
   // ─── Health / Project ─────────────────────────────────
@@ -419,6 +398,10 @@ export class SupaOAuthClient {
 
   getProject() {
     return this.request<ProjectResponse>('/v1/project');
+  }
+
+  getCapabilities() {
+    return this.request<CapabilitiesResponse>('/v1/capabilities');
   }
 
   // ─── Runtime ──────────────────────────────────────────
@@ -472,25 +455,6 @@ export class SupaOAuthClient {
     );
   }
 
-  listApplicationSecrets(appId: string) {
-    return this.request<ListResponse<ApplicationSecret>>(`/v1/applications/${appId}/secrets`);
-  }
-
-  createApplicationSecret(appId: string, data: { name?: string; expires_at?: string }) {
-    return this.request<ApplicationSecret & { secret: string }>(`/v1/applications/${appId}/secrets`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  disableApplicationSecret(appId: string, secretId: string) {
-    return this.request<ApplicationSecret>(`/v1/applications/${appId}/secrets/${secretId}/disable`, { method: 'POST' });
-  }
-
-  deleteApplicationSecret(appId: string, secretId: string) {
-    return this.request<ApplicationSecret>(`/v1/applications/${appId}/secrets/${secretId}`, { method: 'DELETE' });
-  }
-
   getApplicationConsentSettings(appId: string) {
     return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/consent`);
   }
@@ -535,6 +499,32 @@ export class SupaOAuthClient {
 
   listApplicationScopes(appId: string) {
     return this.request<ListResponse<Scope>>(`/v1/applications/${appId}/scopes`);
+  }
+
+  listApplicationRoles(appId: string) {
+    return this.request<ListResponse<RoleAssignment>>(`/v1/applications/${appId}/roles`);
+  }
+
+  listApplicationLogs(appId: string, params: { limit?: number; cursor?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.cursor) query.set('cursor', params.cursor);
+    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/applications/${appId}/logs${query.toString() ? `?${query}` : ''}`);
+  }
+
+  listApplicationOrganizations(appId: string) {
+    return this.request<ListResponse<Organization>>(`/v1/applications/${appId}/organizations`);
+  }
+
+  getApplicationAccessControl(appId: string) {
+    return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/access-control`);
+  }
+
+  updateApplicationAccessControl(appId: string, data: ApplicationConsentSettings) {
+    return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/access-control`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   // ─── Connectors ───────────────────────────────────────
@@ -622,13 +612,43 @@ export class SupaOAuthClient {
     });
   }
 
+  updateScope(resourceId: string, scopeId: string, data: { name?: string; description?: string }) {
+    return this.request<Scope>(`/v1/resources/${resourceId}/scopes/${scopeId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   removeScope(resourceId: string, scopeId: string) {
     return this.request<void>(`/v1/resources/${resourceId}/scopes/${scopeId}`, { method: 'DELETE' });
   }
 
+  listResourceApplications(resourceId: string) {
+    return this.request<ListResponse<ApplicationBinding>>(`/v1/resources/${resourceId}/applications`);
+  }
+
   // ─── Users ────────────────────────────────────────────
-  listUsers() {
-    return this.request<unknown[]>('/v1/users');
+  listUsers(params: { page?: number; limit?: number; search?: string; email?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.search) query.set('search', params.search);
+    if (params.email) query.set('email', params.email);
+    return this.request<ListResponse<unknown>>(`/v1/users${query.toString() ? `?${query}` : ''}`);
+  }
+
+  createUser(data: {
+    email?: string;
+    phone?: string;
+    password?: string;
+    email_confirm?: boolean;
+    phone_confirm?: boolean;
+    user_metadata?: Record<string, unknown>;
+  }) {
+    return this.request<unknown>('/v1/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 
   getUser(userId: string) {
@@ -653,55 +673,19 @@ export class SupaOAuthClient {
     return this.request<void>(`/v1/users/${userId}`, { method: 'DELETE' });
   }
 
-  listUserSessions(userId: string) {
-    return this.request<ListResponse<unknown>>(`/v1/users/${userId}/sessions`);
-  }
-
-  revokeUserSession(userId: string, sessionId: string) {
-    return this.request<unknown>(`/v1/users/${userId}/sessions/${sessionId}/revoke`, { method: 'POST' });
-  }
-
-  unlinkUserIdentity(userId: string, identityId: string) {
-    return this.request<unknown>(`/v1/users/${userId}/identities/${identityId}`, { method: 'DELETE' });
-  }
-
   resetUserMfa(userId: string, factorId: string) {
     return this.request<unknown>(`/v1/users/${userId}/mfa/${factorId}/reset`, { method: 'POST' });
   }
 
-  // ─── Account Center ───────────────────────────────────
-  getMyAccountProfile(userId: string) {
-    return this.request<unknown>('/v1/my-account/profile', { headers: { 'x-supaoauth-user-id': userId } });
+  listUserLogs(userId: string, params: { limit?: number; cursor?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.cursor) query.set('cursor', params.cursor);
+    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/users/${userId}/logs${query.toString() ? `?${query}` : ''}`);
   }
 
-  updateMyAccountProfile(userId: string, data: Record<string, unknown>) {
-    return this.request<unknown>('/v1/my-account/profile', {
-      method: 'PATCH',
-      headers: { 'x-supaoauth-user-id': userId },
-      body: JSON.stringify(data),
-    });
-  }
-
-  listMyAccountSessions(userId: string) {
-    return this.request<ListResponse<unknown>>('/v1/my-account/sessions', { headers: { 'x-supaoauth-user-id': userId } });
-  }
-
-  revokeMyAccountSession(userId: string, sessionId: string) {
-    return this.request<unknown>(`/v1/my-account/sessions/${sessionId}/revoke`, {
-      method: 'POST',
-      headers: { 'x-supaoauth-user-id': userId },
-    });
-  }
-
-  listMyAccountGrants(userId: string) {
-    return this.request<ListResponse<UserConsent>>('/v1/my-account/grants', { headers: { 'x-supaoauth-user-id': userId } });
-  }
-
-  revokeMyAccountGrant(userId: string, consentId: string) {
-    return this.request<UserConsent>(`/v1/my-account/grants/${consentId}`, {
-      method: 'DELETE',
-      headers: { 'x-supaoauth-user-id': userId },
-    });
+  listUserOrganizations(userId: string) {
+    return this.request<ListResponse<Organization>>(`/v1/users/${userId}/organizations`);
   }
 
   getUserPermissions(userId: string, orgId?: string) {
@@ -714,8 +698,13 @@ export class SupaOAuthClient {
   }
 
   // ─── Organizations ────────────────────────────────────
-  listOrganizations() {
-    return this.request<ListResponse<Organization>>('/v1/organizations');
+  listOrganizations(params: { page?: number; limit?: number; search?: string; application_id?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.search) query.set('search', params.search);
+    if (params.application_id) query.set('application_id', params.application_id);
+    return this.request<ListResponse<Organization>>(`/v1/organizations${query.toString() ? `?${query}` : ''}`);
   }
 
   createOrganization(data: { name: string; description?: string }) {
@@ -747,6 +736,14 @@ export class SupaOAuthClient {
     });
   }
 
+  listOrganizationMembers(orgId: string, params: { page?: number; limit?: number; search?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.search) query.set('search', params.search);
+    return this.request<ListResponse<OrganizationMember>>(`/v1/organizations/${orgId}/members${query.toString() ? `?${query}` : ''}`);
+  }
+
   removeOrganizationMember(orgId: string, userId: string) {
     return this.request<void>(`/v1/organizations/${orgId}/members/${userId}`, { method: 'DELETE' });
   }
@@ -762,24 +759,29 @@ export class SupaOAuthClient {
     return this.request<ListResponse<OrganizationInvitation>>(`/v1/organizations/${orgId}/invitations`);
   }
 
-  createOrganizationInvitation(orgId: string, data: { email: string; role?: string; expires_at?: string }) {
+  createOrganizationInvitation(orgId: string, data: { email: string; role?: string; ttl_hours?: number }) {
     return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  updateOrganizationInvitationStatus(orgId: string, invitationId: string, action: 'accepted' | 'revoked' | 'expired') {
-    return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations/${invitationId}/${action}`, {
+  acceptOrganizationInvitation(orgId: string, invitationId: string, data: { token: string }) {
+    return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations/${invitationId}/accept`, {
       method: 'POST',
+      body: JSON.stringify(data),
     });
+  }
+
+  revokeOrganizationInvitation(orgId: string, invitationId: string) {
+    return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations/${invitationId}`, { method: 'DELETE' });
   }
 
   getOrganizationJitSettings(orgId: string) {
     return this.request<OrganizationJitSettings>(`/v1/organizations/${orgId}/jit`);
   }
 
-  updateOrganizationJitSettings(orgId: string, data: Partial<OrganizationJitSettings>) {
+  updateOrganizationJitSettings(orgId: string, data: OrganizationJitSettings) {
     return this.request<OrganizationJitSettings>(`/v1/organizations/${orgId}/jit`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -790,15 +792,26 @@ export class SupaOAuthClient {
     return this.request<ListResponse<unknown>>(`/v1/organizations/${orgId}/applications`);
   }
 
-  upsertOrganizationApplication(orgId: string, appId: string, data: { role_ids?: string[]; enabled?: boolean }) {
+  bindOrganizationApplication(orgId: string, appId: string) {
     return this.request<unknown>(`/v1/organizations/${orgId}/applications/${appId}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: '{}',
     });
   }
 
   removeOrganizationApplication(orgId: string, appId: string) {
     return this.request<unknown>(`/v1/organizations/${orgId}/applications/${appId}`, { method: 'DELETE' });
+  }
+
+  getOrganizationBranding(orgId: string) {
+    return this.request<Record<string, unknown>>(`/v1/organizations/${orgId}/branding`);
+  }
+
+  updateOrganizationBranding(orgId: string, data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>(`/v1/organizations/${orgId}/branding`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   // ─── Roles ────────────────────────────────────────────
@@ -945,9 +958,57 @@ export class SupaOAuthClient {
   }
 
   // ─── Auth Hooks ───────────────────────────────────────
-  getAuthHookRegistrationGuide(hookSecret: string) {
-    return this.request<AuthHookRegistrationGuide>('/v1/auth-hooks/registration-guide', {
-      headers: { 'x-supaoauth-hook-secret': hookSecret },
+  getAuthHookRegistrationGuide() {
+    return this.request<AuthHookRegistrationGuide>('/v1/auth-hooks/registration-guide');
+  }
+
+  getAuthHookStatus() {
+    return this.request<Record<string, unknown>>('/v1/auth-hooks/custom-access-token/status');
+  }
+
+  verifyAuthHook() {
+    return this.request<Record<string, unknown>>('/v1/auth-hooks/custom-access-token/verify', { method: 'POST' });
+  }
+
+  getBeforeUserCreatedHookStatus() {
+    return this.request<Record<string, unknown>>('/v1/auth-hooks/before-user-created/status');
+  }
+
+  verifyBeforeUserCreatedHook() {
+    return this.request<Record<string, unknown>>('/v1/auth-hooks/before-user-created/verify', { method: 'POST' });
+  }
+
+  listTenantMembers(params: { page?: number; limit?: number; search?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.search) query.set('search', params.search);
+    return this.request<ListResponse<Record<string, unknown>>>(`/v1/tenant/members${query.toString() ? `?${query}` : ''}`);
+  }
+
+  updateTenantMember(memberId: string, data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>(`/v1/tenant/members/${memberId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  removeTenantMember(memberId: string) {
+    return this.request<void>(`/v1/tenant/members/${memberId}`, { method: 'DELETE' });
+  }
+
+  listTenantInvitations(params: { page?: number; limit?: number; status?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.status) query.set('status', params.status);
+    return this.request<ListResponse<Record<string, unknown>>>(`/v1/tenant/invitations${query.toString() ? `?${query}` : ''}`);
+  }
+
+  createTenantInvitation(data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('/v1/tenant/invitations', {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 
@@ -979,7 +1040,7 @@ export class SupaOAuthClient {
   }
 
   rotateWebhookSecret(webhookId: string) {
-    return this.request<Webhook & { secret: string }>(`/v1/webhooks/${webhookId}/rotate-secret`, {
+    return this.request<Webhook>(`/v1/webhooks/${webhookId}/rotate-secret`, {
       method: 'POST',
     });
   }
@@ -989,22 +1050,33 @@ export class SupaOAuthClient {
     return this.request<ListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${webhookId}/logs${qs}`);
   }
 
-  testWebhook(webhookId: string, data?: { event?: string; payload?: Record<string, unknown> }) {
+  testWebhook(webhookId: string) {
     return this.request<{ ok: boolean; status?: number; error?: string }>(`/v1/webhooks/${webhookId}/test`, {
       method: 'POST',
-      body: JSON.stringify(data || {}),
-    });
-  }
-
-  replayWebhook(webhookId: string, data: { event: string; payload?: Record<string, unknown> }) {
-    return this.request<{ ok: boolean; status?: number; error?: string }>(`/v1/webhooks/${webhookId}/replay`, {
-      method: 'POST',
-      body: JSON.stringify(data),
+      body: '{}',
     });
   }
 
   listWebhookEvents() {
     return this.request<WebhookEventList>('/v1/webhooks/events');
+  }
+
+  listWebhookDeliveries(webhookId: string, params: { limit?: number; cursor?: string; status?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.cursor) query.set('cursor', params.cursor);
+    if (params.status) query.set('status', params.status);
+    return this.request<CursorListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${webhookId}/deliveries${query.toString() ? `?${query}` : ''}`);
+  }
+
+  getWebhookDelivery(webhookId: string, deliveryId: string) {
+    return this.request<WebhookDeliveryLog>(`/v1/webhooks/${webhookId}/deliveries/${deliveryId}`);
+  }
+
+  replayWebhookDelivery(webhookId: string, deliveryId: string) {
+    return this.request<WebhookDeliveryLog>(`/v1/webhooks/${webhookId}/deliveries/${deliveryId}/replay`, {
+      method: 'POST',
+    });
   }
 
   // ─── Metadata sync ────────────────────────────────────
@@ -1030,6 +1102,7 @@ export class SupaOAuthClient {
     offset?: number;
     from?: string;
     to?: string;
+    cursor?: string;
   }) {
     const qs = new URLSearchParams();
     if (params?.event_type) qs.set('event_type', params.event_type);
@@ -1040,8 +1113,32 @@ export class SupaOAuthClient {
     if (params?.offset) qs.set('offset', String(params.offset));
     if (params?.from) qs.set('from', params.from);
     if (params?.to) qs.set('to', params.to);
+    if (params?.cursor) qs.set('cursor', params.cursor);
     const query = qs.toString();
-    return this.request<ListResponse<AuditLogEntry>>(`/v1/audit${query ? `?${query}` : ''}`);
+    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/audit${query ? `?${query}` : ''}`);
+  }
+
+  getAuditLog(logId: string) {
+    return this.request<AuditLogEntry>(`/v1/audit/${logId}`);
+  }
+
+  createAuditExport(params: Record<string, unknown> = {}) {
+    return this.request<Record<string, unknown>>('/v1/audit/export', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  getAuditExport(exportId: string) {
+    return this.request<Record<string, unknown>>(`/v1/audit/export/${exportId}`);
+  }
+
+  getAuditExportDownload(exportId: string) {
+    return this.requestBlob(`/v1/audit/export/${exportId}/download`);
+  }
+
+  getAuditIntegrity() {
+    return this.request<Record<string, unknown>>('/v1/audit/integrity');
   }
 
   // ─── RLS Migration Assistant ──────────────────────────
@@ -1065,26 +1162,6 @@ export class SupaOAuthClient {
 
   getRLSMigrationDemo() {
     return this.request<MigrationResult>('/v1/admin-tools/rls-migration/demo');
-  }
-
-  // ─── Consents ─────────────────────────────────────────
-  listUserConsents(userId: string) {
-    return this.request<ListResponse<UserConsent>>(`/v1/consents?user_id=${encodeURIComponent(userId)}`);
-  }
-
-  grantConsent(data: { user_id: string; application_id: string; scope_id?: string; organization_id?: string }) {
-    return this.request<UserConsent>('/v1/consents', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  revokeConsent(consentId: string) {
-    return this.request<UserConsent>(`/v1/consents/${consentId}`, { method: 'DELETE' });
-  }
-
-  listApplicationConsents(applicationId: string) {
-    return this.request<ListResponse<UserConsent>>(`/v1/consents/application/${applicationId}`);
   }
 
   // ─── Organization templates ───────────────────────────
@@ -1125,7 +1202,7 @@ export class SupaOAuthClient {
     return this.request<unknown>(`/v1/provisioning/${projectRef}/reconcile`, { method: 'POST' });
   }
 
-  // ─── Enterprise SSO / Passkeys ────────────────────────
+  // ─── Enterprise SSO ───────────────────────────────────
   listEnterpriseSSOConfigs() {
     return this.request<ListResponse<EnterpriseSSOConfig>>('/v1/enterprise-sso');
   }
@@ -1142,9 +1219,5 @@ export class SupaOAuthClient {
       method: 'POST',
       body: JSON.stringify(data),
     });
-  }
-
-  listUserPasskeys(userId: string) {
-    return this.request<ListResponse<Passkey>>(`/v1/passkeys/${userId}`);
   }
 }

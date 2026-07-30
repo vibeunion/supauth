@@ -1,19 +1,34 @@
 import { describe, it, expect } from 'bun:test';
+import { withRequestContext } from '../auth/request-context.js';
 
 describe('Observability — getCurrentRequestId', () => {
   it('returns undefined when no request is active', async () => {
-    // Clear any previous value
-    (globalThis as Record<string, unknown>).__currentRequestId = undefined;
     const { getCurrentRequestId } = await import('../middleware/index.js');
     expect(getCurrentRequestId()).toBeUndefined();
   });
 
-  it('returns the request ID set in globalThis', async () => {
-    (globalThis as Record<string, unknown>).__currentRequestId = 'test-req-123';
+  it('returns the request ID from async-local context', async () => {
     const { getCurrentRequestId } = await import('../middleware/index.js');
-    expect(getCurrentRequestId()).toBe('test-req-123');
-    // Clean up
-    (globalThis as Record<string, unknown>).__currentRequestId = undefined;
+    await withRequestContext({ requestId: 'test-req-123' }, async () => {
+      await Promise.resolve();
+      expect(getCurrentRequestId()).toBe('test-req-123');
+    });
+    expect(getCurrentRequestId()).toBeUndefined();
+  });
+
+  it('keeps concurrent request IDs isolated', async () => {
+    const { getCurrentRequestId } = await import('../middleware/index.js');
+    const observed = await Promise.all([
+      withRequestContext({ requestId: 'request-a' }, async () => {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        return getCurrentRequestId();
+      }),
+      withRequestContext({ requestId: 'request-b' }, async () => {
+        await Promise.resolve();
+        return getCurrentRequestId();
+      }),
+    ]);
+    expect(observed).toEqual(['request-a', 'request-b']);
   });
 });
 

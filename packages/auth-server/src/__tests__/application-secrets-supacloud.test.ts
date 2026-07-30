@@ -1,9 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
+import type { AdminPrincipal } from '../auth/admin-permissions.js';
+import { withAdminRequestContext } from '../auth/request-context.js';
 import { loadConfig } from '../config/index.js';
 
 describe('application secret lifecycle', () => {
   const originalFetch = globalThis.fetch;
+  const originalBffSigningSecret = process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
+  const bffSigningSecret = 'test-bff-signing-secret-0123456789abcdef';
+  const adminPrincipal: AdminPrincipal = {
+    id: 'application-test-admin',
+    email: 'application-test-admin@example.test',
+    name: 'Application Test Admin',
+    roles: ['admin'],
+    permissions: ['*'],
+    authorization_source: 'rbac_projection',
+  };
   const calls: Array<{ url: string; method: string; body?: string }> = [];
 
   beforeEach(() => {
@@ -12,6 +24,7 @@ describe('application secret lifecycle', () => {
     process.env.SUPACLOUD_PROJECT_REF = 'test-project';
     process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
     process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
+    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = bffSigningSecret;
     delete process.env.SUPACLOUD_API_URL;
     delete process.env.SUPACLOUD_MASTER_TOKEN;
     delete process.env.PROJECT_REF;
@@ -55,9 +68,11 @@ describe('application secret lifecycle', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    if (originalBffSigningSecret === undefined) delete process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
+    else process.env.SUPAOAUTH_BFF_SIGNING_SECRET = originalBffSigningSecret;
   });
 
-  it('proxies secret APIs to SupaCloud OAuth client management', async () => {
+  it('rejects unsupported per-client secret lifecycle operations', async () => {
     const { applicationRoutes } = await import('../routes/applications.js');
     const app = new Elysia().use(applicationRoutes);
 
@@ -74,32 +89,18 @@ describe('application secret lifecycle', () => {
       method: 'DELETE',
     }));
 
-    expect(listResponse.status).toBe(200);
-    expect(createResponse.status).toBe(200);
-    expect(disableResponse.status).toBe(200);
-    expect(deleteResponse.status).toBe(200);
-    const normalizedCalls = calls.map((call) => [
-      call.method,
-      new URL(call.url).pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}'),
-    ]);
-    expect(normalizedCalls.filter(([, path]) => path.includes('/auth/oauth-clients/'))).toEqual([
-      ['GET', '/v1/projects/{projectRef}/auth/oauth-clients/client-one/secrets'],
-      ['POST', '/v1/projects/{projectRef}/auth/oauth-clients/client-one/secrets'],
-      ['POST', '/v1/projects/{projectRef}/auth/oauth-clients/client-one/secrets/sec-one/disable'],
-      ['DELETE', '/v1/projects/{projectRef}/auth/oauth-clients/client-one/secrets/sec-one'],
-    ]);
-    expect(normalizedCalls).toContainEqual(['POST', '/v1/projects/{projectRef}/webhooks/events']);
-    expect(JSON.parse(calls[1].body || '{}')).toEqual({
-      name: 'Rotating secret',
-      expires_at: '2026-12-31T00:00:00.000Z',
-    });
+    expect([listResponse, createResponse, disableResponse, deleteResponse].map(response => response.status)).toEqual([501, 501, 501, 501]);
+    expect(calls).toHaveLength(0);
   });
 
   it('normalizes OAuth client list envelopes for the admin applications page', async () => {
     const { applicationRoutes } = await import('../routes/applications.js');
     const app = new Elysia().use(applicationRoutes);
 
-    const response = await app.handle(new Request('http://supauth.local/v1/applications'));
+    const response = await withAdminRequestContext(
+      { requestId: 'application-list-request', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/applications')),
+    );
     const payload = await response.json() as { items: Array<Record<string, unknown>>; total: number };
 
     expect(response.status).toBe(200);
@@ -118,21 +119,24 @@ describe('application secret lifecycle', () => {
     const { applicationRoutes } = await import('../routes/applications.js');
     const app = new Elysia().use(applicationRoutes);
 
-    const listResponse = await app.handle(new Request('http://supauth.local/v1/applications'));
+    const listResponse = await withAdminRequestContext(
+      { requestId: 'central-application-list-request', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/applications')),
+    );
     const secretsResponse = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets'));
 
     expect(listResponse.status).toBe(200);
-    expect(secretsResponse.status).toBe(200);
+    expect(secretsResponse.status).toBe(501);
 
     const normalizedCalls = calls.map((call) => [
       call.method,
       new URL(call.url).pathname,
     ]);
     expect(normalizedCalls).toContainEqual(['GET', '/v1/projects/central-auth-project/auth/oauth-clients']);
-    expect(normalizedCalls).toContainEqual(['GET', '/v1/projects/central-auth-project/auth/oauth-clients/client-one/secrets']);
+    expect(normalizedCalls).not.toContainEqual(['GET', '/v1/projects/central-auth-project/auth/oauth-clients/client-one/secrets']);
   });
 
-  it('treats unsupported per-client secret listing as an empty tracked-secret list', async () => {
+  it('does not convert unsupported per-client secret listing to an empty list', async () => {
     globalThis.fetch = mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url, method: 'GET' });
@@ -142,10 +146,7 @@ describe('application secret lifecycle', () => {
     const { applicationRoutes } = await import('../routes/applications.js');
     const app = new Elysia().use(applicationRoutes);
     const response = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets'));
-    const payload = await response.json() as { items: unknown[]; total: number };
-
-    expect(response.status).toBe(200);
-    expect(payload).toEqual({ items: [], total: 0 });
+    expect(response.status).toBe(501);
   });
 
   it('returns a clear not-supported response for unsupported per-client secret writes', async () => {
@@ -166,9 +167,6 @@ describe('application secret lifecycle', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Extra secret' }),
     }));
-    const payload = await response.json() as { error: string };
-
     expect(response.status).toBe(501);
-    expect(payload.error).toBe('not_supported');
   });
 });

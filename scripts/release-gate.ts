@@ -20,6 +20,7 @@ const runSupabaseRuntimeCompat = process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1'
 const runSupabaseOauth21Compat = process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
 const allowDirty = process.env.ALLOW_DIRTY_RELEASE === '1';
 const allowSkipLive = process.env.ALLOW_SKIP_LIVE_GATE === '1';
+const productionRelease = process.env.RELEASE_ENVIRONMENT === 'production';
 
 function run(command: string[], options: { env?: Record<string, string | undefined> } = {}) {
   const result = Bun.spawnSync(command, {
@@ -40,6 +41,11 @@ const commit = output(['git', 'rev-parse', 'HEAD']);
 const status = output(['git', 'status', '--short']);
 const isDirty = status.length > 0;
 
+if (productionRelease && (allowDirty || allowSkipLive)) {
+  console.error('Release gate FAILED: production releases cannot bypass dirty-worktree or live verification gates.');
+  process.exit(1);
+}
+
 if (isDirty && !allowDirty) {
   console.error('Release gate FAILED: worktree is dirty.');
   console.error('Uncommitted changes:');
@@ -56,13 +62,20 @@ if (!runLive && !allowSkipLive) {
   process.exit(1);
 }
 
+if (runLive && (!runSupabaseRuntimeCompat || !runSupabaseOauth21Compat)) {
+  console.error('Release gate FAILED: live verification requires both Supabase runtime and OAuth 2.1 compatibility suites.');
+  process.exit(1);
+}
+
 mkdirSync(artifactDir, { recursive: true });
 
 run(['bunx', 'tsc', '--noEmit']);
-run(['bun', 'test']);
+// 全仓测试会修改 process.env；按文件隔离，避免并行测试互相污染认证配置。
+run(['bun', 'test', '--isolate']);
 run(['bun', 'run', 'check']);
 run(['bun', 'run', 'build'], { env: { SUPAUTH_SUPACLOUD_ARTIFACT_DIR: artifactDir } });
 run(['bun', 'run', 'scripts/verify-supacloud-app-artifact.ts', '--artifact-dir', artifactDir]);
+run(['bun', 'run', 'scripts/verify-openapi-additive.ts', `${artifactDir}/openapi.json`]);
 
 const supacloudAppManifestHash = output(['shasum', '-a', '256', `${artifactDir}/supacloud-app-manifest.json`]).split(/\s+/)[0];
 let supacloudInstalledAppVerification: string | undefined;
@@ -80,13 +93,19 @@ if (runLive) {
       'bun',
       'test',
       'tests/integration/supabase-compat/supabase-js.test.ts',
+      'tests/integration/supabase-compat/full-stack.test.ts',
       'tests/integration/supabase-compat/supacloud-contract.test.ts',
     ], {
       env: {
         REQUIRE_SUPABASE_AUTH_COMPAT: '1',
         RUN_SUPABASE_RUNTIME_COMPAT: '1',
+        RUN_SUPABASE_FULL_STACK_COMPAT: '1',
         OAUTH_RUNTIME_URL: process.env.OAUTH_RUNTIME_URL || installedRuntimeUrl,
         MANAGEMENT_URL: process.env.MANAGEMENT_URL || `${installedBaseUrl}/api`,
+        SUPABASE_FULLSTACK_URL: process.env.SUPABASE_FULLSTACK_URL || installedRuntimeUrl,
+        SUPABASE_FULLSTACK_ANON_KEY: process.env.SUPABASE_FULLSTACK_ANON_KEY || process.env.SUPABASE_ANON_KEY,
+        SUPABASE_FULLSTACK_SERVICE_ROLE_KEY: process.env.SUPABASE_FULLSTACK_SERVICE_ROLE_KEY
+          || process.env.SUPABASE_SERVICE_ROLE_KEY,
       },
     });
   }
@@ -126,6 +145,7 @@ writeFileSync(`${artifactDir}/release-manifest.json`, JSON.stringify({
   supacloud_installed_app_verification: supacloudInstalledAppVerification,
   dirty: isDirty,
   live_gate: runLive,
+  runtime_mode: 'gotrue',
   created_at: new Date().toISOString(),
 }, null, 2));
 

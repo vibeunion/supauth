@@ -13,6 +13,15 @@ type UserUpdatePolicySuccess = {
 
 type UserUpdatePolicyResult = UserUpdatePolicySuccess | UserUpdatePolicyFailure;
 
+const ALLOWED_ADMIN_CREATE_KEYS = new Set([
+  'email',
+  'phone',
+  'password',
+  'email_confirm',
+  'phone_confirm',
+  'user_metadata',
+]);
+
 const BLOCKED_ADMIN_UPDATE_KEYS = new Set([
   'aal',
   'aud',
@@ -130,6 +139,44 @@ export function sanitizeAdminUserUpdatePayload(body: unknown): UserUpdatePolicyR
   }
 
   return { ok: true, data: { ...body } };
+}
+
+export function sanitizeAdminUserCreatePayload(body: unknown): UserUpdatePolicyResult {
+  if (!isRecord(body)) {
+    return policyFailure('invalid_user_create_payload', 'User create payload must be a JSON object.');
+  }
+  const blockedFields = blockedAdminUpdateFields(body);
+  if (isRecord(body.app_metadata)) blockedFields.push('app_metadata');
+  if (blockedFields.length > 0) {
+    return policyFailure(
+      'reserved_user_create_field',
+      'Use SupaCloud RBAC and metadata sync APIs for roles, permissions, and SupaOAuth claims.',
+      blockedFields,
+    );
+  }
+  const unsupportedFields = Object.keys(body).filter((key) => !ALLOWED_ADMIN_CREATE_KEYS.has(key));
+  if (unsupportedFields.length > 0) {
+    return policyFailure('unsupported_user_create_field', 'User create payload contains unsupported fields.', unsupportedFields);
+  }
+  if (!validCreateFieldTypes(body)) {
+    return policyFailure('invalid_user_create_payload', 'User create fields have invalid types.');
+  }
+  if (!body.email && !body.phone) {
+    return policyFailure('missing_user_identifier', 'Provide an email address or phone number.');
+  }
+  return { ok: true, data: { ...body } };
+}
+
+function validCreateFieldTypes(body: Record<string, unknown>): boolean {
+  const stringFields = ['email', 'phone', 'password'];
+  if (stringFields.some((key) => body[key] !== undefined && typeof body[key] !== 'string')) return false;
+  const booleanFields = ['email_confirm', 'phone_confirm'];
+  if (booleanFields.some((key) => body[key] !== undefined && typeof body[key] !== 'boolean')) return false;
+  return body.user_metadata === undefined || isRecord(body.user_metadata);
+}
+
+function policyFailure(code: string, message: string, fields?: string[]): UserUpdatePolicyFailure {
+  return { ok: false, status: 400, code, message, ...(fields ? { fields } : {}) };
 }
 
 export function mergeAdminUserAppMetadata(

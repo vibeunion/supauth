@@ -6,11 +6,14 @@
 
 import { Elysia } from 'elysia';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { getConfig } from '../config/index.js';
 import * as secRepo from '../repositories/security-config.js';
 import type { SecurityConfigRow } from '../repositories/security-config.js';
+import { resolveGoTrueLogoutUrl } from './gotrue-logout-url.js';
+import { principalHasAction, requiredAdminAction, type AdminPrincipal } from './admin-permissions.js';
+import { enterAdminRequestContext } from './request-context.js';
 
 // Env-var fallbacks: used before migration has run, or when DB is unreachable.
-const ENV_ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const ENV_ADMIN_AUTH_MODE = (process.env.ADMIN_AUTH_MODE || 'auto').toLowerCase();
 const ENV_SSO_ISSUER = trimTrailingSlash(process.env.ADMIN_SSO_ISSUER || '');
 const ENV_SSO_CLIENT_ID = process.env.ADMIN_SSO_CLIENT_ID || '';
@@ -20,7 +23,7 @@ const ENV_SSO_AUDIENCES = resolveSsoAudiences({
   issuer: ENV_SSO_ISSUER,
 });
 const ENV_SSO_JWKS_URI = process.env.ADMIN_SSO_JWKS_URI || (ENV_SSO_ISSUER ? `${ENV_SSO_ISSUER}/.well-known/jwks.json` : '');
-const ENV_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS);
+const ENV_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS).map((email) => email.toLowerCase());
 const ENV_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((d) => d.toLowerCase());
 const ENV_RATE_LIMIT_RPM = parseInt(process.env.ADMIN_RATE_LIMIT_RPM || '300', 10);
 const ENV_MAX_LOGIN_ATTEMPTS = parseInt(process.env.ADMIN_MAX_LOGIN_ATTEMPTS || '10', 10);
@@ -28,17 +31,41 @@ const ENV_LOGIN_LOCKOUT_SEC = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '9
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const SECURITY_CONFIG_CACHE_MS = 10_000;
-// GoTrue session logout URL — used by /v1/auth/logout to also clear the GoTrue session cookie.
-// GoTrue does not advertise end_session_endpoint in OIDC discovery, but POST /auth/v1/logout
-// revokes the session and clears the httpOnly cookie on the auth domain.
-const GOTRUE_LOGOUT_URL = trimTrailingSlash(process.env.GOTRUE_LOGOUT_URL || process.env.OAUTH_RUNTIME_URL || '');
+const ADMIN_CLAIM_PROJECTION_LIMITS = { roles: 64, permissions: 256 } as const;
+const GOTRUE_LOGOUT_URL = resolveGoTrueLogoutUrl();
+const GOTRUE_LOGOUT_TIMEOUT_MS = 3_000;
 
-interface AdminSession {
+export interface AdminSession {
   id: string;
   email: string;
   name: string;
   role: string;
   authenticated: boolean;
+  roles?: string[];
+  permissions?: string[];
+  authorizationSource?: AdminPrincipal['authorization_source'];
+}
+
+interface AdminAllowlist {
+  emails: string[];
+  domains: string[];
+}
+
+type AdminBearerAccess =
+  | { status: 'authenticated'; session: AdminSession }
+  | { status: 'unauthenticated' }
+  | { status: 'forbidden' };
+
+export const ADMIN_SSO_ALLOWLIST_ERROR_CODE = 'admin_sso_allowlist_not_configured';
+export const ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE = 'Admin SSO 已启用，但管理员白名单为空；请配置 ADMIN_SSO_ALLOWED_EMAILS 或 ADMIN_SSO_ALLOWED_DOMAINS。';
+
+export function resolveSsoAllowlistConfigurationError(input: {
+  enabled: boolean;
+  emails: string[];
+  domains: string[];
+}): string | null {
+  if (!input.enabled || input.emails.length > 0 || input.domains.length > 0) return null;
+  return ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE;
 }
 
 const sessions = new Map<string, AdminSession>();
@@ -73,7 +100,7 @@ async function effectiveAdminAuthMode(): Promise<string> {
 }
 
 /** Resolve effective allowed emails/domains from DB, falling back to env. */
-async function effectiveAllowedAdmins(): Promise<{ emails: string[]; domains: string[] }> {
+async function effectiveAllowedAdmins(): Promise<AdminAllowlist> {
   const cfg = await getActiveSecurityConfig();
   if (cfg && (cfg.adminAllowedEmails.length > 0 || cfg.adminAllowedDomains.length > 0)) {
     return {
@@ -82,6 +109,13 @@ async function effectiveAllowedAdmins(): Promise<{ emails: string[]; domains: st
     };
   }
   return { emails: ENV_ALLOWED_EMAILS, domains: ENV_ALLOWED_DOMAINS };
+}
+
+async function effectiveSsoAllowlistConfigurationError(): Promise<string | null> {
+  const mode = await effectiveAdminAuthMode();
+  const enabled = mode !== 'token' && Boolean(ENV_SSO_ISSUER && ENV_SSO_CLIENT_ID && jwks);
+  const { emails, domains } = await effectiveAllowedAdmins();
+  return resolveSsoAllowlistConfigurationError({ enabled, emails, domains });
 }
 
 function generateSessionToken(): string {
@@ -132,8 +166,7 @@ export function resolveSsoAudiences(input: {
 
 function bearerToken(headers: Record<string, string | undefined>): string | null {
   const authHeader = headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  return authHeader.slice(7);
+  return authHeader?.match(/^Bearer +([^\s]+)$/i)?.[1] || null;
 }
 
 function requestIp(headers: Record<string, string | undefined>): string {
@@ -186,8 +219,10 @@ function clearLoginFailures(ip: string): void {
   loginAttempts.delete(ip);
 }
 
-function sessionFromPayload(payload: JWTPayload): AdminSession {
+export function adminSessionFromPayload(payload: JWTPayload): AdminSession {
   const email = typeof payload.email === 'string' ? payload.email : '';
+  const roles = projectedAdminClaimStrings(payload, 'roles');
+  const permissions = projectedAdminClaimStrings(payload, 'permissions');
   const name =
     (typeof payload.name === 'string' && payload.name) ||
     (typeof payload.preferred_username === 'string' && payload.preferred_username) ||
@@ -200,44 +235,197 @@ function sessionFromPayload(payload: JWTPayload): AdminSession {
     name,
     role: 'admin',
     authenticated: true,
+    roles,
+    permissions,
+    authorizationSource: hasSupaoauthNamespace(payload) ? 'rbac_projection' : 'admin_allowlist',
   };
 }
 
-async function isAllowedSsoAdmin(session: AdminSession): Promise<boolean> {
-  const { emails, domains } = await effectiveAllowedAdmins();
-  if (emails.length === 0 && domains.length === 0) return true;
-  const email = session.email.toLowerCase();
-  if (emails.includes(email)) return true;
-  const domain = email.split('@')[1] || '';
-  return domains.includes(domain);
+function hasSupaoauthNamespace(payload: JWTPayload): boolean {
+  const appMetadata = claimRecord(payload.app_metadata);
+  return Boolean(appMetadata && Object.hasOwn(appMetadata, 'supaoauth'));
 }
 
-async function verifySsoToken(token: string): Promise<AdminSession | null> {
-  const mode = await effectiveAdminAuthMode();
-  if (mode === 'token' || !ENV_SSO_ISSUER || !jwks) return null;
+function claimRecord(claim: unknown): Record<string, unknown> | null {
+  return claim && typeof claim === 'object' && !Array.isArray(claim)
+    ? claim as Record<string, unknown>
+    : null;
+}
 
+function configuredProjectProjection(payload: JWTPayload): Record<string, unknown> | null {
+  const appMetadata = claimRecord(payload.app_metadata);
+  const supaoauth = claimRecord(appMetadata?.supaoauth);
+  if (!supaoauth) return null;
+  if (supaoauth.schema_version !== 2) return null;
+  const projects = claimRecord(supaoauth.projects);
+  if (!projects) return null;
+  const projectRef = getConfig().projectRef;
+  return Object.hasOwn(projects, projectRef) ? claimRecord(projects[projectRef]) : null;
+}
+
+function boundedProjectedStrings(values: unknown, field: 'roles' | 'permissions'): string[] {
+  if (!Array.isArray(values)) return [];
+  if (!values.every((entry): entry is string => typeof entry === 'string' && entry.length > 0)) return [];
+  if (new Set(values).size !== values.length) return [];
+  return values.length <= ADMIN_CLAIM_PROJECTION_LIMITS[field] ? values : [];
+}
+
+export function projectedAdminClaimStrings(
+  payload: JWTPayload,
+  field: 'roles' | 'permissions',
+): string[] {
+  const projectProjection = configuredProjectProjection(payload);
+  if (!projectProjection) return [];
+  if (projectProjection.projection_unavailable === true) return [];
+  if (projectProjection[`${field}_truncated`] === true) return [];
+  return boundedProjectedStrings(projectProjection[field], field);
+}
+
+export function adminPrincipalFromSession(session: AdminSession): AdminPrincipal {
+  const projectedPermissions = session.permissions || [];
+  const usesRbacProjection = session.authorizationSource === 'rbac_projection';
+  return {
+    id: session.id,
+    email: session.email,
+    name: session.name,
+    roles: session.roles?.length ? session.roles : usesRbacProjection ? [] : [session.role],
+    permissions: projectedPermissions.length ? projectedPermissions : usesRbacProjection ? [] : ['*'],
+    authorization_source: session.authorizationSource || 'admin_allowlist',
+  };
+}
+
+export function resolveSsoAdminAccess(
+  session: AdminSession,
+  allowlist: AdminAllowlist,
+): AdminBearerAccess {
+  const email = session.email.toLowerCase();
+  if (allowlist.emails.includes(email)) return { status: 'authenticated', session };
+  const domain = email.split('@')[1] || '';
+  return allowlist.domains.includes(domain)
+    ? { status: 'authenticated', session }
+    : { status: 'forbidden' };
+}
+
+async function verifiedSsoPayload(token: string): Promise<JWTPayload | null> {
+  if (!ENV_SSO_ISSUER || !jwks) return null;
   try {
-    const result = await jwtVerify(token, jwks, {
+    const verified = await jwtVerify(token, jwks, {
       issuer: ENV_SSO_ISSUER,
       audience: ENV_SSO_AUDIENCES.length > 0 ? ENV_SSO_AUDIENCES : undefined,
       algorithms: ['ES256', 'RS256'],
     });
-    const session = sessionFromPayload(result.payload);
-    const allowed = await isAllowedSsoAdmin(session);
-    return allowed ? session : null;
+    return verified.payload;
   } catch {
     return null;
   }
 }
 
-export async function verifyAdminBearer(headers: Record<string, string | undefined>): Promise<AdminSession | null> {
+async function verifySsoToken(token: string): Promise<AdminBearerAccess> {
+  const mode = await effectiveAdminAuthMode();
+  if (mode === 'token') return { status: 'unauthenticated' };
+  const payload = await verifiedSsoPayload(token);
+  if (!payload) return { status: 'unauthenticated' };
+  const session = adminSessionFromPayload(payload);
+  return resolveSsoAdminAccess(session, await effectiveAllowedAdmins());
+}
+
+export interface AdminLogoutDependencies {
+  logoutUrl: string;
+  fetchImpl: typeof fetch;
+  verifyToken: (token: string) => Promise<JWTPayload | null>;
+}
+
+function logoutFailure(status: number, code: string, message: string): Response {
+  return Response.json({ success: false, error: { code, message } }, { status });
+}
+
+function upstreamLogoutUrl(logoutUrl: string): string {
+  const url = new URL(logoutUrl);
+  url.searchParams.set('scope', 'local');
+  return url.toString();
+}
+
+async function revokeGoTrueSession(
+  token: string,
+  dependencies: AdminLogoutDependencies,
+): Promise<Response> {
+  let upstream: Response;
+  try {
+    upstream = await dependencies.fetchImpl(upstreamLogoutUrl(dependencies.logoutUrl), {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(GOTRUE_LOGOUT_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const timedOut = error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name);
+    return logoutFailure(
+      timedOut ? 504 : 502,
+      timedOut ? 'gotrue_logout_timeout' : 'gotrue_logout_unavailable',
+      timedOut ? '认证服务退出请求超时。' : '认证服务当前无法完成退出。',
+    );
+  }
+  if (upstream.ok) return Response.json({ success: true, scope: 'local' });
+  const status = upstream.status === 401 || upstream.status === 403 ? upstream.status : 502;
+  return logoutFailure(status, 'gotrue_logout_rejected', `认证服务拒绝退出请求（${upstream.status}）。`);
+}
+
+export async function logoutAdminSession(
+  headers: Record<string, string | undefined>,
+  dependencies: AdminLogoutDependencies = {
+    logoutUrl: GOTRUE_LOGOUT_URL,
+    fetchImpl: globalThis.fetch,
+    verifyToken: verifiedSsoPayload,
+  },
+): Promise<Response> {
   const token = bearerToken(headers);
-  if (!token) return null;
+  if (!token) return logoutFailure(401, 'missing_bearer_token', '退出登录需要 Bearer token。');
+  if (sessions.delete(token)) return Response.json({ success: true, scope: 'local' });
+  if (!dependencies.logoutUrl) {
+    return logoutFailure(503, 'gotrue_logout_not_configured', '认证服务退出地址未配置。');
+  }
+  const payload = await dependencies.verifyToken(token);
+  if (!payload) return logoutFailure(401, 'invalid_bearer_token', 'Bearer token 无效或已过期。');
+  if (typeof payload.session_id !== 'string' || !payload.session_id) {
+    return logoutFailure(422, 'session_id_required', '当前 token 无法安全执行 local scope 退出。');
+  }
+  return revokeGoTrueSession(token, dependencies);
+}
+
+export async function verifyAdminBearer(headers: Record<string, string | undefined>): Promise<AdminBearerAccess> {
+  const token = bearerToken(headers);
+  if (!token) return { status: 'unauthenticated' };
 
   const session = sessions.get(token);
-  if (session?.authenticated) return session;
+  if (session?.authenticated) return { status: 'authenticated', session };
 
   return verifySsoToken(token);
+}
+
+function ssoConfigurationErrorResponse(message: string): Response {
+  return Response.json({
+    success: false,
+    error: {
+      code: ADMIN_SSO_ALLOWLIST_ERROR_CODE,
+      message,
+    },
+  }, { status: 503 });
+}
+
+export async function adminAuthorizationFailureResponse(
+  status: 'unauthenticated' | 'forbidden',
+): Promise<Response> {
+  const configurationError = await effectiveSsoAllowlistConfigurationError();
+  if (configurationError) return ssoConfigurationErrorResponse(configurationError);
+  if (status === 'forbidden') {
+    return Response.json({
+      success: false,
+      error: {
+        code: 'admin_access_forbidden',
+        message: '当前账号没有访问管理控制台的权限。',
+      },
+    }, { status: 403 });
+  }
+  return new Response('Unauthorized', { status: 401 });
 }
 
 function publicAdminPath(pathname: string): boolean {
@@ -251,7 +439,26 @@ function publicAdminPath(pathname: string): boolean {
 }
 
 export const adminAuthGuard = new Elysia()
-  .onBeforeHandle({ as: 'global' }, async ({ request, headers }) => {
+  .derive({ as: 'global' }, async ({ request, headers }) => {
+    const pathname = new URL(request.url).pathname;
+    const adminCorrelationId = request.headers.get('x-request-id') || generateSessionToken().slice(0, 16);
+    if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) {
+      return { adminAccess: null, adminPrincipal: null, adminCorrelationId };
+    }
+    const adminAccess = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    return {
+      adminAccess,
+      adminPrincipal: adminAccess.status === 'authenticated' ? adminPrincipalFromSession(adminAccess.session) : null,
+      adminCorrelationId,
+    };
+  })
+  .onBeforeHandle({ as: 'global' }, async ({
+    request,
+    headers,
+    adminAccess,
+    adminPrincipal,
+    adminCorrelationId,
+  }) => {
     const pathname = new URL(request.url).pathname;
     const ip = requestIp(headers as Record<string, string | undefined>);
     const allowed = await consumeRateLimit(ip);
@@ -260,11 +467,29 @@ export const adminAuthGuard = new Elysia()
     }
     if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) return;
 
-    const session = await verifyAdminBearer(headers as Record<string, string | undefined>);
-    if (!session) {
-      return new Response('Unauthorized', { status: 401 });
+    if (!adminAccess || adminAccess.status !== 'authenticated') {
+      return adminAuthorizationFailureResponse(adminAccess?.status || 'unauthenticated');
+    }
+    if (adminPrincipal) {
+      enterAdminRequestContext({ requestId: adminCorrelationId, principal: adminPrincipal });
+    }
+    const requiredAction = requiredAdminAction(request.method, pathname);
+    if (requiredAction && (!adminPrincipal || !principalHasAction(adminPrincipal, requiredAction))) {
+      return adminPermissionFailureResponse(requiredAction, adminCorrelationId);
     }
   });
+
+export function adminPermissionFailureResponse(requiredAction: string, correlationId: string): Response {
+  return Response.json({
+    success: false,
+    error: {
+      code: 'insufficient_permissions',
+      message: '当前账号没有执行此操作的权限。',
+      correlation_id: correlationId,
+      details: { required_action: requiredAction },
+    },
+  }, { status: 403 });
+}
 
 export const authRoutes = new Elysia({ prefix: '/v1/auth' })
   .post('/login', async ({ body, headers }) => {
@@ -276,7 +501,8 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
     }
 
     const tokenOk = await tokenAuthAllowed();
-    if (tokenOk && ENV_ADMIN_TOKEN && token === ENV_ADMIN_TOKEN) {
+    const adminToken = process.env.ADMIN_TOKEN || '';
+    if (tokenOk && adminToken && token === adminToken) {
       const sessionToken = generateSessionToken();
       const session: AdminSession = {
         id: 'admin',
@@ -284,6 +510,9 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
         name: 'Admin',
         role: 'admin',
         authenticated: true,
+        roles: ['admin'],
+        permissions: ['*'],
+        authorizationSource: 'development_token',
       };
       sessions.set(sessionToken, session);
       clearLoginFailures(ip);
@@ -293,52 +522,24 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
     await recordLoginFailure(ip);
     return { success: false, error: { message: await ssoMessage() || 'Invalid credentials' } };
   })
-  .post('/logout', async ({ headers, request }) => {
-    const token = bearerToken(headers as Record<string, string | undefined>);
-    // 清除 in-memory admin session（dev 模式 ADMIN_TOKEN 登录的 token）
-    if (token) sessions.delete(token);
-
-    // SSO 模式下还需要清除 GoTrue 的 session cookie。
-    // GoTrue 的 bearer token 是 JWT，不在 sessions Map 里，
-    // 但 GoTrue 域的 httpOnly session cookie 仍有效，不清除的话
-    // 下次 authorize GoTrue 会直接发 code，用户感觉"没退出"。
-    if (GOTRUE_LOGOUT_URL) {
-      try {
-        const cookie = (headers as Record<string, string | undefined>).cookie || '';
-        await fetch(`${GOTRUE_LOGOUT_URL}/auth/v1/logout`, {
-          method: 'POST',
-          headers: { cookie },
-        });
-      } catch {
-        // GoTrue 不可达时仍返回成功，前端也会直接清本地 token
-      }
-    }
-
-    // 设置 Set-Cookie 头清除浏览器侧可能残留的 SupaOAuth session cookie
-    const setCookieHeaders: string[] = [];
-
-    return new Response(JSON.stringify({ success: true }), {
-      headers: {
-        'content-type': 'application/json',
-        ...(setCookieHeaders.length ? { 'set-cookie': setCookieHeaders.join(', ') } : {}),
-      },
-    });
-  })
+  .post('/logout', ({ headers }) => (
+    logoutAdminSession(headers as Record<string, string | undefined>)
+  ))
   .get('/identity', async ({ headers }) => {
-    const session = await verifyAdminBearer(headers as Record<string, string | undefined>);
-    if (!session) {
-      return new Response('Unauthorized', { status: 401 });
-    }
+    const access = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access.status);
+    const { session } = access;
+    const principal = adminPrincipalFromSession(session);
     return {
-      id: session.id,
-      name: session.name,
-      email: session.email,
+      ...principal,
       avatar: null,
     };
   })
   .get('/health', () => ({ status: 'ok' }));
 
 async function ssoMessage(): Promise<string | null> {
+  const configurationError = await effectiveSsoAllowlistConfigurationError();
+  if (configurationError) return configurationError;
   const mode = await effectiveAdminAuthMode();
   if (mode === 'sso') return 'Password login is disabled; use SSO';
   if (process.env.NODE_ENV === 'production') return 'Token login is disabled in production; use SSO';

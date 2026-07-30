@@ -25,8 +25,8 @@ export function getDb() {
   const { url } = getConnectionConfig();
   _sql = postgres(url, {
     max: 10,
-    idle_timeout: 20_000,
-    connect_timeout: 10_000,
+    idle_timeout: 20,
+    connect_timeout: 2,
   });
   _db = drizzle(_sql, { schema });
   return _db;

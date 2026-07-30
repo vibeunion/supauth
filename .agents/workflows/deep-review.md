@@ -5,7 +5,7 @@ description: 深度审查 — 模糊或高风险请求的苏格拉底式澄清
 # Deep Review Workflow
 
 Use this when the request is broad, ambiguous, or potentially high-risk.
-Inspired by OMX's deep-interview skill — clarify before you execute.
+Clarify before you execute.
 
 ## When to Use
 - Request is vague ("improve performance", "fix this", "make it better")

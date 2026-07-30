@@ -91,6 +91,31 @@ export interface ResolveSupabaseAuthUiConfigOptions {
   redirectTo?: string;
 }
 
+export interface HostedLogoutUrlOptions {
+  supauthUrl: string;
+  clientId?: string;
+  idTokenHint?: string;
+  postLogoutRedirectUri?: string;
+  state?: string;
+}
+
+export function buildHostedLogoutUrl(options: HostedLogoutUrlOptions): string {
+  const endpoint = new URL('/logout', options.supauthUrl);
+  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+    throw new TypeError('supauthUrl must be an http(s) URL without credentials');
+  }
+  const redirectFields = [options.clientId, options.idTokenHint, options.postLogoutRedirectUri];
+  const configuredRedirectFields = redirectFields.filter(Boolean).length;
+  if (configuredRedirectFields > 0 && configuredRedirectFields !== redirectFields.length) {
+    throw new TypeError('clientId, idTokenHint, and postLogoutRedirectUri must be provided together');
+  }
+  if (options.clientId) endpoint.searchParams.set('client_id', options.clientId);
+  if (options.idTokenHint) endpoint.searchParams.set('id_token_hint', options.idTokenHint);
+  if (options.postLogoutRedirectUri) endpoint.searchParams.set('post_logout_redirect_uri', options.postLogoutRedirectUri);
+  if (options.state) endpoint.searchParams.set('state', options.state);
+  return endpoint.toString();
+}
+
 function compactStrings(values: Record<string, string | undefined>) {
   return Object.fromEntries(
     Object.entries(values).filter(([, value]) => typeof value === 'string' && value.trim()),

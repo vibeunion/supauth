@@ -2,6 +2,27 @@
 
 SupaOAuth adapter for Supabase Auth UI React and Svelte components. Bridges SupaOAuth sign-in experience configuration to `@supabase/auth-ui-react` / `@supabase/auth-ui-svelte` props.
 
+## 完整退出与切换账号
+
+业务应用退出时应先清理自己的本地会话，再让顶层窗口导航到 SupAuth 的同源 `/logout` 页面。该页面会以 `scope=local` 撤销中央 GoTrue 会话；仅清理业务应用 token 会在下次授权时自动登录回原账号。
+
+```ts
+import { buildHostedLogoutUrl } from '@supauth/sdk-auth-ui';
+
+const logoutUrl = buildHostedLogoutUrl({
+  supauthUrl: 'https://auth.example.com',
+  clientId: 'my-app',
+  idTokenHint: session.idToken,
+  postLogoutRedirectUri: 'https://app.example.com/login',
+  state: crypto.randomUUID(),
+});
+
+await clearApplicationSession();
+window.location.assign(logoutUrl);
+```
+
+`postLogoutRedirectUri` 必须与 OAuth client 登记 URI完全一致；SupAuth 会验证 `id_token_hint` 的签名、issuer、audience/azp 和 client 归属，校验失败只会回到 SupAuth 自身登录页。
+
 ## Installation
 
 ```bash

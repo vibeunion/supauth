@@ -1,8 +1,6 @@
 // Sign-in Experience repository — backed by SupaCloud Postgres
 
-import postgres from 'postgres';
 import { eq } from 'drizzle-orm';
-import { getConfig } from '../config/index.js';
 import { getDb } from '../db/index.js';
 import { applicationSignInExperience, signInExperience } from '../db/schema.js';
 
@@ -20,7 +18,6 @@ export interface SignInExperienceInput {
   };
   sign_in_methods?: string[];
   sign_up_enabled?: boolean;
-  mfa_required?: boolean;
   password_policy?: {
     min_length?: number;
     require_uppercase?: boolean;
@@ -43,19 +40,6 @@ export interface SupaCloudSignInExperienceSource {
   application?: Record<string, unknown> | null;
 }
 
-export interface OAuthAuthorizationContext {
-  authorization_id: string;
-  client_id: string;
-  redirect_uri: string;
-  scope: string | null;
-  state: string | null;
-  resource: string | null;
-  code_challenge: string | null;
-  code_challenge_method: string | null;
-  response_type: string;
-  nonce: string | null;
-}
-
 function globalToResponse(row: typeof signInExperience.$inferSelect) {
   return {
     branding: {
@@ -71,7 +55,6 @@ function globalToResponse(row: typeof signInExperience.$inferSelect) {
     },
     sign_in_methods: row.signInMethods || [],
     sign_up_enabled: row.signUpEnabled,
-    mfa_required: row.mfaRequired,
     password_policy: {
       min_length: row.passwordMinLength,
       require_uppercase: row.passwordRequireUppercase,
@@ -249,7 +232,6 @@ export async function updateSignInExperience(data: SignInExperienceInput) {
   }
   if (data.sign_in_methods !== undefined) update.signInMethods = data.sign_in_methods;
   if (data.sign_up_enabled !== undefined) update.signUpEnabled = data.sign_up_enabled;
-  if (data.mfa_required !== undefined) update.mfaRequired = data.mfa_required;
   if (data.password_policy) {
     if (data.password_policy.min_length !== undefined) update.passwordMinLength = data.password_policy.min_length;
     if (data.password_policy.require_uppercase !== undefined) update.passwordRequireUppercase = data.password_policy.require_uppercase;
@@ -343,65 +325,4 @@ export async function resolveSignInExperience(
     branding: mergeBranding(brandingWithSupaCloudDefaults, app.branding),
     application: app,
   };
-}
-
-export async function getApplicationIdForAuthorization(authorizationId: string) {
-  const authorization = await getOAuthAuthorizationContext(authorizationId);
-  return authorization?.client_id || null;
-}
-
-export function oauthAuthorizationProjectRef() {
-  const config = getConfig();
-  return config.oauthAuthorizationProjectRef || config.projectRef;
-}
-
-function oauthAuthorizationDatabaseUrl() {
-  const config = getConfig();
-  const tenantUrl = new URL(config.databaseUrl);
-  tenantUrl.pathname = `/supa_${oauthAuthorizationProjectRef()}`;
-  return tenantUrl.toString();
-}
-
-export async function getOAuthAuthorizationContext(authorizationId: string): Promise<OAuthAuthorizationContext | null> {
-  const tenantSql = postgres(oauthAuthorizationDatabaseUrl(), { max: 1 });
-  try {
-    const result = await tenantSql<OAuthAuthorizationContext[]>`
-      SELECT
-        authorization_id,
-        client_id::text AS client_id,
-        redirect_uri,
-        scope,
-        state,
-        resource,
-        code_challenge,
-        code_challenge_method,
-        response_type,
-        nonce
-      FROM auth.oauth_authorizations
-      WHERE authorization_id = ${authorizationId}
-        AND status = 'pending'
-        AND expires_at > now()
-      LIMIT 1
-    `;
-    return result[0] || null;
-  } finally {
-    await tenantSql.end();
-  }
-}
-
-export async function bindAuthorizationToUser(authorizationId: string, userId: string) {
-  const tenantSql = postgres(oauthAuthorizationDatabaseUrl(), { max: 1 });
-  try {
-    const result = await tenantSql<{ authorization_id: string }[]>`
-      UPDATE auth.oauth_authorizations
-      SET user_id = ${userId}
-      WHERE authorization_id = ${authorizationId}
-        AND status = 'pending'
-        AND expires_at > now()
-      RETURNING authorization_id
-    `;
-    return result.length > 0;
-  } finally {
-    await tenantSql.end();
-  }
 }
