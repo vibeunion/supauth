@@ -62,7 +62,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 1. 构建 SupaCloud app artifact：`bun run build`
 2. SupaCloud 读取 `artifacts/supacloud-app/supacloud-app-manifest.json`
-3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL`、`SUPAUTH_PUBLIC_URL`、`SUPACLOUD_DATABASE_URL`，以及显式的 `ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID`
+3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL`、`SUPAUTH_PUBLIC_URL`、`SUPACLOUD_DATABASE_URL`，以及显式的 `ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID`；管理员 MFA 门禁仅在服务器环境显式设置 `ADMIN_SSO_REQUIRE_AAL2=true` 时开启
 4. 安装器按 manifest 的 V1/V4/V5/V6/V7/V8/V9/V10 顺序，通过 SupaCloud Management API
    对 `SUPACLOUD_DATABASE_URL` 应用幂等 hosted migrations；禁止绕过安装器直连
    执行迁移。V9 独立撤销旧 webhook 表的 Function/PUBLIC 权限，V10 仅在
@@ -112,7 +112,7 @@ allowlist 数量；Admin 只接受精确邮箱，发现任意 domain allowlist �
 或 `VITE_*`。安装器还会从权威 SupaCloud 项目回读 Admin OAuth client，确认
 public、`token_endpoint_auth_method=none`、精确单回调和 PKCE S256。
 
-完整的 AAL2、精确邮箱、PKCE 和 break-glass 基线见
+`ADMIN_SSO_REQUIRE_AAL2` 省略、为空或 `false` 时均不要求 AAL2；其他非空非法值会阻止 Function 启动。无论该值如何，issuer、签名、audience、PKCE S256 和精确邮箱白名单都保持强制。它只能作为 Function 的服务器环境变量注入，禁止使用 `VITE_*`。完整的 AAL2、精确邮箱、PKCE 和 break-glass 基线见
 [`docs/admin-sso-security.md`](./admin-sso-security.md)。
 
 `bun run build` 是唯一构建入口。项目尚未发版，因此不保留额外兼容构建别名。

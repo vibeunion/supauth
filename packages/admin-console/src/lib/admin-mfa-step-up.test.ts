@@ -30,6 +30,18 @@ function client(overrides = {}) {
       error: null,
     })),
     mfa: {
+      enroll: mock(async () => ({
+        data: {
+          id: 'factor-enrollment',
+          type: 'totp',
+          totp: {
+            qr_code: 'data:image/svg+xml;utf-8,%3Csvg%2F%3E',
+            secret: 'must-not-reach-the-admin-ui',
+            uri: 'otpauth://totp/SupaAuth?secret=must-not-reach-the-admin-ui',
+          },
+        },
+        error: null,
+      })),
       listFactors: mock(async () => ({ data: { totp: [{ id: 'factor-1', status: 'verified', friendly_name: 'Admin key' }] }, error: null })),
       challengeAndVerify: mock(async () => ({
         data: { access_token: 'access-aal2', refresh_token: 'refresh-aal2', token_type: 'bearer', expires_at: 200 },
@@ -41,6 +53,50 @@ function client(overrides = {}) {
 }
 
 describe('admin MFA post-exchange step-up', () => {
+  test('creates TOTP enrollment from the current SSO session without exposing the secret', async () => {
+    const backing = storage();
+    const observed = createAdminSsoStorage(backing);
+    observed.setItem('actual-provider-key', JSON.stringify(session()));
+    const mfaClient = client();
+    const stepUp = new AdminMfaStepUp(
+      { getSession: mock(async () => session()) },
+      observed,
+      mfaClient,
+    );
+
+    await expect(stepUp.enroll({ friendlyName: 'Admin Console', issuer: 'SupaAuth Admin' })).resolves.toEqual({
+      factorId: 'factor-enrollment',
+      qrCode: 'data:image/svg+xml;utf-8,%3Csvg%2F%3E',
+    });
+    expect(mfaClient.mfa.enroll).toHaveBeenCalledWith({
+      factorType: 'totp',
+      friendlyName: 'Admin Console',
+      issuer: 'SupaAuth Admin',
+    });
+  });
+
+  test('fails closed when enrollment does not return a safe QR data URL', async () => {
+    const backing = storage();
+    const observed = createAdminSsoStorage(backing);
+    observed.setItem('actual-provider-key', JSON.stringify(session()));
+    const stepUp = new AdminMfaStepUp(
+      { getSession: mock(async () => session()) },
+      observed,
+      client({
+        mfa: {
+          ...client().mfa,
+          enroll: mock(async () => ({
+            data: { id: 'factor-enrollment', type: 'totp', totp: { qr_code: 'https://untrusted.example.test/qr.svg' } },
+            error: null,
+          })),
+        },
+      }),
+    );
+
+    await expect(stepUp.enroll({ friendlyName: 'Admin Console', issuer: 'SupaAuth Admin' }))
+      .rejects.toThrow('未返回安全的 TOTP 二维码');
+  });
+
   test('replaces the observed complete OAuth session atomically after TOTP verification', async () => {
     const backing = storage();
     const observed = createAdminSsoStorage(backing);

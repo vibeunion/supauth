@@ -18,6 +18,7 @@ const {
   resolveSsoAudiences,
   verifyAdminBearer,
 } = await import('../auth/index.js');
+const { parseAdminSsoRequireAal2 } = await import('../auth/admin-sso-aal2-policy.js');
 const { loadConfig } = await import('../config/index.js');
 
 describe('Auth module — exported functions', () => {
@@ -28,6 +29,7 @@ describe('Auth module — exported functions', () => {
     delete process.env.ADMIN_SSO_ISSUER;
     delete process.env.ADMIN_SSO_CLIENT_ID;
     delete process.env.ADMIN_SSO_JWKS_URI;
+    delete process.env.ADMIN_SSO_REQUIRE_AAL2;
     delete process.env.ADMIN_SSO_ALLOWED_EMAILS;
     delete process.env.ADMIN_SSO_ALLOWED_DOMAINS;
     process.env.PROJECT_REF = 'project-one';
@@ -256,6 +258,13 @@ describe('Auth module — SSO administrator allowlist', () => {
     })).toEqual({ status: 'forbidden', reason: 'admin_access_forbidden' });
   });
 
+  it('does not expose the MFA enrollment path to an AAL1 user outside the allowlist', () => {
+    expect(resolveSsoAdminAccess({ aal: 'aal1' }, verifiedSession, {
+      emails: ['admin@example.test'],
+      domains: [],
+    })).toEqual({ status: 'forbidden', reason: 'admin_access_forbidden' });
+  });
+
   it('accepts a verified user whose email is explicitly allowed', () => {
     expect(resolveSsoAdminAccess({ aal: 'aal2' }, verifiedSession, {
       emails: ['member@example.test'],
@@ -263,12 +272,31 @@ describe('Auth module — SSO administrator allowlist', () => {
     })).toEqual({ status: 'authenticated', session: verifiedSession });
   });
 
-  it('requires an exact lowercase aal2 claim before evaluating the exact email allowlist', () => {
+  it('requires an exact lowercase aal2 claim only when the server policy is explicitly enabled', () => {
     for (const aal of ['aal1', 'AAL2', undefined, 2, null]) {
       expect(resolveSsoAdminAccess({ aal }, verifiedSession, {
         emails: ['member@example.test'],
         domains: [],
-      })).toEqual({ status: 'forbidden', reason: 'admin_mfa_required' });
+      }, { requireAal2: true })).toEqual({ status: 'forbidden', reason: 'admin_mfa_required' });
+    }
+  });
+
+  it('allows an exact-email administrator at aal1 when AAL2 policy is disabled', () => {
+    expect(resolveSsoAdminAccess({ aal: 'aal1' }, verifiedSession, {
+      emails: ['member@example.test'],
+      domains: [],
+    }, { requireAal2: false })).toEqual({ status: 'authenticated', session: verifiedSession });
+  });
+
+  it('enables AAL2 only for an explicit true environment value and rejects invalid values', () => {
+    for (const value of [undefined, '', 'false', ' FALSE ']) {
+      expect(parseAdminSsoRequireAal2(value)).toBe(false);
+    }
+    for (const value of ['true', ' TRUE ']) {
+      expect(parseAdminSsoRequireAal2(value)).toBe(true);
+    }
+    for (const value of ['0', 'yes', 'invalid']) {
+      expect(() => parseAdminSsoRequireAal2(value)).toThrow('ADMIN_SSO_REQUIRE_AAL2');
     }
   });
 
@@ -307,7 +335,7 @@ describe('Auth module — SSO administrator allowlist', () => {
       error: {
         code: 'admin_mfa_required',
         required_aal: 'aal2',
-        message: '管理员必须完成双因素认证。请前往账户中心 /account 启用 GoTrue TOTP，然后重新登录管理后台。',
+        message: '管理员必须完成双因素认证。请在管理后台的 MFA 绑定页面完成 GoTrue TOTP 验证。',
       },
     });
   });

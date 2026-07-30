@@ -12,6 +12,11 @@ export interface AdminMfaStepUpState {
   factors: AdminMfaFactor[];
 }
 
+export interface AdminTotpEnrollment {
+  factorId: string;
+  qrCode: string;
+}
+
 type RefreshableSsoSession = SSOSession & { refresh_token: string };
 type ExpectedSsoSession = Pick<RefreshableSsoSession, 'access_token' | 'refresh_token'>;
 
@@ -29,6 +34,10 @@ interface GoTrueMfaClient {
     error: Error | null;
   }>;
   mfa: {
+    enroll(input: { factorType: 'totp'; friendlyName: string; issuer: string }): Promise<{
+      data: { id?: unknown; type?: unknown; totp?: { qr_code?: unknown } } | null;
+      error: Error | null;
+    }>;
     listFactors(): Promise<{
       data: { totp?: Array<{ id?: string; status?: string; friendly_name?: string | null }> } | null;
       error: Error | null;
@@ -159,6 +168,17 @@ function verifiedTotpFactors(factorPayload: Awaited<ReturnType<GoTrueMfaClient['
   ));
 }
 
+function enrollmentOrThrow(enrollment: Awaited<ReturnType<GoTrueMfaClient['mfa']['enroll']>>['data']): AdminTotpEnrollment {
+  if (!enrollment || enrollment.type !== 'totp' || typeof enrollment.id !== 'string' || !enrollment.id) {
+    throw new Error('认证服务未返回可验证的 TOTP 绑定信息。');
+  }
+  const qrCode = enrollment.totp?.qr_code;
+  if (typeof qrCode !== 'string' || !qrCode.startsWith('data:image/svg+xml;')) {
+    throw new Error('认证服务未返回安全的 TOTP 二维码，请重试。');
+  }
+  return { factorId: enrollment.id, qrCode };
+}
+
 export class AdminMfaStepUp {
   constructor(
     private readonly provider: Pick<SSOAuthProvider, 'getSession'>,
@@ -189,6 +209,17 @@ export class AdminMfaStepUp {
     const factors = await client.mfa.listFactors();
     if (factors.error) throw new Error(`无法读取 MFA 验证器：${adminAuthErrorMessage(factors.error, '请重试。')}`);
     return { factors: verifiedTotpFactors(factors.data) };
+  }
+
+  async enroll(input: { friendlyName: string; issuer: string }): Promise<AdminTotpEnrollment> {
+    const { client } = await this.mfaContext();
+    const enrollmentResponse = await client.mfa.enroll({
+      factorType: 'totp',
+      friendlyName: input.friendlyName,
+      issuer: input.issuer,
+    });
+    if (enrollmentResponse.error) throw new Error(`无法创建 MFA 绑定：${adminAuthErrorMessage(enrollmentResponse.error, '请重试。')}`);
+    return enrollmentOrThrow(enrollmentResponse.data);
   }
 
   async verify(factorId: string, code: string): Promise<void> {

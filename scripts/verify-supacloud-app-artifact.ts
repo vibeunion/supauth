@@ -17,6 +17,7 @@ const ADMIN_SSO_OPTIONAL_ENV = [
   'ADMIN_SSO_AUDIENCE',
   'ADMIN_SSO_REDIRECT_URI',
   'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+  'ADMIN_SSO_REQUIRE_AAL2',
 ];
 const ADMIN_SSO_ALLOWLIST_ENV = ['ADMIN_SSO_ALLOWED_EMAILS', 'ADMIN_SSO_ALLOWED_DOMAINS'];
 const ADMIN_SSO_GRANT_TYPES = ['authorization_code', 'refresh_token'];
@@ -215,9 +216,9 @@ function assertAdminSsoInstallContract(result: VerificationResult, manifest: Rec
     && hasExactStrings(clientContract.grant_types, ADMIN_SSO_GRANT_TYPES)
     && clientContract.pkce_code_challenge_method === 'S256'
     && clientContract.browser_client_secret === 'forbidden'
-    && clientContract.required_aal === 'aal2';
+    && clientContract.required_aal === 'aal2-when-ADMIN_SSO_REQUIRE_AAL2=true';
   if (!hasClientContract) {
-    result.errors.push('Admin SSO client contract must require management read-back, public PKCE S256, exact redirect, no secret, and aal2');
+    result.errors.push('Admin SSO client contract must require management read-back, public PKCE S256, exact redirect, no secret, and the server-controlled AAL2 policy');
   }
 }
 

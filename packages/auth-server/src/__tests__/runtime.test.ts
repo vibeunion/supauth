@@ -274,6 +274,7 @@ describe('public admin SSO config', () => {
     delete process.env.ADMIN_SSO_REDIRECT_URI;
     delete process.env.ADMIN_SSO_POST_LOGOUT_REDIRECT_URI;
     delete process.env.ADMIN_SSO_AUDIENCE;
+    delete process.env.ADMIN_SSO_REQUIRE_AAL2;
     delete process.env.ADMIN_SSO_ALLOWED_EMAILS;
     delete process.env.ADMIN_SSO_ALLOWED_DOMAINS;
     delete process.env.ADMIN_TOKEN;
@@ -295,6 +296,7 @@ describe('public admin SSO config', () => {
     expect(Object.keys(config)).not.toContain('audience');
     expect(Object.keys(config)).not.toContain('allowed_emails');
     expect(Object.keys(config)).not.toContain('allowed_domains');
+    expect(Object.keys(config)).not.toContain('require_aal2');
     expect(Object.keys(config)).not.toContain('token');
   });
 

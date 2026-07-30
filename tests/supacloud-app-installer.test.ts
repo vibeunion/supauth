@@ -7,11 +7,13 @@ import { installSupacloudApp } from '../scripts/install-supacloud-app.js';
 
 const REQUIRED_ADMIN_PAGES = ['index.html', 'authorize.html', 'claim.html', 'change-password.html', 'account.html', 'logout.html'];
 const SYSTEM_MANAGED_SECRET_PREFIXES = ['ADMIN_SSO_', 'SUPABASE_', 'SUPACLOUD_', 'SUPAOAUTH_'] as const;
+const OPERATOR_MANAGED_RUNTIME_ENV = 'ADMIN_SSO_REQUIRE_AAL2';
 
 function expectNoSystemManagedProjectSecrets(secrets: Array<{ name: string }>) {
   const reservedNames = secrets
     .map(({ name }) => name)
-    .filter((name) => SYSTEM_MANAGED_SECRET_PREFIXES.some((prefix) => name.startsWith(prefix)));
+    .filter((name) => name !== OPERATOR_MANAGED_RUNTIME_ENV
+      && SYSTEM_MANAGED_SECRET_PREFIXES.some((prefix) => name.startsWith(prefix)));
   expect(reservedNames).toEqual([]);
 }
 
@@ -102,6 +104,7 @@ const isolatedEnvKeys = [
   'ADMIN_SSO_AUDIENCE',
   'ADMIN_SSO_REDIRECT_URI',
   'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+  'ADMIN_SSO_REQUIRE_AAL2',
   'ADMIN_SSO_ALLOWED_EMAILS',
   'ADMIN_SSO_ALLOWED_DOMAINS',
 ] as const;
@@ -164,6 +167,7 @@ describe('SupaCloud app installer', () => {
       expect.objectContaining({ name: 'migration-verification', status: 'planned' }),
       expect.objectContaining({ name: 'admin-sso-allowlist-verification', status: 'planned' }),
       expect.objectContaining({ name: 'admin-sso-oauth-client-verification', status: 'planned' }),
+      expect.objectContaining({ name: 'admin-sso-aal2-policy', status: 'planned' }),
       expect.objectContaining({ name: 'runtime-env', status: 'planned' }),
       expect.objectContaining({ name: 'function-deploy', status: 'planned' }),
       expect.objectContaining({ name: 'gateway-routes', status: 'skipped' }),
@@ -229,6 +233,7 @@ describe('SupaCloud app installer', () => {
       'ADMIN_SSO_AUDIENCE=file-audience',
       'ADMIN_SSO_REDIRECT_URI=https://issuer.from-file.test/admin',
       'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI=https://issuer.from-file.test/admin/login',
+      'ADMIN_SSO_REQUIRE_AAL2=false',
       'ADMIN_SSO_ALLOWED_EMAILS=file@example.test',
     ].join('\n'));
     process.env.ADMIN_SSO_ISSUER = 'http://issuer.from-process.test';
@@ -255,8 +260,58 @@ describe('SupaCloud app installer', () => {
       },
     });
 
-    expect(seenSecrets).toEqual([]);
+    expect(seenSecrets).toEqual([{ name: 'ADMIN_SSO_REQUIRE_AAL2', value: 'false' }]);
     expectNoSystemManagedProjectSecrets(seenSecrets);
+  });
+
+  it('uses CLI AAL2 policy over an env file and injects only the normalized server value', async () => {
+    const { root, artifactDir } = createFixture();
+    const envFile = join(root, 'admin-sso.env');
+    writeFileSync(envFile, 'ADMIN_SSO_REQUIRE_AAL2=false\n');
+    const seenSecrets: Array<{ name: string; value: string }> = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      envFile,
+      ...requiredOptions,
+      adminSsoRequireAal2: 'true',
+      skipMigration: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        if (new URL(String(input)).pathname.endsWith('/secrets')) {
+          seenSecrets.push(...JSON.parse(String(init?.body)));
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    expect(result.steps).toContainEqual({
+      name: 'admin-sso-aal2-policy',
+      status: 'done',
+      detail: 'AAL2 enforcement enabled by ADMIN_SSO_REQUIRE_AAL2=true',
+    });
+    expect(seenSecrets).toEqual([{ name: 'ADMIN_SSO_REQUIRE_AAL2', value: 'true' }]);
+  });
+
+  it('rejects an invalid AAL2 policy before making install requests', async () => {
+    const { root, artifactDir } = createFixture();
+    let requested = false;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoRequireAal2: 'enabled',
+      dryRun: true,
+      fetchImpl: async () => {
+        requested = true;
+        return new Response('{}', { status: 200 });
+      },
+    })).rejects.toThrow('ADMIN_SSO_REQUIRE_AAL2');
+
+    expect(requested).toBe(false);
   });
 
   it('accepts a non-empty database allowlist when environment fallback is empty', async () => {
@@ -547,7 +602,10 @@ describe('SupaCloud app installer', () => {
         if (url.pathname === '/v1/projects/project_123/secrets') {
           const body = JSON.parse(String(init?.body));
           expectNoSystemManagedProjectSecrets(body);
-          expect(body).toEqual([{ name: 'CORS_ORIGINS', value: 'https://app.example.test' }]);
+          expect(body).toEqual([
+            { name: 'ADMIN_SSO_REQUIRE_AAL2', value: 'false' },
+            { name: 'CORS_ORIGINS', value: 'https://app.example.test' },
+          ]);
           expect(body.some((entry: { name: string }) => entry.name.startsWith('EDGEFN_'))).toBe(false);
           return new Response('{}', { status: 200 });
         }
@@ -580,6 +638,7 @@ describe('SupaCloud app installer', () => {
       'migration-verification',
       'admin-sso-allowlist-verification',
       'admin-sso-oauth-client-verification',
+      'admin-sso-aal2-policy',
       'runtime-env',
       'function-deploy',
       'gateway-routes',
@@ -796,10 +855,13 @@ describe('SupaCloud app installer', () => {
 
     expect(result.ok).toBe(true);
     expectNoSystemManagedProjectSecrets(seenSecrets);
-    expect(seenSecrets).toEqual([{
-      name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF',
-      value: 'central_idp_project',
-    }]);
+    expect(seenSecrets).toEqual([
+      { name: 'ADMIN_SSO_REQUIRE_AAL2', value: 'false' },
+      {
+        name: 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF',
+        value: 'central_idp_project',
+      },
+    ]);
   });
 
   it('prefers SupaCloud env-file values and refuses stale generic DATABASE_URL for function DB', async () => {
@@ -856,6 +918,7 @@ describe('SupaCloud app installer', () => {
       expect(verifiedDatabaseUrl).toBe('postgres://project-db');
       expectNoSystemManagedProjectSecrets(seenSecrets);
       expect(seenSecrets).toEqual([
+        { name: 'ADMIN_SSO_REQUIRE_AAL2', value: 'false' },
         { name: 'SUPAUTH_PUBLIC_URL', value: 'https://auth.from-file.test' },
         { name: 'SUPAUTH_INSTALLED_BASE_URL', value: 'https://auth.from-file.test' },
         {
@@ -933,6 +996,7 @@ describe('SupaCloud app installer', () => {
       'admin-sso-audience',
       'admin-sso-redirect-uri',
       'admin-sso-post-logout-redirect-uri',
+      'admin-sso-require-aal2',
       'admin-sso-allowed-emails',
       'admin-sso-allowed-domains',
     ]) {

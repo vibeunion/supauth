@@ -21,7 +21,7 @@ describe('admin auth check failure classification', () => {
     }))).toEqual({
       authenticated: false,
       error: {
-        message: '管理员必须完成双因素认证。请前往账户中心 /account 启用 GoTrue TOTP，然后重新登录管理后台。',
+        message: '管理员必须完成双因素认证。请在管理后台的 MFA 绑定页面完成 GoTrue TOTP 验证。',
         name: 'admin_mfa_required',
       },
     });

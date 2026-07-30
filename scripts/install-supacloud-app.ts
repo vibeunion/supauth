@@ -13,6 +13,7 @@ import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
 import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 import { verifyRbacAgainstDatabase } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 import { verifyAdminSsoAllowlist } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';
+import { parseAdminSsoRequireAal2 } from '../packages/auth-server/src/auth/admin-sso-aal2-policy.js';
 import type { RbacDbVerification } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 import type { AdminSsoAllowlistVerification } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';
 
@@ -36,6 +37,7 @@ const ADMIN_SSO_ENV = {
   audience: 'ADMIN_SSO_AUDIENCE',
   redirectUri: 'ADMIN_SSO_REDIRECT_URI',
   postLogoutRedirectUri: 'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+  requireAal2: 'ADMIN_SSO_REQUIRE_AAL2',
   allowedEmails: 'ADMIN_SSO_ALLOWED_EMAILS',
   allowedDomains: 'ADMIN_SSO_ALLOWED_DOMAINS',
 } as const;
@@ -90,6 +92,7 @@ export interface InstallSupacloudAppOptions {
   adminSsoAudience?: string;
   adminSsoRedirectUri?: string;
   adminSsoPostLogoutRedirectUri?: string;
+  adminSsoRequireAal2?: string;
   adminSsoAllowedEmails?: string;
   adminSsoAllowedDomains?: string;
   dryRun?: boolean;
@@ -128,6 +131,7 @@ interface ResolvedInstallConfig {
   adminSsoAudience: string;
   adminSsoRedirectUri: string;
   adminSsoPostLogoutRedirectUri: string;
+  adminSsoRequireAal2: string;
   adminSsoAllowedEmails: string;
   adminSsoAllowedDomains: string;
   dryRun: boolean;
@@ -238,6 +242,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     [ADMIN_SSO_ENV.audience]: options.adminSsoAudience,
     [ADMIN_SSO_ENV.redirectUri]: options.adminSsoRedirectUri,
     [ADMIN_SSO_ENV.postLogoutRedirectUri]: options.adminSsoPostLogoutRedirectUri,
+    [ADMIN_SSO_ENV.requireAal2]: options.adminSsoRequireAal2,
     [ADMIN_SSO_ENV.allowedEmails]: options.adminSsoAllowedEmails,
     [ADMIN_SSO_ENV.allowedDomains]: options.adminSsoAllowedDomains,
   };
@@ -312,6 +317,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     adminSsoAudience: firstValue(sources, [ADMIN_SSO_ENV.audience]).trim(),
     adminSsoRedirectUri: firstValue(sources, [ADMIN_SSO_ENV.redirectUri]).trim(),
     adminSsoPostLogoutRedirectUri: firstValue(sources, [ADMIN_SSO_ENV.postLogoutRedirectUri]).trim(),
+    adminSsoRequireAal2: firstValue(sources, [ADMIN_SSO_ENV.requireAal2]).trim(),
     adminSsoAllowedEmails: firstValue(sources, [ADMIN_SSO_ENV.allowedEmails]).trim(),
     adminSsoAllowedDomains: firstValue(sources, [ADMIN_SSO_ENV.allowedDomains]).trim(),
     dryRun: options.dryRun === true,
@@ -380,6 +386,7 @@ function requireConfig(config: ResolvedInstallConfig) {
   if (config.runtimeMode !== 'gotrue') {
     throw new Error('RUNTIME_MODE must be "gotrue"; external OIDC runtimes are not supported');
   }
+  parseAdminSsoRequireAal2(config.adminSsoRequireAal2);
   requireAdminSsoIssuer(config);
   requireAdminSsoRedirectUri(config);
 }
@@ -481,6 +488,10 @@ class SupacloudClient {
 
 function userManagedProjectSecrets(config: ResolvedInstallConfig) {
   return [
+    {
+      name: ADMIN_SSO_ENV.requireAal2,
+      value: parseAdminSsoRequireAal2(config.adminSsoRequireAal2) ? 'true' : 'false',
+    },
     ...(config.baseUrl
       ? [
         { name: 'SUPAUTH_PUBLIC_URL', value: config.baseUrl },
@@ -941,6 +952,17 @@ async function adminSsoOAuthClientInstallStep(
   };
 }
 
+function adminSsoAal2PolicyInstallStep(config: ResolvedInstallConfig): InstallStep {
+  const enabled = parseAdminSsoRequireAal2(config.adminSsoRequireAal2);
+  return {
+    name: 'admin-sso-aal2-policy',
+    status: config.dryRun ? 'planned' : 'done',
+    detail: enabled
+      ? 'AAL2 enforcement enabled by ADMIN_SSO_REQUIRE_AAL2=true'
+      : 'AAL2 enforcement disabled; only the explicit value true enables it',
+  };
+}
+
 export async function installSupacloudApp(options: InstallSupacloudAppOptions = {}): Promise<SupacloudInstallResult> {
   const config = resolveConfig(options);
   const fetchImpl = options.fetchImpl || fetch;
@@ -1021,6 +1043,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
 
   steps.push(await adminSsoAllowlistInstallStep(config, adminSsoAllowlistVerifier));
   steps.push(await adminSsoOAuthClientInstallStep(config, client, fetchImpl, adminSsoOAuthClientVerifier));
+  steps.push(adminSsoAal2PolicyInstallStep(config));
 
   if (options.skipSecrets) {
     steps.push({ name: 'runtime-env', status: 'skipped', detail: 'skipSecrets=true' });
@@ -1130,6 +1153,7 @@ if (import.meta.main) {
       adminSsoAudience: option('admin-sso-audience'),
       adminSsoRedirectUri: option('admin-sso-redirect-uri'),
       adminSsoPostLogoutRedirectUri: option('admin-sso-post-logout-redirect-uri'),
+      adminSsoRequireAal2: option('admin-sso-require-aal2'),
       adminSsoAllowedEmails: option('admin-sso-allowed-emails'),
       adminSsoAllowedDomains: option('admin-sso-allowed-domains'),
       dryRun: hasFlag('dry-run'),

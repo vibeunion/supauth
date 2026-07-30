@@ -177,6 +177,7 @@ export function createSupacloudAppManifest(input: {
       { name: 'ADMIN_SSO_AUDIENCE', secret: false, optional: true, description: 'Optional explicit accepted access-token audience.' },
       { name: 'ADMIN_SSO_REDIRECT_URI', secret: false, optional: true, description: 'Optional explicit Admin OAuth redirect URI.' },
       { name: 'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI', secret: false, optional: true, description: 'Optional explicit Admin post-logout redirect URI.' },
+      { name: 'ADMIN_SSO_REQUIRE_AAL2', secret: false, optional: true, description: 'Server-only Admin MFA gate. Disabled unless set to true; never expose as VITE_*.' },
       { name: 'ADMIN_SSO_ALLOWED_EMAILS', secret: true, optional: true, description: 'Optional server-only email allowlist fallback when the database allowlist is empty.' },
       { name: 'ADMIN_SSO_ALLOWED_DOMAINS', secret: true, optional: true, description: 'Legacy compatibility field; domain entries never grant Admin access.' },
     ],
@@ -187,6 +188,7 @@ export function createSupacloudAppManifest(input: {
         'ADMIN_SSO_AUDIENCE',
         'ADMIN_SSO_REDIRECT_URI',
         'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+        'ADMIN_SSO_REQUIRE_AAL2',
       ],
       allowlist: {
         database_table: 'supaoauth.security_config',
@@ -202,7 +204,7 @@ export function createSupacloudAppManifest(input: {
         grant_types: ['authorization_code', 'refresh_token'],
         pkce_code_challenge_method: 'S256',
         browser_client_secret: 'forbidden',
-        required_aal: 'aal2',
+        required_aal: 'aal2-when-ADMIN_SSO_REQUIRE_AAL2=true',
       },
     },
     pages: [

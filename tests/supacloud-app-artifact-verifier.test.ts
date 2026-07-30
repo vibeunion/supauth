@@ -145,7 +145,7 @@ describe('SupaCloud app artifact verifier', () => {
       'Admin SSO allowlist contract must require exact emails and forbid domain authorization',
     );
     expect(result.errors).toContain(
-      'Admin SSO client contract must require management read-back, public PKCE S256, exact redirect, no secret, and aal2',
+      'Admin SSO client contract must require management read-back, public PKCE S256, exact redirect, no secret, and the server-controlled AAL2 policy',
     );
   });
 

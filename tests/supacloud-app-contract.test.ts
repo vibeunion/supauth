@@ -61,6 +61,7 @@ describe('SupAuth SupaCloud app contract', () => {
       'ADMIN_SSO_AUDIENCE',
       'ADMIN_SSO_REDIRECT_URI',
       'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
+      'ADMIN_SSO_REQUIRE_AAL2',
     ]) {
       expect(envByName[name]).toMatchObject({ secret: false, optional: true });
     }
@@ -81,7 +82,7 @@ describe('SupAuth SupaCloud app contract', () => {
       grant_types: ['authorization_code', 'refresh_token'],
       pkce_code_challenge_method: 'S256',
       browser_client_secret: 'forbidden',
-      required_aal: 'aal2',
+      required_aal: 'aal2-when-ADMIN_SSO_REQUIRE_AAL2=true',
     });
     expect(manifest.functions[0].deployment_bundle).toEqual({
       entrypoint: 'index.ts',

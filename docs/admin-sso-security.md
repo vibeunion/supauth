@@ -5,12 +5,12 @@ Admin Console 的生产访问遵循以下边界：
 - 每个系统注册独立的 OAuth client。Admin Console 不复用任何业务系统 client；回调 URI 必须是唯一、精确的单个 `/admin` 地址。
 - Admin client 是 public client，token endpoint authentication 为 `none`，浏览器只使用 PKCE S256，不保存或发送 client secret。
 - 管理员授权使用精确邮箱白名单。域名白名单仅保留迁移兼容字段，不授予 Admin 权限；安装器发现域名条目会 fail closed。
-- 服务端在 JWT 签名、issuer、audience 和算法验证之后，仍要求 `aal=aal2`，再执行邮箱白名单判断。浏览器不能自行解析 JWT 决定权限。
+- 服务端始终验证 JWT 签名、issuer、audience、算法和精确邮箱白名单，浏览器不能自行解析 JWT 决定权限。`ADMIN_SSO_REQUIRE_AAL2` 只控制是否额外要求 `aal=aal2`：默认关闭，只有显式设置为 `true` 才开启；空值或 `false` 均不启用 MFA 门禁，其他非空值会阻止 Function 启动。
 - MFA、Session、OAuth/OIDC issuer 和 JWKS 仍由 GoTrue 负责；SupAuth 只做 BFF、Admin UI 和安装时的管理面校验。
 
 ## 部署前阻断验收
 
-强制策略上线前必须使用真实 GoTrue 流程完成 TOTP challenge/verify，并重新取得 `aal2` access token。验收至少包括：
+当 `ADMIN_SSO_REQUIRE_AAL2=true` 时，强制策略上线前必须使用真实 GoTrue 流程完成 TOTP challenge/verify，并重新取得 `aal2` access token。验收至少包括：
 
 1. `aal1` 或缺少 `aal` 的有效 token 调用 Admin API 得到结构化 `403/admin_mfa_required`。
 2. 完成 MFA 提升后的 token 经 JWKS 验证并带有 `aal2`，精确邮箱管理员可以进入 `/admin`。
@@ -18,7 +18,7 @@ Admin Console 的生产访问遵循以下边界：
 4. OAuth authorize 请求只有 `code_challenge_method=S256`；token exchange 不带 `client_secret`。
 5. 安装器从 SupaCloud Management API 回读 Admin client，确认 public、`none`、精确单回调和 `authorization_code`/`refresh_token` grant。
 
-如果真实 MFA 提升流程尚未验证，不得部署强制 AAL2；应先修复 Admin OAuth code exchange 后针对同一会话执行的 MFA step-up，而不是放宽服务端门禁。
+默认值 `false` 适用于尚未启用管理员 MFA 的环境。准备开启时，在 SupaCloud Function 的服务器环境设置 `ADMIN_SSO_REQUIRE_AAL2=true` 并重新发布 Function；不要使用 `VITE_*`，也不要通过浏览器配置该策略。如果真实 MFA 提升流程尚未验证，不得设置为 `true`。
 
 ## 受控应急入口
 

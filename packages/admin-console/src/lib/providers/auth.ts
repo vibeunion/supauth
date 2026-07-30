@@ -10,6 +10,7 @@ import {
   createAdminSsoStorage,
   type AdminMfaStepUp,
   type AdminMfaStepUpState,
+  type AdminTotpEnrollment,
 } from '../admin-mfa-step-up';
 import { requireAdminAuthenticatedFetch } from '../admin-sso-capability';
 import {
@@ -319,6 +320,11 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
 export async function getAdminMfaStepUpState(): Promise<AdminMfaStepUpState> {
   if (!currentAdminMfaStepUp) throw new Error('管理员 MFA 会话尚未初始化，请重新登录。');
   return currentAdminMfaStepUp.state();
+}
+
+export async function enrollAdminTotp(input: { friendlyName: string; issuer: string }): Promise<AdminTotpEnrollment> {
+  if (!currentAdminMfaStepUp) throw new Error('管理员 MFA 会话尚未初始化，请重新登录。');
+  return currentAdminMfaStepUp.enroll(input);
 }
 
 export async function verifyAdminMfaStepUp(input: { factorId: string; code: string }): Promise<void> {

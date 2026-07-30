@@ -12,6 +12,7 @@ import type { SecurityConfigRow } from '../repositories/security-config.js';
 import { resolveGoTrueLogoutUrl } from './gotrue-logout-url.js';
 import { principalHasAction, requiredAdminAction, type AdminPrincipal } from './admin-permissions.js';
 import { enterAdminRequestContext } from './request-context.js';
+import { parseAdminSsoRequireAal2 } from './admin-sso-aal2-policy.js';
 
 // Env-var fallbacks: used before migration has run, or when DB is unreachable.
 const ENV_ADMIN_AUTH_MODE = (process.env.ADMIN_AUTH_MODE || 'auto').toLowerCase();
@@ -25,6 +26,7 @@ const ENV_SSO_AUDIENCES = resolveSsoAudiences({
 const ENV_SSO_JWKS_URI = process.env.ADMIN_SSO_JWKS_URI || (ENV_SSO_ISSUER ? `${ENV_SSO_ISSUER}/.well-known/jwks.json` : '');
 const ENV_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS).map((email) => email.toLowerCase());
 const ENV_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((domain) => domain.toLowerCase());
+const ENV_SSO_ACCESS_POLICY = { requireAal2: parseAdminSsoRequireAal2(process.env.ADMIN_SSO_REQUIRE_AAL2) };
 const ENV_RATE_LIMIT_RPM = parseInt(process.env.ADMIN_RATE_LIMIT_RPM || '300', 10);
 const ENV_MAX_LOGIN_ATTEMPTS = parseInt(process.env.ADMIN_MAX_LOGIN_ATTEMPTS || '10', 10);
 const ENV_LOGIN_LOCKOUT_SEC = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '900', 10);
@@ -49,6 +51,10 @@ export interface AdminSession {
 interface AdminAllowlist {
   emails: string[];
   domains: string[];
+}
+
+interface AdminSsoAccessPolicy {
+  requireAal2: boolean;
 }
 
 type AdminBearerAccess =
@@ -303,11 +309,12 @@ export function resolveSsoAdminAccess(
   payload: JWTPayload,
   session: AdminSession,
   allowlist: AdminAllowlist,
+  policy: AdminSsoAccessPolicy = ENV_SSO_ACCESS_POLICY,
 ): AdminBearerAccess {
-  if (payload.aal !== 'aal2') return { status: 'forbidden', reason: 'admin_mfa_required' };
   const email = session.email.toLowerCase();
-  if (allowlist.emails.includes(email)) return { status: 'authenticated', session };
-  return { status: 'forbidden', reason: 'admin_access_forbidden' };
+  if (!allowlist.emails.includes(email)) return { status: 'forbidden', reason: 'admin_access_forbidden' };
+  if (policy.requireAal2 && payload.aal !== 'aal2') return { status: 'forbidden', reason: 'admin_mfa_required' };
+  return { status: 'authenticated', session };
 }
 
 async function verifiedSsoPayload(token: string): Promise<JWTPayload | null> {
@@ -424,7 +431,7 @@ export async function adminAuthorizationFailureResponse(
       error: {
         code: 'admin_mfa_required',
         required_aal: 'aal2',
-        message: '管理员必须完成双因素认证。请前往账户中心 /account 启用 GoTrue TOTP，然后重新登录管理后台。',
+        message: '管理员必须完成双因素认证。请在管理后台的 MFA 绑定页面完成 GoTrue TOTP 验证。',
       },
     }, { status: 403 });
   }
