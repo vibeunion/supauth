@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/zuohuadong/supauth/compare/shared-v0.4.0...shared-v0.5.0) (2026-07-30)
+
+
+### Features
+
+* **rbac:** add application-scoped role management ([513660b](https://github.com/zuohuadong/supauth/commit/513660b8fcc814a8dfa2bda6ba733690941a178e))
+* **rbac:** scope role management by application ([318323c](https://github.com/zuohuadong/supauth/commit/318323c7769a61437977088f8b2be6d11b1a9779))
+
 ## [0.4.0](https://github.com/zuohuadong/supauth/compare/shared-v0.3.0...shared-v0.4.0) (2026-07-29)
 
 

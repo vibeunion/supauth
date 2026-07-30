@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/zuohuadong/supauth/compare/admin-console-v0.4.0...admin-console-v0.5.0) (2026-07-30)
+
+
+### Features
+
+* **admin:** make AAL2 enforcement configurable ([34ac1a9](https://github.com/zuohuadong/supauth/commit/34ac1a9ae614000bd8cf15517d42b509462600e6))
+* **auth:** enforce admin SSO AAL2 baseline ([390fa3e](https://github.com/zuohuadong/supauth/commit/390fa3e480eda22b620ab8d6498351f44036e446))
+* **rbac:** add application-scoped role management ([513660b](https://github.com/zuohuadong/supauth/commit/513660b8fcc814a8dfa2bda6ba733690941a178e))
+* **rbac:** scope role management by application ([318323c](https://github.com/zuohuadong/supauth/commit/318323c7769a61437977088f8b2be6d11b1a9779))
+
+
+### Bug Fixes
+
+* **auth:** enforce live claim password policy ([c99f29c](https://github.com/zuohuadong/supauth/commit/c99f29c7e89f5f906d889b04a12a99a4a5be5430))
+* **auth:** prevent claim password hint overlap ([6b57f7c](https://github.com/zuohuadong/supauth/commit/6b57f7c4cabb81406ccaee27b611c76982deba7d))
+
 ## [0.4.0](https://github.com/zuohuadong/supauth/compare/admin-console-v0.3.0...admin-console-v0.4.0) (2026-07-29)
 
 
