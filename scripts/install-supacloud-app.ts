@@ -19,6 +19,15 @@ import type { AdminSsoAllowlistVerification } from '../packages/auth-server/src/
 type FetchImpl = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type MigrationVerifier = (databaseUrl: string) => Promise<RbacDbVerification>;
 type AdminSsoAllowlistVerifier = (databaseUrl: string) => Promise<AdminSsoAllowlistVerification>;
+type AdminSsoOAuthClientVerifier = (input: AdminSsoOAuthClientVerificationInput) => Promise<void>;
+
+interface AdminSsoOAuthClientVerificationInput {
+  authorityProjectRef: string;
+  clientId: string;
+  redirectUri: string;
+  request: (path: string) => Promise<Response>;
+  fetchIssuerMetadata: () => Promise<Response>;
+}
 
 const ADMIN_SSO_ENV = {
   issuer: 'ADMIN_SSO_ISSUER',
@@ -92,6 +101,7 @@ export interface InstallSupacloudAppOptions {
   fetchImpl?: FetchImpl;
   migrationVerifier?: MigrationVerifier;
   adminSsoAllowlistVerifier?: AdminSsoAllowlistVerifier;
+  adminSsoOAuthClientVerifier?: AdminSsoOAuthClientVerifier;
 }
 
 interface ResolvedInstallConfig {
@@ -316,11 +326,31 @@ function requireAdminSsoIssuer(config: ResolvedInstallConfig) {
     if (error instanceof TypeError) throw new Error(`${ADMIN_SSO_ENV.issuer} must be an absolute URL`);
     throw error;
   }
-  if (issuer.protocol !== 'http:' && issuer.protocol !== 'https:') {
-    throw new Error(`${ADMIN_SSO_ENV.issuer} must use http(s)`);
+  if (!['http:', 'https:'].includes(issuer.protocol)
+    || issuer.username
+    || issuer.password
+    || issuer.search
+    || issuer.hash) {
+    throw new Error(`${ADMIN_SSO_ENV.issuer} must be an http(s) URL without credentials, query, or fragment`);
   }
   if (!config.dryRun && issuer.protocol !== 'https:') {
     throw new Error(`${ADMIN_SSO_ENV.issuer} must use HTTPS for production installation`);
+  }
+}
+
+function requireAdminSsoRedirectUri(config: ResolvedInstallConfig) {
+  let redirectUri: URL;
+  try {
+    redirectUri = new URL(adminSsoRedirectUri(config));
+  } catch (error) {
+    if (error instanceof TypeError) throw new Error(`${ADMIN_SSO_ENV.redirectUri} must be an absolute URL`);
+    throw error;
+  }
+  if (!['http:', 'https:'].includes(redirectUri.protocol) || redirectUri.username || redirectUri.password || redirectUri.hash) {
+    throw new Error(`${ADMIN_SSO_ENV.redirectUri} must be an http(s) URL without credentials or a fragment`);
+  }
+  if (!config.dryRun && redirectUri.protocol !== 'https:') {
+    throw new Error(`${ADMIN_SSO_ENV.redirectUri} must use HTTPS for production installation`);
   }
 }
 
@@ -334,6 +364,9 @@ function requireConfig(config: ResolvedInstallConfig) {
   if (!config.databaseUrl) missing.push('SUPACLOUD_DATABASE_URL');
   if (!config.adminSsoIssuer) missing.push(ADMIN_SSO_ENV.issuer);
   if (!config.adminSsoClientId) missing.push(ADMIN_SSO_ENV.clientId);
+  if (!config.adminSsoRedirectUri && !config.baseUrl) {
+    missing.push(`${ADMIN_SSO_ENV.redirectUri} or SUPAUTH_PUBLIC_URL`);
+  }
   if (missing.length > 0) {
     throw new Error(`Missing required install configuration: ${missing.join(', ')}`);
   }
@@ -348,6 +381,7 @@ function requireConfig(config: ResolvedInstallConfig) {
     throw new Error('RUNTIME_MODE must be "gotrue"; external OIDC runtimes are not supported');
   }
   requireAdminSsoIssuer(config);
+  requireAdminSsoRedirectUri(config);
 }
 
 function readManifest(root: string, artifactDir: string, manifestPath?: string) {
@@ -414,7 +448,7 @@ function csvEntries(csv: string) {
 }
 
 function configuredAdminAllowlistCount(config: ResolvedInstallConfig) {
-  return csvEntries(config.adminSsoAllowedEmails).length + csvEntries(config.adminSsoAllowedDomains).length;
+  return csvEntries(config.adminSsoAllowedEmails).length;
 }
 
 function allowlistRedactionSecrets(allowlistCsv: Array<string | undefined>) {
@@ -782,21 +816,128 @@ async function directFunctionProbe(runtimeUrl: string, fetchImpl: FetchImpl) {
 }
 
 async function adminSsoAllowlistInstallStep(config: ResolvedInstallConfig, verifier: AdminSsoAllowlistVerifier): Promise<InstallStep> {
+  const environmentEmailCount = configuredAdminAllowlistCount(config);
+  const environmentDomainCount = csvEntries(config.adminSsoAllowedDomains).length;
+  if (environmentDomainCount > 0) {
+    throw new Error('Admin SSO installation forbids ADMIN_SSO_ALLOWED_DOMAINS; authorize exact administrator emails only');
+  }
   if (config.dryRun) return {
     name: 'admin-sso-allowlist-verification',
     status: 'planned',
-    detail: 'database counts or explicit server-only environment allowlist',
+    detail: 'exact database/environment email count > 0 and legacy domain count = 0',
   };
   const dbAllowlist = await verifier(config.databaseUrl);
-  const databaseCount = dbAllowlist.emailCount + dbAllowlist.domainCount;
-  const environmentCount = configuredAdminAllowlistCount(config);
-  if (databaseCount === 0 && environmentCount === 0) {
-    throw new Error('Admin SSO installation requires a non-empty database or explicit environment allowlist');
+  if (dbAllowlist.domainCount > 0) {
+    throw new Error('Admin SSO installation forbids database domain allowlists; authorize exact administrator emails only');
+  }
+  if (dbAllowlist.emailCount + environmentEmailCount === 0) {
+    throw new Error('Admin SSO installation requires at least one exact administrator email in the database or ADMIN_SSO_ALLOWED_EMAILS');
   }
   return {
     name: 'admin-sso-allowlist-verification',
     status: 'done',
-    detail: `database email/domain counts=${dbAllowlist.emailCount}/${dbAllowlist.domainCount}; explicit environment configured=${environmentCount > 0}`,
+    detail: `database email/domain counts=${dbAllowlist.emailCount}/${dbAllowlist.domainCount}; exact environment email configured=${environmentEmailCount > 0}`,
+  };
+}
+
+function recordFromEnvelope(payload: unknown, errorMessage: string): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error(errorMessage);
+  }
+  const envelope = payload as Record<string, unknown>;
+  const candidate = Object.hasOwn(envelope, 'data') ? envelope.data : envelope;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    throw new Error(errorMessage);
+  }
+  return candidate as Record<string, unknown>;
+}
+
+async function responseRecord(response: Response, errorMessage: string) {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error(`${errorMessage}: invalid JSON`);
+    throw error;
+  }
+  return recordFromEnvelope(payload, errorMessage);
+}
+
+function hasExactStringSet(candidate: unknown, expected: string[]) {
+  if (!Array.isArray(candidate) || !candidate.every((entry) => typeof entry === 'string')) return false;
+  const actualStrings = [...candidate].sort();
+  const expectedStrings = [...expected].sort();
+  return actualStrings.length === expectedStrings.length
+    && actualStrings.every((entry, index) => entry === expectedStrings[index]);
+}
+
+function assertAdminOAuthClient(oauthClient: Record<string, unknown>, input: AdminSsoOAuthClientVerificationInput) {
+  if (oauthClient.client_id !== input.clientId) throw new Error('Admin OAuth client read-back returned a different client_id');
+  if (oauthClient.client_type !== 'public') throw new Error('Admin OAuth client must have client_type=public');
+  if (oauthClient.token_endpoint_auth_method !== 'none') {
+    throw new Error('Admin OAuth client must have token_endpoint_auth_method=none');
+  }
+  if (!hasExactStringSet(oauthClient.redirect_uris, [input.redirectUri])) {
+    throw new Error('Admin OAuth client must have exactly the configured Admin redirect URI');
+  }
+  if (!hasExactStringSet(oauthClient.grant_types, ['authorization_code', 'refresh_token'])) {
+    throw new Error('Admin OAuth client grant_types must contain only authorization_code and refresh_token');
+  }
+}
+
+async function assertIssuerSupportsPkceS256(input: AdminSsoOAuthClientVerificationInput) {
+  const issuerMetadataResponse = await input.fetchIssuerMetadata();
+  if (!issuerMetadataResponse.ok) {
+    throw new Error(`Admin SSO issuer metadata request failed with ${issuerMetadataResponse.status}`);
+  }
+  const issuerMetadata = await responseRecord(
+    issuerMetadataResponse,
+    'Admin SSO issuer metadata returned an invalid response',
+  );
+  if (!Array.isArray(issuerMetadata.code_challenge_methods_supported)
+    || !issuerMetadata.code_challenge_methods_supported.includes('S256')) {
+    throw new Error('Admin SSO issuer metadata must advertise PKCE S256');
+  }
+}
+
+async function verifyAdminSsoOAuthClient(input: AdminSsoOAuthClientVerificationInput): Promise<void> {
+  const path = `/v1/projects/${encodeURIComponent(input.authorityProjectRef)}/auth/oauth-clients/${encodeURIComponent(input.clientId)}`;
+  const response = await input.request(path);
+  const oauthClient = await responseRecord(
+    response,
+    'Admin OAuth client read-back returned an invalid response',
+  );
+  assertAdminOAuthClient(oauthClient, input);
+  await assertIssuerSupportsPkceS256(input);
+}
+
+function adminSsoRedirectUri(config: ResolvedInstallConfig) {
+  return config.adminSsoRedirectUri || new URL('/admin', config.baseUrl).toString();
+}
+
+async function adminSsoOAuthClientInstallStep(
+  config: ResolvedInstallConfig,
+  client: SupacloudClient,
+  fetchImpl: FetchImpl,
+  verifier: AdminSsoOAuthClientVerifier,
+): Promise<InstallStep> {
+  const authorityProjectRef = config.oauthAuthorizationProjectRef || config.projectRef;
+  if (config.dryRun) return {
+    name: 'admin-sso-oauth-client-verification',
+    status: 'planned',
+    detail: 'management API read-back of the dedicated public Admin OAuth client',
+  };
+  await verifier({
+    authorityProjectRef,
+    clientId: config.adminSsoClientId,
+    redirectUri: adminSsoRedirectUri(config),
+    request: (path) => client.request(path),
+    fetchIssuerMetadata: () => fetchImpl(`${config.adminSsoIssuer}/.well-known/openid-configuration`),
+  });
+  return {
+    name: 'admin-sso-oauth-client-verification',
+    status: 'done',
+    detail: 'public client, no token endpoint authentication, exact redirect, authorization_code + refresh_token',
   };
 }
 
@@ -805,6 +946,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   const fetchImpl = options.fetchImpl || fetch;
   const migrationVerifier = options.migrationVerifier || verifyRbacAgainstDatabase;
   const adminSsoAllowlistVerifier = options.adminSsoAllowlistVerifier || verifyAdminSsoAllowlist;
+  const adminSsoOAuthClientVerifier = options.adminSsoOAuthClientVerifier || verifyAdminSsoOAuthClient;
   const steps: InstallStep[] = [];
   const warnings: string[] = [];
   const manifest = readManifest(config.root, config.artifactDir, config.manifestPath);
@@ -878,6 +1020,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   }
 
   steps.push(await adminSsoAllowlistInstallStep(config, adminSsoAllowlistVerifier));
+  steps.push(await adminSsoOAuthClientInstallStep(config, client, fetchImpl, adminSsoOAuthClientVerifier));
 
   if (options.skipSecrets) {
     steps.push({ name: 'runtime-env', status: 'skipped', detail: 'skipSecrets=true' });

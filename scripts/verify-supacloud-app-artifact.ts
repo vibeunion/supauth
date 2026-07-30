@@ -19,6 +19,7 @@ const ADMIN_SSO_OPTIONAL_ENV = [
   'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI',
 ];
 const ADMIN_SSO_ALLOWLIST_ENV = ['ADMIN_SSO_ALLOWED_EMAILS', 'ADMIN_SSO_ALLOWED_DOMAINS'];
+const ADMIN_SSO_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 
 const EXPECTED_REQUIRED_ENV = [
   'SUPACLOUD_INTERNAL_API_URL',
@@ -193,6 +194,7 @@ function hasExactStrings(manifestField: unknown, expected: string[]) {
 function assertAdminSsoInstallContract(result: VerificationResult, manifest: Record<string, unknown>) {
   const adminSso = asRecord(manifest.admin_sso);
   const allowlist = asRecord(adminSso.allowlist);
+  const clientContract = asRecord(adminSso.client_contract);
   if (!hasExactStrings(adminSso.required_env, ADMIN_SSO_REQUIRED_ENV)) {
     result.errors.push('Admin SSO contract must require issuer and client id');
   }
@@ -202,9 +204,20 @@ function assertAdminSsoInstallContract(result: VerificationResult, manifest: Rec
   const hasDatabaseContract = allowlist.database_table === 'supaoauth.security_config'
     && hasExactStrings(allowlist.database_fields, ['admin_allowed_emails', 'admin_allowed_domains']);
   const hasEnvironmentContract = hasExactStrings(allowlist.optional_secret_env, ADMIN_SSO_ALLOWLIST_ENV)
-    && allowlist.install_rule === 'database-count-or-explicit-env-nonempty';
+    && allowlist.install_rule === 'exact-email-count-positive-and-domain-count-zero';
   if (!hasDatabaseContract || !hasEnvironmentContract) {
-    result.errors.push('Admin SSO allowlist contract must require a non-empty database or explicit environment source');
+    result.errors.push('Admin SSO allowlist contract must require exact emails and forbid domain authorization');
+  }
+  const hasClientContract = clientContract.verification === 'management-api-readback'
+    && clientContract.client_type === 'public'
+    && clientContract.token_endpoint_auth_method === 'none'
+    && clientContract.redirect_uris === 'exact-single'
+    && hasExactStrings(clientContract.grant_types, ADMIN_SSO_GRANT_TYPES)
+    && clientContract.pkce_code_challenge_method === 'S256'
+    && clientContract.browser_client_secret === 'forbidden'
+    && clientContract.required_aal === 'aal2';
+  if (!hasClientContract) {
+    result.errors.push('Admin SSO client contract must require management read-back, public PKCE S256, exact redirect, no secret, and aal2');
   }
 }
 

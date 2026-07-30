@@ -56,9 +56,23 @@ const requiredOptions = {
   databaseUrl: 'postgres://secret-db',
   adminSsoIssuer: 'https://auth.example.test/auth/v1',
   adminSsoClientId: 'admin-client',
-  adminSsoAllowedDomains: 'example.test',
+  adminSsoRedirectUri: 'https://auth.example.test/admin',
+  adminSsoAllowedEmails: 'admin@example.test',
+  adminSsoAllowedDomains: '',
   adminSsoAllowlistVerifier: async () => ({ emailCount: 0, domainCount: 0 }),
+  adminSsoOAuthClientVerifier: async () => undefined,
 };
+
+function validAdminOAuthClient(overrides: Record<string, unknown> = {}) {
+  return {
+    client_id: 'admin-client',
+    client_type: 'public',
+    token_endpoint_auth_method: 'none',
+    redirect_uris: ['https://auth.example.test/admin'],
+    grant_types: ['authorization_code', 'refresh_token'],
+    ...overrides,
+  };
+}
 
 const isolatedEnvKeys = [
   'SUPACLOUD_GATEWAY_ADMIN_TOKEN',
@@ -149,6 +163,7 @@ describe('SupaCloud app installer', () => {
       expect.objectContaining({ name: 'migration', status: 'planned' }),
       expect.objectContaining({ name: 'migration-verification', status: 'planned' }),
       expect.objectContaining({ name: 'admin-sso-allowlist-verification', status: 'planned' }),
+      expect.objectContaining({ name: 'admin-sso-oauth-client-verification', status: 'planned' }),
       expect.objectContaining({ name: 'runtime-env', status: 'planned' }),
       expect.objectContaining({ name: 'function-deploy', status: 'planned' }),
       expect.objectContaining({ name: 'gateway-routes', status: 'skipped' }),
@@ -188,6 +203,22 @@ describe('SupaCloud app installer', () => {
     })).rejects.toThrow('HTTPS for production installation');
   });
 
+  it.each([
+    'https://user:password@auth.example.test/auth/v1',
+    'https://auth.example.test/auth/v1?issuer=other',
+    'https://auth.example.test/auth/v1#fragment',
+  ])('rejects an Admin SSO issuer with unsafe URL components: %s', async (adminSsoIssuer) => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoIssuer,
+      dryRun: true,
+    })).rejects.toThrow('without credentials, query, or fragment');
+  });
+
   it('uses CLI Admin SSO precedence without posting system-managed metadata as project secrets', async () => {
     const { root, artifactDir } = createFixture();
     const envFile = join(root, 'admin-sso.env');
@@ -199,7 +230,6 @@ describe('SupaCloud app installer', () => {
       'ADMIN_SSO_REDIRECT_URI=https://issuer.from-file.test/admin',
       'ADMIN_SSO_POST_LOGOUT_REDIRECT_URI=https://issuer.from-file.test/admin/login',
       'ADMIN_SSO_ALLOWED_EMAILS=file@example.test',
-      'ADMIN_SSO_ALLOWED_DOMAINS=file.example.test',
     ].join('\n'));
     process.env.ADMIN_SSO_ISSUER = 'http://issuer.from-process.test';
     process.env.ADMIN_SSO_CLIENT_ID = 'process-client';
@@ -265,7 +295,115 @@ describe('SupaCloud app installer', () => {
       adminSsoAllowlistVerifier: async () => ({ emailCount: 0, domainCount: 0 }),
       skipMigration: true,
       fetchImpl: async () => new Response('{}', { status: 200 }),
-    })).rejects.toThrow('non-empty database or explicit environment allowlist');
+    })).rejects.toThrow('at least one exact administrator email');
+  });
+
+  it('rejects legacy domain allowlists from environment or database sources', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoAllowedDomains: 'example.test',
+      dryRun: true,
+    })).rejects.toThrow('forbids ADMIN_SSO_ALLOWED_DOMAINS');
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoAllowlistVerifier: async () => ({ emailCount: 1, domainCount: 1 }),
+      skipMigration: true,
+      skipMigrationVerify: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+    })).rejects.toThrow('forbids database domain allowlists');
+  });
+
+  it('reads back the dedicated Admin public client from the authority project and verifies PKCE S256', async () => {
+    const { root, artifactDir } = createFixture();
+    const requestedUrls: string[] = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      oauthAuthorizationProjectRef: 'central_idp',
+      adminSsoOAuthClientVerifier: undefined,
+      skipMigration: true,
+      skipMigrationVerify: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const url = String(input);
+        requestedUrls.push(url);
+        if (url.includes('/auth/oauth-clients/')) {
+          return Response.json({ data: validAdminOAuthClient() });
+        }
+        return Response.json({ code_challenge_methods_supported: ['S256'] });
+      },
+    });
+
+    expect(result.steps).toContainEqual(expect.objectContaining({
+      name: 'admin-sso-oauth-client-verification',
+      status: 'done',
+    }));
+    expect(requestedUrls).toEqual([
+      'https://api.example.test/v1/projects/central_idp/auth/oauth-clients/admin-client',
+      'https://auth.example.test/auth/v1/.well-known/openid-configuration',
+    ]);
+  });
+
+  it('rejects a shared Admin client or issuer without PKCE S256', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const installWith = (oauthClient: Record<string, unknown>, pkceMethods: string[]) => installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoOAuthClientVerifier: undefined,
+      skipMigration: true,
+      skipMigrationVerify: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => String(input).includes('/auth/oauth-clients/')
+        ? Response.json(oauthClient)
+        : Response.json({ code_challenge_methods_supported: pkceMethods }),
+    });
+
+    await expect(installWith(validAdminOAuthClient({
+      redirect_uris: ['https://auth.example.test/admin', 'https://app.example.test/callback'],
+    }), ['S256'])).rejects.toThrow('exactly the configured Admin redirect URI');
+
+    await expect(installWith(validAdminOAuthClient(), ['plain'])).rejects.toThrow('advertise PKCE S256');
+  });
+
+  it.each([
+    ['client_id mismatch', validAdminOAuthClient({ client_id: 'other-client' }), 'different client_id'],
+    ['confidential client', validAdminOAuthClient({ client_type: 'confidential' }), 'client_type=public'],
+    ['token endpoint authentication', validAdminOAuthClient({ token_endpoint_auth_method: 'client_secret_post' }), 'token_endpoint_auth_method=none'],
+    ['non-exact grants', validAdminOAuthClient({ grant_types: ['authorization_code'] }), 'grant_types must contain only'],
+  ])('rejects Admin OAuth client read-back with %s', async (_label, oauthClient, expectedError) => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      adminSsoOAuthClientVerifier: undefined,
+      skipMigration: true,
+      skipMigrationVerify: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => String(input).includes('/auth/oauth-clients/')
+        ? Response.json(oauthClient)
+        : Response.json({ code_challenge_methods_supported: ['S256'] }),
+    })).rejects.toThrow(expectedError);
   });
 
   for (const [runtimeUrl, expectedProbeUrl] of [
@@ -310,9 +448,10 @@ describe('SupaCloud app installer', () => {
       'SUPACLOUD_RUNTIME_URL=https://auth.example.test',
       'SUPABASE_URL=https://api.auth.example.test',
       'SUPACLOUD_DATABASE_URL=postgres://secret-db',
+      'SUPAUTH_PUBLIC_URL=https://auth.example.test',
       'ADMIN_SSO_ISSUER=https://auth.example.test/auth/v1',
       'ADMIN_SSO_CLIENT_ID=admin-client',
-      'ADMIN_SSO_ALLOWED_DOMAINS=example.test',
+      'ADMIN_SSO_ALLOWED_EMAILS=admin@example.test',
     ].join('\n'));
     const fetchedUrls: string[] = [];
 
@@ -325,6 +464,7 @@ describe('SupaCloud app installer', () => {
       skipSecrets: true,
       skipFunctionDeploy: true,
       adminSsoAllowlistVerifier: async () => ({ emailCount: 0, domainCount: 0 }),
+      adminSsoOAuthClientVerifier: async () => undefined,
       fetchImpl: async (input) => {
         fetchedUrls.push(String(input));
         return new Response('ok', { status: 200 });
@@ -439,6 +579,7 @@ describe('SupaCloud app installer', () => {
       'migration',
       'migration-verification',
       'admin-sso-allowlist-verification',
+      'admin-sso-oauth-client-verification',
       'runtime-env',
       'function-deploy',
       'gateway-routes',
@@ -677,7 +818,7 @@ describe('SupaCloud app installer', () => {
       'CORS_ORIGINS=https://www.from-file.test',
       'ADMIN_SSO_ISSUER=https://issuer.from-file.test/auth/v1',
       'ADMIN_SSO_CLIENT_ID=file-client',
-      'ADMIN_SSO_ALLOWED_DOMAINS=file.example.test',
+      'ADMIN_SSO_ALLOWED_EMAILS=admin@file.example.test',
     ].join('\n'));
 
     const previousDatabaseUrl = process.env.DATABASE_URL;
@@ -697,6 +838,7 @@ describe('SupaCloud app installer', () => {
           verifiedDatabaseUrl = databaseUrl;
           return { emailCount: 0, domainCount: 0 };
         },
+        adminSsoOAuthClientVerifier: async () => undefined,
         fetchImpl: async (input, init) => {
           const url = new URL(String(input));
           if (url.pathname === '/v1/projects/project_from_file/secrets') {
@@ -812,7 +954,7 @@ describe('SupaCloud app installer', () => {
         skipFunctionDeploy: true,
         skipDirectVerify: true,
         fetchImpl: async () => new Response(
-          `rejected ${requiredOptions.bffSigningSecret} ${requiredOptions.adminSsoAllowedDomains}`,
+          `rejected ${requiredOptions.bffSigningSecret} ${requiredOptions.adminSsoAllowedEmails}`,
           { status: 500 },
         ),
       });
@@ -822,13 +964,13 @@ describe('SupaCloud app installer', () => {
 
     expect(failureMessage).toContain('[REDACTED]');
     expect(failureMessage).not.toContain(requiredOptions.bffSigningSecret);
-    expect(failureMessage).not.toContain(requiredOptions.adminSsoAllowedDomains);
+    expect(failureMessage).not.toContain(requiredOptions.adminSsoAllowedEmails);
   });
 
-  it('redacts individual trimmed Admin allowlist entries from partial upstream echoes', async () => {
+  it('redacts individual trimmed Admin email entries from partial upstream echoes', async () => {
     const { root, artifactDir } = createFixture();
+    const firstEmail = 'first@example.test';
     const echoedEmail = 'second@example.test';
-    const echoedDomain = 'tenant.example.test';
     let failureMessage = '';
 
     try {
@@ -836,20 +978,19 @@ describe('SupaCloud app installer', () => {
         root,
         artifactDir,
         ...requiredOptions,
-        adminSsoAllowedEmails: ` first@example.test , ${echoedEmail} `,
-        adminSsoAllowedDomains: ` ${echoedDomain}, other.example.test `,
+        adminSsoAllowedEmails: ` ${firstEmail} , ${echoedEmail} `,
         skipMigration: true,
         skipFunctionDeploy: true,
         skipDirectVerify: true,
-        fetchImpl: async () => new Response(`rejected ${echoedEmail} and ${echoedDomain}`, { status: 500 }),
+        fetchImpl: async () => new Response(`rejected ${firstEmail} and ${echoedEmail}`, { status: 500 }),
       });
     } catch (error) {
       failureMessage = error instanceof Error ? error.message : String(error);
     }
 
     expect(failureMessage).toContain('rejected [REDACTED] and [REDACTED]');
+    expect(failureMessage).not.toContain(firstEmail);
     expect(failureMessage).not.toContain(echoedEmail);
-    expect(failureMessage).not.toContain(echoedDomain);
   });
 
   it('redacts a full email before its shorter domain fragment', async () => {

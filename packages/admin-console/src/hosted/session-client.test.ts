@@ -33,6 +33,7 @@ function client(overrides: Partial<HostedAuthClient> = {}): HostedAuthClient {
   return {
     signInWithPassword: mock(async () => ({ data: { user: currentSession.user, session: currentSession }, error: null })),
     getSession: mock(async () => ({ data: { session: currentSession }, error: null })),
+    setSession: mock(async () => ({ data: { user: currentSession.user, session: currentSession }, error: null })),
     refreshSession: mock(async () => ({ data: { user: currentSession.user, session: currentSession }, error: null })),
     onAuthStateChange: mock(() => ({ data: { subscription: { id: 'test', unsubscribe() {} } } })),
     signOut: mock(async () => ({ error: null })),
@@ -126,6 +127,27 @@ describe('hosted session client', () => {
     expect(response.status).toBe(403);
     expect(authClient.refreshSession).not.toHaveBeenCalled();
     expect(authClient.signOut).not.toHaveBeenCalled();
+  });
+
+  test('delegates MFA-issued session persistence to the official GoTrue client', async () => {
+    const upgradedSession = session('access-aal2');
+    const setSession = mock(async () => ({
+      data: { user: upgradedSession.user, session: upgradedSession },
+      error: null,
+    }));
+    const authClient = client({ setSession });
+    const api = createHostedAuthApi(authClient);
+
+    const result = await api.setSession({
+      access_token: upgradedSession.access_token,
+      refresh_token: upgradedSession.refresh_token,
+    });
+
+    expect(setSession).toHaveBeenCalledWith({
+      access_token: 'access-aal2',
+      refresh_token: 'refresh-access-aal2',
+    });
+    expect(result.data.session?.access_token).toBe('access-aal2');
   });
 
   test('keeps the local session when refresh fails with a retryable 503', async () => {

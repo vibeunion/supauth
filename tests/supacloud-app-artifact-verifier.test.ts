@@ -133,6 +133,7 @@ describe('SupaCloud app artifact verifier', () => {
     issuerEnv.optional = true;
     allowlistEnv.secret = false;
     manifest.admin_sso.allowlist.install_rule = 'optional';
+    manifest.admin_sso.client_contract.client_type = 'confidential';
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
     const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
@@ -141,7 +142,10 @@ describe('SupaCloud app artifact verifier', () => {
     expect(result.errors).toContain('ADMIN_SSO_ISSUER optional flag must be false');
     expect(result.errors).toContain('ADMIN_SSO_ALLOWED_EMAILS secret flag must be true');
     expect(result.errors).toContain(
-      'Admin SSO allowlist contract must require a non-empty database or explicit environment source',
+      'Admin SSO allowlist contract must require exact emails and forbid domain authorization',
+    );
+    expect(result.errors).toContain(
+      'Admin SSO client contract must require management read-back, public PKCE S256, exact redirect, no secret, and aal2',
     );
   });
 

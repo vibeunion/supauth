@@ -5,6 +5,12 @@ import type { AuthProvider, Identity, AuthActionResult, CheckResult } from '@sva
 import { createSSOAuthProvider, type SSOAuthProvider } from '@svadmin/sso';
 import { AdminApiError, adminApiRequest, setAdminAuthenticatedFetch } from '../admin-api';
 import { adminCheckFailure } from '../admin-auth-result';
+import {
+  createAdminMfaStepUp,
+  createAdminSsoStorage,
+  type AdminMfaStepUp,
+  type AdminMfaStepUpState,
+} from '../admin-mfa-step-up';
 import { requireAdminAuthenticatedFetch } from '../admin-sso-capability';
 import {
   clearStoredAdminToken,
@@ -50,6 +56,7 @@ const COMPILED_SSO_CONFIG = normalizeAdminSsoConfig({
 });
 let runtimeSsoConfigPromise: Promise<AdminSsoConfig | null> | null = null;
 let currentSsoProvider: SSOAuthProvider | null = null;
+let currentAdminMfaStepUp: AdminMfaStepUp | null = null;
 export let adminSsoEnabled = Boolean(COMPILED_SSO_CONFIG);
 
 function defaultRedirectUri(): string {
@@ -217,17 +224,22 @@ const tokenAuthProvider: AuthProvider = {
 export let supaoauthAuthProvider: AuthProvider = tokenAuthProvider;
 
 function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
+  const storage = typeof window === 'undefined' ? null : createAdminSsoStorage(window.sessionStorage);
   const ssoProvider: SSOAuthProvider = createSSOAuthProvider({
     issuer: config.issuer,
     clientId: config.clientId,
     redirectUri: config.redirectUri,
     postLogoutRedirectUri: config.postLogoutRedirectUri,
     scopes: ['openid', 'profile', 'email'],
+    storage: storage || 'session',
+    storageKey: 'supaoauth_admin_sso',
     legacyStorageKey: 'svadmin_sso',
+    autoRefresh: false,
   });
   const authenticatedFetch = requireAdminAuthenticatedFetch(ssoProvider);
 
   currentSsoProvider = ssoProvider;
+  currentAdminMfaStepUp = storage ? createAdminMfaStepUp(config.issuer, ssoProvider, storage) : null;
   setAdminAccessTokenProvider(() => ssoProvider.getAccessToken());
   setAdminAuthenticatedFetch(authenticatedFetch);
 
@@ -302,6 +314,16 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
       return ssoProvider.onError?.(error) ?? {};
     },
   };
+}
+
+export async function getAdminMfaStepUpState(): Promise<AdminMfaStepUpState> {
+  if (!currentAdminMfaStepUp) throw new Error('管理员 MFA 会话尚未初始化，请重新登录。');
+  return currentAdminMfaStepUp.state();
+}
+
+export async function verifyAdminMfaStepUp(input: { factorId: string; code: string }): Promise<void> {
+  if (!currentAdminMfaStepUp) throw new Error('管理员 MFA 会话尚未初始化，请重新登录。');
+  await currentAdminMfaStepUp.verify(input.factorId, input.code);
 }
 
 export async function initializeAdminAuthProvider(): Promise<AuthProvider> {

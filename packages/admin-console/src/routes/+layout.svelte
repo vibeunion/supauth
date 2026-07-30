@@ -8,7 +8,12 @@
     setResources,
   } from '@svadmin/core';
   import { supaoauthDataProvider } from '$lib/providers/data.js';
-  import { adminSsoEnabled, initializeAdminAuthProvider } from '$lib/providers/auth.js';
+  import {
+    adminSsoEnabled,
+    getAdminMfaStepUpState,
+    initializeAdminAuthProvider,
+    verifyAdminMfaStepUp,
+  } from '$lib/providers/auth.js';
   import { supaoauthResources } from '$lib/providers/resources.js';
   import { t } from '$lib/i18n.js';
   import AdminLayout from '../layouts/AdminLayout.svelte';
@@ -18,6 +23,56 @@
   let initialized = $state(false);
   let checkingAuth = $state(true);
   let authError = $state(null);
+  let mfaFactors = $state([]);
+  let mfaFactorId = $state('');
+  let mfaCode = $state('');
+  let mfaSubmitting = $state(false);
+  let mfaError = $state('');
+  let activeAuthProvider = null;
+
+  function isMfaRequired(authCheck) {
+    return authCheck?.error?.name === 'admin_mfa_required';
+  }
+
+  async function showMfaStepUp() {
+    const state = await getAdminMfaStepUpState();
+    mfaFactors = state.factors;
+    mfaFactorId = state.factors[0]?.id || '';
+    checkingAuth = false;
+  }
+
+  async function finishAuthenticated() {
+    if (window.location.pathname === resolve('/login')) {
+      await goto(resolve('/get-started'), { replaceState: true });
+      return;
+    }
+    initialized = true;
+    checkingAuth = false;
+  }
+
+  async function verifyMfa(event) {
+    event.preventDefault();
+    if (!activeAuthProvider || !mfaFactorId) return;
+    mfaError = '';
+    mfaSubmitting = true;
+    try {
+      await verifyAdminMfaStepUp({ factorId: mfaFactorId, code: mfaCode.replace(/\s+/g, '') });
+      const authCheck = await activeAuthProvider.check();
+      if (authCheck.authenticated) {
+        await finishAuthenticated();
+        return;
+      }
+      if (isMfaRequired(authCheck)) {
+        mfaError = '动态码已验证，但管理员会话尚未提升。请重新登录后重试。';
+        return;
+      }
+      mfaError = authCheck.error?.message || '无法验证管理员权限，请重新登录后重试。';
+    } catch (error) {
+      mfaError = error instanceof Error ? error.message : '动态码验证失败，请重试。';
+    } finally {
+      mfaSubmitting = false;
+    }
+  }
 
   onMount(() => {
     setDataProvider(supaoauthDataProvider);
@@ -25,21 +80,22 @@
 
     (async () => {
       const authProvider = await initializeAdminAuthProvider();
+      activeAuthProvider = authProvider;
       setAuthProvider(authProvider);
 
-      const result = await authProvider.check();
-      if (result.authenticated) {
-        if (window.location.pathname === resolve('/login')) {
-          await goto(resolve('/get-started'), { replaceState: true });
-          return;
-        }
-        initialized = true;
-        checkingAuth = false;
+      const authCheck = await authProvider.check();
+      if (authCheck.authenticated) {
+        await finishAuthenticated();
         return;
       }
 
-      if (result.error) {
-        authError = result.error.message;
+      if (isMfaRequired(authCheck)) {
+        await showMfaStepUp();
+        return;
+      }
+
+      if (authCheck.error) {
+        authError = authCheck.error.message;
         checkingAuth = false;
         return;
       }
@@ -75,6 +131,31 @@
       <h1 class="text-lg font-semibold text-surface-900">{t('auth.requiredTitle')}</h1>
       <p class="mt-2 text-sm text-surface-500">{authError}</p>
     </div>
+  </div>
+{:else if mfaFactors.length === 0}
+  <div class="min-h-screen grid place-items-center bg-surface-50 px-6">
+    <div class="w-full max-w-sm rounded-lg border border-surface-200 bg-white p-6 text-center shadow-sm">
+      <h1 class="text-lg font-semibold text-surface-900">需要双因素认证</h1>
+      <p class="mt-2 text-sm text-surface-500">此管理员账号尚未绑定已验证的 Authenticator。</p>
+      <a class="mt-4 inline-flex rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white" href="/account">前往账户中心启用 MFA</a>
+    </div>
+  </div>
+{:else if !initialized}
+  <div class="min-h-screen grid place-items-center bg-surface-50 px-6">
+    <form class="w-full max-w-sm rounded-lg border border-surface-200 bg-white p-6 shadow-sm" onsubmit={verifyMfa}>
+      <h1 class="text-lg font-semibold text-surface-900">验证管理员身份</h1>
+      <p class="mt-2 text-sm text-surface-500">请输入 Authenticator 动态码后继续。</p>
+      <label class="mt-5 block text-sm font-medium text-surface-700" for="admin-mfa-factor">验证器</label>
+      <select id="admin-mfa-factor" class="mt-1 w-full rounded-md border border-surface-300 px-3 py-2" bind:value={mfaFactorId} disabled={mfaSubmitting}>
+        {#each mfaFactors as factor (factor.id)}
+          <option value={factor.id}>{factor.label}</option>
+        {/each}
+      </select>
+      <label class="mt-4 block text-sm font-medium text-surface-700" for="admin-mfa-code">动态码</label>
+      <input id="admin-mfa-code" class="mt-1 w-full rounded-md border border-surface-300 px-3 py-2" bind:value={mfaCode} inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required disabled={mfaSubmitting} />
+      {#if mfaError}<p class="mt-3 text-sm text-red-600">{mfaError}</p>{/if}
+      <button class="mt-5 w-full rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60" type="submit" disabled={mfaSubmitting}>{mfaSubmitting ? '验证中…' : '验证并继续'}</button>
+    </form>
   </div>
 {:else if initialized}
   <AdminLayout>

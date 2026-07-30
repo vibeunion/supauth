@@ -1173,7 +1173,15 @@ describe('account self-service API', () => {
         },
         verifyTotpMfa: async (token, factorId, input) => {
           events.push(`verify:${token}:${factorId}:${input.code}:${input.challengeId || ''}`);
-          return { ok: true, data: { id: factorId, status: 'verified' } };
+          return {
+            ok: true,
+            data: {
+              id: factorId,
+              status: 'verified',
+              access_token: 'aal2-access-token',
+              refresh_token: 'aal2-refresh-token',
+            },
+          };
         },
         unenrollMfa: async (token, factorId) => {
           events.push(`unenroll:${token}:${factorId}`);
@@ -1227,6 +1235,7 @@ describe('account self-service API', () => {
       expect(await verifyResponse.json()).toEqual({
         success: true,
         result: { id: 'factor-1', status: 'verified' },
+        session: { access_token: 'aal2-access-token', refresh_token: 'aal2-refresh-token' },
         status: 'verified',
       });
       expect(await unenrollResponse.json()).toEqual({
@@ -1242,6 +1251,35 @@ describe('account self-service API', () => {
         'unenroll:user-access-token:factor-1',
         'audit:my_account.mfa.unenrolled:user-1:factor-1',
       ]);
+    });
+
+    test('fails closed when GoTrue verification does not return an upgraded session', async () => {
+      let audited = false;
+      const app = new Elysia().use(routes({
+        getConfig: async () => sanitizeAccountCenterConfig({ value: { security: { mfa: true } } }),
+        getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
+        verifyTotpMfa: async () => ({ ok: true, data: { id: 'factor-1', status: 'verified' } }),
+        auditEvent: async () => { audited = true; },
+      }));
+
+      const response = await app.handle(new Request('http://localhost/v1/public/account/mfa/factor-1/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer user-access-token',
+        },
+        body: JSON.stringify({ code: '123456' }),
+      }));
+
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({
+        success: false,
+        error: {
+          code: 'mfa_session_invalid',
+          message: 'Authentication runtime did not return an upgraded MFA session.',
+        },
+      });
+      expect(audited).toBe(false);
     });
 
     test('rejects TOTP MFA actions when account-center MFA is disabled', async () => {

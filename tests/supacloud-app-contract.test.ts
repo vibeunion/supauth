@@ -71,7 +71,17 @@ describe('SupAuth SupaCloud app contract', () => {
       database_table: 'supaoauth.security_config',
       database_fields: ['admin_allowed_emails', 'admin_allowed_domains'],
       optional_secret_env: ['ADMIN_SSO_ALLOWED_EMAILS', 'ADMIN_SSO_ALLOWED_DOMAINS'],
-      install_rule: 'database-count-or-explicit-env-nonempty',
+      install_rule: 'exact-email-count-positive-and-domain-count-zero',
+    });
+    expect(manifest.admin_sso.client_contract).toEqual({
+      verification: 'management-api-readback',
+      client_type: 'public',
+      token_endpoint_auth_method: 'none',
+      redirect_uris: 'exact-single',
+      grant_types: ['authorization_code', 'refresh_token'],
+      pkce_code_challenge_method: 'S256',
+      browser_client_secret: 'forbidden',
+      required_aal: 'aal2',
     });
     expect(manifest.functions[0].deployment_bundle).toEqual({
       entrypoint: 'index.ts',

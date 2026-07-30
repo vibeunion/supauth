@@ -551,6 +551,18 @@ function publicMfaEnrollmentPayload(payload: Record<string, unknown>) {
   };
 }
 
+function mfaSessionFromVerification(payload: Record<string, unknown>) {
+  const accessToken = typeof payload.access_token === 'string' ? payload.access_token.trim() : '';
+  const refreshToken = typeof payload.refresh_token === 'string' ? payload.refresh_token.trim() : '';
+  if (!accessToken || !refreshToken) return null;
+  return { access_token: accessToken, refresh_token: refreshToken };
+}
+
+function publicMfaVerificationPayload(payload: Record<string, unknown>) {
+  const { access_token: _accessToken, refresh_token: _refreshToken, ...publicPayload } = payload;
+  return publicPayload;
+}
+
 function goTrueErrorMessage(payload: unknown, fallbackMessage: string) {
   if (!isRecord(payload)) return fallbackMessage;
   for (const field of ['message', 'msg', 'error_description', 'error']) {
@@ -1394,8 +1406,24 @@ export function createPublicAccountRoutes(options?: {
           set.status = result.status;
           return { success: false, error: { code: result.code, message: result.message } };
         }
+        const upgradedSession = mfaSessionFromVerification(result.data);
+        if (!upgradedSession) {
+          set.status = 502;
+          return {
+            success: false,
+            error: {
+              code: 'mfa_session_invalid',
+              message: 'Authentication runtime did not return an upgraded MFA session.',
+            },
+          };
+        }
         await auditEvent('my_account.mfa.totp.verified', account.userId, { factor_id: params.factorId });
-        return { success: true, result: result.data, status: 'verified' };
+        return {
+          success: true,
+          result: publicMfaVerificationPayload(result.data),
+          session: upgradedSession,
+          status: 'verified',
+        };
       }, {
         detail: { summary: 'Verify current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
       })

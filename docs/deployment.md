@@ -106,9 +106,14 @@ discovery/JWKS 或第二套 Session/MFA 的半实现运行时。
 redirect 与 post-logout redirect 仅在显式提供时注入；redirect 未提供时由
 Function 按 `SUPAUTH_PUBLIC_URL` 派生。安装器在 migrations 之后、secrets 与
 Function 发布之前，只读统计 `supaoauth.security_config` 的 email/domain
-allowlist 数量；DB allowlist 优先，只有 DB 为空时才使用服务端
-`ADMIN_SSO_ALLOWED_EMAILS` / `ADMIN_SSO_ALLOWED_DOMAINS` 回退。两者都为空时
-安装失败，allowlist 值不得出现在日志、浏览器、公共 SSO metadata 或 `VITE_*`。
+allowlist 数量；Admin 只接受精确邮箱，发现任意 domain allowlist 条目即阻断。DB
+邮箱优先，只有 DB 邮箱为空时才使用服务端 `ADMIN_SSO_ALLOWED_EMAILS` 回退。
+没有精确邮箱时安装失败，allowlist 值不得出现在日志、浏览器、公共 SSO metadata
+或 `VITE_*`。安装器还会从权威 SupaCloud 项目回读 Admin OAuth client，确认
+public、`token_endpoint_auth_method=none`、精确单回调和 PKCE S256。
+
+完整的 AAL2、精确邮箱、PKCE 和 break-glass 基线见
+[`docs/admin-sso-security.md`](./admin-sso-security.md)。
 
 `bun run build` 是唯一构建入口。项目尚未发版，因此不保留额外兼容构建别名。
 

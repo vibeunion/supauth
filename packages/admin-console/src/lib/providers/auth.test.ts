@@ -1,7 +1,10 @@
 // Bun runs this module directly; the Svelte check does not include Bun's test globals.
 // @ts-nocheck
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { buildAdminEndSessionUrl, initializeAdminAuthProvider } from './auth';
+import {
+  buildAdminEndSessionUrl,
+  initializeAdminAuthProvider,
+} from './auth';
 
 const originalFetch = globalThis.fetch;
 

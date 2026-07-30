@@ -67,6 +67,7 @@ export function clearLegacyAccountTokensFromUrl(
 export interface HostedAuthClient {
   signInWithPassword(credentials: SignInWithPasswordCredentials): ReturnType<GoTrueClient['signInWithPassword']>;
   getSession(): ReturnType<GoTrueClient['getSession']>;
+  setSession(session: { access_token: string; refresh_token: string }): ReturnType<GoTrueClient['setSession']>;
   refreshSession(): ReturnType<GoTrueClient['refreshSession']>;
   onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void): {
     data: { subscription: Subscription };
@@ -77,6 +78,7 @@ export interface HostedAuthClient {
 export interface HostedAuthApi {
   signInWithPassword(credentials: SignInWithPasswordCredentials): ReturnType<GoTrueClient['signInWithPassword']>;
   getSession(): ReturnType<GoTrueClient['getSession']>;
+  setSession(session: { access_token: string; refresh_token: string }): ReturnType<GoTrueClient['setSession']>;
   authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
   onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void): {
     data: { subscription: Subscription };
@@ -206,6 +208,7 @@ export function createHostedAuthApi(
   return Object.freeze({
     signInWithPassword: (credentials: SignInWithPasswordCredentials) => client.signInWithPassword(credentials),
     getSession: () => client.getSession(),
+    setSession: (session: { access_token: string; refresh_token: string }) => client.setSession(session),
     onAuthStateChange: (callback: (event: AuthChangeEvent, session: Session | null) => void) => client.onAuthStateChange(callback),
     signOut: signOutSession,
     async authenticatedFetch(input: RequestInfo | URL, init?: RequestInit) {

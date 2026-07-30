@@ -13,9 +13,20 @@ export function adminCheckFailure(error: unknown): CheckResult {
     : typeof record?.status === 'number'
       ? record.status
       : null;
+  const code = typeof record?.code === 'string' ? record.code : null;
 
   if (status === 401) {
     return { authenticated: false, redirectTo: '/admin/login', logout: true };
+  }
+
+  if (status === 403 && code === 'admin_mfa_required') {
+    return {
+      authenticated: false,
+      error: {
+        message: '管理员必须完成双因素认证。请前往账户中心 /account 启用 GoTrue TOTP，然后重新登录管理后台。',
+        name: 'admin_mfa_required',
+      },
+    };
   }
 
   const message = error instanceof Error && error.message

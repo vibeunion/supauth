@@ -321,6 +321,7 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('id="totp-verify-form"');
       expect(body).toContain("accountFetch('/account/mfa/totp/enroll'");
       expect(body).toContain("`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`");
+      expect(body).toContain('await hostedAuth.setSession({');
       expect(body).toContain("button.dataset.action === 'unenroll-mfa'");
       expect(body).toContain("accountFetch(`/account/mfa/${encodeURIComponent(id)}`, { method: 'DELETE' })");
       expect(body).not.toContain('/account/passkeys');
@@ -403,6 +404,10 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");
     expect(body).toContain('return allowExternal ? url.toString() : `${url.pathname}${url.search}${url.hash}`;');
     expect(body).toContain('await continueAuthorization(session.access_token);');
+    expect(body).not.toContain('continueAuthorizationWithMfaStepUp');
+    expect(body).not.toContain('supaoauth.admin.mfa-step-up');
+    expect(body).not.toContain('isAdminMfaStepUpFlow');
+    expect(body).not.toContain('challengeAndVerifyTotp');
     expect(body).toContain('function showConsent(authorization, accessToken)');
     expect(body).toContain("void submitConsent('approve')");
     expect(body).toContain("void submitConsent('deny')");

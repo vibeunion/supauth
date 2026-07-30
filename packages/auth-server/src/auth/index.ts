@@ -24,7 +24,7 @@ const ENV_SSO_AUDIENCES = resolveSsoAudiences({
 });
 const ENV_SSO_JWKS_URI = process.env.ADMIN_SSO_JWKS_URI || (ENV_SSO_ISSUER ? `${ENV_SSO_ISSUER}/.well-known/jwks.json` : '');
 const ENV_ALLOWED_EMAILS = parseCsv(process.env.ADMIN_SSO_ALLOWED_EMAILS).map((email) => email.toLowerCase());
-const ENV_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((d) => d.toLowerCase());
+const ENV_ALLOWED_DOMAINS = parseCsv(process.env.ADMIN_SSO_ALLOWED_DOMAINS).map((domain) => domain.toLowerCase());
 const ENV_RATE_LIMIT_RPM = parseInt(process.env.ADMIN_RATE_LIMIT_RPM || '300', 10);
 const ENV_MAX_LOGIN_ATTEMPTS = parseInt(process.env.ADMIN_MAX_LOGIN_ATTEMPTS || '10', 10);
 const ENV_LOGIN_LOCKOUT_SEC = parseInt(process.env.ADMIN_LOGIN_LOCKOUT_SEC || '900', 10);
@@ -54,18 +54,20 @@ interface AdminAllowlist {
 type AdminBearerAccess =
   | { status: 'authenticated'; session: AdminSession }
   | { status: 'unauthenticated' }
-  | { status: 'forbidden' };
+  | { status: 'forbidden'; reason: 'admin_mfa_required' | 'admin_access_forbidden' };
 
 export const ADMIN_SSO_ALLOWLIST_ERROR_CODE = 'admin_sso_allowlist_not_configured';
-export const ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE = 'Admin SSO 已启用，但管理员白名单为空；请配置 ADMIN_SSO_ALLOWED_EMAILS 或 ADMIN_SSO_ALLOWED_DOMAINS。';
+export const ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE = 'Admin SSO 已启用，但管理员精确邮箱白名单为空；请配置 ADMIN_SSO_ALLOWED_EMAILS。域名白名单仅保留兼容读取，不授予管理权限。';
+export const ADMIN_SSO_DOMAIN_ALLOWLIST_ERROR_MESSAGE = 'Admin SSO 不接受域名白名单；请清空 ADMIN_SSO_ALLOWED_DOMAINS 和数据库域名条目，仅配置精确管理员邮箱。';
 
 export function resolveSsoAllowlistConfigurationError(input: {
   enabled: boolean;
   emails: string[];
   domains: string[];
 }): string | null {
-  if (!input.enabled || input.emails.length > 0 || input.domains.length > 0) return null;
-  return ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE;
+  if (!input.enabled) return null;
+  if (input.domains.length > 0) return ADMIN_SSO_DOMAIN_ALLOWLIST_ERROR_MESSAGE;
+  return input.emails.length > 0 ? null : ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE;
 }
 
 const sessions = new Map<string, AdminSession>();
@@ -99,7 +101,7 @@ async function effectiveAdminAuthMode(): Promise<string> {
   return ENV_ADMIN_AUTH_MODE;
 }
 
-/** Resolve effective allowed emails/domains from DB, falling back to env. */
+/** Resolve exact admin emails from DB, falling back to env. Domains are read only for legacy diagnostics. */
 async function effectiveAllowedAdmins(): Promise<AdminAllowlist> {
   const cfg = await getActiveSecurityConfig();
   if (cfg && (cfg.adminAllowedEmails.length > 0 || cfg.adminAllowedDomains.length > 0)) {
@@ -108,7 +110,10 @@ async function effectiveAllowedAdmins(): Promise<AdminAllowlist> {
       domains: cfg.adminAllowedDomains.map((d) => d.toLowerCase()),
     };
   }
-  return { emails: ENV_ALLOWED_EMAILS, domains: ENV_ALLOWED_DOMAINS };
+  return {
+    emails: ENV_ALLOWED_EMAILS,
+    domains: ENV_ALLOWED_DOMAINS,
+  };
 }
 
 async function effectiveSsoAllowlistConfigurationError(): Promise<string | null> {
@@ -295,15 +300,14 @@ export function adminPrincipalFromSession(session: AdminSession): AdminPrincipal
 }
 
 export function resolveSsoAdminAccess(
+  payload: JWTPayload,
   session: AdminSession,
   allowlist: AdminAllowlist,
 ): AdminBearerAccess {
+  if (payload.aal !== 'aal2') return { status: 'forbidden', reason: 'admin_mfa_required' };
   const email = session.email.toLowerCase();
   if (allowlist.emails.includes(email)) return { status: 'authenticated', session };
-  const domain = email.split('@')[1] || '';
-  return allowlist.domains.includes(domain)
-    ? { status: 'authenticated', session }
-    : { status: 'forbidden' };
+  return { status: 'forbidden', reason: 'admin_access_forbidden' };
 }
 
 async function verifiedSsoPayload(token: string): Promise<JWTPayload | null> {
@@ -326,7 +330,7 @@ async function verifySsoToken(token: string): Promise<AdminBearerAccess> {
   const payload = await verifiedSsoPayload(token);
   if (!payload) return { status: 'unauthenticated' };
   const session = adminSessionFromPayload(payload);
-  return resolveSsoAdminAccess(session, await effectiveAllowedAdmins());
+  return resolveSsoAdminAccess(payload, session, await effectiveAllowedAdmins());
 }
 
 export interface AdminLogoutDependencies {
@@ -412,11 +416,21 @@ function ssoConfigurationErrorResponse(message: string): Response {
 }
 
 export async function adminAuthorizationFailureResponse(
-  status: 'unauthenticated' | 'forbidden',
+  access: Exclude<AdminBearerAccess, { status: 'authenticated' }>,
 ): Promise<Response> {
+  if (access.status === 'forbidden' && access.reason === 'admin_mfa_required') {
+    return Response.json({
+      success: false,
+      error: {
+        code: 'admin_mfa_required',
+        required_aal: 'aal2',
+        message: '管理员必须完成双因素认证。请前往账户中心 /account 启用 GoTrue TOTP，然后重新登录管理后台。',
+      },
+    }, { status: 403 });
+  }
   const configurationError = await effectiveSsoAllowlistConfigurationError();
   if (configurationError) return ssoConfigurationErrorResponse(configurationError);
-  if (status === 'forbidden') {
+  if (access.status === 'forbidden') {
     return Response.json({
       success: false,
       error: {
@@ -468,7 +482,7 @@ export const adminAuthGuard = new Elysia()
     if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) return;
 
     if (!adminAccess || adminAccess.status !== 'authenticated') {
-      return adminAuthorizationFailureResponse(adminAccess?.status || 'unauthenticated');
+      return adminAuthorizationFailureResponse(adminAccess || { status: 'unauthenticated' });
     }
     if (adminPrincipal) {
       enterAdminRequestContext({ requestId: adminCorrelationId, principal: adminPrincipal });
@@ -527,7 +541,7 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
   ))
   .get('/identity', async ({ headers }) => {
     const access = await verifyAdminBearer(headers as Record<string, string | undefined>);
-    if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access.status);
+    if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access);
     const { session } = access;
     const principal = adminPrincipalFromSession(session);
     return {

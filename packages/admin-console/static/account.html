@@ -1223,16 +1223,32 @@
         const verifyButton = totpVerifyForm.querySelector('button');
         verifyButton.disabled = true;
         try {
-          const data = await accountFetch(`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`, {
+          const verificationResponse = await accountFetch(`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`, {
             method: 'POST',
             body: JSON.stringify({ code }),
           });
-          if (!data) return;
+          if (!verificationResponse) return;
+          const mfaSession = verificationResponse.session;
+          if (!mfaSession
+            || typeof mfaSession !== 'object'
+            || typeof mfaSession.access_token !== 'string'
+            || typeof mfaSession.refresh_token !== 'string') {
+            setMessage('error', '认证服务未返回已升级的 MFA 会话，请重新登录后再试。');
+            return;
+          }
+          const { data: savedSessionData, error: saveSessionError } = await hostedAuth.setSession({
+            access_token: mfaSession.access_token,
+            refresh_token: mfaSession.refresh_token,
+          });
+          if (saveSessionError || !savedSessionData?.session?.access_token) {
+            setMessage('error', `无法保存 MFA 登录状态：${readableError(saveSessionError, '请重新登录后再试。')}`);
+            return;
+          }
           resetTotpEnrollment();
           await loadAccountModules();
-          setMessage('ok', 'Authenticator 已绑定。');
-        } catch {
-          setMessage('error', '动态码验证失败，请重试。');
+          setMessage('ok', 'Authenticator 已绑定，当前登录状态已升级。');
+        } catch (error) {
+          setMessage('error', readableError(error, '动态码验证失败，请重试。'));
         } finally {
           verifyButton.disabled = false;
         }

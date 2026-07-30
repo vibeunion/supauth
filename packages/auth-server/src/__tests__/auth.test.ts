@@ -7,6 +7,7 @@ mock.module('../repositories/security-config.js', () => ({ getSecurityConfig }))
 
 const {
   ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE,
+  ADMIN_SSO_DOMAIN_ALLOWLIST_ERROR_MESSAGE,
   adminPrincipalFromSession,
   adminSessionFromPayload,
   adminAuthorizationFailureResponse,
@@ -225,7 +226,7 @@ describe('Auth module — SSO administrator allowlist', () => {
     })).toBe(ADMIN_SSO_ALLOWLIST_ERROR_MESSAGE);
   });
 
-  it('does not affect token mode or configured SSO allowlists', () => {
+  it('does not affect token mode or a configured exact email allowlist', () => {
     expect(resolveSsoAllowlistConfigurationError({
       enabled: false,
       emails: [],
@@ -240,25 +241,49 @@ describe('Auth module — SSO administrator allowlist', () => {
       enabled: true,
       emails: [],
       domains: ['example.test'],
-    })).toBeNull();
+    })).toBe(ADMIN_SSO_DOMAIN_ALLOWLIST_ERROR_MESSAGE);
+    expect(resolveSsoAllowlistConfigurationError({
+      enabled: true,
+      emails: ['admin@example.test'],
+      domains: ['example.test'],
+    })).toBe(ADMIN_SSO_DOMAIN_ALLOWLIST_ERROR_MESSAGE);
   });
 
   it('classifies a verified user outside the allowlist as forbidden', () => {
-    expect(resolveSsoAdminAccess(verifiedSession, {
+    expect(resolveSsoAdminAccess({ aal: 'aal2' }, verifiedSession, {
       emails: ['admin@example.test'],
       domains: ['trusted.example.test'],
-    })).toEqual({ status: 'forbidden' });
+    })).toEqual({ status: 'forbidden', reason: 'admin_access_forbidden' });
   });
 
   it('accepts a verified user whose email is explicitly allowed', () => {
-    expect(resolveSsoAdminAccess(verifiedSession, {
+    expect(resolveSsoAdminAccess({ aal: 'aal2' }, verifiedSession, {
       emails: ['member@example.test'],
       domains: [],
     })).toEqual({ status: 'authenticated', session: verifiedSession });
   });
 
+  it('requires an exact lowercase aal2 claim before evaluating the exact email allowlist', () => {
+    for (const aal of ['aal1', 'AAL2', undefined, 2, null]) {
+      expect(resolveSsoAdminAccess({ aal }, verifiedSession, {
+        emails: ['member@example.test'],
+        domains: [],
+      })).toEqual({ status: 'forbidden', reason: 'admin_mfa_required' });
+    }
+  });
+
+  it('does not authorize a legacy domain allowlist', () => {
+    expect(resolveSsoAdminAccess({ aal: 'aal2' }, verifiedSession, {
+      emails: [],
+      domains: ['example.test'],
+    })).toEqual({ status: 'forbidden', reason: 'admin_access_forbidden' });
+  });
+
   it('returns a structured 403 response for a forbidden admin identity', async () => {
-    const response = await adminAuthorizationFailureResponse('forbidden');
+    const response = await adminAuthorizationFailureResponse({
+      status: 'forbidden',
+      reason: 'admin_access_forbidden',
+    });
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
@@ -266,6 +291,23 @@ describe('Auth module — SSO administrator allowlist', () => {
       error: {
         code: 'admin_access_forbidden',
         message: '当前账号没有访问管理控制台的权限。',
+      },
+    });
+  });
+
+  it('returns an actionable structured 403 response when MFA is required', async () => {
+    const response = await adminAuthorizationFailureResponse({
+      status: 'forbidden',
+      reason: 'admin_mfa_required',
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: {
+        code: 'admin_mfa_required',
+        required_aal: 'aal2',
+        message: '管理员必须完成双因素认证。请前往账户中心 /account 启用 GoTrue TOTP，然后重新登录管理后台。',
       },
     });
   });
