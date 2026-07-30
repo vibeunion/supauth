@@ -2,12 +2,24 @@
 
 import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
-import { getSupaCloudAdapter, getSupaCloudAdapterForProject, type SupaCloudAdapter } from '../supacloud/adapter.js';
+import {
+  getSupaCloudAdapter,
+  getSupaCloudAdapterForProject,
+  isSupaCloudApiError,
+  type SupaCloudAdapter,
+} from '../supacloud/adapter.js';
 import * as accountProvisioning from '../repositories/account-provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import { batchGenerateEmails, nameToPinyinBase } from '../utils/email-generator.js';
 import { syncEmployeeStatuses, reconcileAllEmployeeStatuses } from '../sync/employee-status.js';
+import {
+  mergePasswordPolicies,
+  passwordPolicyFromAuthConfig,
+  passwordPolicyViolation,
+  type PasswordPolicyViolation,
+  type PublicPasswordPolicy,
+} from '../utils/password-policy.js';
 
 const adapter = getSupaCloudAdapter();
 const CLAIM_LIMIT_WINDOW_MS = 60_000;
@@ -30,6 +42,10 @@ type AccountClaimConfig = {
   password: {
     mode: accountProvisioning.AccountClaimPasswordMode;
     min_length: number;
+    require_uppercase: boolean;
+    require_lowercase: boolean;
+    require_numbers: boolean;
+    require_symbols: boolean;
   };
   phrases: Record<string, Record<string, string>>;
 };
@@ -40,6 +56,10 @@ const DEFAULT_ACCOUNT_CLAIM_CONFIG: AccountClaimConfig = {
   password: {
     mode: 'show_initial_password',
     min_length: 8,
+    require_uppercase: false,
+    require_lowercase: false,
+    require_numbers: false,
+    require_symbols: false,
   },
   phrases: {},
 };
@@ -117,6 +137,10 @@ export function sanitizeAccountClaimConfig(config: unknown): AccountClaimConfig 
         6,
         128,
       ),
+      require_uppercase: false,
+      require_lowercase: false,
+      require_numbers: false,
+      require_symbols: false,
     },
     phrases: sanitizePhrases(value.phrases),
   };
@@ -125,6 +149,16 @@ export function sanitizeAccountClaimConfig(config: unknown): AccountClaimConfig 
 async function readAccountClaimConfig() {
   const config = await tenantConfigRepo.getTenantConfig('account_claim', 'default');
   return sanitizeAccountClaimConfig(config || {});
+}
+
+function passwordPolicyFromClaimConfig(config: AccountClaimConfig): PublicPasswordPolicy {
+  return {
+    min_length: config.password.min_length,
+    require_uppercase: config.password.require_uppercase,
+    require_lowercase: config.password.require_lowercase,
+    require_numbers: config.password.require_numbers,
+    require_symbols: config.password.require_symbols,
+  };
 }
 
 function extractUsers(response: unknown): Record<string, unknown>[] {
@@ -172,6 +206,40 @@ export function resolveAccountClaimPasswordProjectRefs(input: {
   return [...refs];
 }
 
+function accountClaimPasswordAdapters(): SupaCloudAdapter[] {
+  const config = getConfig();
+  const projectRefs = resolveAccountClaimPasswordProjectRefs({
+    projectRef: config.projectRef,
+    oauthAuthorizationProjectRef: config.oauthAuthorizationProjectRef,
+    extraProjectRefs: process.env.SUPAUTH_ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS
+      || process.env.ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS,
+  });
+  if (projectRefs.length === 0) throw new Error('No account claim password target project is configured');
+  return projectRefs.map(projectRef => (
+    projectRef === config.projectRef ? adapter : getSupaCloudAdapterForProject(projectRef)
+  ));
+}
+
+async function readAccountClaimRuntimePasswordPolicy(): Promise<PublicPasswordPolicy> {
+  const policies = await Promise.all(accountClaimPasswordAdapters().map(async targetAdapter => {
+    return passwordPolicyFromAuthConfig(await targetAdapter.getAuthConfig());
+  }));
+  return mergePasswordPolicies(...policies);
+}
+
+function mergeAccountClaimPasswordPolicy(
+  config: AccountClaimConfig,
+  runtimePolicy: PublicPasswordPolicy,
+): AccountClaimConfig {
+  return {
+    ...config,
+    password: {
+      ...config.password,
+      ...mergePasswordPolicies(passwordPolicyFromClaimConfig(config), runtimePolicy),
+    },
+  };
+}
+
 async function updateUserPasswordWithAdapter(
   targetAdapter: SupaCloudAdapter,
   target: accountProvisioning.AccountClaimPasswordUpdateTarget,
@@ -180,20 +248,38 @@ async function updateUserPasswordWithAdapter(
   await targetAdapter.updateUser(target.userId, { password });
 }
 
+function isWeakPasswordUpdateError(error: unknown): boolean {
+  if (!isSupaCloudApiError(error, [400, 422])) return false;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(error.body);
+  } catch {
+    payload = null;
+  }
+  const record = isRecord(payload) ? payload : {};
+  const code = String(record.code || record.error_code || '').toLowerCase();
+  if (code === 'weak_password') return true;
+
+  const message = String(record.message || record.msg || record.error_description || record.error || error.body).toLowerCase();
+  return message.includes('weak password')
+    || /password (?:should|must) be at least/.test(message)
+    || /password (?:must|should) (?:include|contain|have)/.test(message)
+    || /password is too short/.test(message);
+}
+
+function passwordViolationMessage(violation: PasswordPolicyViolation, minLength: number): string {
+  if (violation === 'password_too_short') return `Password must be at least ${minLength} characters.`;
+  if (violation === 'password_requires_uppercase') return 'Password must include an uppercase letter.';
+  if (violation === 'password_requires_lowercase') return 'Password must include a lowercase letter.';
+  if (violation === 'password_requires_number') return 'Password must include a number.';
+  return 'Password must include a symbol.';
+}
+
 async function updateClaimedUserPassword(
   target: accountProvisioning.AccountClaimPasswordUpdateTarget,
   password: string,
 ) {
-  const config = getConfig();
-  const projectRefs = resolveAccountClaimPasswordProjectRefs({
-    projectRef: config.projectRef,
-    oauthAuthorizationProjectRef: config.oauthAuthorizationProjectRef,
-    extraProjectRefs: process.env.SUPAUTH_ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS
-      || process.env.ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS,
-  });
-
-  for (const projectRef of projectRefs) {
-    const targetAdapter = projectRef === config.projectRef ? adapter : getSupaCloudAdapterForProject(projectRef);
+  for (const targetAdapter of accountClaimPasswordAdapters()) {
     await updateUserPasswordWithAdapter(targetAdapter, target, password);
   }
 }
@@ -259,15 +345,23 @@ async function audit(eventType: string, resourceId: string, details?: Record<str
 export function createPublicAccountClaimRoutes(options?: {
   claimAccount?: typeof accountProvisioning.claimAccount;
   getConfig?: () => Promise<AccountClaimConfig>;
+  getPasswordPolicy?: () => Promise<PublicPasswordPolicy>;
   updatePassword?: (target: accountProvisioning.AccountClaimPasswordUpdateTarget, password: string) => Promise<void>;
 }) {
   const claimAccount = options?.claimAccount || accountProvisioning.claimAccount;
   const getConfig = options?.getConfig || readAccountClaimConfig;
+  const getPasswordPolicy = options?.getPasswordPolicy
+    || (options?.getConfig ? undefined : readAccountClaimRuntimePasswordPolicy);
   const updatePassword = options?.updatePassword || updateClaimedUserPassword;
+  const getEffectiveConfig = async () => {
+    const config = await getConfig();
+    if (!getPasswordPolicy || !config.enabled || config.password.mode !== 'set_on_claim') return config;
+    return mergeAccountClaimPasswordPolicy(config, await getPasswordPolicy());
+  };
 
   return new Elysia({ prefix: '/v1/public/account-claims' })
     .get('/config', async () => {
-      return { success: true, config: await getConfig() };
+      return { success: true, config: await getEffectiveConfig() };
     }, {
       detail: { summary: 'Get public account claim configuration', tags: ['Public', 'Account Provisioning'] },
     })
@@ -278,7 +372,7 @@ export function createPublicAccountClaimRoutes(options?: {
         return { success: false, error: { code: 'too_many_attempts', message: 'Too many attempts. Please try again later.' } };
       }
 
-      const config = await getConfig();
+      const config = await getEffectiveConfig();
       if (!config.enabled) {
         set.status = 403;
         return { success: false, error: { code: 'account_claim_disabled', message: 'Account claiming is disabled.' } };
@@ -300,28 +394,44 @@ export function createPublicAccountClaimRoutes(options?: {
       }
       const passwordMode = config.password.mode;
       const newPassword = String(data?.new_password || '');
-      if (passwordMode === 'set_on_claim' && newPassword.length < config.password.min_length) {
+      const passwordViolation = passwordMode === 'set_on_claim'
+        ? passwordPolicyViolation(newPassword, passwordPolicyFromClaimConfig(config))
+        : null;
+      if (passwordViolation) {
         set.status = 400;
         return {
           success: false,
           error: {
-            code: 'password_too_short',
-            message: `Password must be at least ${config.password.min_length} characters.`,
+            code: passwordViolation,
+            message: passwordViolationMessage(passwordViolation, config.password.min_length),
           },
         };
       }
 
       const headerMap = headers as Record<string, string | undefined>;
-      const result = await claimAccount({
-        displayName,
-        externalId,
-        externalType,
-        ip,
-        userAgent: headerMap['user-agent'],
-        passwordMode,
-        newPassword: passwordMode === 'set_on_claim' ? newPassword : undefined,
-        updatePassword: passwordMode === 'set_on_claim' ? updatePassword : undefined,
-      });
+      let result: accountProvisioning.AccountClaimResult;
+      try {
+        result = await claimAccount({
+          displayName,
+          externalId,
+          externalType,
+          ip,
+          userAgent: headerMap['user-agent'],
+          passwordMode,
+          newPassword: passwordMode === 'set_on_claim' ? newPassword : undefined,
+          updatePassword: passwordMode === 'set_on_claim' ? updatePassword : undefined,
+        });
+      } catch (error) {
+        if (!isWeakPasswordUpdateError(error)) throw error;
+        set.status = 400;
+        return {
+          success: false,
+          error: {
+            code: 'weak_password',
+            message: 'Password does not satisfy the current password policy.',
+          },
+        };
+      }
 
       if (result.status === 'not_found') {
         set.status = 404;

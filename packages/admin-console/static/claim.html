@@ -214,6 +214,13 @@
     .message.success { color: var(--success); }
     .message.muted { color: var(--muted); }
 
+    .password-hint {
+      margin: -8px 0 16px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
     .footer {
       margin-top: 18px;
       color: var(--muted);
@@ -260,8 +267,9 @@
             <label id="confirm-password-label" for="confirm-password">确认登录密码</label>
             <input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password">
           </div>
+          <p id="password-policy-hint" class="password-hint" role="note"></p>
         </div>
-        <button id="submit" class="primary" type="submit">查询账号</button>
+        <button id="submit" class="primary" type="submit" disabled>查询账号</button>
       </form>
 
       <div id="message" class="message" role="status"></div>
@@ -308,6 +316,17 @@
         footerSetPassword: 'After the password is set, sign in with your login email and new password.',
         required: 'Enter your name and numeric ID.',
         passwordTooShort: 'Password must be at least {min} characters.',
+        passwordRequiresUppercase: 'Password must include an uppercase letter.',
+        passwordRequiresLowercase: 'Password must include a lowercase letter.',
+        passwordRequiresNumber: 'Password must include a number.',
+        passwordRequiresSymbol: 'Password must include a symbol.',
+        passwordPolicyLength: 'Password requirements: at least {min} characters.',
+        passwordPolicyCharacters: 'Password requirements: at least {min} characters and {requirements}.',
+        passwordRequirementUppercase: 'an uppercase letter',
+        passwordRequirementLowercase: 'a lowercase letter',
+        passwordRequirementNumber: 'a number',
+        passwordRequirementSymbol: 'a symbol',
+        weakPassword: 'Password does not meet the current password policy.',
         passwordMismatch: 'The two passwords do not match.',
         claimSuccessSetPassword: 'Account claimed. Your password has been set. Sign in with the new password.',
         claimSuccessInitial: 'Account claimed. Please sign in and change your password soon.',
@@ -316,6 +335,8 @@
         copiedEmail: 'Email copied.',
         copiedPassword: 'Password copied.',
         tooManyAttempts: 'Too many attempts. Please try again later.',
+        claimUnavailable: 'Account claiming configuration is temporarily unavailable. Please try again later.',
+        claimDisabled: 'Account claiming is currently disabled.',
         serverError: 'The system cannot complete the lookup right now. Please try again later or contact an administrator.',
         invalidRequest: 'Enter your name and numeric ID.',
         notFound: 'No matching account found. Check your name and numeric ID.',
@@ -341,6 +362,17 @@
         footerSetPassword: '密码设置成功后，请使用登录邮箱和新密码登录。',
         required: '请填写姓名和数字 ID。',
         passwordTooShort: '密码至少需要 {min} 个字符。',
+        passwordRequiresUppercase: '密码必须包含大写字母。',
+        passwordRequiresLowercase: '密码必须包含小写字母。',
+        passwordRequiresNumber: '密码必须包含数字。',
+        passwordRequiresSymbol: '密码必须包含特殊符号。',
+        passwordPolicyLength: '密码要求：至少 {min} 个字符。',
+        passwordPolicyCharacters: '密码要求：至少 {min} 个字符，并包含{requirements}。',
+        passwordRequirementUppercase: '大写字母',
+        passwordRequirementLowercase: '小写字母',
+        passwordRequirementNumber: '数字',
+        passwordRequirementSymbol: '特殊符号',
+        weakPassword: '密码不符合当前密码策略要求。',
         passwordMismatch: '两次输入的密码不一致。',
         claimSuccessSetPassword: '账号领取成功，密码已设置。请使用新密码登录。',
         claimSuccessInitial: '账号领取成功，请尽快登录并修改密码。',
@@ -349,6 +381,8 @@
         copiedEmail: '邮箱已复制。',
         copiedPassword: '密码已复制。',
         tooManyAttempts: '查询次数过多，请稍后再试。',
+        claimUnavailable: '账号领取配置暂时不可用，请稍后重试。',
+        claimDisabled: '账号领取功能当前未启用。',
         serverError: '系统暂时无法完成查询，请稍后重试或联系管理员。',
         invalidRequest: '请填写姓名和数字 ID。',
         notFound: '未找到匹配账号，请核对姓名和数字 ID。',
@@ -372,12 +406,20 @@
     const passwordRow = document.getElementById('password-row');
     const passwordEl = document.getElementById('password');
     const passwordFields = document.getElementById('password-fields');
+    const passwordPolicyHint = document.getElementById('password-policy-hint');
     const newPasswordInput = document.getElementById('new-password');
     const confirmPasswordInput = document.getElementById('confirm-password');
     let claimConfig = {
-      enabled: true,
+      enabled: false,
       external_type: 'employee',
-      password: { mode: 'show_initial_password', min_length: 8 },
+      password: {
+        mode: 'show_initial_password',
+        min_length: 8,
+        require_uppercase: false,
+        require_lowercase: false,
+        require_numbers: false,
+        require_symbols: false,
+      },
       phrases: {},
     };
 
@@ -440,9 +482,34 @@
       passwordFields.hidden = !mustSetPassword;
       newPasswordInput.required = mustSetPassword;
       confirmPasswordInput.required = mustSetPassword;
+      newPasswordInput.minLength = mustSetPassword ? claimConfig.password.min_length : 0;
+      confirmPasswordInput.minLength = mustSetPassword ? claimConfig.password.min_length : 0;
+      passwordPolicyHint.hidden = !mustSetPassword;
+      passwordPolicyHint.textContent = mustSetPassword ? passwordPolicyHintText() : '';
+      submit.disabled = !claimConfig.enabled;
       submit.textContent = mustSetPassword ? t('submitSetPassword') : t('submitInitial');
       lead.textContent = mustSetPassword ? t('leadSetPassword') : t('leadInitial');
       footer.textContent = mustSetPassword ? t('footerSetPassword') : t('footerInitial');
+    }
+
+    function passwordPolicyRequirementLabels() {
+      const labels = [];
+      const password = claimConfig.password;
+      if (password.require_uppercase) labels.push(t('passwordRequirementUppercase'));
+      if (password.require_lowercase) labels.push(t('passwordRequirementLowercase'));
+      if (password.require_numbers) labels.push(t('passwordRequirementNumber'));
+      if (password.require_symbols) labels.push(t('passwordRequirementSymbol'));
+      return labels;
+    }
+
+    function passwordPolicyHintText() {
+      const requirements = passwordPolicyRequirementLabels();
+      if (!requirements.length) return t('passwordPolicyLength', { min: claimConfig.password.min_length });
+      const separator = currentLocale === 'zh-CN' ? '、' : ', ';
+      return t('passwordPolicyCharacters', {
+        min: claimConfig.password.min_length,
+        requirements: requirements.join(separator),
+      });
     }
 
     function applyLocale(locale, persist = false) {
@@ -536,6 +603,10 @@
         password: {
           mode: password.mode === 'set_on_claim' ? 'set_on_claim' : 'show_initial_password',
           min_length: Number.isFinite(Number(password.min_length)) ? Math.max(6, Number(password.min_length)) : 8,
+          require_uppercase: password.require_uppercase === true,
+          require_lowercase: password.require_lowercase === true,
+          require_numbers: password.require_numbers === true,
+          require_symbols: password.require_symbols === true,
         },
         phrases: next.phrases && typeof next.phrases === 'object' ? next.phrases : {},
       };
@@ -547,8 +618,14 @@
       try {
         const response = await fetch(`${apiBase}/account-claims/config`, { credentials: 'include' });
         const data = await response.json().catch(() => null);
-        if (response.ok && data && data.config) applyClaimConfig(data.config);
-      } catch {}
+        if (!response.ok || !data || !data.config) throw new Error('Account claim configuration unavailable');
+        applyClaimConfig(data.config);
+        if (!claimConfig.enabled) setMessage('error', t('claimDisabled'));
+      } catch {
+        claimConfig.enabled = false;
+        submit.disabled = true;
+        setMessage('error', t('claimUnavailable'));
+      }
     }
 
     function clearResult() {
@@ -583,8 +660,33 @@
       setMessage('success', targetId === 'password' ? t('copiedPassword') : t('copiedEmail'));
     }
 
+    function passwordPolicyViolation(password) {
+      const policy = claimConfig.password;
+      if (password.length < policy.min_length) return 'passwordTooShort';
+      if (policy.require_uppercase && !/[A-Z]/.test(password)) return 'passwordRequiresUppercase';
+      if (policy.require_lowercase && !/[a-z]/.test(password)) return 'passwordRequiresLowercase';
+      if (policy.require_numbers && !/[0-9]/.test(password)) return 'passwordRequiresNumber';
+      if (policy.require_symbols && !/[!@#$%^&*()_+\-=\[\]{};'\\:"|<>?,./`~]/.test(password)) {
+        return 'passwordRequiresSymbol';
+      }
+      return null;
+    }
+
+    function passwordPolicyErrorMessage(code) {
+      if (code === 'password_too_short') return t('passwordTooShort', { min: claimConfig.password.min_length });
+      if (code === 'password_requires_uppercase') return t('passwordRequiresUppercase');
+      if (code === 'password_requires_lowercase') return t('passwordRequiresLowercase');
+      if (code === 'password_requires_number') return t('passwordRequiresNumber');
+      if (code === 'password_requires_symbol') return t('passwordRequiresSymbol');
+      return t('weakPassword');
+    }
+
     function claimErrorMessage(response, data = {}) {
-      if (data && data.error && data.error.code === 'account_already_claimed') return t('alreadyClaimed');
+      const code = data && data.error && data.error.code;
+      if (['password_too_short', 'password_requires_uppercase', 'password_requires_lowercase', 'password_requires_number', 'password_requires_symbol', 'weak_password'].includes(code)) {
+        return passwordPolicyErrorMessage(code);
+      }
+      if (code === 'account_already_claimed') return t('alreadyClaimed');
       if (response.status === 429) return t('tooManyAttempts');
       if (response.status >= 500) return t('serverError');
       if (response.status === 400) return t('invalidRequest');
@@ -603,8 +705,9 @@
       const mustSetPassword = claimConfig.password.mode === 'set_on_claim';
       const newPassword = newPasswordInput.value;
       const confirmPassword = confirmPasswordInput.value;
-      if (mustSetPassword && newPassword.length < claimConfig.password.min_length) {
-        setMessage('error', t('passwordTooShort', { min: claimConfig.password.min_length }));
+      const passwordViolation = mustSetPassword ? passwordPolicyViolation(newPassword) : null;
+      if (passwordViolation) {
+        setMessage('error', t(passwordViolation, { min: claimConfig.password.min_length }));
         return;
       }
       if (mustSetPassword && newPassword !== confirmPassword) {

@@ -14,6 +14,13 @@ import {
   normalizeDisplayName,
   normalizeExternalId,
 } from '../repositories/account-provisioning.js';
+import {
+  GOTRUE_PASSWORD_CHARACTER_POLICIES,
+  mergePasswordPolicies,
+  passwordPolicyFromAuthConfig,
+  passwordPolicyViolation,
+} from '../utils/password-policy.js';
+import { SupaCloudApiError } from '../supacloud/adapter.js';
 
 describe('account provisioning and claiming', () => {
   test('normalizes account claim identity fields', () => {
@@ -72,7 +79,14 @@ describe('account provisioning and claiming', () => {
     })).toEqual({
       enabled: true,
       external_type: 'member',
-      password: { mode: 'set_on_claim', min_length: 10 },
+      password: {
+        mode: 'set_on_claim',
+        min_length: 10,
+        require_uppercase: false,
+        require_lowercase: false,
+        require_numbers: false,
+        require_symbols: false,
+      },
       phrases: {
         'zh-CN': { submitSetPassword: '领取并设置密码' },
         en: { submitSetPassword: 'Claim and set password' },
@@ -82,9 +96,97 @@ describe('account provisioning and claiming', () => {
     expect(sanitizeAccountClaimConfig({ value: { password: { mode: 'unknown', min_length: 2 } } })).toEqual({
       enabled: true,
       external_type: 'employee',
-      password: { mode: 'show_initial_password', min_length: 6 },
+      password: {
+        mode: 'show_initial_password',
+        min_length: 6,
+        require_uppercase: false,
+        require_lowercase: false,
+        require_numbers: false,
+        require_symbols: false,
+      },
       phrases: {},
     });
+  });
+
+  test('derives only supported public password policies from GoTrue auth config', () => {
+    expect(passwordPolicyFromAuthConfig({
+      password_min_length: 8,
+      password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.none,
+    })).toEqual({
+      min_length: 8,
+      require_uppercase: false,
+      require_lowercase: false,
+      require_numbers: false,
+      require_symbols: false,
+    });
+
+    expect(passwordPolicyFromAuthConfig({
+      password_min_length: 10,
+      password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.standard,
+    })).toEqual({
+      min_length: 10,
+      require_uppercase: true,
+      require_lowercase: true,
+      require_numbers: true,
+      require_symbols: false,
+    });
+
+    expect(passwordPolicyFromAuthConfig({
+      password_min_length: 12,
+      password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.strong,
+    }).require_symbols).toBe(true);
+    expect(() => passwordPolicyFromAuthConfig({
+      password_min_length: 10,
+      password_required_characters: 'custom-unrepresentable-policy',
+    })).toThrow('unsupported password_required_characters');
+    expect(() => passwordPolicyFromAuthConfig({})).toThrow('invalid password_required_characters');
+    expect(() => passwordPolicyFromAuthConfig({
+      password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.none,
+    })).toThrow('invalid password_min_length');
+    expect(() => passwordPolicyFromAuthConfig({
+      password_min_length: 10,
+    })).toThrow('invalid password_required_characters');
+  });
+
+  test('merges password policies without weakening any target project', () => {
+    expect(mergePasswordPolicies({
+      min_length: 12,
+      require_uppercase: false,
+      require_lowercase: false,
+      require_numbers: false,
+      require_symbols: false,
+    }, {
+      min_length: 10,
+      require_uppercase: true,
+      require_lowercase: true,
+      require_numbers: true,
+      require_symbols: false,
+    })).toEqual({
+      min_length: 12,
+      require_uppercase: true,
+      require_lowercase: true,
+      require_numbers: true,
+      require_symbols: false,
+    });
+  });
+
+  test('reports the first unmet password requirement', () => {
+    const policy = passwordPolicyFromAuthConfig({
+      password_min_length: 10,
+      password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.standard,
+    });
+    expect(passwordPolicyViolation('12345678', policy)).toBe('password_too_short');
+    expect(passwordPolicyViolation('1234567890', policy)).toBe('password_requires_uppercase');
+    expect(passwordPolicyViolation('ABCDEFGHI1', policy)).toBe('password_requires_lowercase');
+    expect(passwordPolicyViolation('Abcdefghij', policy)).toBe('password_requires_number');
+    expect(passwordPolicyViolation('Abcdefgh1j', policy)).toBeNull();
+
+    const strongPolicy = passwordPolicyFromAuthConfig({
+      password_min_length: 10,
+      password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.strong,
+    });
+    expect(passwordPolicyViolation('Abcdefgh1j', strongPolicy)).toBe('password_requires_symbol');
+    expect(passwordPolicyViolation('Abcdefgh1!', strongPolicy)).toBeNull();
   });
 
   test('resolves password update target projects for external hosted auth', () => {
@@ -108,6 +210,13 @@ describe('account provisioning and claiming', () => {
           password: { mode: 'set_on_claim', min_length: 12 },
         },
       }),
+      getPasswordPolicy: async () => ({
+        min_length: 10,
+        require_uppercase: true,
+        require_lowercase: true,
+        require_numbers: true,
+        require_symbols: false,
+      }),
       claimAccount: async () => ({ status: 'not_found' }),
     }));
 
@@ -120,7 +229,14 @@ describe('account provisioning and claiming', () => {
       config: {
         enabled: true,
         external_type: 'member',
-        password: { mode: 'set_on_claim', min_length: 12 },
+        password: {
+          mode: 'set_on_claim',
+          min_length: 12,
+          require_uppercase: true,
+          require_lowercase: true,
+          require_numbers: true,
+          require_symbols: false,
+        },
         phrases: {},
       },
     });
@@ -148,6 +264,72 @@ describe('account provisioning and claiming', () => {
     expect(response.status).toBe(400);
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('password_too_short');
+  });
+
+  test('public claim route rejects a numeric password against the live character policy', async () => {
+    let claimCalled = false;
+    const app = new Elysia().use(createPublicAccountClaimRoutes({
+      getConfig: async () => sanitizeAccountClaimConfig({
+        value: { password: { mode: 'set_on_claim', min_length: 8 } },
+      }),
+      getPasswordPolicy: async () => ({
+        min_length: 10,
+        require_uppercase: true,
+        require_lowercase: true,
+        require_numbers: true,
+        require_symbols: false,
+      }),
+      claimAccount: async () => {
+        claimCalled = true;
+        return { status: 'not_found' };
+      },
+    }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.0.2.10' },
+      body: JSON.stringify({
+        display_name: '张三',
+        external_id: '10086',
+        external_type: 'employee',
+        new_password: '1234567890',
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('password_requires_uppercase');
+    expect(claimCalled).toBe(false);
+  });
+
+  test('public claim route maps an authoritative weak-password rejection', async () => {
+    const app = new Elysia().use(createPublicAccountClaimRoutes({
+      getConfig: async () => sanitizeAccountClaimConfig({
+        value: { password: { mode: 'set_on_claim', min_length: 8 } },
+      }),
+      claimAccount: async () => {
+        throw new SupaCloudApiError(
+          422,
+          JSON.stringify({ code: 'weak_password', message: 'Password is too weak' }),
+          '/v1/projects/test/auth/users/user-1',
+        );
+      },
+    }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.0.2.11' },
+      body: JSON.stringify({
+        display_name: '张三',
+        external_id: '10086',
+        external_type: 'employee',
+        new_password: 'NewPass123!',
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('weak_password');
   });
 
   test('public claim route can claim by setting a new password instead of returning the initial password', async () => {
