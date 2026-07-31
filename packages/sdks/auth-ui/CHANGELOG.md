@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/zuohuadong/supauth/compare/sdk-auth-ui-v0.4.0...sdk-auth-ui-v0.5.0) (2026-07-30)
+
+
+### Features
+
+* **rbac:** scope role management by application ([318323c](https://github.com/zuohuadong/supauth/commit/318323c7769a61437977088f8b2be6d11b1a9779))
+
 ## [0.4.0](https://github.com/zuohuadong/supauth/compare/sdk-auth-ui-v0.3.0...sdk-auth-ui-v0.4.0) (2026-07-29)
 
 
