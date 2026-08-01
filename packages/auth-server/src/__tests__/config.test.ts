@@ -1,5 +1,40 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
-import { loadConfig, validateConfig } from '../config/index.js';
+import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
+import { fileURLToPath } from 'node:url';
+import { enforceStartupConfig, loadConfig, validateConfig } from '../config/index.js';
+
+const REQUIRED_CONFIG_ENV_NAMES = [
+  'SUPACLOUD_API_URL',
+  'SUPACLOUD_INTERNAL_API_URL',
+  'SUPACLOUD_MANAGEMENT_API_URL',
+  'SUPACLOUD_INTERNAL_SUPABASE_URL',
+  'SUPACLOUD_MASTER_TOKEN',
+  'SUPACLOUD_INTERNAL_TOKEN',
+  'SUPACLOUD_SERVICE_TOKEN',
+  'SUPAOAUTH_BFF_SIGNING_SECRET',
+  'PROJECT_REF',
+  'SUPACLOUD_PROJECT_REF',
+  'SUPABASE_PROJECT_REF',
+  'OAUTH_RUNTIME_URL',
+  'SUPACLOUD_RUNTIME_URL',
+  'SUPABASE_URL',
+  'SUPAUTH_PUBLIC_URL',
+  'AUTH_PUBLIC_URL',
+  'SUPAUTH_INSTALLED_BASE_URL',
+  'SUPAUTH_BASE_URL',
+  'OAUTH_PUBLIC_BASE_URL',
+  'DATABASE_URL',
+  'SUPACLOUD_DATABASE_URL',
+  'SUPABASE_DB_URL',
+] as const;
+
+function productionEnvWithoutRequiredConfig(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env, NODE_ENV: 'production' };
+  for (const name of REQUIRED_CONFIG_ENV_NAMES) {
+    env[name] = '';
+    env[`EDGEFN_SUPAUTH_${name}`] = '';
+  }
+  return env;
+}
 
 describe('ServerConfig', () => {
   beforeEach(() => {
@@ -131,6 +166,63 @@ describe('ServerConfig', () => {
     const errors = validateConfig(config);
 
     expect(errors).toContain('SUPAUTH_PUBLIC_URL or AUTH_PUBLIC_URL is required when NODE_ENV=production');
+  });
+
+  it('refuses to register the app when production config is incomplete', () => {
+    const projectRoot = fileURLToPath(new URL('../../../..', import.meta.url));
+    const entrypointImport = Bun.spawnSync({
+      cmd: [process.execPath, '-e', "await import('./packages/auth-server/src/index.ts')"],
+      cwd: projectRoot,
+      env: productionEnvWithoutRequiredConfig(),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stderr = new TextDecoder().decode(entrypointImport.stderr);
+
+    expect(entrypointImport.exitCode).not.toBe(0);
+    expect(stderr).toContain('SupaOAuth configuration is invalid:');
+    expect(stderr).toContain('SUPACLOUD_MASTER_TOKEN or SUPACLOUD_INTERNAL_TOKEN is required');
+    expect(stderr).toContain('PROJECT_REF or SUPACLOUD_PROJECT_REF is required');
+    expect(stderr).toContain('OAUTH_RUNTIME_URL, SUPACLOUD_RUNTIME_URL, or SUPABASE_URL is required');
+    expect(stderr).toContain('DATABASE_URL or SUPACLOUD_DATABASE_URL is required');
+    expect(stderr).toContain('SUPAOAUTH_BFF_SIGNING_SECRET is required');
+    expect(stderr).toContain('SUPAUTH_PUBLIC_URL or AUTH_PUBLIC_URL is required when NODE_ENV=production');
+  });
+
+  it('does not disclose configured values in production startup errors', () => {
+    const sensitiveToken = 'sensitive-management-token-0123456789abcdef';
+    const sensitivePublicUrl = 'sensitive-public-url-value';
+    process.env.NODE_ENV = 'production';
+    process.env.SUPACLOUD_MASTER_TOKEN = sensitiveToken;
+    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = sensitiveToken;
+    process.env.SUPAUTH_PUBLIC_URL = sensitivePublicUrl;
+    const config = loadConfig();
+    let startupErrorMessage = '';
+
+    try {
+      enforceStartupConfig(config);
+    } catch (error) {
+      startupErrorMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(startupErrorMessage).toContain('SupaOAuth configuration is invalid:');
+    expect(startupErrorMessage).not.toContain(sensitiveToken);
+    expect(startupErrorMessage).not.toContain(sensitivePublicUrl);
+  });
+
+  it('keeps incomplete development config as a warning', () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      expect(() => enforceStartupConfig(loadConfig())).not.toThrow();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        'SupaOAuth config warnings:',
+        expect.stringContaining('SUPACLOUD_MASTER_TOKEN or SUPACLOUD_INTERNAL_TOKEN is required'),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('enables trusted proxy headers only when explicitly configured', () => {

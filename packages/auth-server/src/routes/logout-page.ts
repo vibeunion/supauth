@@ -5,6 +5,12 @@ import { getSupaCloudAdapter, getSupaCloudAdapterForProject } from '../supacloud
 
 type LogoutQuery = Record<string, unknown>;
 
+const LOCAL_REDIRECT_ENVIRONMENTS = new Set(['development', 'test']);
+const LOOPBACK_REDIRECT_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+const RAW_HTTP_AUTHORITY = /^http:\/\/([^/?#]*)(?:[/?#]|$)/i;
+const RAW_WEB_AUTHORITY = /^https?:\/\/([^/?#]*)(?:[/?#]|$)/i;
+const STRICT_LOOPBACK_HTTP_AUTHORITY = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?$/;
+
 export interface LogoutValidationDependencies {
   discovery: () => Promise<Record<string, unknown>>;
   jwks: () => Promise<Record<string, unknown>>;
@@ -45,10 +51,34 @@ function registeredLogoutUris(client: Record<string, unknown>): string[] {
   return [...new Set(configured)];
 }
 
+function hasStrictLoopbackHttpAuthority(candidate: string): boolean {
+  const rawAuthority = RAW_HTTP_AUTHORITY.exec(candidate)?.[1];
+  return rawAuthority !== undefined && STRICT_LOOPBACK_HTTP_AUTHORITY.test(rawAuthority);
+}
+
+/**
+ * WHATWG URL drops empty credentials (for example `https://@host/path`) while
+ * parsing. Inspect the original authority first so those spellings cannot
+ * bypass the credential rejection below.
+ */
+function hasSafeRawWebAuthority(candidate: string): boolean {
+  const rawAuthority = RAW_WEB_AUTHORITY.exec(candidate)?.[1];
+  return rawAuthority !== undefined && rawAuthority.length > 0 && !rawAuthority.includes('@');
+}
+
+function hasSafeRedirectProtocol(candidate: string, url: URL): boolean {
+  if (url.protocol === 'https:') return true;
+  return LOCAL_REDIRECT_ENVIRONMENTS.has(getConfig().nodeEnv)
+    && url.protocol === 'http:'
+    && hasStrictLoopbackHttpAuthority(candidate)
+    && LOOPBACK_REDIRECT_HOSTNAMES.has(url.hostname);
+}
+
 function safeRedirectUri(candidate: string): URL | null {
   try {
+    if (candidate.includes('#') || !hasSafeRawWebAuthority(candidate)) return null;
     const url = new URL(candidate);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) return null;
+    if (!hasSafeRedirectProtocol(candidate, url) || url.username || url.password) return null;
     return url;
   } catch {
     return null;

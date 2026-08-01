@@ -8,6 +8,7 @@ import { Elysia } from 'elysia';
 import { runtimeEnv } from '../config/platform-env.js';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { getConfig } from '../config/index.js';
+import { BoundedExpiringMap, BoundedFixedWindowLimiter, resolveClientIp } from '../utils/rate-limit.js';
 import * as secRepo from '../repositories/security-config.js';
 import type { SecurityConfigRow } from '../repositories/security-config.js';
 import { resolveGoTrueLogoutUrl } from './gotrue-logout-url.js';
@@ -58,6 +59,11 @@ interface AdminSsoAccessPolicy {
   requireAal2: boolean;
 }
 
+interface LoginAttemptState {
+  count: number;
+  lockedUntil: number;
+}
+
 type AdminBearerAccess =
   | { status: 'authenticated'; session: AdminSession }
   | { status: 'unauthenticated' }
@@ -79,8 +85,8 @@ export function resolveSsoAllowlistConfigurationError(input: {
 
 const sessions = new Map<string, AdminSession>();
 const jwks = ENV_SSO_JWKS_URI ? createRemoteJWKSet(new URL(ENV_SSO_JWKS_URI)) : null;
-const rateLimits = new Map<string, { count: number; resetAt: number }>();
-const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+const rateLimits = new BoundedFixedWindowLimiter({ windowMs: RATE_LIMIT_WINDOW_MS });
+const loginAttempts = new BoundedExpiringMap<LoginAttemptState>();
 
 // Cached DB security config with TTL so Admin UI policy changes propagate.
 let _secConfig: SecurityConfigRow | null = null;
@@ -182,7 +188,7 @@ function bearerToken(headers: Record<string, string | undefined>): string | null
 }
 
 function requestIp(headers: Record<string, string | undefined>): string {
-  return (headers['x-forwarded-for'] || headers['x-real-ip'] || 'unknown').split(',')[0].trim();
+  return resolveClientIp(headers, getConfig().trustProxyHeaders);
 }
 
 /** Token auth is blocked when DB or env says SSO-only, or in production. */
@@ -196,15 +202,7 @@ async function tokenAuthAllowed(): Promise<boolean> {
 async function consumeRateLimit(ip: string): Promise<boolean> {
   const cfg = await getActiveSecurityConfig();
   const rpm = cfg?.rateLimitRpm ?? ENV_RATE_LIMIT_RPM;
-  const now = Date.now();
-  const current = rateLimits.get(ip);
-  if (!current || current.resetAt <= now) {
-    rateLimits.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return true;
-  }
-  if (current.count >= rpm) return false;
-  current.count += 1;
-  return true;
+  return rateLimits.consume(ip, rpm);
 }
 
 async function loginLocked(ip: string): Promise<boolean> {
@@ -214,17 +212,21 @@ async function loginLocked(ip: string): Promise<boolean> {
   return !!current && current.lockedUntil > Date.now();
 }
 
-async function recordLoginFailure(ip: string): Promise<void> {
+async function recordLoginFailure(ip: string): Promise<boolean> {
   const cfg = await getActiveSecurityConfig();
   const maxAttempts = cfg?.maxLoginAttempts ?? ENV_MAX_LOGIN_ATTEMPTS;
   const lockoutSec = cfg?.lockoutDurationSec ?? ENV_LOGIN_LOCKOUT_SEC;
   const now = Date.now();
   const current = loginAttempts.get(ip) || { count: 0, lockedUntil: 0 };
   const nextCount = current.lockedUntil > now ? current.count : current.count + 1;
-  loginAttempts.set(ip, {
+  const attemptState = {
     count: nextCount,
     lockedUntil: nextCount >= maxAttempts ? now + lockoutSec * 1000 : 0,
-  });
+  };
+  const retentionMs = Number.isFinite(lockoutSec)
+    ? Math.max(lockoutSec * 1000, RATE_LIMIT_WINDOW_MS)
+    : RATE_LIMIT_WINDOW_MS;
+  return loginAttempts.set(ip, attemptState, retentionMs);
 }
 
 function clearLoginFailures(ip: string): void {
@@ -452,7 +454,6 @@ export async function adminAuthorizationFailureResponse(
 
 function publicAdminPath(pathname: string): boolean {
   return pathname === '/v1/health'
-    || pathname === '/v1/project'
     || pathname.startsWith('/v1/runtime')
     || pathname === '/v1/auth'
     || pathname.startsWith('/v1/auth/')
@@ -541,7 +542,9 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
       return { success: true, token: sessionToken };
     }
 
-    await recordLoginFailure(ip);
+    if (!await recordLoginFailure(ip)) {
+      return new Response('Too Many Requests', { status: 429 });
+    }
     return { success: false, error: { message: await ssoMessage() || 'Invalid credentials' } };
   })
   .post('/logout', ({ headers }) => (

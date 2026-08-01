@@ -8,6 +8,12 @@ import * as auditRepo from '../repositories/audit.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { capabilityUnavailable } from '../utils/api-contract.js';
+import { validateExternalDeleteAccountUrl } from '../utils/external-delete-url.js';
+import {
+  preferredUpstreamNetworkFailure,
+  upstreamNetworkFailure,
+  upstreamResponseFailure,
+} from '../utils/upstream-failure.js';
 
 interface AccountFailure {
   ok: false;
@@ -43,7 +49,7 @@ interface ProviderLinkRequest {
   redirectTo: string;
 }
 
-type AccountCenterConfig = {
+export type AccountCenterConfig = {
   enabled: boolean;
   profile: {
     edit_mode: 'disabled' | 'read_only' | 'editable';
@@ -118,16 +124,6 @@ function asEditMode(value: unknown): AccountCenterConfig['profile']['edit_mode']
   return value === 'disabled' || value === 'editable' || value === 'read_only' ? value : 'read_only';
 }
 
-function asSafeUrl(value: unknown) {
-  if (typeof value !== 'string' || !value.trim()) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
 function unavailableProviderLinking(reasonCode: string): ProviderLinkingCapability {
   return {
     available: false,
@@ -193,12 +189,18 @@ async function readProviderLinkingCapability(): Promise<ProviderLinkingCapabilit
   }
 }
 
-export function sanitizeAccountCenterConfig(config: unknown): AccountCenterConfig {
+export function sanitizeAccountCenterConfig(
+  config: unknown,
+  nodeEnv = getConfig().nodeEnv,
+): AccountCenterConfig {
   const row = isRecord(config) ? config : {};
   const value = isRecord(row.value) ? row.value : row;
   const profile = isRecord(value.profile) ? value.profile : {};
   const security = isRecord(value.security) ? value.security : {};
   const deleteAccount = isRecord(value.delete_account) ? value.delete_account : {};
+  const deleteUrlInput = Object.hasOwn(deleteAccount, 'url') ? deleteAccount.url : value.delete_account_url;
+  const deleteUrlValidation = validateExternalDeleteAccountUrl(deleteUrlInput, nodeEnv);
+  const deleteUrl = deleteUrlValidation.ok ? deleteUrlValidation.url : null;
 
   return {
     enabled: asBoolean(row.enabled, asBoolean(value.enabled, DEFAULT_ACCOUNT_CENTER_CONFIG.enabled)),
@@ -215,8 +217,10 @@ export function sanitizeAccountCenterConfig(config: unknown): AccountCenterConfi
     grants: { enabled: asModuleEnabled(value.grants, DEFAULT_ACCOUNT_CENTER_CONFIG.grants.enabled) },
     identities: { enabled: asModuleEnabled(value.identities, DEFAULT_ACCOUNT_CENTER_CONFIG.identities.enabled) },
     delete_account: {
-      enabled: asBoolean(deleteAccount.enabled, typeof value.delete_account_url === 'string' && !!value.delete_account_url.trim()),
-      url: asSafeUrl(deleteAccount.url) || asSafeUrl(value.delete_account_url),
+      enabled: deleteUrlValidation.ok
+        ? asBoolean(deleteAccount.enabled, !!deleteUrl)
+        : false,
+      url: deleteUrl,
     },
   };
 }
@@ -325,7 +329,7 @@ function goTrueBaseCandidates(runtimeBaseUrls?: string[]) {
 }
 
 async function readJson(response: Response) {
-  const text = await response.text().catch(() => '');
+  const text = await response.text();
   if (!text.trim()) return null;
   try {
     return JSON.parse(text) as unknown;
@@ -334,12 +338,13 @@ async function readJson(response: Response) {
   }
 }
 
-function accountUnavailable(message = 'Authentication runtime is unavailable.'): AccountFailure {
-  return { ok: false, status: 502, code: 'runtime_unavailable', message };
-}
-
-function invalidToken(): AccountFailure {
-  return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token is invalid or expired.' };
+function accountUnavailable(): AccountFailure {
+  return {
+    ok: false,
+    status: 502,
+    code: 'runtime_unavailable',
+    message: 'Authentication runtime is unavailable.',
+  };
 }
 
 function forbidden(code: string, message: string): AccountFailure {
@@ -563,14 +568,6 @@ function publicMfaVerificationPayload(payload: Record<string, unknown>) {
   return publicPayload;
 }
 
-function goTrueErrorMessage(payload: unknown, fallbackMessage: string) {
-  if (!isRecord(payload)) return fallbackMessage;
-  for (const field of ['message', 'msg', 'error_description', 'error']) {
-    if (typeof payload[field] === 'string' && payload[field].trim()) return payload[field];
-  }
-  return fallbackMessage;
-}
-
 async function requestGoTrueWithUserToken(input: {
   accessToken: string;
   routePath: string;
@@ -581,14 +578,15 @@ async function requestGoTrueWithUserToken(input: {
   runtimeBaseUrls?: string[];
 }): Promise<GoTruePayloadResult> {
   const bases = goTrueBaseCandidates(input.runtimeBaseUrls);
-  if (bases.length === 0) return accountUnavailable('Authentication runtime is not configured.');
+  if (bases.length === 0) return accountUnavailable();
 
-  let lastNetworkError: unknown = null;
+  let lastNetworkFailure: AccountFailure | null = null;
   for (const base of bases) {
     const urls = goTrueRequestUrls(base, input.routePath);
     for (const [urlIndex, url] of urls.entries()) {
+      let response: Response;
       try {
-        const response = await (input.fetchImpl || fetch)(url, {
+        response = await (input.fetchImpl || fetch)(url, {
           ...input.init,
           headers: {
             'Content-Type': 'application/json',
@@ -597,23 +595,27 @@ async function requestGoTrueWithUserToken(input: {
           },
           signal: input.init.signal || AbortSignal.timeout(5000),
         });
-        const payload = await readJson(response);
-        if (response.status === 401 || response.status === 403) return invalidToken();
-        if (response.ok) return { ok: true, payload };
-        if (response.status === 404 && urlIndex < urls.length - 1) continue;
-        return {
-          ok: false,
-          status: response.status,
-          code: input.failureCode,
-          message: goTrueErrorMessage(payload, input.fallbackMessage),
-        };
       } catch (error) {
-        lastNetworkError = error;
+        lastNetworkFailure = preferredUpstreamNetworkFailure(lastNetworkFailure, error);
+        continue;
       }
+
+      let payload: unknown;
+      try {
+        payload = await readJson(response);
+      } catch (error) {
+        return upstreamNetworkFailure(error);
+      }
+      if (response.ok) return { ok: true, payload };
+      if (response.status === 404 && urlIndex < urls.length - 1) continue;
+      return upstreamResponseFailure(response.status, {
+        code: input.failureCode,
+        message: input.fallbackMessage,
+      });
     }
   }
 
-  return accountUnavailable(lastNetworkError instanceof Error ? lastNetworkError.message : undefined);
+  return lastNetworkFailure || accountUnavailable();
 }
 
 async function fetchGoTrueJsonWithUserToken(input: {
@@ -960,7 +962,7 @@ export function logoutWithGoTrue(
   });
 }
 
-async function readAccountCenterConfig() {
+export async function readAccountCenterConfig() {
   const config = await tenantConfigRepo.getTenantConfig('account_center', 'default');
   return sanitizeAccountCenterConfig(config || {});
 }

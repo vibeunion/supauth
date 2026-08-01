@@ -2,7 +2,13 @@
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import { t } from "$lib/i18n.js";
-  import { collectionItems } from "$lib/resource-page.js";
+  import {
+    collectionItems,
+    collectionPage,
+    createKeyedSingleFlightTracker,
+    createLatestRequestTracker,
+    mutationOutcomeUnknown,
+  } from "$lib/resource-page.js";
   import {
     listUsers,
     createUser,
@@ -20,6 +26,22 @@
     permissionLabel,
   } from "$lib/permission-catalog.js";
 
+  const USER_MUTATION_LOCKS_KEY =
+    "supaoauth.admin.user-mutation-locks.v1";
+  const USER_MUTATION_ACTIONS = new Set([
+    "create",
+    "delete",
+    "reset-factor",
+    "restore",
+    "suspend",
+  ]);
+  const USER_MUTATION_LOCK_FIELDS = new Set([
+    "action",
+    "ownerId",
+    "recordedAt",
+    "resourceId",
+  ]);
+
   let users = $state([]);
   let loading = $state(true);
   let error = $state(null);
@@ -30,6 +52,15 @@
   let totalUsers = $state(0);
   let showCreate = $state(false);
   let newUser = $state({ email: "", password: "" });
+  let userMutationLocks = $state({});
+  let userMutationPending = $state({});
+  let mutationStorageReady = $state(false);
+  let mutationStorageError = $state(null);
+  const userUnverifiedMutations = $derived(
+    Object.entries(userMutationLocks).filter(
+      ([mutationKey]) => !userMutationPending[mutationKey],
+    ),
+  );
 
   // 行内溢出菜单：记录当前展开的行
   let openMenuId = $state(null);
@@ -47,10 +78,274 @@
   let applicationLoadError = $state(null);
   let selectedApplicationId = $state("");
   let rolesPermissionsGeneration = 0;
+  const userListRequests = createLatestRequestTracker();
+  const userMutationTracker = createKeyedSingleFlightTracker();
+
+  function userMutationKey(action, resourceId) {
+    return `${action}:${resourceId}`;
+  }
+
+  function validUserMutationLock(mutationKey, lock) {
+    if (!lock || typeof lock !== "object" || Array.isArray(lock)) return false;
+    const lockFields = Object.keys(lock);
+    return (
+      lockFields.length === USER_MUTATION_LOCK_FIELDS.size &&
+      lockFields.every((field) => USER_MUTATION_LOCK_FIELDS.has(field)) &&
+      USER_MUTATION_ACTIONS.has(lock.action) &&
+      typeof lock.resourceId === "string" &&
+      Boolean(lock.resourceId) &&
+      typeof lock.ownerId === "string" &&
+      Boolean(lock.ownerId) &&
+      Number.isSafeInteger(lock.recordedAt) &&
+      lock.recordedAt > 0 &&
+      userMutationOwnerMatches(lock) &&
+      mutationKey === userMutationKey(lock.action, lock.resourceId)
+    );
+  }
+
+  function userMutationOwnerMatches(lock) {
+    if (lock.action === "create") {
+      return lock.ownerId === "new" && lock.resourceId === "new";
+    }
+    if (lock.action === "reset-factor") {
+      const factorPrefix = `${lock.ownerId}:`;
+      return (
+        lock.resourceId.startsWith(factorPrefix) &&
+        lock.resourceId.length > factorPrefix.length
+      );
+    }
+    return lock.resourceId === lock.ownerId;
+  }
+
+  function parseUserMutationLocks(serializedLocks) {
+    if (serializedLocks === null) return {};
+    let storedLocks;
+    try {
+      storedLocks = JSON.parse(serializedLocks);
+    } catch (parseError) {
+      if (parseError instanceof SyntaxError) return null;
+      throw parseError;
+    }
+    if (!storedLocks || typeof storedLocks !== "object" || Array.isArray(storedLocks)) {
+      return null;
+    }
+    return Object.entries(storedLocks).every(([key, lock]) =>
+      validUserMutationLock(key, lock),
+    )
+      ? storedLocks
+      : null;
+  }
+
+  function mutationStorageFailure() {
+    mutationStorageReady = false;
+    mutationStorageError = t("mutation.storageUnavailable", {
+      resource: t("Users"),
+    });
+  }
+
+  function restoreUserMutationLocks() {
+    try {
+      const storedLocks = parseUserMutationLocks(
+        globalThis.localStorage.getItem(USER_MUTATION_LOCKS_KEY),
+      );
+      if (!storedLocks) return mutationStorageFailure();
+      userMutationLocks = storedLocks;
+      mutationStorageReady = true;
+      mutationStorageError = null;
+    } catch {
+      mutationStorageFailure();
+    }
+  }
+
+  function persistUserMutationLocks(nextLocks) {
+    try {
+      globalThis.localStorage.setItem(
+        USER_MUTATION_LOCKS_KEY,
+        JSON.stringify(nextLocks),
+      );
+      return true;
+    } catch {
+      mutationStorageFailure();
+      return false;
+    }
+  }
+
+  function stageUserMutation(operation) {
+    const context = operation.ownerContext;
+    const nextLocks = {
+      ...userMutationLocks,
+      [operation.key]: { ...context, recordedAt: Date.now() },
+    };
+    if (!persistUserMutationLocks(nextLocks)) return false;
+    userMutationLocks = nextLocks;
+    return true;
+  }
+
+  function clearUserMutationLock(context) {
+    const nextLocks = { ...userMutationLocks };
+    delete nextLocks[userMutationKey(context.action, context.resourceId)];
+    if (!persistUserMutationLocks(nextLocks)) return false;
+    userMutationLocks = nextLocks;
+    return true;
+  }
+
+  function userResourcePending(ownerId) {
+    const ownedByUser = (entry) => entry.ownerId === ownerId;
+    return Object.values(userMutationPending).some(ownedByUser);
+  }
+
+  function userResourceBusy(ownerId) {
+    const ownedByUser = (entry) => entry.ownerId === ownerId;
+    return (
+      userResourcePending(ownerId) ||
+      Object.values(userMutationLocks).some(ownedByUser)
+    );
+  }
+
+  function beginUserMutation(ownerContext) {
+    if (!mutationStorageReady || userResourceBusy(ownerContext.ownerId)) {
+      return null;
+    }
+    const mutationKey = userMutationKey(
+      ownerContext.action,
+      ownerContext.resourceId,
+    );
+    const operation = userMutationTracker.begin(mutationKey, ownerContext);
+    if (!operation) return null;
+    userMutationPending = {
+      ...userMutationPending,
+      [mutationKey]: {
+        ...ownerContext,
+        operationGeneration: operation.generation,
+      },
+    };
+    return operation;
+  }
+
+  function finishUserMutation(operation) {
+    userMutationTracker.finish(operation);
+    if (
+      userMutationPending[operation.key]?.operationGeneration !==
+      operation.generation
+    )
+      return;
+    const nextPending = { ...userMutationPending };
+    delete nextPending[operation.key];
+    userMutationPending = nextPending;
+  }
+
+  function acknowledgeUserMutation(lock) {
+    if (!mutationStorageReady) return;
+    if (!confirm(t("mutation.verifyAuthoritative", { resource: t("Users") })))
+      return;
+    if (!confirm(t("mutation.allowRetry"))) return;
+    clearUserMutationLock(lock);
+  }
+
+  function userMutationUnknown() {
+    error = t("mutation.outcomeUnknown");
+  }
+
+  async function submitUserMutation(operation, writeCommand) {
+    try {
+      return await writeCommand();
+    } catch (requestError) {
+      if (mutationOutcomeUnknown(requestError)) {
+        // 写入响应丢失时必须继续权威读回，不能把传输失败当作业务失败。
+        return null;
+      }
+      clearUserMutationLock(operation.ownerContext);
+      throw requestError;
+    }
+  }
+
+  function reportUserMutationFailure(operation, requestError) {
+    if (!userMutationTracker.isCurrent(operation)) return;
+    if (userMutationLocks[operation.key]) userMutationUnknown();
+    else error = requestError;
+  }
+
+  function userIdentity(payload) {
+    const candidate = payload?.user || payload;
+    return typeof candidate?.id === "string" ? candidate.id : "";
+  }
+
+  function validatedUser(payload, expectedId) {
+    const candidate = payload?.user || payload;
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate) ||
+      userIdentity(candidate) !== expectedId
+    ) {
+      throw new Error("Management API returned an invalid user read-back");
+    }
+    return candidate;
+  }
+
+  function completeUserSearch(response) {
+    const page = collectionPage(response);
+    if (!page.complete || !page.items.every((user) => userIdentity(user))) {
+      throw new Error("Management API returned an incomplete user search");
+    }
+    return page.items;
+  }
+
+  async function readCompleteUserSearch(email) {
+    return completeUserSearch(
+      await listUsers({ page: 1, limit: 100, search: email }),
+    );
+  }
+
+  function normalizedEmail(user) {
+    return typeof user?.email === "string" ? user.email.trim().toLowerCase() : "";
+  }
+
+  function createdUserFromReadBack(usersReadBack, beforeUserIds, response, email) {
+    const expectedEmail = email.toLowerCase();
+    const responseId = userIdentity(response);
+    const newMatches = usersReadBack.filter(
+      (user) =>
+        !beforeUserIds.has(userIdentity(user)) &&
+        normalizedEmail(user) === expectedEmail,
+    );
+    if (responseId) {
+      return newMatches.find((user) => userIdentity(user) === responseId) || null;
+    }
+    return newMatches.length === 1 ? newMatches[0] : null;
+  }
+
+  async function readUserDetail(userId) {
+    return validatedUser(await getUser(userId), userId);
+  }
+
+  function factorStillPresent(user, factorId) {
+    if (!Array.isArray(user.factors)) {
+      throw new Error("Management API returned an invalid MFA factor read-back");
+    }
+    return user.factors.some((factor) => factor?.id === factorId);
+  }
+
+  function userNotFound(requestError) {
+    return (
+      Number(requestError?.statusCode) === 404 ||
+      requestError?.code === "not_found"
+    );
+  }
+
+  async function userDeletedFromReadBack(userId) {
+    try {
+      await readUserDetail(userId);
+      return false;
+    } catch (requestError) {
+      if (userNotFound(requestError)) return true;
+      throw requestError;
+    }
+  }
 
   function isSuspended(user) {
     const until = user?.banned_until;
-    return until && until !== "none";
+    return Boolean(until && until !== "none");
   }
 
   function displayName(user) {
@@ -186,25 +481,31 @@
   const filteredUsers = $derived(users);
 
   async function load() {
+    const request = userListRequests.begin("users", {
+      page: currentPage,
+      limit: pageSize,
+      search,
+    });
     loading = true;
     error = null;
     try {
-      const res = await listUsers({
-        page: currentPage,
-        limit: pageSize,
-        search,
-      });
+      const res = await listUsers(request.ownerContext);
+      if (!userListRequests.isCurrent(request)) return;
       users = Array.isArray(res)
         ? res
         : res.users || res.items || res.data || [];
       totalUsers = typeof res.total === "number" ? res.total : users.length;
-    } catch (e) {
-      error = e;
+    } catch (requestError) {
+      if (userListRequests.isCurrent(request)) error = requestError;
+    } finally {
+      if (userListRequests.isCurrent(request)) loading = false;
     }
-    loading = false;
   }
 
-  onMount(load);
+  onMount(() => {
+    restoreUserMutationLocks();
+    void load();
+  });
 
   function applySearch(event) {
     event.preventDefault();
@@ -302,61 +603,156 @@
   }
 
   async function handleCreateUser() {
+    const draft = {
+      email: newUser.email.trim(),
+      password: newUser.password,
+      email_confirm: true,
+    };
+    if (!draft.email || !draft.password) return;
+    const operation = beginUserMutation({
+      action: "create",
+      resourceId: "new",
+      ownerId: "new",
+    });
+    if (!operation) return;
+    error = null;
     try {
-      await createUser({
-        email: newUser.email.trim(),
-        password: newUser.password,
-        email_confirm: true,
-      });
+      const beforeUsers = await readCompleteUserSearch(draft.email);
+      if (!userMutationTracker.isCurrent(operation)) return;
+      const beforeUserIds = new Set(beforeUsers.map(userIdentity));
+      if (!stageUserMutation(operation)) return;
+      const createResponse = await submitUserMutation(operation, () =>
+        createUser(draft),
+      );
+      if (!userMutationTracker.isCurrent(operation)) return;
+      const usersReadBack = await readCompleteUserSearch(draft.email);
+      if (!userMutationTracker.isCurrent(operation)) return;
+      const createdUser = createdUserFromReadBack(
+        usersReadBack,
+        beforeUserIds,
+        createResponse,
+        draft.email,
+      );
+      if (!createdUser) return userMutationUnknown();
+      if (!clearUserMutationLock(operation.ownerContext)) return;
       newUser = { email: "", password: "" };
       showCreate = false;
       await load();
     } catch (requestError) {
-      error = requestError;
+      reportUserMutationFailure(operation, requestError);
+    } finally {
+      finishUserMutation(operation);
     }
   }
 
-  async function handleToggleSuspend(user, evt) {
+  async function handleToggleSuspend(user) {
     openMenuId = null;
-    const suspended = isSuspended(user);
+    const wasSuspended = isSuspended(user);
+    const shouldSuspend = !wasSuspended;
     const ok = confirm(
-      suspended ? t("users.restoreConfirm") : t("Suspend this user?"),
+      wasSuspended ? t("users.restoreConfirm") : t("Suspend this user?"),
     );
     if (!ok) return;
+    const action = shouldSuspend ? "suspend" : "restore";
+    const operation = beginUserMutation({
+      action,
+      resourceId: user.id,
+      ownerId: user.id,
+    });
+    if (!operation) return;
+    error = null;
     try {
-      if (suspended) await unsuspendUser(user.id);
-      else await suspendUser(user.id, { reason: "admin_console" });
+      const beforeUser = await readUserDetail(user.id);
+      if (!userMutationTracker.isCurrent(operation)) return;
+      if (isSuspended(beforeUser) !== wasSuspended) {
+        if (selectedUser?.id === user.id) selectedUser = beforeUser;
+        error = t("mutation.stateChanged");
+        return;
+      }
+      if (!stageUserMutation(operation)) return;
+      await submitUserMutation(operation, () =>
+        shouldSuspend
+          ? suspendUser(user.id, { reason: "admin_console" })
+          : unsuspendUser(user.id),
+      );
+      if (!userMutationTracker.isCurrent(operation)) return;
+      const readBackUser = await readUserDetail(user.id);
+      if (!userMutationTracker.isCurrent(operation)) return;
+      if (isSuspended(readBackUser) !== shouldSuspend) {
+        return userMutationUnknown();
+      }
+      if (!clearUserMutationLock(operation.ownerContext)) return;
+      if (selectedUser?.id === user.id) selectedUser = readBackUser;
       await load();
-      if (selectedUser?.id === user.id)
-        selectedUser = users.find((u) => u.id === user.id) || null;
-    } catch (e) {
-      error = e;
+    } catch (requestError) {
+      reportUserMutationFailure(operation, requestError);
+    } finally {
+      finishUserMutation(operation);
     }
   }
 
-  async function handleDelete(user, evt) {
+  async function handleDelete(user) {
     openMenuId = null;
-    evt?.stopPropagation?.();
     if (!confirm(t("users.deleteConfirm"))) return;
+    const operation = beginUserMutation({
+      action: "delete",
+      resourceId: user.id,
+      ownerId: user.id,
+    });
+    if (!operation) return;
+    error = null;
     try {
-      await deleteUser(user.id);
+      if (!stageUserMutation(operation)) return;
+      await submitUserMutation(operation, () => deleteUser(user.id));
+      if (!userMutationTracker.isCurrent(operation)) return;
+      const deletionConfirmed = await userDeletedFromReadBack(user.id);
+      if (!userMutationTracker.isCurrent(operation)) return;
+      if (!deletionConfirmed) return userMutationUnknown();
+      if (!clearUserMutationLock(operation.ownerContext)) return;
       if (selectedUser?.id === user.id) selectedUser = null;
       await load();
-    } catch (e) {
-      error = e;
+    } catch (requestError) {
+      reportUserMutationFailure(operation, requestError);
+    } finally {
+      finishUserMutation(operation);
     }
   }
 
   async function handleResetFactor(factorId) {
+    const userId = selectedUser?.id;
+    if (!userId) return;
     if (!confirm(t("users.resetFactorConfirm"))) return;
+    const operation = beginUserMutation({
+      action: "reset-factor",
+      resourceId: `${userId}:${factorId}`,
+      ownerId: userId,
+    });
+    if (!operation) return;
+    error = null;
     try {
-      await resetUserMfa(selectedUser.id, factorId);
-      selectedUser = {
-        ...selectedUser,
-        factors: (selectedUser.factors || []).filter((f) => f.id !== factorId),
-      };
-    } catch (e) {
-      error = e;
+      const beforeUser = await readUserDetail(userId);
+      if (!userMutationTracker.isCurrent(operation)) return;
+      if (!factorStillPresent(beforeUser, factorId)) {
+        if (selectedUser?.id === userId) selectedUser = beforeUser;
+        error = t("mutation.stateChanged");
+        return;
+      }
+      if (!stageUserMutation(operation)) return;
+      await submitUserMutation(operation, () =>
+        resetUserMfa(userId, factorId),
+      );
+      if (!userMutationTracker.isCurrent(operation)) return;
+      const readBackUser = await readUserDetail(userId);
+      if (!userMutationTracker.isCurrent(operation)) return;
+      if (factorStillPresent(readBackUser, factorId)) {
+        return userMutationUnknown();
+      }
+      if (!clearUserMutationLock(operation.ownerContext)) return;
+      if (selectedUser?.id === userId) selectedUser = readBackUser;
+    } catch (requestError) {
+      reportUserMutationFailure(operation, requestError);
+    } finally {
+      finishUserMutation(operation);
     }
   }
 
@@ -398,12 +794,52 @@
       >
     </form>
     <button
+      type="button"
+      disabled={!showCreate &&
+        (!mutationStorageReady || userResourceBusy("new"))}
       onclick={() => (showCreate = !showCreate)}
-      class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+      class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
       >{showCreate ? t("Cancel") : `+ ${t("New User")}`}</button
     >
   </div>
 </div>
+
+{#if mutationStorageError}
+  <div
+    class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+    role="alert"
+  >
+    {mutationStorageError}
+  </div>
+{/if}
+
+{#if userUnverifiedMutations.length}
+  <section class="console-card mb-4 border-amber-200 bg-amber-50 p-4">
+    <h3 class="font-semibold text-amber-900">{t("mutation.reconcile")}</h3>
+    <p class="mt-1 text-sm text-amber-800">{t("mutation.outcomeUnknown")}</p>
+    <div class="mt-3 grid gap-2">
+      {#each userUnverifiedMutations as [mutationKey, lock] (mutationKey)}
+        <div
+          class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white px-3 py-2"
+        >
+          <code class="break-all text-xs text-surface-700">
+            {t("mutation.pending", {
+              action: lock.action,
+              resourceId: lock.resourceId,
+            })}
+          </code>
+          <button
+            type="button"
+            disabled={!mutationStorageReady || userResourcePending(lock.ownerId)}
+            onclick={() => acknowledgeUserMutation(lock)}
+            class="shrink-0 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >{t("mutation.allowRetry")}</button
+          >
+        </div>
+      {/each}
+    </div>
+  </section>
+{/if}
 
 {#if error}
   <div
@@ -447,9 +883,12 @@
       </div>
     </div>
     <button
-      disabled={!newUser.email.trim() || !newUser.password}
+      disabled={!newUser.email.trim() ||
+        !newUser.password ||
+        !mutationStorageReady ||
+        userResourceBusy("new")}
       onclick={handleCreateUser}
-      class="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+      class="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
       >{t("Create")}</button
     >
   </section>
@@ -573,22 +1012,24 @@
                   </a>
                   <button
                     type="button"
+                    disabled={!mutationStorageReady || userResourceBusy(user.id)}
                     onclick={(e) => {
                       e.stopPropagation();
                       handleToggleSuspend(user);
                     }}
-                    class="w-full px-3 py-2 text-sm text-surface-700 hover:bg-surface-50 text-left"
+                    class="w-full px-3 py-2 text-left text-sm text-surface-700 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {suspended ? t("users.restore") : t("Suspend")}
                   </button>
                   <div class="my-1 border-t border-surface-100"></div>
                   <button
                     type="button"
+                    disabled={!mutationStorageReady || userResourceBusy(user.id)}
                     onclick={(e) => {
                       e.stopPropagation();
                       handleDelete(user);
                     }}
-                    class="w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left"
+                    class="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {t("users.delete")}
                   </button>
@@ -734,8 +1175,10 @@
                     </div>
                   </div>
                   <button
+                    type="button"
+                    disabled={!mutationStorageReady || userResourceBusy(detail.id)}
                     onclick={() => handleResetFactor(factor.id)}
-                    class="shrink-0 text-xs px-2.5 py-1 rounded-md text-red-600 hover:bg-red-50 border border-red-200"
+                    class="shrink-0 rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >{t("Reset Factor")}</button
                   >
                 </div>

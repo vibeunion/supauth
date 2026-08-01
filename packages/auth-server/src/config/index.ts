@@ -123,3 +123,15 @@ export function validateConfig(config: ServerConfig): string[] {
   }
   return errors;
 }
+
+export function enforceStartupConfig(config: ServerConfig): void {
+  const errors = validateConfig(config);
+  if (errors.length === 0) return;
+
+  const errorDetails = errors.join('; ');
+  if (config.nodeEnv === 'production') {
+    throw new Error(`SupaOAuth configuration is invalid: ${errorDetails}`);
+  }
+
+  console.warn('SupaOAuth config warnings:', errorDetails);
+}

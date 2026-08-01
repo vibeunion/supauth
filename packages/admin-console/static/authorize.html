@@ -265,6 +265,12 @@
         background: #ffffff;
         box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 10%, transparent);
       }
+      .password-hint {
+        margin: -8px 0 18px;
+        color: #64748b;
+        font-size: 13px;
+        line-height: 1.5;
+      }
       button {
         width: 100%;
         height: 52px;
@@ -469,8 +475,9 @@
             <label id="signup-email-label" for="signup-email">Email</label>
             <input id="signup-email" name="email" type="email" autocomplete="email" required>
             <label id="signup-password-label" for="signup-password">Password</label>
-            <input id="signup-password" name="password" type="password" autocomplete="new-password" required minlength="6">
-            <button id="signup-submit" type="submit">Sign Up</button>
+            <input id="signup-password" name="password" type="password" autocomplete="new-password" aria-describedby="signup-password-hint" required>
+            <p id="signup-password-hint" class="password-hint"></p>
+            <button id="signup-submit" type="submit" disabled>Sign Up</button>
           </form>
         </div>
 
@@ -516,7 +523,9 @@
       let hasCustomPageTitle = false;
       let hasCustomButtonLabel = false;
       let signUpEnabled = false;
+      let passwordPolicy = null;
       let systemName = 'SupaOAuth';
+      const PASSWORD_POLICY_SYMBOLS = "!@#$%^&*()_+-=[]{};'\\:\"|<>?,./`~";
 
       // ─── i18n defaults with phrase override support ─────────────────
       const LOCALE_STORAGE_KEY = 'supaoauth.locale';
@@ -555,6 +564,12 @@
           signingUp: 'Signing up...',
           signUpSuccess: 'Account created. You can now sign in.',
           signUpFailed: 'Sign up failed',
+          passwordPolicyUnavailable: 'Password policy is temporarily unavailable. Sign up is disabled.',
+          passwordMinimum: 'At least {min} characters',
+          passwordUppercase: 'one uppercase letter',
+          passwordLowercase: 'one lowercase letter',
+          passwordNumber: 'one number',
+          passwordSymbol: 'one symbol',
           forgotEmailLabel: 'Email',
           forgotSubmit: 'Send Reset Link',
           sendingReset: 'Sending...',
@@ -598,6 +613,12 @@
           signingUp: '正在注册...',
           signUpSuccess: '账号已创建，请登录。',
           signUpFailed: '注册失败',
+          passwordPolicyUnavailable: '密码策略暂时不可用，当前无法注册。',
+          passwordMinimum: '至少 {min} 个字符',
+          passwordUppercase: '一个大写字母',
+          passwordLowercase: '一个小写字母',
+          passwordNumber: '一个数字',
+          passwordSymbol: '一个符号',
           forgotEmailLabel: '邮箱',
           forgotSubmit: '发送重置链接',
           sendingReset: '正在发送...',
@@ -683,6 +704,7 @@
         if (!hasCustomButtonLabel) {
           document.getElementById('submit').textContent = t('submit');
         }
+        renderPasswordPolicyHint();
         if (persist) localStorage.setItem(LOCALE_STORAGE_KEY, currentLocale);
       }
 
@@ -713,6 +735,63 @@
         const el = document.getElementById('message');
         el.className = 'message';
         el.textContent = '';
+      }
+
+      function parsePasswordPolicy(candidate) {
+        if (!candidate || typeof candidate !== 'object') return null;
+        const flags = [
+          candidate.require_uppercase,
+          candidate.require_lowercase,
+          candidate.require_numbers,
+          candidate.require_symbols,
+        ];
+        if (!Number.isInteger(candidate.min_length) || candidate.min_length < 6 || candidate.min_length > 128) return null;
+        if (flags.some((flag) => typeof flag !== 'boolean')) return null;
+        return {
+          min_length: candidate.min_length,
+          require_uppercase: candidate.require_uppercase,
+          require_lowercase: candidate.require_lowercase,
+          require_numbers: candidate.require_numbers,
+          require_symbols: candidate.require_symbols,
+        };
+      }
+
+      function passwordPolicyRequirements(policy) {
+        const requirements = [t('passwordMinimum').replace('{min}', String(policy.min_length))];
+        if (policy.require_uppercase) requirements.push(t('passwordUppercase'));
+        if (policy.require_lowercase) requirements.push(t('passwordLowercase'));
+        if (policy.require_numbers) requirements.push(t('passwordNumber'));
+        if (policy.require_symbols) requirements.push(t('passwordSymbol'));
+        return requirements;
+      }
+
+      function renderPasswordPolicyHint() {
+        const hint = document.getElementById('signup-password-hint');
+        hint.textContent = passwordPolicy ? passwordPolicyRequirements(passwordPolicy).join(' · ') : '';
+      }
+
+      function applyPasswordPolicy(candidate) {
+        const parsed = parsePasswordPolicy(candidate);
+        if (!parsed) return false;
+        passwordPolicy = parsed;
+        const input = document.getElementById('signup-password');
+        input.minLength = parsed.min_length;
+        input.setAttribute('minlength', String(parsed.min_length));
+        renderPasswordPolicyHint();
+        return true;
+      }
+
+      function passwordPolicyError(password) {
+        if (!passwordPolicy) return t('passwordPolicyUnavailable');
+        const requirements = passwordPolicyRequirements(passwordPolicy);
+        if (password.length < passwordPolicy.min_length) return requirements[0];
+        if (passwordPolicy.require_uppercase && !/[A-Z]/.test(password)) return t('passwordUppercase');
+        if (passwordPolicy.require_lowercase && !/[a-z]/.test(password)) return t('passwordLowercase');
+        if (passwordPolicy.require_numbers && !/[0-9]/.test(password)) return t('passwordNumber');
+        if (passwordPolicy.require_symbols && !Array.from(password).some((character) => PASSWORD_POLICY_SYMBOLS.includes(character))) {
+          return t('passwordSymbol');
+        }
+        return '';
       }
 
       function responseMessage(data, fallback) {
@@ -1051,10 +1130,14 @@
         try {
           const res = await fetch(url, { credentials: 'include' });
           if (!res.ok) {
-            if (authorizationId) setMessage('error', t('authorizationUnavailable'));
+            setMessage('error', authorizationId ? t('authorizationUnavailable') : t('passwordPolicyUnavailable'));
             return;
           }
           const experience = await res.json();
+          if (!applyPasswordPolicy(experience.password_policy)) {
+            setMessage('error', t('passwordPolicyUnavailable'));
+            return;
+          }
           const branding = experience.branding || {};
 
           // Branding
@@ -1108,13 +1191,14 @@
           if (experience.sign_up_enabled === true || experience.sign_up_enabled === undefined) {
             signUpEnabled = true;
             document.getElementById('tab-signup').style.display = '';
+            document.getElementById('signup-submit').disabled = false;
           }
 
           // Forgot password link always visible (GoTrue supports it)
           document.getElementById('forgot-password-link').style.display = '';
           document.getElementById('tab-forgot').style.display = '';
         } catch {
-          if (authorizationId) setMessage('error', t('authorizationUnavailable'));
+          setMessage('error', authorizationId ? t('authorizationUnavailable') : t('passwordPolicyUnavailable'));
         }
       }
 
@@ -1172,6 +1256,16 @@
       document.getElementById('signup-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const button = document.getElementById('signup-submit');
+        const password = document.getElementById('signup-password').value;
+        if (!signUpEnabled || !passwordPolicy) {
+          setMessage('error', t('passwordPolicyUnavailable'));
+          return;
+        }
+        const policyError = passwordPolicyError(password);
+        if (policyError) {
+          setMessage('error', policyError);
+          return;
+        }
         button.disabled = true;
         const originalText = button.textContent;
         button.textContent = t('signingUp');
@@ -1182,7 +1276,7 @@
             credentials: 'include',
             body: JSON.stringify({
               email: document.getElementById('signup-email').value,
-              password: document.getElementById('signup-password').value,
+              password,
             }),
           });
           const data = await res.json().catch(() => null);

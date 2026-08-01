@@ -19,6 +19,7 @@ import {
   verifyTotpMfaWithGoTrue,
 } from '../routes/account-self-service.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
+import { validateExternalDeleteAccountUrl } from '../utils/external-delete-url.js';
 
 const disabledProviderLinkingCapability = resolveProviderLinkingCapability({}, 'https://auth.example.test');
 const enabledProviderLinkingCapability = resolveProviderLinkingCapability({
@@ -48,6 +49,14 @@ const permissiveAccountCenterConfig = sanitizeAccountCenterConfig({
   },
 });
 
+function responseWithBodyError(error: unknown) {
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(error);
+    },
+  }), { status: 200 });
+}
+
 function routes(options: Parameters<typeof createPublicAccountRoutes>[0] = {}) {
   return createPublicAccountRoutes({
     getConfig: async () => permissiveAccountCenterConfig,
@@ -61,6 +70,47 @@ function testAccessToken(claims: Record<string, unknown> = {}) {
   const payload = Buffer.from(JSON.stringify({ sub: 'user-1', ...claims })).toString('base64url');
   return `${header}.${payload}.signature`;
 }
+
+const acceptedExternalDeleteUrlCases: Array<[string, unknown, string, string | null]> = [
+  ['null built-in flow', null, 'production', null],
+  ['empty built-in flow', '', 'production', null],
+  ['whitespace built-in flow', '   ', 'test', null],
+  ['production HTTPS', 'https://example.test/account/delete', 'production', 'https://example.test/account/delete'],
+  ['HTTPS query', 'https://example.test/delete?source=account', 'production', 'https://example.test/delete?source=account'],
+  ['development localhost', 'http://localhost:3000/delete', 'development', 'http://localhost:3000/delete'],
+  ['test uppercase localhost', 'http://LOCALHOST/delete', 'test', 'http://localhost/delete'],
+  ['test 127/8', 'http://127.0.0.2/delete', 'test', 'http://127.0.0.2/delete'],
+  ['development 127/8 edge', 'http://127.255.255.254:8080/delete', 'development', 'http://127.255.255.254:8080/delete'],
+  ['test IPv6 loopback', 'http://[::1]:3000/delete', 'test', 'http://[::1]:3000/delete'],
+];
+
+const rejectedExternalDeleteUrlCases: Array<[string, unknown, string]> = [
+  ['URL credentials', 'https://user:secret@example.test/delete', 'production'],
+  ['empty URL credentials', 'https://@example.test/delete', 'production'],
+  ['URL fragment', 'https://example.test/delete#confirm', 'production'],
+  ['empty URL fragment', 'https://example.test/delete#', 'production'],
+  ['JavaScript URL', 'javascript:alert(1)', 'production'],
+  ['data URL', 'data:text/html,delete', 'production'],
+  ['relative URL', '/account/delete', 'production'],
+  ['protocol-relative URL', '//example.test/account/delete', 'production'],
+  ['unsupported protocol', 'ftp://example.test/delete', 'production'],
+  ['external HTTP', 'http://example.test/delete', 'test'],
+  ['production localhost HTTP', 'http://localhost/delete', 'production'],
+  ['staging loopback HTTP', 'http://127.0.0.1/delete', 'staging'],
+  ['localhost suffix', 'http://localhost.evil.test/delete', 'test'],
+  ['userinfo host disguise', 'http://localhost@evil.test/delete', 'test'],
+  ['IPv4 suffix', 'http://127.0.0.1.evil.test/delete', 'test'],
+  ['short IPv4', 'http://127.1/delete', 'test'],
+  ['integer IPv4', 'http://2130706433/delete', 'test'],
+  ['hex IPv4', 'http://0x7f000001/delete', 'test'],
+  ['octal IPv4', 'http://0177.0.0.1/delete', 'test'],
+  ['zero-padded IPv4', 'http://127.000.000.001/delete', 'test'],
+  ['expanded IPv6', 'http://[0:0:0:0:0:0:0:1]/delete', 'test'],
+  ['localhost trailing dot', 'http://localhost./delete', 'test'],
+  ['backslash URL', 'https:\\example.test\\delete', 'production'],
+  ['control character', 'https://example.test/\n/delete', 'production'],
+  ['non-string URL', { href: 'https://example.test/delete' }, 'production'],
+];
 
 describe('account self-service API', () => {
   test('gets current account through GoTrue user endpoint with bearer token', async () => {
@@ -138,7 +188,7 @@ describe('account self-service API', () => {
     ]);
   });
 
-  test('does not fall back to a raw public GoTrue user endpoint after an invalid token response', async () => {
+  test('does not fall back to a raw public GoTrue user endpoint after a forbidden response', async () => {
     const calls: string[] = [];
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
       calls.push(String(url));
@@ -153,10 +203,84 @@ describe('account self-service API', () => {
 
     expect(result).toMatchObject({
       ok: false,
-      status: 401,
-      code: 'invalid_token',
+      status: 403,
+      code: 'upstream_forbidden',
     });
     expect(calls).toEqual(['https://auth.example.test/auth/v1/user']);
+  });
+
+  test('classifies GoTrue account response failures without exposing upstream payloads', async () => {
+    const cases = [
+      { status: 400, expectedStatus: 400, code: 'account_lookup_failed' },
+      { status: 401, expectedStatus: 401, code: 'invalid_token' },
+      { status: 403, expectedStatus: 403, code: 'upstream_forbidden' },
+      { status: 404, expectedStatus: 404, code: 'upstream_not_found' },
+      { status: 429, expectedStatus: 429, code: 'upstream_rate_limited' },
+      { status: 500, expectedStatus: 502, code: 'runtime_unavailable' },
+    ];
+
+    for (const failureCase of cases) {
+      const result = await getAccountWithGoTrue('user-access-token', {
+        fetchImpl: (() => Promise.resolve(Response.json({
+          message: 'postgres://secret@auth.internal:5432/private',
+        }, { status: failureCase.status }))) as unknown as typeof fetch,
+        runtimeBaseUrls: ['https://auth.example.test'],
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        status: failureCase.expectedStatus,
+        code: failureCase.code,
+      });
+      expect(JSON.stringify(result)).not.toContain('auth.internal');
+      expect(JSON.stringify(result)).not.toContain('secret');
+    }
+  });
+
+  test('classifies GoTrue account transport failures without exposing exception details', async () => {
+    for (const transportCase of [
+      {
+        error: new TypeError('getaddrinfo ENOTFOUND auth.internal?token=secret'),
+        status: 502,
+        code: 'runtime_unavailable',
+      },
+      {
+        error: new DOMException('auth.internal timed out with token=secret', 'TimeoutError'),
+        status: 504,
+        code: 'runtime_timeout',
+      },
+    ]) {
+      const result = await getAccountWithGoTrue('user-access-token', {
+        fetchImpl: (() => Promise.reject(transportCase.error)) as unknown as typeof fetch,
+        runtimeBaseUrls: ['https://auth.example.test'],
+      });
+
+      expect(result).toMatchObject({ ok: false, status: transportCase.status, code: transportCase.code });
+      expect(JSON.stringify(result)).not.toContain('auth.internal');
+      expect(JSON.stringify(result)).not.toContain('secret');
+    }
+  });
+
+  test('classifies account response-body timeout and preserves timeout across candidates', async () => {
+    const bodyFailure = await getAccountWithGoTrue('user-access-token', {
+      fetchImpl: (async () => responseWithBodyError(
+        new DOMException('private response detail', 'TimeoutError'),
+      )) as unknown as typeof fetch,
+      runtimeBaseUrls: ['https://auth.example.test'],
+    });
+    expect(bodyFailure).toMatchObject({ ok: false, status: 504, code: 'runtime_timeout' });
+
+    let calls = 0;
+    const mixedFailure = await getAccountWithGoTrue('user-access-token', {
+      fetchImpl: (async () => {
+        calls += 1;
+        if (calls === 1) throw new DOMException('private timeout detail', 'TimeoutError');
+        throw new TypeError('private DNS detail');
+      }) as unknown as typeof fetch,
+      runtimeBaseUrls: ['https://first.example.test', 'https://second.example.test'],
+    });
+    expect(mixedFailure).toMatchObject({ ok: false, status: 504, code: 'runtime_timeout' });
+    expect(JSON.stringify(mixedFailure)).not.toContain('private');
   });
 
   test('updates profile metadata with the user bearer token only', async () => {
@@ -460,6 +584,46 @@ describe('account self-service API', () => {
 
     expect(result).toEqual({ ok: true, data: { id: 'factor-1', status: 'unenrolled' } });
     expect(calls.map(call => call.url)).toEqual(['https://auth.example.test/auth/v1/factors/factor-1']);
+  });
+
+  test.each(acceptedExternalDeleteUrlCases)(
+    'accepts external delete URL boundary: %s',
+    (_caseName, urlInput, nodeEnv, expectedUrl) => {
+      expect(validateExternalDeleteAccountUrl(urlInput, nodeEnv)).toEqual({ ok: true, url: expectedUrl });
+    },
+  );
+
+  test.each(rejectedExternalDeleteUrlCases)(
+    'rejects external delete URL boundary: %s',
+    (_caseName, urlInput, nodeEnv) => {
+      expect(validateExternalDeleteAccountUrl(urlInput, nodeEnv)).toEqual({ ok: false });
+    },
+  );
+
+  test.each(rejectedExternalDeleteUrlCases)(
+    'fails closed when persisted external delete URL is unsafe: %s',
+    (_caseName, urlInput, nodeEnv) => {
+      const config = sanitizeAccountCenterConfig({
+        value: { delete_account: { enabled: true, url: urlInput } },
+      }, nodeEnv);
+
+      expect(config.delete_account).toEqual({ enabled: false, url: null });
+    },
+  );
+
+  test('keeps empty delete URL on the built-in flow and sanitizes legacy URL config', () => {
+    const builtInConfig = sanitizeAccountCenterConfig({
+      value: { delete_account: { enabled: true, url: '' } },
+    }, 'production');
+    const legacyConfig = sanitizeAccountCenterConfig({
+      value: { delete_account_url: 'https://example.test/legacy-delete' },
+    }, 'production');
+
+    expect(builtInConfig.delete_account).toEqual({ enabled: true, url: null });
+    expect(legacyConfig.delete_account).toEqual({
+      enabled: true,
+      url: 'https://example.test/legacy-delete',
+    });
   });
 
   test('sanitizes public account center config and drops unknown fields', () => {

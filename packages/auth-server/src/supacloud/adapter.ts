@@ -231,6 +231,72 @@ function pathSegment(value: string) {
   return encodeURIComponent(value);
 }
 
+const STORAGE_PATH_SEPARATOR = /[\\/]/u;
+const STORAGE_PATH_CONTROL = /[\u0000-\u001f\u007f]/u;
+const ENCODED_STORAGE_PATH_SEPARATOR = /%(?:25)*(?:2f|5c)/iu;
+const ENCODED_STORAGE_PATH_CONTROL = /%(?:25)*(?:0[0-9a-f]|1[0-9a-f]|7f)/iu;
+const ENCODED_STORAGE_DOT_SEGMENT = /^(?:\.|%(?:25)*2e){1,2}$/iu;
+const SUPABASE_STORAGE_BUCKET_ID = /^[\w!.*'() &$@=;:+,?-]{1,100}$/u;
+
+function storageBucketSegment(bucketId: string) {
+  if (bucketId === '.' || bucketId === '..' || !SUPABASE_STORAGE_BUCKET_ID.test(bucketId)) {
+    throw new TypeError('Storage bucket ID is invalid');
+  }
+  return pathSegment(bucketId);
+}
+
+function unsafeStorageObjectSegment(segment: string) {
+  if (!segment) return true;
+  const normalized = segment.normalize('NFKC');
+  if (normalized === '.' || normalized === '..'
+    || STORAGE_PATH_SEPARATOR.test(normalized)
+    || STORAGE_PATH_CONTROL.test(normalized)
+    || ENCODED_STORAGE_PATH_SEPARATOR.test(normalized)
+    || ENCODED_STORAGE_PATH_CONTROL.test(normalized)
+    || ENCODED_STORAGE_DOT_SEGMENT.test(normalized)) return true;
+
+  try {
+    const decoded = decodeURIComponent(segment).normalize('NFKC');
+    return decoded === '.' || decoded === '..'
+      || STORAGE_PATH_SEPARATOR.test(decoded)
+      || STORAGE_PATH_CONTROL.test(decoded);
+  } catch {
+    // Malformed percent text is encoded as a literal percent by pathSegment().
+    return false;
+  }
+}
+
+function storageObjectPath(bucketId: string, filePath: string) {
+  const fileSegments = filePath.split('/');
+  if (fileSegments.some(unsafeStorageObjectSegment)) {
+    throw new TypeError('Storage object path contains an unsafe segment');
+  }
+  return [storageBucketSegment(bucketId), ...fileSegments.map(pathSegment)].join('/');
+}
+
+function storageSignedUrlExpiry(expiresIn: number) {
+  if (!Number.isSafeInteger(expiresIn) || expiresIn <= 0) {
+    throw new TypeError('Storage signed URL expiry must be a positive safe integer');
+  }
+  return expiresIn;
+}
+
+function storageSignedUrl(value: unknown, storageUrl: string) {
+  if (typeof value !== 'string' || value !== value.trim() || !value
+    || STORAGE_PATH_CONTROL.test(value)
+    || (!value.startsWith('/') && !/^https?:\/\//i.test(value))
+    || value.startsWith('//')) {
+    throw new Error('Storage sign URL response did not contain a valid signedURL');
+  }
+  try {
+    const parsed = new URL(value, storageUrl);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error();
+  } catch {
+    throw new Error('Storage sign URL response did not contain a valid signedURL');
+  }
+  return value;
+}
+
 function queryString(params: Record<string, unknown>) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -845,7 +911,7 @@ export class SupaCloudAdapter {
     return this.request(`/v1/projects/${this.projectRef}/audit/${pathSegment(logId)}`);
   }
 
-  async recordAuditEvent(event: SupaCloudAuditEvent) {
+  async recordAuditEvent(event: SupaCloudAuditEvent, idempotencyKey?: string) {
     const actor = auditProofActor(event);
     const payload = {
       ...event,
@@ -854,6 +920,7 @@ export class SupaCloudAdapter {
     };
     return this.requestWithAuditActor(`/v1/projects/${this.projectRef}/audit/events`, {
       method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
       body: JSON.stringify(payload),
     }, actor);
   }
@@ -1095,7 +1162,7 @@ export class SupaCloudAdapter {
    * Returns the public URL if the bucket is public, or the key path.
    */
   async uploadFile(bucketId: string, filePath: string, file: File | Blob, contentType: string): Promise<{ key: string; url?: string }> {
-    const url = `${this.storageUrl}/storage/v1/object/${bucketId}/${filePath}`;
+    const url = `${this.storageUrl}/storage/v1/object/${storageObjectPath(bucketId, filePath)}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -1118,7 +1185,7 @@ export class SupaCloudAdapter {
    * Delete a file from Supabase Storage.
    */
   async deleteFile(bucketId: string, filePaths: string[]) {
-    const url = `${this.storageUrl}/storage/v1/object/${bucketId}`;
+    const url = `${this.storageUrl}/storage/v1/object/${storageBucketSegment(bucketId)}`;
     const res = await fetch(url, {
       method: 'DELETE',
       headers: {
@@ -1134,32 +1201,47 @@ export class SupaCloudAdapter {
     return res.json();
   }
 
+  async downloadFile(bucketId: string, filePath: string): Promise<Response> {
+    const url = `${this.storageUrl}/storage/v1/object/authenticated/${storageObjectPath(bucketId, filePath)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${this.masterToken}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new SupaCloudApiError(res.status, body, `/storage/v1/object/authenticated/${bucketId}`);
+    }
+    return res;
+  }
+
   /**
    * Get a signed URL for private bucket access.
    */
   async createSignedUrl(bucketId: string, filePath: string, expiresIn: number = 3600): Promise<string> {
-    const url = `${this.storageUrl}/storage/v1/object/sign/${bucketId}/${filePath}`;
+    const objectPath = storageObjectPath(bucketId, filePath);
+    const safeExpiresIn = storageSignedUrlExpiry(expiresIn);
+    const url = `${this.storageUrl}/storage/v1/object/sign/${objectPath}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.masterToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ expiresIn }),
+      body: JSON.stringify({ expiresIn: safeExpiresIn }),
     });
     if (!res.ok) {
       const body = await res.text();
       throw new Error(`Storage sign URL: ${res.status} ${body}`);
     }
     const result = await res.json() as Record<string, unknown>;
-    return (result.signedURL as string) || '';
+    return storageSignedUrl(result.signedURL, this.storageUrl);
   }
 
   /**
    * Get the public URL for a file in a public bucket.
    */
   getPublicUrl(bucketId: string, filePath: string): string {
-    return `${this.storageUrl}/storage/v1/object/public/${bucketId}/${filePath}`;
+    return `${this.storageUrl}/storage/v1/object/public/${storageObjectPath(bucketId, filePath)}`;
   }
 }
 

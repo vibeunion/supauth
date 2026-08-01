@@ -53,7 +53,7 @@ describe('SupaCloudAdapter contract', () => {
       'listTenantInvitations', 'createTenantInvitation', 'verifySignupInvitation',
       'getAuthHookStatus', 'verifyAuthHook', 'verifyAuthHookMessage',
       'listStorageBuckets', 'getStorageBucket', 'createStorageBucket',
-      'deleteStorageBucket', 'uploadFile', 'deleteFile', 'createSignedUrl', 'getPublicUrl',
+      'deleteStorageBucket', 'uploadFile', 'deleteFile', 'downloadFile', 'createSignedUrl', 'getPublicUrl',
       'verifyGatewayRoutes', 'getProjectRef', 'getTargetInfo',
     ];
     for (const method of requiredMethods) {
@@ -65,6 +65,151 @@ describe('SupaCloudAdapter contract', () => {
     const adapter = new SupaCloudAdapter();
     const url = adapter.getPublicUrl('branding', 'logo.png');
     expect(url).toContain('/storage/v1/object/public/branding/logo.png');
+  });
+
+  it('encodes private Storage object paths for upload, download, and deletion', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ method: string; path: string; authorization: string | null }> = [];
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        method: init?.method || 'GET',
+        path: new URL(url).pathname,
+        authorization: new Headers(init?.headers).get('authorization'),
+      });
+      return Promise.resolve(url.includes('/authenticated/')
+        ? new Response('asset')
+        : Response.json({ Key: 'stored' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      const bucketId = 'custom.ui-assets_1';
+      const objectPath = 'versions/one/assets/app name.js';
+      await adapter.uploadFile(bucketId, objectPath, new Blob(['asset']), 'text/javascript');
+      const download = await adapter.downloadFile(bucketId, objectPath);
+      await adapter.deleteFile(bucketId, [objectPath]);
+
+      expect(await download.text()).toBe('asset');
+      expect(calls.map(call => [call.method, call.path])).toEqual([
+        ['POST', '/storage/v1/object/custom.ui-assets_1/versions/one/assets/app%20name.js'],
+        ['GET', '/storage/v1/object/authenticated/custom.ui-assets_1/versions/one/assets/app%20name.js'],
+        ['DELETE', '/storage/v1/object/custom.ui-assets_1'],
+      ]);
+      expect(calls.every(call => call.authorization === 'Bearer test-token')).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('signs only safe encoded Storage object paths with a positive integer expiry', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ path: string; body: string | null }> = [];
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        path: new URL(url).pathname,
+        body: typeof init?.body === 'string' ? init.body : null,
+      });
+      return Promise.resolve(Response.json({ signedURL: 'https://storage.test/signed/object' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await expect(adapter.createSignedUrl(
+        'avatars.v2-test_1',
+        '用户 one/folder/literal%20#?.png',
+        1,
+      )).resolves.toBe('https://storage.test/signed/object');
+      await expect(adapter.createSignedUrl('avatars', 'plain.png')).resolves.toBe(
+        'https://storage.test/signed/object',
+      );
+
+      expect(calls).toEqual([
+        {
+          path: '/storage/v1/object/sign/avatars.v2-test_1/%E7%94%A8%E6%88%B7%20one/folder/literal%2520%23%3F.png',
+          body: '{"expiresIn":1}',
+        },
+        {
+          path: '/storage/v1/object/sign/avatars/plain.png',
+          body: '{"expiresIn":3600}',
+        },
+      ]);
+
+      const unsafePaths = [
+        '../branding/logo.svg',
+        'users/../../branding/logo.svg',
+        '%2e%2e/branding/logo.svg',
+        '%252e%252e%252fbranding%252flogo.svg',
+        'users%2F..%2Fbranding/logo.svg',
+        '..\\branding\\logo.svg',
+        '/users/avatar.png',
+        'users//avatar.png',
+        'users/%00/avatar.png',
+      ];
+      for (const unsafePath of unsafePaths) {
+        await expect(adapter.createSignedUrl('avatars', unsafePath)).rejects.toThrow(
+          'Storage object path contains an unsafe segment',
+        );
+      }
+
+      const unsafeBuckets = [
+        '',
+        '.',
+        '..',
+        '../avatars',
+        'avatars/child',
+        'avatars\\child',
+        '%2e%2e',
+        'avatars%2Fchild',
+        'a'.repeat(101),
+        '头像',
+      ];
+      for (const unsafeBucket of unsafeBuckets) {
+        await expect(adapter.createSignedUrl(unsafeBucket, 'plain.png')).rejects.toThrow(
+          'Storage bucket ID is invalid',
+        );
+      }
+
+      for (const invalidExpiry of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+        await expect(adapter.createSignedUrl('avatars', 'plain.png', invalidExpiry)).rejects.toThrow(
+          'Storage signed URL expiry must be a positive safe integer',
+        );
+      }
+      expect(calls).toHaveLength(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('fails closed on malformed signed URL response payloads', async () => {
+    const originalFetch = globalThis.fetch;
+    const responses: Record<string, unknown>[] = [
+      { signedURL: '/object/sign/avatars/plain.png?token=valid' },
+      {},
+      { signedURL: '' },
+      { signedURL: '  ' },
+      { signedURL: 'relative/object' },
+      { signedURL: '//attacker.example/object' },
+      { signedURL: 'javascript:alert(1)' },
+      { signedURL: 'https://user:password@storage.test/object' },
+      { signedURL: 42 },
+    ];
+    globalThis.fetch = mock(async () => Response.json(responses.shift())) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await expect(adapter.createSignedUrl('avatars', 'plain.png')).resolves.toBe(
+        '/object/sign/avatars/plain.png?token=valid',
+      );
+      while (responses.length > 0) {
+        await expect(adapter.createSignedUrl('avatars', 'plain.png')).rejects.toThrow(
+          'Storage sign URL response did not contain a valid signedURL',
+        );
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('SupaCloud API URL is constructed correctly', () => {

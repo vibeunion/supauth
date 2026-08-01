@@ -2,9 +2,11 @@
 // branding assets and custom profile fields.
 
 import { Elysia } from 'elysia';
+import { getConfig } from '../config/index.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import { ApiContractError } from '../utils/api-contract.js';
+import { validateExternalDeleteAccountUrl } from '../utils/external-delete-url.js';
 import { containsSecret, withoutSecrets } from '../utils/secrets.js';
 
 const adapter = getSupaCloudAdapter();
@@ -21,6 +23,31 @@ const allowedTypes = new Set([
   'account_center',
   'account_claim',
 ]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function externalDeleteUrlInputs(accountCenterValue: unknown) {
+  if (!isRecord(accountCenterValue)) return [];
+  const inputs: unknown[] = [];
+  const deleteAccount = isRecord(accountCenterValue.delete_account) ? accountCenterValue.delete_account : null;
+  if (deleteAccount && Object.hasOwn(deleteAccount, 'url')) inputs.push(deleteAccount.url);
+  if (Object.hasOwn(accountCenterValue, 'delete_account_url')) inputs.push(accountCenterValue.delete_account_url);
+  return inputs;
+}
+
+function assertSafeExternalDeleteUrls(accountCenterValue: unknown) {
+  const nodeEnv = getConfig().nodeEnv;
+  const hasInvalidUrl = externalDeleteUrlInputs(accountCenterValue)
+    .some((urlInput) => !validateExternalDeleteAccountUrl(urlInput, nodeEnv).ok);
+  if (!hasInvalidUrl) return;
+  throw new ApiContractError(
+    400,
+    'invalid_delete_account_url',
+    'External delete account URL must use HTTPS without credentials or fragments; HTTP is limited to literal loopback hosts in development or test',
+  );
+}
 
 export const tenantConfigRoutes = new Elysia({ prefix: '/v1/tenant-config' })
   .get('/', async ({ query }) => {
@@ -41,6 +68,7 @@ export const tenantConfigRoutes = new Elysia({ prefix: '/v1/tenant-config' })
     if (!allowedTypes.has(params.type)) return new Response('Invalid config type', { status: 400 });
     const data = body as { value?: Record<string, unknown>; enabled?: boolean };
     if (params.type === 'captcha') return updateCaptchaConfig(params.key, data);
+    if (params.type === 'account_center') assertSafeExternalDeleteUrls(data.value);
     if (containsSecret(data.value)) {
       throw new ApiContractError(400, 'secret_not_allowed', 'Secrets must be stored through a supported SupaCloud secret-backed configuration API');
     }

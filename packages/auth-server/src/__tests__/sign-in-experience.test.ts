@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { GOTRUE_PASSWORD_CHARACTER_POLICIES } from '../utils/password-policy.js';
 
 describe('Sign-in experience repository — module structure', () => {
   it('exports global and application-level experience functions', async () => {
@@ -125,6 +126,89 @@ describe('Sign-in experience repository — module structure', () => {
     expect(buildRawGoTrueApiUrl('http://127.0.0.1:3367/', 'oauth/authorizations/authz/consent')).toBe(
       'http://127.0.0.1:3367/oauth/authorizations/authz/consent',
     );
+  });
+
+  it('resolves the public password policy from authoritative GoTrue config', async () => {
+    const routes = await import('../routes/sign-in-experience.js');
+    const resolvePublicSignInExperience = (routes as any).resolvePublicSignInExperience;
+    const cases = [
+      {
+        authConfig: {
+          password_min_length: 8,
+          password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.none,
+        },
+        expected: {
+          min_length: 8,
+          require_uppercase: false,
+          require_lowercase: false,
+          require_numbers: false,
+          require_symbols: false,
+        },
+      },
+      {
+        authConfig: {
+          password_min_length: 10,
+          password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.standard,
+        },
+        expected: {
+          min_length: 10,
+          require_uppercase: true,
+          require_lowercase: true,
+          require_numbers: true,
+          require_symbols: false,
+        },
+      },
+      {
+        authConfig: {
+          password_min_length: 12,
+          password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.strong,
+        },
+        expected: {
+          min_length: 12,
+          require_uppercase: true,
+          require_lowercase: true,
+          require_numbers: true,
+          require_symbols: true,
+        },
+      },
+    ];
+
+    for (const policyCase of cases) {
+      const resolved = await resolvePublicSignInExperience('app-one', {
+        getExperience: async () => ({
+          branding: { page_title: 'Test Auth' },
+          password_policy: { min_length: 6 },
+        }),
+        getConnectors: async () => [],
+        getAuthConfig: async () => policyCase.authConfig,
+      });
+
+      expect(resolved.password_policy).toEqual(policyCase.expected);
+      expect(resolved.sign_up_enabled).toBe(true);
+    }
+  });
+
+  it('fails public resolve closed when GoTrue password policy is unavailable or invalid', async () => {
+    const routes = await import('../routes/sign-in-experience.js');
+    const resolvePublicSignInExperience = (routes as any).resolvePublicSignInExperience;
+    const baseOptions = {
+      getExperience: async () => ({ sign_up_enabled: true }),
+      getConnectors: async () => [],
+    };
+
+    for (const getAuthConfig of [
+      async () => ({ password_min_length: 12, password_required_characters: 'unsupported' }),
+      async () => { throw new Error('https://auth.internal/config?token=secret'); },
+    ]) {
+      try {
+        await resolvePublicSignInExperience(undefined, { ...baseOptions, getAuthConfig });
+        throw new Error('Public sign-in experience unexpectedly resolved.');
+      } catch (error) {
+        expect(error).toMatchObject({ status: 503, code: 'password_policy_unavailable' });
+        expect(String((error as Error).message)).not.toContain('auth.internal');
+        expect(String((error as Error).message)).not.toContain('secret');
+      }
+    }
   });
 
 });

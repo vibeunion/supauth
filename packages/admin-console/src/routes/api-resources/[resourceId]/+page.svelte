@@ -1,10 +1,18 @@
 <script>
+  import { onMount } from "svelte";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import DetailTabs from "$lib/components/DetailTabs.svelte";
   import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
-  import { collectionItems, tabFromRoute } from "$lib/resource-page.js";
+  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
+  import {
+    collectionItems,
+    createOperationTracker,
+    isLatestResourceLoad,
+    mutationOutcomeUnknown,
+    tabFromRoute,
+  } from "$lib/resource-page.js";
   import {
     createResourceScope,
     deleteResourceScope,
@@ -26,46 +34,227 @@
   let newScope = $state({ name: "", description: "" });
   let loading = $state(true);
   let saving = $state(false);
+  const mutationTracker = createOperationTracker((pending) => {
+    saving = pending;
+  });
   let error = $state(null);
+  let mutationLocks = $state({});
+  let mutationStorageReady = $state(false);
+  let mutationStorageError = $state(null);
+  const mutationLockStore = createDurableMutationLockStore({
+    storageKey: "supaoauth.admin.api-resource-mutation-locks.v1",
+    allowedActions: ["delete-scope"],
+    storageProvider: () => globalThis.localStorage,
+  });
   let resourceId = $derived(page.params.resourceId);
   let activeTab = $derived(tabFromRoute(page.params.tab, tabValues, "general"));
+  let loadGeneration = 0;
+  let loadedResourceContext = $state(null);
+
+  function currentLoadContext() {
+    return {
+      generation: loadGeneration,
+      resourceId,
+      tab: activeTab,
+    };
+  }
+
+  function isCurrentLoad(loadContext) {
+    return isLatestResourceLoad(loadContext, currentLoadContext());
+  }
+
+  function currentMutationContext() {
+    return loadedResourceContext && isCurrentLoad(loadedResourceContext)
+      ? loadedResourceContext
+      : null;
+  }
+
+  function isCurrentMutation(operation) {
+    return (
+      mutationTracker.isCurrent(operation) &&
+      isCurrentLoad(operation.ownerContext)
+    );
+  }
+
+  function mutationStorageFailure() {
+    mutationStorageReady = false;
+    mutationStorageError = t("mutation.storageUnavailable", {
+      resource: t("API Resources"),
+    });
+  }
+
+  function updateMutationLocks(lockCommand) {
+    try {
+      mutationLocks = lockCommand();
+      mutationStorageReady = true;
+      mutationStorageError = null;
+      return true;
+    } catch {
+      mutationStorageFailure();
+      return false;
+    }
+  }
+
+  function restoreMutationLocks() {
+    updateMutationLocks(() => mutationLockStore.restore());
+  }
+
+  function scopeLock(scopeId, ownerId = resourceId) {
+    return { action: "delete-scope", ownerId, targetId: scopeId };
+  }
+
+  function stageScopeDelete(scopeId, ownerId) {
+    return updateMutationLocks(() =>
+      mutationLockStore.stage(mutationLocks, scopeLock(scopeId, ownerId)),
+    );
+  }
+
+  function clearScopeDelete(scopeId, ownerId) {
+    return updateMutationLocks(() =>
+      mutationLockStore.clear(mutationLocks, scopeLock(scopeId, ownerId)),
+    );
+  }
+
+  function scopeDeleteUnknown(scopeId) {
+    return Boolean(
+      resourceId &&
+        scopeId &&
+        mutationLockStore.isLocked(mutationLocks, scopeLock(scopeId)),
+    );
+  }
+
+  function acknowledgeScopeDelete(scopeId) {
+    if (!confirm(t("I have reconciled the authoritative scope list."))) return;
+    if (!confirm(t("Allow this scope deletion to run again?"))) return;
+    clearScopeDelete(scopeId);
+  }
+
+  function verifiedResourceScopes(resourceResponse, ownerId) {
+    if (resourceResponse?.id !== ownerId || !Array.isArray(resourceResponse.scopes)) {
+      throw new Error("Management API returned an invalid API resource read-back");
+    }
+    if (resourceResponse.scopes.some((scope) => typeof scope?.id !== "string")) {
+      throw new Error("Management API returned a scope without an identity");
+    }
+    return resourceResponse.scopes;
+  }
 
   async function loadResource() {
+    return loadResourceData();
+  }
+
+  async function loadResourceData() {
+    const loadContext = {
+      generation: loadGeneration + 1,
+      resourceId,
+      tab: activeTab,
+    };
+    loadGeneration = loadContext.generation;
+    loadedResourceContext = null;
     loading = true;
     error = null;
+    resource = null;
+    applications = [];
     try {
-      resource = await getResource(resourceId);
-      applications =
-        activeTab === "permissions"
-          ? collectionItems(await listResourceApplications(resourceId))
-          : [];
+      const resourceResponse = await getResource(loadContext.resourceId);
+      if (!isCurrentLoad(loadContext)) return;
+      resource = resourceResponse;
+      if (loadContext.tab === "permissions") {
+        const applicationResponse = await listResourceApplications(
+          loadContext.resourceId,
+        );
+        if (!isCurrentLoad(loadContext)) return;
+        applications = collectionItems(applicationResponse);
+      }
+      if (!isCurrentLoad(loadContext)) return;
       resourceForm = {
-        name: resource.name || "",
-        indicator: resource.indicator || "",
+        name: resourceResponse.name || "",
+        indicator: resourceResponse.indicator || "",
       };
+      loadedResourceContext = loadContext;
     } catch (requestError) {
-      error = requestError;
+      if (isCurrentLoad(loadContext)) error = requestError;
+    } finally {
+      if (isCurrentLoad(loadContext)) loading = false;
     }
-    loading = false;
   }
 
   async function runMutation(command) {
-    saving = true;
+    if (saving) return;
+    const mutationContext = currentMutationContext();
+    if (!mutationContext) return;
+    const operation = mutationTracker.begin(mutationContext);
     error = null;
     try {
-      await command();
-      await loadResource();
+      await command(operation.ownerContext, operation);
+      if (isCurrentMutation(operation)) await loadResourceData();
     } catch (requestError) {
-      error = requestError;
+      if (isCurrentMutation(operation)) error = requestError;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    saving = false;
   }
 
   function addScope() {
-    return runMutation(async () => {
-      await createResourceScope(resourceId, newScope);
-      newScope = { name: "", description: "" };
+    return runMutation(async (mutationContext, operation) => {
+      await createResourceScope(mutationContext.resourceId, newScope);
+      if (isCurrentMutation(operation)) {
+        newScope = { name: "", description: "" };
+      }
     });
+  }
+
+  async function deleteScope(scopeId) {
+    if (saving || !mutationStorageReady) return;
+    if (scopeDeleteUnknown(scopeId)) return;
+    const mutationContext = currentMutationContext();
+    if (!mutationContext) return;
+    if (!confirm(t("Delete this API resource scope?"))) return;
+    const operation = mutationTracker.begin(mutationContext);
+    error = null;
+    let deletionMayHaveCommitted = false;
+    try {
+      if (!stageScopeDelete(scopeId, operation.ownerContext.resourceId)) return;
+      try {
+        await deleteResourceScope(operation.ownerContext.resourceId, scopeId);
+        deletionMayHaveCommitted = true;
+      } catch (requestError) {
+        if (!mutationOutcomeUnknown(requestError)) throw requestError;
+        deletionMayHaveCommitted = true;
+      }
+      const readBack = await getResource(operation.ownerContext.resourceId);
+      const scopes = verifiedResourceScopes(
+        readBack,
+        operation.ownerContext.resourceId,
+      );
+      if (scopes.some((scope) => scope.id === scopeId)) {
+        if (isCurrentMutation(operation)) {
+          error = new Error(
+            t(
+              "Scope deletion could not be verified. Reconcile the authoritative scope list before deleting again.",
+            ),
+          );
+        }
+        return;
+      }
+      if (!clearScopeDelete(scopeId, operation.ownerContext.resourceId)) return;
+      if (isCurrentMutation(operation)) resource = readBack;
+    } catch (requestError) {
+      if (isCurrentMutation(operation)) {
+        error = deletionMayHaveCommitted
+          ? new Error(
+              t(
+                "Scope deletion read-back failed. Reconcile the authoritative scope list before deleting again.",
+              ),
+            )
+          : requestError;
+      }
+      if (!deletionMayHaveCommitted) {
+        clearScopeDelete(scopeId, operation.ownerContext.resourceId);
+      }
+    } finally {
+      mutationTracker.finish(operation);
+    }
   }
 
   let lastLoadKey = "";
@@ -75,6 +264,7 @@
     lastLoadKey = loadKey;
     void loadResource();
   });
+  onMount(restoreMutationLocks);
 </script>
 
 <div class="mb-5">
@@ -90,6 +280,15 @@
     {resource?.indicator || resourceId}
   </p>
 </div>
+
+{#if mutationStorageError}
+  <div
+    class="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+    role="alert"
+  >
+    {mutationStorageError}
+  </div>
+{/if}
 
 <DetailTabs
   {tabs}
@@ -132,7 +331,9 @@
           !resourceForm.name.trim() ||
           !resourceForm.indicator.trim()}
         onclick={() =>
-          runMutation(() => updateResource(resourceId, resourceForm))}
+          runMutation((mutationContext) =>
+            updateResource(mutationContext.resourceId, resourceForm),
+          )}
         class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >{saving ? t("Saving...") : t("Save")}</button
       >
@@ -170,25 +371,43 @@
               </div>
               <div class="flex gap-3">
                 <button
-                  disabled={saving}
+                  disabled={saving || !mutationStorageReady}
                   onclick={() =>
-                    runMutation(() =>
-                      updateResourceScope(resourceId, scope.id, {
+                    runMutation((mutationContext) =>
+                      updateResourceScope(mutationContext.resourceId, scope.id, {
                         name: scope.name,
                         description: scope.description,
                       }),
                     )}
                   class="text-sm text-brand-700">{t("Save")}</button
                 ><button
-                  disabled={saving}
-                  onclick={() =>
-                    runMutation(() =>
-                      deleteResourceScope(resourceId, scope.id),
-                    )}
-                  class="text-sm text-red-600">{t("Delete")}</button
+                  disabled={saving ||
+                    !mutationStorageReady ||
+                    scopeDeleteUnknown(scope.id)}
+                  onclick={() => deleteScope(scope.id)}
+                  class="text-sm text-red-600 disabled:opacity-50"
+                  >{t("Delete")}</button
                 >
               </div>
-            </div>{/each}
+            </div>
+            {#if scopeDeleteUnknown(scope.id)}
+              <div
+                class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+                role="alert"
+              >
+                <p>
+                  {t(
+                    "Scope deletion outcome is unknown. Reconcile the authoritative scope list before deleting again.",
+                  )}
+                </p>
+                <button
+                  onclick={() => acknowledgeScopeDelete(scope.id)}
+                  class="mt-2 font-semibold underline"
+                  >{t("I verified the scope list; allow delete again")}</button
+                >
+              </div>
+            {/if}
+          {/each}
         </div></RequestState
       >
       <section class="console-card p-5">

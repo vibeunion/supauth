@@ -7,6 +7,12 @@
     updateSignInExperience,
   } from "$lib/api/client.js";
   import { t } from "$lib/i18n.js";
+  import { resolveAuthoritativeSignupEnabled } from "./signup-authority.js";
+  import {
+    canonicalStringSet,
+    signInMethodsSettingsAuthority,
+    settleAuthoritativeSettingsMutation,
+  } from "$lib/authoritative-settings-readback.js";
 
   const signInMethods = [
     { value: "password", labelKey: "Password" },
@@ -18,6 +24,7 @@
   let saving = $state(false);
   let error = $state(null);
   let saved = $state(false);
+  let reconciliationStatus = $state(null);
   let signUpEnabled = $state(true);
   let enabledMethods = $state(["password"]);
 
@@ -30,48 +37,85 @@
       );
   }
 
+  async function readMethodsSnapshot() {
+    const [signInExperience, authConfig] = await Promise.all([
+      getSignInExperience(),
+      getAuthConfig(),
+    ]);
+    return { signInExperience, authConfig };
+  }
+
+  function applyMethodsSnapshot(snapshot) {
+    const { signInExperience, authConfig } = snapshot;
+    signUpEnabled = resolveAuthoritativeSignupEnabled(authConfig);
+    enabledMethods = (
+      signInExperience?.sign_in_methods || ["password"]
+    ).filter((methodName) =>
+      signInMethods.some((method) => method.value === methodName),
+    );
+  }
+
+  async function readMethods() {
+    applyMethodsSnapshot(await readMethodsSnapshot());
+  }
+
   async function loadMethods() {
     loading = true;
+    saved = false;
+    reconciliationStatus = null;
     error = null;
     try {
-      const [signInExperience, authConfig] = await Promise.all([
-        getSignInExperience(),
-        getAuthConfig(),
-      ]);
-      signUpEnabled =
-        signInExperience?.sign_up_enabled ?? authConfig?.enable_signup ?? true;
-      enabledMethods = (
-        signInExperience?.sign_in_methods || ["password"]
-      ).filter((methodName) =>
-        signInMethods.some((method) => method.value === methodName),
-      );
+      await readMethods();
     } catch (requestError) {
       error = requestError.message;
+    } finally {
+      loading = false;
     }
-    loading = false;
+  }
+
+  function methodMutationDraft() {
+    const methodsDraft = canonicalStringSet(
+      [...enabledMethods],
+      "sign_in_experience.sign_in_methods",
+    );
+    const signUpDraft = signUpEnabled;
+    const command = {
+      signInExperience: {
+        sign_in_methods: methodsDraft,
+        sign_up_enabled: signUpDraft,
+      },
+      authConfig: {
+        enable_signup: signUpDraft,
+        disable_signup: !signUpDraft,
+      },
+    };
+    return { command, authority: signInMethodsSettingsAuthority(command) };
   }
 
   async function saveMethods() {
     saving = true;
     saved = false;
+    reconciliationStatus = null;
     error = null;
+    const mutationDraft = methodMutationDraft();
     try {
-      await Promise.all([
-        updateSignInExperience({
-          sign_in_methods: enabledMethods,
-          sign_up_enabled: signUpEnabled,
-        }),
-        updateAuthConfig({
-          enable_signup: signUpEnabled,
-          disable_signup: !signUpEnabled,
-        }),
-      ]);
-      await loadMethods();
-      saved = true;
-    } catch (requestError) {
-      error = requestError.message;
+      const reconciliation = await settleAuthoritativeSettingsMutation({
+        draft: mutationDraft,
+        writeCommands: (command) => [
+          () => updateSignInExperience(command.signInExperience),
+          () => updateAuthConfig(command.authConfig),
+        ],
+        readSnapshot: readMethodsSnapshot,
+        authorityFromSnapshot: signInMethodsSettingsAuthority,
+      });
+      if (reconciliation.status === "success") {
+        applyMethodsSnapshot(reconciliation.readBackValue);
+        saved = true;
+      }
+      else reconciliationStatus = reconciliation.status;
+    } finally {
+      saving = false;
     }
-    saving = false;
   }
 
   onMount(loadMethods);
@@ -104,6 +148,17 @@
     class="mb-4 rounded-lg border border-green-200 bg-green-50 p-4 text-green-700"
   >
     {t("Saved")}
+  </div>{/if}
+{#if reconciliationStatus}<div
+    class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900"
+    role="alert"
+  >
+    <p class="font-semibold">
+      {t(`save.${reconciliationStatus}.title`)}
+    </p>
+    <p class="mt-1 text-sm text-amber-800">
+      {t(`save.${reconciliationStatus}.description`)}
+    </p>
   </div>{/if}
 
 {#if loading}

@@ -2,11 +2,21 @@
   import { onMount } from "svelte";
   import { t } from "$lib/i18n.js";
   import { listTenantConfigs, upsertTenantConfig } from "$lib/api/client.js";
+  import {
+    readAccountCenterConfig,
+    validateExternalDeleteAccountUrlDraft,
+  } from "./account-center-settings.js";
+  import {
+    accountCenterSettingsAuthority,
+    settleAuthoritativeSettingsMutation,
+  } from "$lib/authoritative-settings-readback.js";
 
   let loading = $state(true);
   let saving = $state(false);
   let error = $state(null);
   let success = $state(null);
+  let reconciliationStatus = $state(null);
+  let deleteAccountUrlError = $state(null);
 
   let form = $state({
     enabled: true,
@@ -16,7 +26,6 @@
     mfa: false,
     email_change: false,
     phone_change: false,
-    sessions: false,
     grants: false,
     identities: false,
     delete_account_enabled: false,
@@ -39,7 +48,6 @@
       mfa: security.mfa ?? false,
       email_change: security.email_change ?? false,
       phone_change: security.phone_change ?? false,
-      sessions: value.sessions?.enabled ?? false,
       grants: value.grants?.enabled ?? false,
       identities: value.identities?.enabled ?? false,
       delete_account_enabled:
@@ -56,65 +64,95 @@
       .filter(Boolean);
   }
 
+  async function readAccountCenter() {
+    const config = await readAccountCenterConfig(listTenantConfigs);
+    form = normalizeValue(config);
+  }
+
   async function load() {
     loading = true;
     error = null;
     success = null;
+    reconciliationStatus = null;
+    deleteAccountUrlError = null;
 
     try {
-      const res = await listTenantConfigs("account_center");
-      const config = (res.items || []).find((item) => item.key === "default");
-      form = normalizeValue(config);
-    } catch (e) {
-      error = e.message;
+      await readAccountCenter();
+    } catch {
+      error = t("state.requestFailed");
+    } finally {
+      loading = false;
     }
+  }
 
-    loading = false;
+  function accountCenterSecurityDraft() {
+    return {
+      password_change: form.password_change,
+      mfa: form.mfa,
+      email_change: form.email_change,
+      phone_change: form.phone_change,
+    };
+  }
+
+  function accountCenterValueDraft(deleteAccountUrl) {
+    return {
+      enabled: form.enabled,
+      profile: {
+        edit_mode: form.profile_edit,
+        fields: profileFields(),
+      },
+      security: accountCenterSecurityDraft(),
+      grants: { enabled: form.grants },
+      identities: { enabled: form.identities },
+      delete_account: {
+        enabled: form.delete_account_enabled,
+        url: deleteAccountUrl,
+      },
+      delete_account_url: deleteAccountUrl,
+    };
+  }
+
+  function accountCenterMutationDraft(deleteAccountUrl) {
+    const command = {
+      enabled: form.enabled,
+      value: accountCenterValueDraft(deleteAccountUrl),
+    };
+    return { command, authority: accountCenterSettingsAuthority(command) };
   }
 
   async function saveAccountCenter() {
-    saving = true;
     error = null;
     success = null;
-
-    try {
-      await upsertTenantConfig("account_center", "default", {
-        enabled: form.enabled,
-        value: {
-          enabled: form.enabled,
-          profile: {
-            edit_mode: form.profile_edit,
-            fields: profileFields(),
-          },
-          security: {
-            password_change: form.password_change,
-            mfa: form.mfa,
-            email_change: form.email_change,
-            phone_change: form.phone_change,
-          },
-          sessions: {
-            enabled: form.sessions,
-          },
-          grants: {
-            enabled: form.grants,
-          },
-          identities: {
-            enabled: form.identities,
-          },
-          delete_account: {
-            enabled: form.delete_account_enabled,
-            url: form.delete_account_url.trim() || null,
-          },
-          delete_account_url: form.delete_account_url.trim() || null,
-        },
-      });
-      await load();
-      success = t("Account Center settings saved");
-    } catch (e) {
-      error = e.message;
+    reconciliationStatus = null;
+    const deleteUrlValidation = validateExternalDeleteAccountUrlDraft(
+      form.delete_account_url,
+      import.meta.env.MODE,
+    );
+    if (!deleteUrlValidation.ok) {
+      deleteAccountUrlError = t("accountCenter.invalidDeleteAccountUrl");
+      return;
     }
 
-    saving = false;
+    deleteAccountUrlError = null;
+    saving = true;
+    const mutationDraft = accountCenterMutationDraft(deleteUrlValidation.url);
+
+    try {
+      const reconciliation = await settleAuthoritativeSettingsMutation({
+        draft: mutationDraft,
+        writeCommands: (configDraft) => [
+          () => upsertTenantConfig("account_center", "default", configDraft),
+        ],
+        readSnapshot: () => readAccountCenterConfig(listTenantConfigs),
+        authorityFromSnapshot: accountCenterSettingsAuthority,
+      });
+      if (reconciliation.status === "success") {
+        form = normalizeValue(reconciliation.readBackValue);
+        success = t("Account Center settings saved");
+      } else reconciliationStatus = reconciliation.status;
+    } finally {
+      saving = false;
+    }
   }
 
   onMount(load);
@@ -139,7 +177,10 @@
 </div>
 
 {#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">
+  <div
+    class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4"
+    role="alert"
+  >
     {error}
   </div>
 {/if}
@@ -149,6 +190,20 @@
     class="bg-green-50 border border-green-200 rounded-lg p-4 text-green-700 mb-4"
   >
     {success}
+  </div>
+{/if}
+
+{#if reconciliationStatus}
+  <div
+    class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900"
+    role="alert"
+  >
+    <p class="font-semibold">
+      {t(`save.${reconciliationStatus}.title`)}
+    </p>
+    <p class="mt-1 text-sm text-amber-800">
+      {t(`save.${reconciliationStatus}.description`)}
+    </p>
   </div>
 {/if}
 
@@ -238,14 +293,17 @@
         {t("Modules")}
       </h3>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <label
-          class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3"
+        <div
+          class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3"
+          data-capability-status="capability_unavailable"
         >
-          <span class="text-sm font-medium text-surface-800"
-            >{t("Sessions")}</span
-          >
-          <input type="checkbox" bind:checked={form.sessions} class="h-4 w-4" />
-        </label>
+          <span class="block text-sm font-medium text-amber-900">
+            {t("accountCenter.sessionsUnavailableTitle")}
+          </span>
+          <span class="mt-1 block text-xs text-amber-800">
+            {t("accountCenter.sessionsUnavailableDescription")}
+          </span>
+        </div>
         <label
           class="flex items-center justify-between rounded-lg border border-surface-200 px-4 py-3"
         >
@@ -331,9 +389,25 @@
         id="delete-account-url"
         type="url"
         bind:value={form.delete_account_url}
+        oninput={() => {
+          deleteAccountUrlError = null;
+        }}
+        aria-invalid={deleteAccountUrlError ? "true" : "false"}
+        aria-describedby={deleteAccountUrlError
+          ? "delete-account-url-error"
+          : undefined}
         class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm"
         placeholder="https://example.com/account/delete"
       />
+      {#if deleteAccountUrlError}
+        <p
+          id="delete-account-url-error"
+          class="mt-2 text-sm text-red-700"
+          role="alert"
+        >
+          {deleteAccountUrlError}
+        </p>
+      {/if}
     </section>
 
     <section class="bg-white rounded-xl border border-surface-200 p-6">

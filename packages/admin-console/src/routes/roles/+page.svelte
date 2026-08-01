@@ -1,9 +1,17 @@
 <script>
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { resolve } from "$app/paths";
   import { t } from "$lib/i18n.js";
   import RequestState from "$lib/components/RequestState.svelte";
-  import { collectionItems } from "$lib/resource-page.js";
+  import {
+    collectionPage,
+    completeCollectionItems,
+    createLatestRequestTracker,
+    createOperationTracker,
+    isLatestResourceLoad,
+    mergeCollectionPages,
+    resourceOwnedItems,
+  } from "$lib/resource-page.js";
   import {
     PERMISSION_CATALOG,
     PERMISSION_GROUPS,
@@ -29,6 +37,9 @@
   let roles = $state([]);
   let loading = $state(true);
   let saving = $state(false);
+  const mutationTracker = createOperationTracker((pending) => {
+    saving = pending;
+  });
   let error = $state(null);
   let showCreate = $state(false);
   let newRole = $state({ name: "", description: "" });
@@ -53,14 +64,37 @@
   let users = $state([]);
   let applications = $state([]);
   let organizations = $state([]);
-  let targetLoadError = $state(null);
   let targetSearch = $state("");
   let organizationSearch = $state("");
-  let templateBusy = $state({});
+  let userTargetSearch = $state("");
+  let organizationTargetSearch = $state("");
+  let userTargetPage = $state(1);
+  let organizationTargetPage = $state(1);
+  let userTargetTotal = $state(0);
+  let organizationTargetTotal = $state(0);
+  let userTargetsLoading = $state(false);
+  let applicationTargetsLoading = $state(false);
+  let organizationTargetsLoading = $state(false);
+  let userTargetError = $state(null);
+  let applicationTargetError = $state(null);
+  let organizationTargetError = $state(null);
+  const targetRequests = createLatestRequestTracker();
+  const TARGET_PAGE_LIMIT = 25;
+  const targetLoadError = $derived(
+    (assignmentForm.targetType === "user"
+      ? userTargetError
+      : applicationTargetError) || organizationTargetError,
+  );
+  const targetsLoading = $derived(
+    (assignmentForm.targetType === "user"
+      ? userTargetsLoading
+      : applicationTargetsLoading) || organizationTargetsLoading,
+  );
   let editingRoleId = $state(null);
   let editRole = $state({ name: "", description: "" });
-  let busyPermissions = $state({});
-  let busyGroups = $state({});
+  let pageLoadGeneration = 0;
+  let assignmentLoadGeneration = 0;
+  let assignmentsOwnerRoleId = $state(null);
 
   const riskPatterns = [
     { pattern: /^security\.manage$/, weight: 4 },
@@ -290,11 +324,18 @@
   }
 
   function chooseTarget(id) {
+    if (saving) return;
     assignmentForm = { ...assignmentForm, targetId: id };
     targetSearch = "";
   }
 
+  function clearOrganization() {
+    if (saving) return;
+    assignmentForm = { ...assignmentForm, organizationId: "" };
+  }
+
   function chooseOrganization(id) {
+    if (saving) return;
     assignmentForm = { ...assignmentForm, organizationId: id };
     organizationSearch = "";
   }
@@ -346,138 +387,459 @@
     return `${resolve("/audit-logs")}?${params.toString()}`;
   }
 
-  async function load() {
-    loading = true;
-    try {
-      const [res] = await Promise.all([listRoles(), loadAssignmentTargets()]);
-      roles = res.items || res.data || (Array.isArray(res) ? res : []);
-      if (
-        !selectedRoleId ||
-        !roles.some((role) => role.id === selectedRoleId)
-      ) {
-        selectedRoleId = roles[0]?.id || null;
-      }
-      await loadRoleAssignments(selectedRoleId);
-      error = null;
-    } catch (e) {
-      error = e.message;
-    }
-    loading = false;
+  function currentPageLoadContext() {
+    return {
+      generation: pageLoadGeneration,
+      resourceId: "roles",
+      tab: "list",
+    };
   }
 
-  async function loadAssignmentTargets() {
-    targetLoadError = null;
-    try {
-      const [userRes, applicationRes, organizationRes] = await Promise.all([
-        listUsers(),
-        listApplications(),
-        listOrganizations(),
-      ]);
-      users = collectionItems(userRes);
-      applications = collectionItems(applicationRes);
-      organizations = collectionItems(organizationRes);
-    } catch (requestError) {
-      users = [];
-      applications = [];
-      organizations = [];
-      targetLoadError = requestError;
-    }
+  function isCurrentPageLoad(loadContext) {
+    return isLatestResourceLoad(loadContext, currentPageLoadContext());
   }
 
-  async function loadRoleAssignments(roleId) {
-    if (!roleId) {
-      assignments = [];
-      return;
-    }
-    assignmentsLoading = true;
+  function roleListMutationContext(ownerRoleId) {
+    return { ...currentPageLoadContext(), ownerRoleId: ownerRoleId || null };
+  }
+
+  function operationOwnsSelectedRole(operation) {
+    const ownerRoleId = operation.ownerContext.ownerRoleId;
+    return !ownerRoleId || ownerRoleId === selectedRoleId;
+  }
+
+  function isCurrentRoleListMutation(operation) {
+    return (
+      mutationTracker.isCurrent(operation) &&
+      isCurrentPageLoad(operation.ownerContext) &&
+      operationOwnsSelectedRole(operation)
+    );
+  }
+
+  function isActiveRoleListMutation(operation) {
+    return mutationTracker.isCurrent(operation);
+  }
+
+  function isActiveOwnedRoleMutation(operation) {
+    return (
+      isActiveRoleListMutation(operation) &&
+      operationOwnsSelectedRole(operation)
+    );
+  }
+
+  function invalidateAssignmentLoad() {
+    assignmentLoadGeneration += 1;
+    assignments = [];
+    assignmentsOwnerRoleId = null;
     assignmentError = null;
-    try {
-      const res = await listRoleAssignments(roleId);
-      assignments = res.items || res.data || (Array.isArray(res) ? res : []);
-    } catch (e) {
-      assignments = [];
-      assignmentError = e.message;
-    }
     assignmentsLoading = false;
   }
 
+  function nextPageLoadContext() {
+    return {
+      generation: pageLoadGeneration + 1,
+      resourceId: "roles",
+      tab: "list",
+    };
+  }
+
+  function preparePageLoad(loadContext) {
+    pageLoadGeneration = loadContext.generation;
+    invalidateAssignmentLoad();
+    loading = true;
+  }
+
+  function commitRoles(rolesResponse) {
+    roles =
+      rolesResponse.items ||
+      rolesResponse.data ||
+      (Array.isArray(rolesResponse) ? rolesResponse : []);
+    if (!selectedRoleId || !roles.some((role) => role.id === selectedRoleId)) {
+      selectedRoleId = roles[0]?.id || null;
+    }
+  }
+
+  async function load() {
+    mutationTracker.invalidate();
+    return loadRoles();
+  }
+
+  async function loadRoles() {
+    const loadContext = nextPageLoadContext();
+    preparePageLoad(loadContext);
+    try {
+      const [rolesResponse] = await Promise.all([
+        listRoles(),
+        loadAssignmentTargets(loadContext),
+      ]);
+      if (!isCurrentPageLoad(loadContext)) return;
+      commitRoles(rolesResponse);
+      await loadRoleAssignments(selectedRoleId);
+      if (isCurrentPageLoad(loadContext)) error = null;
+    } catch (requestError) {
+      if (isCurrentPageLoad(loadContext)) error = requestError.message;
+    } finally {
+      if (isCurrentPageLoad(loadContext)) loading = false;
+    }
+  }
+
+  function targetRequestIsCurrent(request) {
+    return (
+      targetRequests.isCurrent(request) &&
+      isCurrentPageLoad(request.ownerContext.pageContext)
+    );
+  }
+
+  function targetPageQuery(request) {
+    return {
+      page: request.ownerContext.page,
+      limit: TARGET_PAGE_LIMIT,
+      search: request.ownerContext.search,
+    };
+  }
+
+  function mergedTargetPage(currentTargets, page, request, identifyTarget) {
+    return request.ownerContext.mode === "append"
+      ? mergeCollectionPages(currentTargets, page.items, identifyTarget)
+      : page.items;
+  }
+
+  function commitUserTargetPage(request, page) {
+    users = mergedTargetPage(users, page, request, userId);
+    userTargetPage = page.page;
+    userTargetTotal = page.total;
+  }
+
+  function commitOrganizationTargetPage(request, page) {
+    organizations = mergedTargetPage(
+      organizations,
+      page,
+      request,
+      organizationId,
+    );
+    organizationTargetPage = page.page;
+    organizationTargetTotal = page.total;
+  }
+
+  async function loadApplicationTargets(pageContext) {
+    const request = targetRequests.begin("applications", { pageContext });
+    applicationTargetsLoading = true;
+    applicationTargetError = null;
+    try {
+      const response = await listApplications();
+      if (!targetRequestIsCurrent(request)) return;
+      applications = completeCollectionItems(response);
+    } catch (requestError) {
+      if (targetRequestIsCurrent(request)) applicationTargetError = requestError;
+    } finally {
+      if (targetRequestIsCurrent(request)) applicationTargetsLoading = false;
+    }
+  }
+
+  async function loadUserTargets(pageContext, requestedPage = 1, mode = "replace") {
+    const request = targetRequests.begin("users", {
+      pageContext,
+      page: requestedPage,
+      search: userTargetSearch,
+      mode,
+    });
+    userTargetsLoading = true;
+    userTargetError = null;
+    try {
+      const page = collectionPage(await listUsers(targetPageQuery(request)));
+      if (!targetRequestIsCurrent(request)) return;
+      commitUserTargetPage(request, page);
+    } catch (requestError) {
+      if (targetRequestIsCurrent(request)) userTargetError = requestError;
+    } finally {
+      if (targetRequestIsCurrent(request)) userTargetsLoading = false;
+    }
+  }
+
+  async function loadOrganizationTargets(
+    pageContext,
+    requestedPage = 1,
+    mode = "replace",
+  ) {
+    const request = targetRequests.begin("organizations", {
+      pageContext,
+      page: requestedPage,
+      search: organizationTargetSearch,
+      mode,
+    });
+    organizationTargetsLoading = true;
+    organizationTargetError = null;
+    try {
+      const page = collectionPage(
+        await listOrganizations(targetPageQuery(request)),
+      );
+      if (!targetRequestIsCurrent(request)) return;
+      commitOrganizationTargetPage(request, page);
+    } catch (requestError) {
+      if (targetRequestIsCurrent(request)) organizationTargetError = requestError;
+    } finally {
+      if (targetRequestIsCurrent(request)) organizationTargetsLoading = false;
+    }
+  }
+
+  function loadAssignmentTargets(pageContext) {
+    return Promise.all([
+      loadUserTargets(pageContext),
+      loadApplicationTargets(pageContext),
+      loadOrganizationTargets(pageContext),
+    ]);
+  }
+
+  function applyUserTargetSearch(event) {
+    event.preventDefault();
+    userTargetSearch = targetSearch.trim();
+    void loadUserTargets(currentPageLoadContext());
+  }
+
+  function applyOrganizationTargetSearch(event) {
+    event.preventDefault();
+    organizationTargetSearch = organizationSearch.trim();
+    void loadOrganizationTargets(currentPageLoadContext());
+  }
+
+  function loadMoreUserTargets() {
+    void loadUserTargets(
+      currentPageLoadContext(),
+      userTargetPage + 1,
+      "append",
+    );
+  }
+
+  function loadMoreOrganizationTargets() {
+    void loadOrganizationTargets(
+      currentPageLoadContext(),
+      organizationTargetPage + 1,
+      "append",
+    );
+  }
+
+  function changeAssignmentTargetType(event) {
+    const targetType = event.currentTarget.value;
+    assignmentForm = {
+      ...assignmentForm,
+      targetType,
+      targetId: "",
+      applicationId: "",
+    };
+    if (targetType === "user") {
+      targetSearch = userTargetSearch;
+      void loadUserTargets(currentPageLoadContext());
+      return;
+    }
+    targetSearch = "";
+    targetRequests.invalidate("users");
+    userTargetsLoading = false;
+    userTargetError = null;
+  }
+
+  function currentAssignmentLoadContext() {
+    return {
+      generation: assignmentLoadGeneration,
+      resourceId: selectedRoleId || "",
+      tab: "assignments",
+    };
+  }
+
+  function isCurrentAssignmentLoad(loadContext) {
+    return isLatestResourceLoad(
+      loadContext,
+      currentAssignmentLoadContext(),
+    );
+  }
+
+  function selectedRoleOwnsAssignments(role) {
+    return Boolean(
+      role &&
+        role.id === selectedRoleId &&
+        role.id === assignmentsOwnerRoleId,
+    );
+  }
+
+  function currentAssignmentMutationContext(role) {
+    return selectedRoleOwnsAssignments(role)
+      ? currentAssignmentLoadContext()
+      : null;
+  }
+
+  function isCurrentAssignmentMutation(operation) {
+    return (
+      mutationTracker.isCurrent(operation) &&
+      isCurrentAssignmentLoad(operation.ownerContext)
+    );
+  }
+
+  function nextAssignmentLoadContext(roleId) {
+    return {
+      generation: assignmentLoadGeneration + 1,
+      resourceId: roleId || "",
+      tab: "assignments",
+    };
+  }
+
+  function prepareAssignmentLoad(loadContext) {
+    assignmentLoadGeneration = loadContext.generation;
+    assignments = [];
+    assignmentsOwnerRoleId = null;
+    assignmentError = null;
+    assignmentsLoading = Boolean(loadContext.resourceId);
+  }
+
+  function commitRoleAssignments(loadContext, assignmentResponse) {
+    assignments =
+      assignmentResponse.items ||
+      assignmentResponse.data ||
+      (Array.isArray(assignmentResponse) ? assignmentResponse : []);
+    assignmentsOwnerRoleId = loadContext.resourceId;
+  }
+
+  async function loadRoleAssignments(roleId) {
+    const loadContext = nextAssignmentLoadContext(roleId);
+    prepareAssignmentLoad(loadContext);
+    if (!loadContext.resourceId) return;
+    try {
+      const assignmentResponse = await listRoleAssignments(
+        loadContext.resourceId,
+      );
+      if (!isCurrentAssignmentLoad(loadContext)) return;
+      commitRoleAssignments(loadContext, assignmentResponse);
+    } catch (requestError) {
+      if (isCurrentAssignmentLoad(loadContext)) {
+        assignmentError = requestError.message;
+      }
+    } finally {
+      if (isCurrentAssignmentLoad(loadContext)) assignmentsLoading = false;
+    }
+  }
+
   async function selectRole(roleId) {
+    mutationTracker.invalidate();
     selectedRoleId = roleId;
     showClone = false;
+    assignmentForm = { ...assignmentForm, assignmentId: "" };
     assignmentMessage = null;
     assignmentError = null;
     await loadRoleAssignments(roleId);
   }
 
+  function reloadRoleAssignments(roleId) {
+    if (saving) return;
+    mutationTracker.invalidate();
+    return loadRoleAssignments(roleId);
+  }
+
+  function commitRoleCreation(createdRole) {
+    if (createdRole?.id) selectedRoleId = createdRole.id;
+    showCreate = false;
+    newRole = { name: "", description: "" };
+  }
+
+  async function selectCreatedRole(operation, roleName) {
+    if (!isActiveRoleListMutation(operation)) return;
+    selectedRoleId =
+      roles.find((role) => role.name === roleName)?.id || selectedRoleId;
+    await loadRoleAssignments(selectedRoleId);
+  }
+
   async function handleCreate() {
-    if (!newRole.name.trim()) return;
     const roleName = newRole.name.trim();
-    saving = true;
+    if (saving || !roleName) return;
+    const operation = mutationTracker.begin(roleListMutationContext(null));
+    error = null;
     try {
-      const created = await createRole({
+      const createdRole = await createRole({
         name: roleName,
         description: newRole.description.trim(),
       });
-      if (created?.id) selectedRoleId = created.id;
-      showCreate = false;
-      newRole = { name: "", description: "" };
-      await load();
-      if (!created?.id) {
-        selectedRoleId =
-          roles.find((role) => role.name === roleName)?.id || selectedRoleId;
-        await loadRoleAssignments(selectedRoleId);
-      }
-    } catch (e) {
-      error = e.message;
+      if (!isCurrentRoleListMutation(operation)) return;
+      commitRoleCreation(createdRole);
+      await loadRoles();
+      if (!createdRole?.id) await selectCreatedRole(operation, roleName);
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    saving = false;
+  }
+
+  async function selectExistingTemplateRole(existingRole) {
+    mutationTracker.invalidate();
+    selectedRoleId = existingRole.id;
+    assignmentMessage = formatText("roles.templateAlreadyExists", {
+      role: existingRole.name,
+    });
+    await loadRoleAssignments(existingRole.id);
+  }
+
+  async function createTemplatePermissions(operation, template, roleId) {
+    for (const permissionName of template.permissions) {
+      const permission = PERMISSION_CATALOG.find(
+        (candidate) => candidate.name === permissionName,
+      );
+      await createRolePermission(roleId, {
+        name: permissionName,
+        description: permission?.descKey ? t(permission.descKey) : "",
+      });
+      if (!isCurrentRoleListMutation(operation)) return false;
+    }
+    return true;
+  }
+
+  async function createdTemplateRole(operation, template) {
+    const createdRole = await createRole({
+      name: template.name,
+      description: t(template.descKey),
+    });
+    if (!isCurrentRoleListMutation(operation)) return null;
+    if (!createdRole?.id) throw new Error(t("roles.cloneMissingRoleId"));
+    const copied = await createTemplatePermissions(
+      operation,
+      template,
+      createdRole.id,
+    );
+    return copied ? createdRole : null;
+  }
+
+  function commitTemplateRole(createdRole, template) {
+    selectedRoleId = createdRole.id;
+    assignmentMessage = formatText("roles.templateCreated", {
+      role: template.name,
+    });
   }
 
   async function handleCreateTemplate(template) {
+    if (saving) return;
     const existing = roleByName(template.name);
     if (existing) {
-      selectedRoleId = existing.id;
-      assignmentMessage = formatText("roles.templateAlreadyExists", {
-        role: existing.name,
-      });
-      await loadRoleAssignments(existing.id);
+      await selectExistingTemplateRole(existing);
       return;
     }
-
-    templateBusy[template.id] = true;
+    const operation = mutationTracker.begin(roleListMutationContext(null));
+    error = null;
     try {
-      const created = await createRole({
-        name: template.name,
-        description: t(template.descKey),
-      });
-      const roleId = created?.id;
-      if (!roleId) throw new Error(t("roles.cloneMissingRoleId"));
-      for (const permissionName of template.permissions) {
-        const permission = PERMISSION_CATALOG.find(
-          (item) => item.name === permissionName,
-        );
-        await createRolePermission(roleId, {
-          name: permissionName,
-          description: permission?.descKey ? t(permission.descKey) : "",
-        });
-      }
-      selectedRoleId = roleId;
-      assignmentMessage = formatText("roles.templateCreated", {
-        role: template.name,
-      });
-      await load();
-    } catch (e) {
-      error = e.message;
+      const createdRole = await createdTemplateRole(operation, template);
+      if (!createdRole) return;
+      commitTemplateRole(createdRole, template);
+      await loadRoles();
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    delete templateBusy[template.id];
   }
 
   function startEdit(role) {
+    if (saving) return;
     editingRoleId = role.id;
     editRole = { name: role.name || "", description: role.description || "" };
   }
 
   function startClone(role) {
+    if (saving) return;
     showClone = true;
     cloneRole = {
       name: `${role.name || "role"}_copy`,
@@ -486,268 +848,370 @@
   }
 
   async function handleUpdateRole(role) {
-    if (!editRole.name.trim()) return;
-    saving = true;
+    const roleName = editRole.name.trim();
+    if (saving || !roleName) return;
+    const operation = mutationTracker.begin(roleListMutationContext(role.id));
+    const roleUpdate = {
+      name: roleName,
+      description: editRole.description.trim(),
+    };
+    error = null;
     try {
-      await updateRole(role.id, {
-        name: editRole.name.trim(),
-        description: editRole.description.trim(),
-      });
+      await updateRole(operation.ownerContext.ownerRoleId, roleUpdate);
+      if (!isCurrentRoleListMutation(operation)) return;
       editingRoleId = null;
-      await load();
-    } catch (e) {
-      error = e.message;
+      await loadRoles();
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    saving = false;
   }
 
   async function handleDelete(role) {
+    if (saving) return;
     if (
       !confirm(
         t("Delete this role? All permissions and assignments will be removed."),
       )
     )
       return;
+    const operation = mutationTracker.begin(roleListMutationContext(role.id));
+    error = null;
     try {
-      await deleteRole(role.id);
-      if (selectedRoleId === role.id) selectedRoleId = null;
-      await load();
-    } catch (e) {
-      error = e.message;
+      await deleteRole(operation.ownerContext.ownerRoleId);
+      if (!isCurrentRoleListMutation(operation)) return;
+      selectedRoleId = null;
+      await loadRoles();
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
+  }
+
+  function clonedPermissionPayloads(role) {
+    return permissionsOf(role).map((permission) => ({
+      name: permission.name,
+      description:
+        permission.description || permissionDescription(permission, t),
+    }));
+  }
+
+  function currentCloneRequest() {
+    return {
+      name: cloneRole.name.trim(),
+      description: cloneRole.description.trim(),
+    };
+  }
+
+  function commitRoleClone(createdRole) {
+    showClone = false;
+    selectedRoleId = createdRole.id;
+  }
+
+  async function resolvedClonedRole(operation, cloneRequest) {
+    const createdRole = await createRole(cloneRequest);
+    if (!isCurrentRoleListMutation(operation)) return null;
+    if (createdRole?.id) return createdRole;
+    await loadRoles();
+    if (!isActiveOwnedRoleMutation(operation)) return null;
+    return roles.find((candidate) => candidate.name === cloneRequest.name);
+  }
+
+  async function copyRolePermissions(operation, roleId, permissions) {
+    for (const permission of permissions) {
+      if (!isActiveOwnedRoleMutation(operation)) return false;
+      await createRolePermission(roleId, permission);
+      if (!isActiveOwnedRoleMutation(operation)) return false;
+    }
+    return true;
+  }
+
+  async function copyAndCommitClonedRole(operation, createdRole, permissions) {
+    const copied = await copyRolePermissions(
+      operation,
+      createdRole.id,
+      permissions,
+    );
+    if (!copied || !isActiveOwnedRoleMutation(operation)) return false;
+    commitRoleClone(createdRole);
+    return true;
   }
 
   async function handleCloneRole(role) {
-    if (!cloneRole.name.trim()) return;
-    saving = true;
+    const cloneRequest = currentCloneRequest();
+    if (saving || !cloneRequest.name) return;
+    const operation = mutationTracker.begin(roleListMutationContext(role.id));
+    const permissions = clonedPermissionPayloads(role);
+    error = null;
     try {
-      let created = await createRole({
-        name: cloneRole.name.trim(),
-        description: cloneRole.description.trim(),
-      });
-      if (!created?.id) {
-        await load();
-        created = roles.find(
-          (candidate) => candidate.name === cloneRole.name.trim(),
-        );
-      }
-      if (!created?.id) throw new Error(t("roles.cloneMissingRoleId"));
-      for (const permission of permissionsOf(role)) {
-        await createRolePermission(created.id, {
-          name: permission.name,
-          description:
-            permission.description || permissionDescription(permission, t),
-        });
-      }
-      showClone = false;
-      selectedRoleId = created.id;
-      await load();
-    } catch (e) {
-      error = e.message;
+      const createdRole = await resolvedClonedRole(operation, cloneRequest);
+      if (!isActiveOwnedRoleMutation(operation)) return;
+      if (!createdRole?.id) throw new Error(t("roles.cloneMissingRoleId"));
+      const committed = await copyAndCommitClonedRole(operation, createdRole, permissions);
+      if (!committed) return;
+      await loadRoles();
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    saving = false;
   }
 
-  function permissionBusyKey(roleId, name) {
-    return `${roleId}:${name}`;
-  }
-
-  async function addPermission(role, permission) {
-    const owned = permissionNames(role);
-    if (owned.has(permission.name)) return;
+  function permissionCreatePayload(permission) {
     const meta = permissionMeta(permission.name);
-    const description =
-      permission.description || (meta?.descKey ? t(meta.descKey) : "");
-    await createRolePermission(role.id, { name: permission.name, description });
+    return {
+      name: permission.name,
+      description:
+        permission.description || (meta?.descKey ? t(meta.descKey) : ""),
+    };
   }
 
-  async function removePermission(role, permissionName) {
+  async function addPermission(operation, role, permission) {
+    const owned = permissionNames(role);
+    if (owned.has(permission.name)) return true;
+    await createRolePermission(
+      operation.ownerContext.ownerRoleId,
+      permissionCreatePayload(permission),
+    );
+    return isCurrentRoleListMutation(operation);
+  }
+
+  async function removePermission(operation, role, permissionName) {
     const permission = findPermission(role, permissionName);
-    if (!permission) return;
-    await deleteRolePermission(role.id, permission.id);
+    if (!permission) return true;
+    await deleteRolePermission(
+      operation.ownerContext.ownerRoleId,
+      permission.id,
+    );
+    return isCurrentRoleListMutation(operation);
   }
 
   async function toggleCatalogPermission(role, permission) {
-    const key = permissionBusyKey(role.id, permission.name);
-    if (busyPermissions[key]) return;
-    busyPermissions[key] = true;
+    if (saving) return;
+    const removing = permissionNames(role).has(permission.name);
+    const action = removing ? t("roles.revokeAction") : t("roles.grantAction");
+    if (!confirmPermissionChange(action, [permission.name])) return;
+    const operation = mutationTracker.begin(roleListMutationContext(role.id));
+    error = null;
     try {
-      if (permissionNames(role).has(permission.name)) {
-        if (
-          !confirmPermissionChange(t("roles.revokeAction"), [permission.name])
-        )
-          return;
-        await removePermission(role, permission.name);
-      } else {
-        if (!confirmPermissionChange(t("roles.grantAction"), [permission.name]))
-          return;
-        await addPermission(role, permission);
-      }
-      await load();
-      error = null;
-    } catch (e) {
-      error = e.message;
+      const current = removing
+        ? await removePermission(operation, role, permission.name)
+        : await addPermission(operation, role, permission);
+      if (!current) return;
+      await loadRoles();
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
     } finally {
-      delete busyPermissions[key];
+      mutationTracker.finish(operation);
     }
+  }
+
+  function permissionGroupTargets(role, group, action) {
+    const owned = permissionNames(role);
+    return PERMISSION_CATALOG.filter(
+      (permission) =>
+        permission.group === group &&
+        (action === "grant"
+          ? !owned.has(permission.name)
+          : owned.has(permission.name)),
+    );
+  }
+
+  function confirmedPermissionGroupTargets(role, group, action) {
+    const targets = permissionGroupTargets(role, group, action);
+    if (targets.length === 0) return null;
+    const actionLabel =
+      action === "grant" ? t("roles.grantAction") : t("roles.revokeAction");
+    return confirmPermissionChange(
+      actionLabel,
+      targets.map((permission) => permission.name),
+    )
+      ? targets
+      : null;
+  }
+
+  async function mutatePermissionGroup(operation, role, targets, action) {
+    for (const permission of targets) {
+      const current =
+        action === "grant"
+          ? await addPermission(operation, role, permission)
+          : await removePermission(operation, role, permission.name);
+      if (!current) return false;
+    }
+    return true;
   }
 
   async function applyGroup(role, group, action) {
-    const key = `${role.id}:${group}:${action}`;
-    if (busyGroups[key]) return;
-    busyGroups[key] = true;
+    if (saving) return;
+    const targets = confirmedPermissionGroupTargets(role, group, action);
+    if (!targets) return;
+    const operation = mutationTracker.begin(roleListMutationContext(role.id));
+    error = null;
     try {
-      const items = PERMISSION_CATALOG.filter(
-        (permission) => permission.group === group,
+      const current = await mutatePermissionGroup(
+        operation,
+        role,
+        targets,
+        action,
       );
-      const owned = permissionNames(role);
-      if (action === "grant") {
-        const targets = items.filter(
-          (permission) => !owned.has(permission.name),
-        );
-        if (
-          !confirmPermissionChange(
-            t("roles.grantAction"),
-            targets.map((permission) => permission.name),
-          )
-        )
-          return;
-        for (const item of targets) {
-          await addPermission(role, item);
-        }
-      } else {
-        const targets = items.filter((permission) =>
-          owned.has(permission.name),
-        );
-        if (
-          !confirmPermissionChange(
-            t("roles.revokeAction"),
-            targets.map((permission) => permission.name),
-          )
-        )
-          return;
-        for (const item of targets) {
-          await removePermission(role, item.name);
-        }
-      }
-      await load();
-      error = null;
-    } catch (e) {
-      error = e.message;
+      if (!current) return;
+      await loadRoles();
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
     } finally {
-      delete busyGroups[key];
+      mutationTracker.finish(operation);
     }
   }
 
-  async function handleAddCustomPermission(role) {
+  function customPermissionRequest() {
     const name = customPermission.name.trim();
-    if (!name) return;
-    if (permissionNames(role).has(name)) {
+    return name
+      ? { name, description: customPermission.description.trim() }
+      : null;
+  }
+
+  async function handleAddCustomPermission(role) {
+    const permission = customPermissionRequest();
+    if (saving || !permission) return;
+    if (permissionNames(role).has(permission.name)) {
       error = t("roles.alreadyExists");
       return;
     }
+    if (!confirmPermissionChange(t("roles.grantAction"), [permission.name]))
+      return;
+    const operation = mutationTracker.begin(roleListMutationContext(role.id));
+    error = null;
     try {
-      if (!confirmPermissionChange(t("roles.grantAction"), [name])) return;
-      await createRolePermission(role.id, {
-        name,
-        description: customPermission.description.trim(),
-      });
+      const current = await addPermission(operation, role, permission);
+      if (!current) return;
       customPermission = { name: "", description: "" };
-      await load();
-      error = null;
-    } catch (e) {
-      error = e.message;
+      await loadRoles();
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
   }
 
   async function handleDeletePermission(role, permission) {
+    if (saving) return;
+    if (!confirmPermissionChange(t("roles.revokeAction"), [permission.name]))
+      return;
+    const operation = mutationTracker.begin(roleListMutationContext(role.id));
+    error = null;
     try {
-      if (!confirmPermissionChange(t("roles.revokeAction"), [permission.name]))
-        return;
-      await deleteRolePermission(role.id, permission.id);
-      await load();
-    } catch (e) {
-      error = e.message;
+      const current = await removePermission(
+        operation,
+        role,
+        permission.name,
+      );
+      if (!current) return;
+      await loadRoles();
+    } catch (requestError) {
+      if (isActiveRoleListMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
+  }
+
+  function roleAssignmentPayload(targetId) {
+    const applicationId = assignmentForm.applicationId.trim();
+    const organizationId = assignmentForm.organizationId.trim();
+    const target =
+      assignmentForm.targetType === "user"
+        ? {
+            user_id: targetId,
+            ...(applicationId ? { application_id: applicationId } : {}),
+          }
+        : { application_id: targetId };
+    return {
+      ...target,
+      ...(organizationId ? { organization_id: organizationId } : {}),
+    };
+  }
+
+  function confirmRoleAssignment(role, targetId) {
+    return confirm(
+      formatText("roles.confirmAssign", { role: role.name, target: targetId }),
+    );
+  }
+
+  function commitRoleAssignment(assignment) {
+    assignmentForm = { ...assignmentForm, targetId: "", applicationId: "" };
+    assignmentMessage = formatText("roles.assignmentCreated", {
+      id: assignmentIdOf(assignment) || t("common.notAvailable"),
+    });
+    error = null;
   }
 
   async function handleAssignRole(role) {
+    if (saving) return;
+    const mutationContext = currentAssignmentMutationContext(role);
     const targetId = assignmentForm.targetId.trim();
-    if (!targetId) return;
-    const payload = {
-      ...(assignmentForm.targetType === "user"
-        ? {
-            user_id: targetId,
-            ...(assignmentForm.applicationId.trim()
-              ? { application_id: assignmentForm.applicationId.trim() }
-              : {}),
-          }
-        : { application_id: targetId }),
-      ...(assignmentForm.organizationId.trim()
-        ? { organization_id: assignmentForm.organizationId.trim() }
-        : {}),
-    };
-    if (
-      !confirm(
-        formatText("roles.confirmAssign", {
-          role: role.name,
-          target: targetId,
-        }),
-      )
-    )
+    if (!mutationContext || !targetId || !confirmRoleAssignment(role, targetId))
       return;
-    saving = true;
+    const operation = mutationTracker.begin(mutationContext);
+    const ownerRoleId = operation.ownerContext.resourceId;
     try {
-      const assignment = await assignRole(role.id, payload);
-      assignmentForm = {
-        ...assignmentForm,
-        targetId: "",
-        applicationId: "",
-      };
-      assignmentMessage = formatText("roles.assignmentCreated", {
-        id: assignmentIdOf(assignment) || t("common.notAvailable"),
-      });
-      await loadRoleAssignments(role.id);
-      error = null;
-    } catch (e) {
-      error = e.message;
+      const assignment = await assignRole(
+        ownerRoleId,
+        roleAssignmentPayload(targetId),
+      );
+      if (!isCurrentAssignmentMutation(operation)) return;
+      commitRoleAssignment(assignment);
+      await loadRoleAssignments(ownerRoleId);
+    } catch (requestError) {
+      if (isCurrentAssignmentMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    saving = false;
   }
 
-  async function handleRevokeAssignment(role) {
+  function handleRevokeAssignment(role) {
     const assignmentId = assignmentForm.assignmentId.trim();
-    if (!assignmentId) return;
-    await revokeAssignmentById(role, assignmentId);
+    if (saving || !assignmentId) return;
+    return revokeAssignmentById(role, assignmentId);
+  }
+
+  function confirmRoleRevocation(role, assignmentId) {
+    return confirm(
+      formatText("roles.confirmRevokeAssignment", {
+        role: role.name,
+        assignment: assignmentId,
+      }),
+    );
+  }
+
+  function commitRoleRevocation(assignmentId) {
+    assignmentForm = {
+      ...assignmentForm,
+      assignmentId:
+        assignmentForm.assignmentId === assignmentId
+          ? ""
+          : assignmentForm.assignmentId,
+    };
+    assignmentMessage = t("roles.assignmentRevoked");
+    error = null;
   }
 
   async function revokeAssignmentById(role, assignmentId) {
-    if (
-      !confirm(
-        formatText("roles.confirmRevokeAssignment", {
-          role: role.name,
-          assignment: assignmentId,
-        }),
-      )
-    )
-      return;
-    saving = true;
+    if (saving) return;
+    const mutationContext = currentAssignmentMutationContext(role);
+    if (!mutationContext || !confirmRoleRevocation(role, assignmentId)) return;
+    const operation = mutationTracker.begin(mutationContext);
+    const ownerRoleId = operation.ownerContext.resourceId;
     try {
-      await revokeRole(role.id, assignmentId);
-      assignmentForm = {
-        ...assignmentForm,
-        assignmentId:
-          assignmentForm.assignmentId === assignmentId
-            ? ""
-            : assignmentForm.assignmentId,
-      };
-      assignmentMessage = t("roles.assignmentRevoked");
-      await loadRoleAssignments(role.id);
-      error = null;
-    } catch (e) {
-      error = e.message;
+      await revokeRole(ownerRoleId, assignmentId);
+      if (!isCurrentAssignmentMutation(operation)) return;
+      commitRoleRevocation(assignmentId);
+      await loadRoleAssignments(ownerRoleId);
+    } catch (requestError) {
+      if (isCurrentAssignmentMutation(operation)) error = requestError.message;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    saving = false;
   }
 
   const filteredRoles = $derived.by(() => {
@@ -759,6 +1223,9 @@
     roles.find((role) => role.id === selectedRoleId) ||
       filteredRoles[0] ||
       null,
+  );
+  const selectedRoleAssignments = $derived(
+    resourceOwnedItems(assignments, assignmentsOwnerRoleId, selectedRoleId),
   );
 
   const totals = $derived.by(() => {
@@ -818,39 +1285,37 @@
   );
 
   const targetOptions = $derived.by(() => {
-    const source =
-      assignmentForm.targetType === "user"
-        ? users.map((user) => ({ id: userId(user), label: userLabel(user) }))
-        : applications.map((application) => ({
-            id: applicationId(application),
-            label: applicationLabel(application),
-          }));
+    if (assignmentForm.targetType === "user") {
+      return users
+        .map((user) => ({ id: userId(user), label: userLabel(user) }))
+        .filter((option) => option.id);
+    }
     const term = normalizeText(targetSearch);
-    return source
-      .filter((item) => item.id)
+    return applications
+      .map((application) => ({
+        id: applicationId(application),
+        label: applicationLabel(application),
+      }))
+      .filter((option) => option.id)
       .filter(
-        (item) =>
-          !term || normalizeText(`${item.label} ${item.id}`).includes(term),
+        (option) =>
+          !term ||
+          normalizeText(`${option.label} ${option.id}`).includes(term),
       )
       .slice(0, 8);
   });
 
-  const organizationOptions = $derived.by(() => {
-    const term = normalizeText(organizationSearch);
-    return organizations
+  const organizationOptions = $derived.by(() =>
+    organizations
       .map((organization) => ({
         id: organizationId(organization),
         label: organizationLabel(organization),
       }))
-      .filter((item) => item.id)
-      .filter(
-        (item) =>
-          !term || normalizeText(`${item.label} ${item.id}`).includes(term),
-      )
-      .slice(0, 8);
-  });
+      .filter((option) => option.id),
+  );
 
   onMount(load);
+  onDestroy(() => mutationTracker.invalidate());
 </script>
 
 <div class="space-y-6">
@@ -872,7 +1337,8 @@
     </div>
     <button
       onclick={() => (showCreate = !showCreate)}
-      class="inline-flex items-center justify-center rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700"
+      disabled={saving}
+      class="inline-flex items-center justify-center rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
     >
       {showCreate ? t("Cancel") : `+ ${t("New Role")}`}
     </button>
@@ -950,12 +1416,12 @@
           </div>
           <button
             onclick={() => handleCreateTemplate(template)}
-            disabled={templateBusy[template.id]}
+            disabled={saving}
             class="mt-4 w-full rounded-lg border border-brand-200 px-3 py-1.5 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-wait disabled:opacity-50"
           >
             {exists
               ? t("roles.viewTemplateRole")
-              : templateBusy[template.id]
+              : saving
                 ? t("Saving...")
                 : t("roles.createFromTemplate")}
           </button>
@@ -969,7 +1435,10 @@
       class="rounded-2xl border border-brand-100 bg-brand-50/60 p-5 shadow-sm"
     >
       <h3 class="text-lg font-semibold text-surface-900">{t("New Role")}</h3>
-      <div class="mt-4 grid gap-3 md:grid-cols-[1fr_2fr_auto] md:items-end">
+      <fieldset
+        disabled={saving}
+        class="mt-4 grid gap-3 border-0 p-0 md:grid-cols-[1fr_2fr_auto] md:items-end"
+      >
         <div>
           <label
             for="new-role-name"
@@ -1002,7 +1471,7 @@
           class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
           >{saving ? t("Saving...") : t("Create")}</button
         >
-      </div>
+      </fieldset>
     </div>
   {/if}
 
@@ -1047,6 +1516,7 @@
                 ? 'border-brand-300 bg-brand-50 shadow-sm'
                 : 'border-surface-200 bg-white hover:border-brand-200'}"
               onclick={() => selectRole(role.id)}
+              disabled={saving}
             >
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
@@ -1102,7 +1572,10 @@
             >
               <div class="min-w-0 flex-1">
                 {#if editingRoleId === selectedRole.id}
-                  <div class="grid gap-3 md:grid-cols-[1fr_2fr]">
+                  <fieldset
+                    disabled={saving}
+                    class="grid gap-3 border-0 p-0 md:grid-cols-[1fr_2fr]"
+                  >
                     <input
                       bind:value={editRole.name}
                       class="rounded-xl border border-surface-300 px-3 py-2 text-sm font-semibold"
@@ -1113,8 +1586,8 @@
                       class="rounded-xl border border-surface-300 px-3 py-2 text-sm"
                       aria-label={t("Description")}
                     />
-                  </div>
-                  <div class="mt-3 flex gap-2">
+                  </fieldset>
+                  <fieldset disabled={saving} class="mt-3 flex gap-2 border-0 p-0">
                     <button
                       onclick={() => handleUpdateRole(selectedRole)}
                       disabled={!editRole.name.trim() || saving}
@@ -1123,10 +1596,11 @@
                     >
                     <button
                       onclick={() => (editingRoleId = null)}
-                      class="rounded-lg border border-surface-300 px-3 py-1.5 text-sm font-semibold text-surface-700"
+                      disabled={saving}
+                      class="rounded-lg border border-surface-300 px-3 py-1.5 text-sm font-semibold text-surface-700 disabled:cursor-not-allowed disabled:opacity-40"
                       >{t("Cancel")}</button
                     >
-                  </div>
+                  </fieldset>
                 {:else}
                   <div class="flex flex-wrap items-center gap-3">
                     <a
@@ -1149,17 +1623,20 @@
               <div class="flex shrink-0 gap-2">
                 <button
                   onclick={() => startClone(selectedRole)}
-                  class="rounded-lg border border-brand-200 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50"
+                  disabled={saving}
+                  class="rounded-lg border border-brand-200 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >{t("roles.cloneRole")}</button
                 >
                 <button
                   onclick={() => startEdit(selectedRole)}
-                  class="rounded-lg border border-surface-300 px-3 py-2 text-sm font-semibold text-surface-700 hover:bg-surface-50"
+                  disabled={saving}
+                  class="rounded-lg border border-surface-300 px-3 py-2 text-sm font-semibold text-surface-700 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >{t("Edit")}</button
                 >
                 <button
                   onclick={() => handleDelete(selectedRole)}
-                  class="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                  disabled={saving}
+                  class="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >{t("Delete")}</button
                 >
               </div>
@@ -1216,13 +1693,15 @@
                 </div>
                 <button
                   onclick={() => (showClone = false)}
-                  class="rounded-lg border border-surface-300 px-3 py-1.5 text-sm font-semibold text-surface-600 hover:bg-white"
+                  disabled={saving}
+                  class="rounded-lg border border-surface-300 px-3 py-1.5 text-sm font-semibold text-surface-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
                   >{t("Cancel")}</button
                 >
               </div>
 
-              <div
-                class="mt-4 grid gap-3 md:grid-cols-[1fr_2fr_auto] md:items-end"
+              <fieldset
+                disabled={saving}
+                class="mt-4 grid gap-3 border-0 p-0 md:grid-cols-[1fr_2fr_auto] md:items-end"
               >
                 <div>
                   <label
@@ -1256,7 +1735,7 @@
                   class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
                   >{saving ? t("Saving...") : t("roles.createTemplate")}</button
                 >
-              </div>
+              </fieldset>
             </div>
           {/if}
 
@@ -1339,7 +1818,7 @@
                       onclick={() =>
                         applyGroup(selectedRole, group.group, "grant")}
                       disabled={coverage.ownedCount === coverage.total ||
-                        busyGroups[`${selectedRole.id}:${group.group}:grant`]}
+                        saving}
                       class="rounded-lg border border-brand-200 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40"
                       >{t("roles.grantGroup")}</button
                     >
@@ -1347,7 +1826,7 @@
                       onclick={() =>
                         applyGroup(selectedRole, group.group, "revoke")}
                       disabled={coverage.ownedCount === 0 ||
-                        busyGroups[`${selectedRole.id}:${group.group}:revoke`]}
+                        saving}
                       class="rounded-lg border border-surface-300 px-3 py-1.5 text-xs font-semibold text-surface-600 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-40"
                       >{t("roles.clearGroup")}</button
                     >
@@ -1357,11 +1836,10 @@
                 <div class="mt-4 grid gap-3 lg:grid-cols-2">
                   {#each group.items as item (item.name)}
                     {@const checked = owned.has(item.name)}
-                    {@const key = permissionBusyKey(selectedRole.id, item.name)}
                     <button
                       onclick={() =>
                         toggleCatalogPermission(selectedRole, item)}
-                      disabled={busyPermissions[key]}
+                      disabled={saving}
                       class="rounded-xl border p-3 text-left transition {checked
                         ? 'border-brand-300 bg-brand-50'
                         : 'border-surface-200 bg-white hover:border-brand-200'} disabled:cursor-wait disabled:opacity-60"
@@ -1418,10 +1896,17 @@
 
               <RequestState
                 error={targetLoadError}
-                onRetry={loadAssignmentTargets}
+                onRetry={() =>
+                  loadAssignmentTargets(currentPageLoadContext())}
               >
-                <div
-                  class="mt-4 grid gap-3 lg:grid-cols-[160px_1fr_1fr_1fr_auto] lg:items-end"
+                {#if targetsLoading}
+                  <p class="mt-3 text-xs text-surface-500">
+                    {t("Loading...")}
+                  </p>
+                {/if}
+                <fieldset
+                  disabled={saving}
+                  class="mt-4 grid gap-3 border-0 p-0 lg:grid-cols-[160px_1fr_1fr_1fr_auto] lg:items-end"
                 >
                 <div>
                   <label
@@ -1432,14 +1917,7 @@
                   <select
                     id="assignment-target-type"
                     bind:value={assignmentForm.targetType}
-                    onchange={() => {
-                      assignmentForm = {
-                        ...assignmentForm,
-                        targetId: "",
-                        applicationId: "",
-                      };
-                      targetSearch = "";
-                    }}
+                    onchange={changeAssignmentTargetType}
                     class="w-full rounded-xl border border-surface-300 bg-white px-3 py-2 text-sm"
                   >
                     <option value="user">{t("roles.targetUser")}</option>
@@ -1483,13 +1961,30 @@
                       ? "user uuid"
                       : "application id"}
                   />
-                  <input
-                    bind:value={targetSearch}
-                    class="mt-2 w-full rounded-xl border border-surface-200 px-3 py-2 text-xs"
-                    placeholder={assignmentForm.targetType === "user"
-                      ? t("roles.searchUsers")
-                      : t("roles.searchApplications")}
-                  />
+                  {#if assignmentForm.targetType === "user"}
+                    <form
+                      onsubmit={applyUserTargetSearch}
+                      class="mt-2 flex gap-2"
+                    >
+                      <input
+                        bind:value={targetSearch}
+                        class="min-w-0 flex-1 rounded-xl border border-surface-200 px-3 py-2 text-xs"
+                        placeholder={t("roles.searchUsers")}
+                      />
+                      <button
+                        type="submit"
+                        disabled={saving || userTargetsLoading}
+                        class="rounded-xl border border-surface-200 px-3 py-2 text-xs font-semibold text-surface-600 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >{t("Apply")}</button
+                      >
+                    </form>
+                  {:else}
+                    <input
+                      bind:value={targetSearch}
+                      class="mt-2 w-full rounded-xl border border-surface-200 px-3 py-2 text-xs"
+                      placeholder={t("roles.searchApplications")}
+                    />
+                  {/if}
                   {#if targetOptions.length > 0}
                     <div
                       class="mt-2 max-h-36 overflow-auto rounded-xl border border-surface-200 bg-white"
@@ -1497,7 +1992,8 @@
                       {#each targetOptions as option (option.id)}
                         <button
                           onclick={() => chooseTarget(option.id)}
-                          class="block w-full border-b border-surface-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-brand-50"
+                          disabled={saving}
+                          class="block w-full border-b border-surface-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <span
                             class="block truncate font-medium text-surface-700"
@@ -1508,6 +2004,24 @@
                           >
                         </button>
                       {/each}
+                    </div>
+                  {/if}
+                  {#if assignmentForm.targetType === "user"}
+                    <div class="mt-2 flex items-center justify-between gap-2">
+                      <span class="text-[11px] text-surface-400">
+                        {t("roles.targetResultCount", {
+                          loaded: users.length,
+                          total: userTargetTotal,
+                        })}
+                      </span>
+                      {#if users.length < userTargetTotal}
+                        <button
+                          onclick={loadMoreUserTargets}
+                          disabled={saving || userTargetsLoading}
+                          class="text-xs font-semibold text-brand-600 hover:text-brand-800 disabled:cursor-not-allowed disabled:text-surface-400"
+                          >{t("roles.loadMoreTargets")}</button
+                        >
+                      {/if}
                     </div>
                   {/if}
                 </div>
@@ -1523,22 +2037,29 @@
                     class="w-full rounded-xl border border-surface-300 px-3 py-2 text-sm"
                     placeholder="organization uuid"
                   />
-                  <div class="mt-2 flex gap-2">
+                  <form
+                    onsubmit={applyOrganizationTargetSearch}
+                    class="mt-2 flex gap-2"
+                  >
                     <input
                       bind:value={organizationSearch}
                       class="min-w-0 flex-1 rounded-xl border border-surface-200 px-3 py-2 text-xs"
                       placeholder={t("roles.searchOrganizations")}
                     />
                     <button
-                      onclick={() =>
-                        (assignmentForm = {
-                          ...assignmentForm,
-                          organizationId: "",
-                        })}
-                      class="rounded-xl border border-surface-200 px-3 py-2 text-xs font-semibold text-surface-500 hover:bg-surface-50"
+                      type="submit"
+                      disabled={saving || organizationTargetsLoading}
+                      class="rounded-xl border border-surface-200 px-3 py-2 text-xs font-semibold text-surface-600 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >{t("Apply")}</button
+                    >
+                    <button
+                      type="button"
+                      onclick={clearOrganization}
+                      disabled={saving}
+                      class="rounded-xl border border-surface-200 px-3 py-2 text-xs font-semibold text-surface-500 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-40"
                       >{t("roles.clearOrganization")}</button
                     >
-                  </div>
+                  </form>
                   {#if organizationOptions.length > 0}
                     <div
                       class="mt-2 max-h-36 overflow-auto rounded-xl border border-surface-200 bg-white"
@@ -1546,7 +2067,8 @@
                       {#each organizationOptions as option (option.id)}
                         <button
                           onclick={() => chooseOrganization(option.id)}
-                          class="block w-full border-b border-surface-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-brand-50"
+                          disabled={saving}
+                          class="block w-full border-b border-surface-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <span
                             class="block truncate font-medium text-surface-700"
@@ -1559,14 +2081,32 @@
                       {/each}
                     </div>
                   {/if}
+                  <div class="mt-2 flex items-center justify-between gap-2">
+                    <span class="text-[11px] text-surface-400">
+                      {t("roles.targetResultCount", {
+                        loaded: organizations.length,
+                        total: organizationTargetTotal,
+                      })}
+                    </span>
+                    {#if organizations.length < organizationTargetTotal}
+                      <button
+                        onclick={loadMoreOrganizationTargets}
+                        disabled={saving || organizationTargetsLoading}
+                        class="text-xs font-semibold text-brand-600 hover:text-brand-800 disabled:cursor-not-allowed disabled:text-surface-400"
+                        >{t("roles.loadMoreTargets")}</button
+                      >
+                    {/if}
+                  </div>
                 </div>
                 <button
                   onclick={() => handleAssignRole(selectedRole)}
-                  disabled={!assignmentForm.targetId.trim() || saving}
+                  disabled={!assignmentForm.targetId.trim() ||
+                    saving ||
+                    !selectedRoleOwnsAssignments(selectedRole)}
                   class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
                   >{t("roles.assignRole")}</button
                 >
-                </div>
+                </fieldset>
               </RequestState>
 
               <div
@@ -1595,8 +2135,8 @@
                   {t("roles.currentAssignments")}
                 </h5>
                 <button
-                  onclick={() => loadRoleAssignments(selectedRole.id)}
-                  disabled={assignmentsLoading}
+                  onclick={() => reloadRoleAssignments(selectedRole.id)}
+                  disabled={assignmentsLoading || saving}
                   class="rounded-lg border border-surface-300 px-3 py-1.5 text-xs font-semibold text-surface-600 hover:bg-surface-50 disabled:cursor-wait disabled:opacity-50"
                   >{t("Refresh")}</button
                 >
@@ -1606,7 +2146,7 @@
                 <p class="mt-3 text-sm text-surface-400">
                   {t("roles.loadingAssignments")}
                 </p>
-              {:else if assignments.length === 0}
+              {:else if selectedRoleAssignments.length === 0}
                 <div
                   class="mt-3 rounded-xl border border-dashed border-surface-300 bg-surface-50 p-4 text-sm text-surface-500"
                 >
@@ -1640,7 +2180,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each assignments as assignment (assignmentKey(assignment))}
+                      {#each selectedRoleAssignments as assignment (assignmentKey(assignment))}
                         {@const target = assignmentTarget(assignment)}
                         {@const assignmentId = assignmentIdOf(assignment)}
                         <tr class="border-t border-surface-100">
@@ -1669,7 +2209,9 @@
                                   selectedRole,
                                   assignmentId,
                                 )}
-                              disabled={saving || !assignmentId}
+                              disabled={saving ||
+                                !assignmentId ||
+                                !selectedRoleOwnsAssignments(selectedRole)}
                               class="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                               >{t("Revoke")}</button
                             >
@@ -1691,7 +2233,10 @@
               <p class="mt-1 text-sm text-surface-500">
                 {t("roles.revokeAssignmentHint")}
               </p>
-              <div class="mt-4 space-y-3">
+              <fieldset
+                disabled={saving}
+                class="mt-4 space-y-3 border-0 p-0"
+              >
                 <div>
                   <label
                     for="assignment-id"
@@ -1707,11 +2252,13 @@
                 </div>
                 <button
                   onclick={() => handleRevokeAssignment(selectedRole)}
-                  disabled={!assignmentForm.assignmentId.trim() || saving}
+                  disabled={!assignmentForm.assignmentId.trim() ||
+                    saving ||
+                    !selectedRoleOwnsAssignments(selectedRole)}
                   class="w-full rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >{t("roles.revokeAssignment")}</button
                 >
-              </div>
+              </fieldset>
             </div>
           </div>
 
@@ -1722,8 +2269,9 @@
               {t("roles.customPermission")}
             </h4>
             <p class="mt-1 text-sm text-surface-500">{t("roles.customHint")}</p>
-            <div
-              class="mt-4 grid gap-3 md:grid-cols-[1fr_2fr_auto] md:items-end"
+            <fieldset
+              disabled={saving}
+              class="mt-4 grid gap-3 border-0 p-0 md:grid-cols-[1fr_2fr_auto] md:items-end"
             >
               <div>
                 <label
@@ -1753,11 +2301,11 @@
               </div>
               <button
                 onclick={() => handleAddCustomPermission(selectedRole)}
-                disabled={!customPermission.name.trim()}
+                disabled={!customPermission.name.trim() || saving}
                 class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >{t("Add")}</button
               >
-            </div>
+            </fieldset>
 
             {#if customPermissions(selectedRole).length > 0}
               <div class="mt-4 flex flex-wrap gap-2">
@@ -1775,7 +2323,8 @@
                     <button
                       onclick={() =>
                         handleDeletePermission(selectedRole, permission)}
-                      class="text-surface-400 hover:text-red-500"
+                      disabled={saving}
+                      class="text-surface-400 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label={t("Delete")}>×</button
                     >
                   </span>

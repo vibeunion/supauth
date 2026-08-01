@@ -7,6 +7,7 @@
  * considered installed.
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
@@ -463,13 +464,31 @@ function allowlistRedactionSecrets(allowlistCsv: Array<string | undefined>) {
   return [...new Set(secrets)].sort((left, right) => right.length - left.length);
 }
 
-class SupacloudClient {
+type SleepImpl = (ms: number) => Promise<void>;
+
+// 管理平台写限流（默认 120 写/分钟）：迁移会拆成逐语句写请求，
+// 遇到 429 时必须等窗口重置后重试，而不是把整批安装中断在半截。
+const RATE_LIMIT_MAX_RETRIES = 6;
+
+export class SupacloudClient {
   constructor(
     private readonly baseUrl: string,
     private readonly token: string,
     private readonly fetchImpl: FetchImpl,
     private readonly redactedSecrets: string[],
+    private readonly sleep: SleepImpl = (ms) => new Promise(resolve => setTimeout(resolve, ms)),
   ) {}
+
+  private rateLimitDelayMs(response: Response, attempt: number): number {
+    const retryAfter = Number(response.headers.get('retry-after'));
+    if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(retryAfter * 1000, 90_000);
+    const resetAt = Number(response.headers.get('x-ratelimit-reset'));
+    if (Number.isFinite(resetAt) && resetAt > 0) {
+      const waitMs = resetAt * 1000 - Date.now() + 250;
+      if (waitMs > 0) return Math.min(waitMs, 90_000);
+    }
+    return Math.min(1000 * 2 ** attempt, 15_000);
+  }
 
   async request(path: string, init: RequestInit & { okStatuses?: number[] } = {}) {
     const headers = new Headers(init.headers);
@@ -477,12 +496,20 @@ class SupacloudClient {
     if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
     const { okStatuses, ...requestInit } = init;
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...requestInit, headers });
-    if (!response.ok && !okStatuses?.includes(response.status)) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`SupaCloud API ${init.method || 'GET'} ${path} failed with ${response.status}: ${redact(text, this.redactedSecrets)}`);
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...requestInit, headers });
+      if (response.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
+        const delayMs = this.rateLimitDelayMs(response, attempt);
+        await response.text().catch(() => '');
+        await this.sleep(delayMs);
+        continue;
+      }
+      if (!response.ok && !okStatuses?.includes(response.status)) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`SupaCloud API ${init.method || 'GET'} ${path} failed with ${response.status}: ${redact(text, this.redactedSecrets)}`);
+      }
+      return response;
     }
-    return response;
   }
 }
 
@@ -529,6 +556,23 @@ function supauthFunctionRuntimeSecrets(config: ResolvedInstallConfig) {
 function hostnameFromUrl(url: string) {
   if (!url) return '';
   return new URL(url).hostname;
+}
+
+function uniqueHostnames(urls: string[]) {
+  const hostnames: string[] = [];
+  const seen = new Set<string>();
+  for (const url of urls) {
+    const hostname = hostnameFromUrl(url);
+    if (!hostname || seen.has(hostname)) continue;
+    seen.add(hostname);
+    hostnames.push(hostname);
+  }
+  return hostnames;
+}
+
+function httpsRedirectRouteId(hostname: string) {
+  const digest = createHash('sha256').update(hostname).digest('hex').slice(0, 20);
+  return `supauth-https-${digest}`;
 }
 
 function textBundleFile(filePath: string, relativePath: string) {
@@ -646,10 +690,31 @@ async function upsertGatewayRoute(input: {
   });
 }
 
+async function upsertHttpsRedirectRoute(input: {
+  client: SupacloudClient;
+  projectRef: string;
+  hostname: string;
+}) {
+  await input.client.request(`/v1/projects/${input.projectRef}/gateway/routes`, {
+    method: 'POST',
+    body: JSON.stringify({
+      id: httpsRedirectRouteId(input.hostname),
+      hosts: [input.hostname],
+      path: '/*',
+      protocol: 'http',
+      redirect_to: `https://${input.hostname}{http.request.uri}`,
+      redirect_status: 308,
+      priority: 1000,
+      enabled: true,
+    }),
+  });
+}
+
 async function configureGatewayRoutes(input: {
   client: SupacloudClient;
   projectRef: string;
   baseUrl: string;
+  runtimeUrl: string;
   apiUrl: string;
   corsOrigins: string[];
   edgeRuntimeUpstream: string;
@@ -689,20 +754,29 @@ async function configureGatewayRoutes(input: {
     priority: 100,
   });
 
-  if (!input.apiUrl) return;
+  if (input.apiUrl) {
+    await upsertGatewayRoute({
+      ...routeDefaults,
+      id: 'supauth-api',
+      host: hostnameFromUrl(input.apiUrl),
+      path: apiRoutePaths,
+      priority: 110,
+    });
+  }
 
-  await upsertGatewayRoute({
-    ...routeDefaults,
-    id: 'supauth-api',
-    host: hostnameFromUrl(input.apiUrl),
-    path: apiRoutePaths,
-    priority: 110,
-  });
+  for (const hostname of uniqueHostnames([input.baseUrl, input.runtimeUrl, input.apiUrl])) {
+    await upsertHttpsRedirectRoute({
+      client: input.client,
+      projectRef: input.projectRef,
+      hostname,
+    });
+  }
 }
 
 function gatewayRouteDetail(config: ResolvedInstallConfig) {
-  const hosts = [hostnameFromUrl(config.baseUrl), hostnameFromUrl(config.apiUrl)].filter(Boolean);
-  return `${hosts.join(', ')} -> /functions/v1/supauth`;
+  const functionHosts = uniqueHostnames([config.baseUrl, config.apiUrl]);
+  const redirectHosts = uniqueHostnames([config.baseUrl, config.runtimeUrl, config.apiUrl]);
+  return `${functionHosts.join(', ')} -> /functions/v1/supauth; HTTP 308 -> HTTPS: ${redirectHosts.join(', ')}`;
 }
 
 function splitSqlStatements(sql: string) {
@@ -1105,6 +1179,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
       client: gatewayClient,
       projectRef: config.projectRef,
       baseUrl: config.baseUrl,
+      runtimeUrl: config.runtimeUrl,
       apiUrl: config.apiUrl,
       corsOrigins: config.corsOrigins,
       edgeRuntimeUpstream: config.edgeRuntimeUpstream,

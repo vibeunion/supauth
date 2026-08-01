@@ -26,6 +26,14 @@ function oauthRequest(path: string, init?: RequestInit) {
   }));
 }
 
+function responseWithBodyError(error: unknown) {
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(error);
+    },
+  }), { status: 200 });
+}
+
 describe('stock GoTrue OAuth consent BFF', () => {
   beforeEach(() => {
     recordOAuthConsentDecision.mockClear();
@@ -138,6 +146,111 @@ describe('stock GoTrue OAuth consent BFF', () => {
     mode = 'missing';
     const missing = await oauthRequest('/authorizations/authorization-missing');
     expect(missing.status).toBe(404);
-    expect(await missing.json()).toMatchObject({ code: 'oauth_authorization_not_found' });
+    expect(await missing.json()).toEqual({
+      error: 'upstream_not_found',
+      error_description: 'Authentication resource was not found.',
+    });
+  });
+
+  it('sanitizes the same upstream response matrix for lookup and consent', async () => {
+    const failureCases = [
+      { status: 400, expectedStatus: 400, lookupCode: 'gotrue_authorization_lookup_failed', consentCode: 'gotrue_consent_failed' },
+      { status: 401, expectedStatus: 401, lookupCode: 'invalid_token', consentCode: 'invalid_token' },
+      { status: 403, expectedStatus: 403, lookupCode: 'upstream_forbidden', consentCode: 'upstream_forbidden' },
+      { status: 404, expectedStatus: 404, lookupCode: 'upstream_not_found', consentCode: 'upstream_not_found' },
+      { status: 429, expectedStatus: 429, lookupCode: 'upstream_rate_limited', consentCode: 'upstream_rate_limited' },
+      { status: 500, expectedStatus: 502, lookupCode: 'runtime_unavailable', consentCode: 'runtime_unavailable' },
+    ];
+
+    for (const operation of ['lookup', 'consent'] as const) {
+      for (const failureCase of failureCases) {
+        globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+          if (operation === 'consent' && init?.method !== 'POST') {
+            return Promise.resolve(Response.json({
+              client: { id: 'client-one' },
+              user: { id: 'user-one' },
+              scope: 'openid',
+            }));
+          }
+          return Promise.resolve(Response.json({
+            code: 'private_upstream_code',
+            message: 'postgres://secret@auth.internal:5432/private',
+          }, { status: failureCase.status }));
+        }) as unknown as typeof fetch;
+
+        const response = operation === 'lookup'
+          ? await oauthRequest('/authorizations/matrix-lookup')
+          : await oauthRequest('/authorizations/matrix-consent/consent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'approve' }),
+          });
+        const body = await response.json() as Record<string, unknown>;
+
+        expect(response.status).toBe(failureCase.expectedStatus);
+        expect(body.error).toBe(operation === 'lookup' ? failureCase.lookupCode : failureCase.consentCode);
+        expect(JSON.stringify(body)).not.toContain('auth.internal');
+        expect(JSON.stringify(body)).not.toContain('secret');
+        expect(JSON.stringify(body)).not.toContain('private_upstream_code');
+      }
+    }
+  });
+
+  it('sanitizes lookup and consent transport failures with timeout distinction', async () => {
+    const transportCases = [
+      {
+        error: new TypeError('getaddrinfo ENOTFOUND auth.internal?token=secret'),
+        status: 502,
+        code: 'runtime_unavailable',
+      },
+      {
+        error: new DOMException('auth.internal timed out with token=secret', 'TimeoutError'),
+        status: 504,
+        code: 'runtime_timeout',
+      },
+    ];
+
+    for (const operation of ['lookup', 'consent'] as const) {
+      for (const transportCase of transportCases) {
+        globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+          if (operation === 'consent' && init?.method !== 'POST') {
+            return Promise.resolve(Response.json({
+              client: { id: 'client-one' },
+              user: { id: 'user-one' },
+              scope: 'openid',
+            }));
+          }
+          return Promise.reject(transportCase.error);
+        }) as unknown as typeof fetch;
+
+        const response = operation === 'lookup'
+          ? await oauthRequest('/authorizations/transport-lookup')
+          : await oauthRequest('/authorizations/transport-consent/consent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'approve' }),
+          });
+        const body = await response.json() as Record<string, unknown>;
+
+        expect(response.status).toBe(transportCase.status);
+        expect(body.error).toBe(transportCase.code);
+        expect(JSON.stringify(body)).not.toContain('auth.internal');
+        expect(JSON.stringify(body)).not.toContain('secret');
+      }
+    }
+  });
+
+  it('maps a response-body timeout to the same sanitized timeout contract', async () => {
+    globalThis.fetch = mock(async () => responseWithBodyError(
+      new DOMException('auth.internal private body detail', 'TimeoutError'),
+    )) as unknown as typeof fetch;
+
+    const response = await oauthRequest('/authorizations/body-timeout');
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(504);
+    expect(body.error).toBe('runtime_timeout');
+    expect(JSON.stringify(body)).not.toContain('auth.internal');
+    expect(JSON.stringify(body)).not.toContain('private');
   });
 });

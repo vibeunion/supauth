@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFil
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSupacloudAppManifest } from '../scripts/supacloud-app-contract.js';
-import { installSupacloudApp } from '../scripts/install-supacloud-app.js';
+import { installSupacloudApp, SupacloudClient } from '../scripts/install-supacloud-app.js';
 
 const REQUIRED_ADMIN_PAGES = ['index.html', 'authorize.html', 'claim.html', 'change-password.html', 'account.html', 'logout.html'];
 const SYSTEM_MANAGED_SECRET_PREFIXES = ['ADMIN_SSO_', 'SUPABASE_', 'SUPACLOUD_', 'SUPAOAUTH_'] as const;
@@ -956,7 +956,11 @@ describe('SupaCloud app installer', () => {
         'supauth-function-logout',
         'supauth-function-admin-root',
         'supauth-api',
+        expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
+        expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
+        expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
       ]);
+      expect(new Set(routeIds.slice(4)).size).toBe(3);
     } finally {
       if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previousDatabaseUrl;
@@ -1135,12 +1139,19 @@ describe('SupaCloud app installer', () => {
     const hostedGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-hosted');
     const logoutGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-logout');
     const adminRootGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-admin-root');
+    const proxyGatewayCalls = gatewayCalls.filter((call) => call.body?.upstream);
+    const redirectGatewayCalls = gatewayCalls.filter((call) => call.body?.protocol === 'http');
     expect(result.ok).toBe(true);
     expect(result.steps).toContainEqual(expect.objectContaining({ name: 'gateway-routes', status: 'done' }));
-    expect(gatewayCalls).toHaveLength(3);
+    expect(gatewayCalls).toHaveLength(5);
     expect(gatewayCalls.every((call) => call.body.path.length <= 20)).toBe(true);
-    expect(gatewayCalls.every((call) => call.body.upstream === '127.0.0.1:9090')).toBe(true);
-    expect(gatewayCalls.every((call) => call.body.headers?.Host === 'auth.example.test')).toBe(true);
+    expect(proxyGatewayCalls).toHaveLength(3);
+    expect(proxyGatewayCalls.every((call) => call.body.upstream === '127.0.0.1:9090')).toBe(true);
+    expect(proxyGatewayCalls.every((call) => call.body.headers?.Host === 'auth.example.test')).toBe(true);
+    expect(redirectGatewayCalls.map((call) => call.body.hosts[0])).toEqual([
+      'auth.example.test',
+      'project.example.test',
+    ]);
     expect(hostedGatewayCall?.auth).toBe('Bearer admin-token');
     expect(hostedGatewayCall?.body).toMatchObject({
       id: 'supauth-function-hosted',
@@ -1212,7 +1223,7 @@ describe('SupaCloud app installer', () => {
     ];
     expect(result.ok).toBe(true);
     expect(seenSecrets).toContainEqual({ name: 'CORS_ORIGINS', value: cors.join(',') });
-    expect(routeBodies).toHaveLength(4);
+    expect(routeBodies).toHaveLength(7);
     expect(routeBodies.every((route) => route.path.length <= 20)).toBe(true);
     expect(routeBodies.find((route) => route.id === 'supauth-function-hosted')).toMatchObject({
       id: 'supauth-function-hosted',
@@ -1246,9 +1257,73 @@ describe('SupaCloud app installer', () => {
       cors,
     });
     const apiRoute = routeBodies.find((route) => route.id === 'supauth-api');
+    const proxyRoutes = routeBodies.filter((route) => route.upstream);
+    const redirectRoutes = routeBodies.filter((route) => route.protocol === 'http');
     expect(apiRoute.path).not.toContain('/auth/v1/*');
-    expect(routeBodies.every((route) => route.upstream === '127.0.0.1:9090')).toBe(true);
-    expect(routeBodies.every((route) => route.headers?.Host === 'auth.example.test')).toBe(true);
+    expect(proxyRoutes).toHaveLength(4);
+    expect(proxyRoutes.every((route) => route.upstream === '127.0.0.1:9090')).toBe(true);
+    expect(proxyRoutes.every((route) => route.headers?.Host === 'auth.example.test')).toBe(true);
+    expect(redirectRoutes.map((route) => route.hosts[0])).toEqual([
+      'auth.example.test',
+      'project.example.test',
+      'auth-api.example.test',
+    ]);
+    expect(new Set(redirectRoutes.map((route) => route.id)).size).toBe(3);
+    for (const redirectRoute of redirectRoutes) {
+      const hostname = redirectRoute.hosts[0];
+      expect(redirectRoute).toMatchObject({
+        id: expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
+        path: '/*',
+        protocol: 'http',
+        redirect_to: `https://${hostname}{http.request.uri}`,
+        redirect_status: 308,
+        priority: 1000,
+        enabled: true,
+      });
+      expect(redirectRoute).not.toHaveProperty('headers');
+      expect(redirectRoute).not.toHaveProperty('upstream_tls_insecure_skip_verify');
+    }
+  });
+
+  it('upserts one stable HTTP-to-HTTPS redirect route per distinct public host', async () => {
+    const { root, artifactDir } = createFixture();
+    const routeBodies: any[] = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      gatewayAdminToken: 'admin-token',
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://auth.example.test/auth/v1',
+      apiUrl: 'https://auth.example.test/api',
+      skipMigration: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/gateway/routes') {
+          routeBodies.push(JSON.parse(String(init?.body)));
+        }
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    const redirects = routeBodies.filter((route) => route.protocol === 'http');
+    expect(result.ok).toBe(true);
+    expect(redirects).toHaveLength(1);
+    expect(redirects[0]).toMatchObject({
+      id: expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
+      hosts: ['auth.example.test'],
+      path: '/*',
+      protocol: 'http',
+      redirect_to: 'https://auth.example.test{http.request.uri}',
+      redirect_status: 308,
+      priority: 1000,
+      enabled: true,
+    });
+    expect(redirects[0]).not.toHaveProperty('headers');
+    expect(redirects[0]).not.toHaveProperty('upstream_tls_insecure_skip_verify');
   });
 
   it('preserves explicit direct Edge upstream overrides without a Management Host header', async () => {
@@ -1275,10 +1350,14 @@ describe('SupaCloud app installer', () => {
       },
     });
 
+    const proxyRoutes = routeBodies.filter((route) => route.upstream);
+    const redirectRoutes = routeBodies.filter((route) => route.protocol === 'http');
     expect(result.ok).toBe(true);
-    expect(routeBodies).toHaveLength(3);
-    expect(routeBodies.every((route) => route.upstream === '127.0.0.1:9000')).toBe(true);
-    expect(routeBodies.every((route) => !('headers' in route))).toBe(true);
+    expect(routeBodies).toHaveLength(5);
+    expect(proxyRoutes).toHaveLength(3);
+    expect(proxyRoutes.every((route) => route.upstream === '127.0.0.1:9000')).toBe(true);
+    expect(proxyRoutes.every((route) => !('headers' in route))).toBe(true);
+    expect(redirectRoutes).toHaveLength(2);
   });
 
   it('uses the EDGE_RUNTIME_UPSTREAM environment override for direct Edge routes', async () => {
@@ -1305,10 +1384,14 @@ describe('SupaCloud app installer', () => {
       },
     });
 
+    const proxyRoutes = routeBodies.filter((route) => route.upstream);
+    const redirectRoutes = routeBodies.filter((route) => route.protocol === 'http');
     expect(result.ok).toBe(true);
-    expect(routeBodies).toHaveLength(3);
-    expect(routeBodies.every((route) => route.upstream === '127.0.0.1:9005')).toBe(true);
-    expect(routeBodies.every((route) => !('headers' in route))).toBe(true);
+    expect(routeBodies).toHaveLength(5);
+    expect(proxyRoutes).toHaveLength(3);
+    expect(proxyRoutes.every((route) => route.upstream === '127.0.0.1:9005')).toBe(true);
+    expect(proxyRoutes.every((route) => !('headers' in route))).toBe(true);
+    expect(redirectRoutes).toHaveLength(2);
   });
 
   it('rejects wildcard CORS when gateway credentials are enabled', async () => {
@@ -1422,5 +1505,40 @@ describe('SupaCloud app installer', () => {
       }),
       fetchImpl: async () => new Response('{}', { status: 200 }),
     })).rejects.toThrow('reason_code=legacy_webhook_table_present: supaoauth.webhooks must be retired');
+  });
+});
+
+describe('SupacloudClient rate-limit resilience', () => {
+  const noSleep = async () => {};
+
+  it('waits out a 429 window and retries the same request', async () => {
+    const calls: string[] = [];
+    const pastReset = String(Math.floor(Date.now() / 1000) - 1);
+    const client = new SupacloudClient('http://mgmt.local', 'token', async (input) => {
+      calls.push(String(input));
+      if (calls.length < 3) {
+        return new Response('{"message":"Too many requests"}', {
+          status: 429,
+          headers: { 'x-ratelimit-reset': pastReset },
+        });
+      }
+      return new Response('{}', { status: 200 });
+    }, [], noSleep);
+
+    const response = await client.request('/v1/projects/p/database/sql', { method: 'POST', body: '{}' });
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(3);
+  });
+
+  it('gives up after the retry budget instead of looping forever', async () => {
+    let calls = 0;
+    const client = new SupacloudClient('http://mgmt.local', 'token', async () => {
+      calls += 1;
+      return new Response('{"message":"Too many requests"}', { status: 429 });
+    }, [], noSleep);
+
+    await expect(client.request('/v1/projects/p/secrets', { method: 'POST', body: '[]' }))
+      .rejects.toThrow('failed with 429');
+    expect(calls).toBe(7);
   });
 });

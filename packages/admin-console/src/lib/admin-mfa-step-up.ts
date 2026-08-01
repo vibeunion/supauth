@@ -137,7 +137,7 @@ export class ObservedAdminSsoStorage implements TokenStorage {
     this.storage.removeItem(key);
   }
 
-  replaceWithMfaSession(expected: ExpectedSsoSession, upgraded: GoTrueMfaSession): void {
+  replaceWithMfaSession(expected: ExpectedSsoSession, upgraded: GoTrueMfaSession | null): void {
     if (!this.observedTokenKey) throw new Error('管理员 OAuth 会话尚未建立，请重新登录。');
     const current = parseRefreshableSsoSession(this.storage.getItem(this.observedTokenKey));
     if (!current) throw new Error('管理员 OAuth 会话已失效，请重新登录。');

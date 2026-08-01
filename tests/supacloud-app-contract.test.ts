@@ -212,6 +212,7 @@ describe('SupAuth SupaCloud app contract', () => {
       'supauth-overlay-legacy-webhook-revoke-v9',
       'supauth-overlay-legacy-webhook-retirement-v10',
       'supauth-overlay-application-permissions-v11',
+      'supauth-overlay-account-claim-state-v12',
     ]);
     expect(manifest.migrations.map((migration) => migration.name)).toEqual(
       HOSTED_MIGRATIONS.map((migration) => migration.name),

@@ -850,6 +850,29 @@ GRANT EXECUTE ON FUNCTION supaoauth.has_org_permission(UUID, TEXT) TO authentica
 GRANT EXECUTE ON FUNCTION supaoauth.app_has_org_permission(TEXT, UUID, TEXT) TO authenticated;
 `;
 
+export const MIGRATION_V12_SQL = `
+ALTER TABLE supaoauth.account_provisioning_records
+  ADD COLUMN IF NOT EXISTS claim_proof_hash TEXT,
+  ADD COLUMN IF NOT EXISTS claim_state VARCHAR(32) NOT NULL DEFAULT 'ready',
+  ADD COLUMN IF NOT EXISTS claim_mode VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS claim_password_hash TEXT,
+  ADD COLUMN IF NOT EXISTS claim_operation_id UUID,
+  ADD COLUMN IF NOT EXISTS claim_lease_expires_at TIMESTAMPTZ;
+
+UPDATE supaoauth.account_provisioning_records
+SET claim_state = CASE
+  WHEN initial_password_claimed THEN 'claimed'
+  ELSE claim_state
+END;
+
+ALTER TABLE supaoauth.account_provisioning_records
+  DROP CONSTRAINT IF EXISTS account_provisioning_claim_state_check;
+
+ALTER TABLE supaoauth.account_provisioning_records
+  ADD CONSTRAINT account_provisioning_claim_state_check
+  CHECK (claim_state IN ('ready', 'pending', 'password_applied', 'password_update_unknown', 'claimed'));
+`;
+
 export const HOSTED_MIGRATIONS = [
   { name: 'supauth-overlay-schema-v1', sql: MIGRATION_SQL },
   { name: 'supauth-overlay-hardening-v4', sql: MIGRATION_V4_SQL },
@@ -860,6 +883,7 @@ export const HOSTED_MIGRATIONS = [
   { name: 'supauth-overlay-legacy-webhook-revoke-v9', sql: MIGRATION_V9_SQL },
   { name: 'supauth-overlay-legacy-webhook-retirement-v10', sql: MIGRATION_V10_SQL },
   { name: 'supauth-overlay-application-permissions-v11', sql: MIGRATION_V11_SQL },
+  { name: 'supauth-overlay-account-claim-state-v12', sql: MIGRATION_V12_SQL },
 ] as const;
 
 export async function runMigration(databaseUrl?: string) {

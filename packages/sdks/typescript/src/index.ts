@@ -45,9 +45,10 @@ interface HealthResponse {
 
 interface ProjectResponse {
   id: string;
+  ref?: string;
+  project_ref?: string;
   name: string;
   region?: string;
-  database_url?: string;
 }
 
 interface OAuthServerStatus {
@@ -346,6 +347,23 @@ export class SupaOAuthAPIError extends Error {
   }
 }
 
+function pathSegment(value: string): string {
+  if (value.length === 0 || value === '.' || value === '..') {
+    throw new TypeError('Path segments must be non-empty and cannot be "." or "..".');
+  }
+  return encodeURIComponent(value);
+}
+
+function queryString(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '' || value === 0) continue;
+    search.set(key, String(value));
+  }
+  const encoded = search.toString();
+  return encoded ? `?${encoded}` : '';
+}
+
 // ─── Client ──────────────────────────────────────────────
 export class SupaOAuthClient {
   private baseUrl: string;
@@ -434,94 +452,94 @@ export class SupaOAuthClient {
   }
 
   getApplication(appId: string) {
-    return this.request<Application>(`/v1/applications/${appId}`);
+    return this.request<Application>(`/v1/applications/${pathSegment(appId)}`);
   }
 
   updateApplication(appId: string, data: Partial<CreateApplicationInput>) {
-    return this.request<Application>(`/v1/applications/${appId}`, {
+    return this.request<Application>(`/v1/applications/${pathSegment(appId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   deleteApplication(appId: string) {
-    return this.request<void>(`/v1/applications/${appId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/applications/${pathSegment(appId)}`, { method: 'DELETE' });
   }
 
   rotateApplicationSecret(appId: string) {
     return this.request<Application & { client_secret: string }>(
-      `/v1/applications/${appId}/rotate-secret`,
+      `/v1/applications/${pathSegment(appId)}/rotate-secret`,
       { method: 'POST' },
     );
   }
 
   getApplicationConsentSettings(appId: string) {
-    return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/consent`);
+    return this.request<ApplicationConsentSettings>(`/v1/applications/${pathSegment(appId)}/consent`);
   }
 
   updateApplicationConsentSettings(appId: string, data: ApplicationConsentSettings) {
-    return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/consent`, {
+    return this.request<ApplicationConsentSettings>(`/v1/applications/${pathSegment(appId)}/consent`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   getApplicationSignInExperience(appId: string) {
-    return this.request<ApplicationSignInExperience>(`/v1/applications/${appId}/sign-in-experience`);
+    return this.request<ApplicationSignInExperience>(`/v1/applications/${pathSegment(appId)}/sign-in-experience`);
   }
 
   updateApplicationSignInExperience(appId: string, data: ApplicationSignInExperienceInput) {
-    return this.request<ApplicationSignInExperience>(`/v1/applications/${appId}/sign-in-experience`, {
+    return this.request<ApplicationSignInExperience>(`/v1/applications/${pathSegment(appId)}/sign-in-experience`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   deleteApplicationSignInExperience(appId: string) {
-    return this.request<void>(`/v1/applications/${appId}/sign-in-experience`, { method: 'DELETE' });
+    return this.request<void>(`/v1/applications/${pathSegment(appId)}/sign-in-experience`, { method: 'DELETE' });
   }
 
   // ─── Application bindings ──────────────────────────────
   listApplicationBindings(appId: string) {
-    return this.request<ListResponse<ApplicationBinding>>(`/v1/applications/${appId}/bindings`);
+    return this.request<ListResponse<ApplicationBinding>>(`/v1/applications/${pathSegment(appId)}/bindings`);
   }
 
   createApplicationBinding(appId: string, data: { resource_id: string; scope_id?: string }) {
-    return this.request<ApplicationBinding>(`/v1/applications/${appId}/bindings`, {
+    return this.request<ApplicationBinding>(`/v1/applications/${pathSegment(appId)}/bindings`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   deleteApplicationBinding(appId: string, bindingId: string) {
-    return this.request<void>(`/v1/applications/${appId}/bindings/${bindingId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/applications/${pathSegment(appId)}/bindings/${pathSegment(bindingId)}`, { method: 'DELETE' });
   }
 
   listApplicationScopes(appId: string) {
-    return this.request<ListResponse<Scope>>(`/v1/applications/${appId}/scopes`);
+    return this.request<ListResponse<Scope>>(`/v1/applications/${pathSegment(appId)}/scopes`);
   }
 
   listApplicationRoles(appId: string) {
-    return this.request<ListResponse<RoleAssignment>>(`/v1/applications/${appId}/roles`);
+    return this.request<ListResponse<RoleAssignment>>(`/v1/applications/${pathSegment(appId)}/roles`);
   }
 
   listApplicationLogs(appId: string, params: { limit?: number; cursor?: string } = {}) {
     const query = new URLSearchParams();
     if (params.limit) query.set('limit', String(params.limit));
     if (params.cursor) query.set('cursor', params.cursor);
-    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/applications/${appId}/logs${query.toString() ? `?${query}` : ''}`);
+    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/applications/${pathSegment(appId)}/logs${query.toString() ? `?${query}` : ''}`);
   }
 
   listApplicationOrganizations(appId: string) {
-    return this.request<ListResponse<Organization>>(`/v1/applications/${appId}/organizations`);
+    return this.request<ListResponse<Organization>>(`/v1/applications/${pathSegment(appId)}/organizations`);
   }
 
   getApplicationAccessControl(appId: string) {
-    return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/access-control`);
+    return this.request<ApplicationConsentSettings>(`/v1/applications/${pathSegment(appId)}/access-control`);
   }
 
   updateApplicationAccessControl(appId: string, data: ApplicationConsentSettings) {
-    return this.request<ApplicationConsentSettings>(`/v1/applications/${appId}/access-control`, {
+    return this.request<ApplicationConsentSettings>(`/v1/applications/${pathSegment(appId)}/access-control`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -533,11 +551,11 @@ export class SupaOAuthClient {
   }
 
   getConnector(connectorId: string) {
-    return this.request<Connector>(`/v1/connectors/${connectorId}`);
+    return this.request<Connector>(`/v1/connectors/${pathSegment(connectorId)}`);
   }
 
   updateConnector(connectorId: string, data: Partial<Connector>) {
-    return this.request<Connector>(`/v1/connectors/${connectorId}`, {
+    return this.request<Connector>(`/v1/connectors/${pathSegment(connectorId)}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
@@ -545,7 +563,7 @@ export class SupaOAuthClient {
 
   testConnector(connectorId: string) {
     return this.request<{ connector_id: string; status: string }>(
-      `/v1/connectors/${connectorId}/test`,
+      `/v1/connectors/${pathSegment(connectorId)}/test`,
       { method: 'POST' },
     );
   }
@@ -556,12 +574,11 @@ export class SupaOAuthClient {
     if (params?.state) qs.set('state', params.state);
     if (params?.scope) qs.set('scope', params.scope);
     const query = qs.toString();
-    return this.request<unknown>(`/v1/connectors/${connectorId}/authorization-uri${query ? `?${query}` : ''}`);
+    return this.request<unknown>(`/v1/connectors/${pathSegment(connectorId)}/authorization-uri${query ? `?${query}` : ''}`);
   }
 
   listConnectorFactories(category?: string) {
-    const qs = category ? `?category=${encodeURIComponent(category)}` : '';
-    return this.request<ListResponse<ConnectorFactory>>(`/v1/connectors/factories${qs}`);
+    return this.request<ListResponse<ConnectorFactory>>(`/v1/connectors/factories${queryString({ category })}`);
   }
 
   upsertConnectorFactory(factoryId: string, data: {
@@ -571,7 +588,7 @@ export class SupaOAuthClient {
     config_schema?: Record<string, unknown>;
     enabled?: boolean;
   }) {
-    return this.request<ConnectorFactory>(`/v1/connectors/factories/${factoryId}`, {
+    return this.request<ConnectorFactory>(`/v1/connectors/factories/${pathSegment(factoryId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -590,41 +607,41 @@ export class SupaOAuthClient {
   }
 
   getResource(resourceId: string) {
-    return this.request<ApiResource>(`/v1/resources/${resourceId}`);
+    return this.request<ApiResource>(`/v1/resources/${pathSegment(resourceId)}`);
   }
 
   updateResource(resourceId: string, data: Partial<CreateResourceInput>) {
-    return this.request<ApiResource>(`/v1/resources/${resourceId}`, {
+    return this.request<ApiResource>(`/v1/resources/${pathSegment(resourceId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   deleteResource(resourceId: string) {
-    return this.request<void>(`/v1/resources/${resourceId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/resources/${pathSegment(resourceId)}`, { method: 'DELETE' });
   }
 
   // ─── Scopes ───────────────────────────────────────────
   addScope(resourceId: string, data: { name: string; description?: string }) {
-    return this.request<Scope>(`/v1/resources/${resourceId}/scopes`, {
+    return this.request<Scope>(`/v1/resources/${pathSegment(resourceId)}/scopes`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   updateScope(resourceId: string, scopeId: string, data: { name?: string; description?: string }) {
-    return this.request<Scope>(`/v1/resources/${resourceId}/scopes/${scopeId}`, {
+    return this.request<Scope>(`/v1/resources/${pathSegment(resourceId)}/scopes/${pathSegment(scopeId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   removeScope(resourceId: string, scopeId: string) {
-    return this.request<void>(`/v1/resources/${resourceId}/scopes/${scopeId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/resources/${pathSegment(resourceId)}/scopes/${pathSegment(scopeId)}`, { method: 'DELETE' });
   }
 
   listResourceApplications(resourceId: string) {
-    return this.request<ListResponse<ApplicationBinding>>(`/v1/resources/${resourceId}/applications`);
+    return this.request<ListResponse<ApplicationBinding>>(`/v1/resources/${pathSegment(resourceId)}/applications`);
   }
 
   // ─── Users ────────────────────────────────────────────
@@ -652,49 +669,48 @@ export class SupaOAuthClient {
   }
 
   getUser(userId: string) {
-    return this.request<unknown>(`/v1/users/${userId}`);
+    return this.request<unknown>(`/v1/users/${pathSegment(userId)}`);
   }
 
   updateUser(userId: string, data: Record<string, unknown>) {
-    return this.request<unknown>(`/v1/users/${userId}`, {
+    return this.request<unknown>(`/v1/users/${pathSegment(userId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   suspendUser(userId: string, data: Record<string, unknown> = {}) {
-    return this.request<unknown>(`/v1/users/${userId}/suspend`, {
+    return this.request<unknown>(`/v1/users/${pathSegment(userId)}/suspend`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   deleteUser(userId: string) {
-    return this.request<void>(`/v1/users/${userId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/users/${pathSegment(userId)}`, { method: 'DELETE' });
   }
 
   resetUserMfa(userId: string, factorId: string) {
-    return this.request<unknown>(`/v1/users/${userId}/mfa/${factorId}/reset`, { method: 'POST' });
+    return this.request<unknown>(`/v1/users/${pathSegment(userId)}/mfa/${pathSegment(factorId)}/reset`, { method: 'POST' });
   }
 
   listUserLogs(userId: string, params: { limit?: number; cursor?: string } = {}) {
     const query = new URLSearchParams();
     if (params.limit) query.set('limit', String(params.limit));
     if (params.cursor) query.set('cursor', params.cursor);
-    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/users/${userId}/logs${query.toString() ? `?${query}` : ''}`);
+    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/users/${pathSegment(userId)}/logs${query.toString() ? `?${query}` : ''}`);
   }
 
   listUserOrganizations(userId: string) {
-    return this.request<ListResponse<Organization>>(`/v1/users/${userId}/organizations`);
+    return this.request<ListResponse<Organization>>(`/v1/users/${pathSegment(userId)}/organizations`);
   }
 
   getUserPermissions(userId: string, orgId?: string) {
-    const qs = orgId ? `?org_id=${orgId}` : '';
-    return this.request<UserPermissions>(`/v1/users/${userId}/permissions${qs}`);
+    return this.request<UserPermissions>(`/v1/users/${pathSegment(userId)}/permissions${queryString({ org_id: orgId })}`);
   }
 
   getUserRoles(userId: string) {
-    return this.request<ListResponse<RoleAssignment>>(`/v1/users/${userId}/roles`);
+    return this.request<ListResponse<RoleAssignment>>(`/v1/users/${pathSegment(userId)}/roles`);
   }
 
   // ─── Organizations ────────────────────────────────────
@@ -715,22 +731,22 @@ export class SupaOAuthClient {
   }
 
   getOrganization(orgId: string) {
-    return this.request<Organization>(`/v1/organizations/${orgId}`);
+    return this.request<Organization>(`/v1/organizations/${pathSegment(orgId)}`);
   }
 
   updateOrganization(orgId: string, data: { name?: string; description?: string }) {
-    return this.request<Organization>(`/v1/organizations/${orgId}`, {
+    return this.request<Organization>(`/v1/organizations/${pathSegment(orgId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   deleteOrganization(orgId: string) {
-    return this.request<void>(`/v1/organizations/${orgId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/organizations/${pathSegment(orgId)}`, { method: 'DELETE' });
   }
 
   addOrganizationMember(orgId: string, data: { user_id: string; role?: string }) {
-    return this.request<OrganizationMember>(`/v1/organizations/${orgId}/members`, {
+    return this.request<OrganizationMember>(`/v1/organizations/${pathSegment(orgId)}/members`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -741,74 +757,74 @@ export class SupaOAuthClient {
     if (params.page) query.set('page', String(params.page));
     if (params.limit) query.set('limit', String(params.limit));
     if (params.search) query.set('search', params.search);
-    return this.request<ListResponse<OrganizationMember>>(`/v1/organizations/${orgId}/members${query.toString() ? `?${query}` : ''}`);
+    return this.request<ListResponse<OrganizationMember>>(`/v1/organizations/${pathSegment(orgId)}/members${query.toString() ? `?${query}` : ''}`);
   }
 
   removeOrganizationMember(orgId: string, userId: string) {
-    return this.request<void>(`/v1/organizations/${orgId}/members/${userId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, { method: 'DELETE' });
   }
 
   updateOrganizationMemberRole(orgId: string, userId: string, data: { role: string }) {
-    return this.request<OrganizationMember>(`/v1/organizations/${orgId}/members/${userId}`, {
+    return this.request<OrganizationMember>(`/v1/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
 
   listOrganizationInvitations(orgId: string) {
-    return this.request<ListResponse<OrganizationInvitation>>(`/v1/organizations/${orgId}/invitations`);
+    return this.request<ListResponse<OrganizationInvitation>>(`/v1/organizations/${pathSegment(orgId)}/invitations`);
   }
 
   createOrganizationInvitation(orgId: string, data: { email: string; role?: string; ttl_hours?: number }) {
-    return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations`, {
+    return this.request<OrganizationInvitation>(`/v1/organizations/${pathSegment(orgId)}/invitations`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   acceptOrganizationInvitation(orgId: string, invitationId: string, data: { token: string }) {
-    return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations/${invitationId}/accept`, {
+    return this.request<OrganizationInvitation>(`/v1/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}/accept`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   revokeOrganizationInvitation(orgId: string, invitationId: string) {
-    return this.request<OrganizationInvitation>(`/v1/organizations/${orgId}/invitations/${invitationId}`, { method: 'DELETE' });
+    return this.request<OrganizationInvitation>(`/v1/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}`, { method: 'DELETE' });
   }
 
   getOrganizationJitSettings(orgId: string) {
-    return this.request<OrganizationJitSettings>(`/v1/organizations/${orgId}/jit`);
+    return this.request<OrganizationJitSettings>(`/v1/organizations/${pathSegment(orgId)}/jit`);
   }
 
   updateOrganizationJitSettings(orgId: string, data: OrganizationJitSettings) {
-    return this.request<OrganizationJitSettings>(`/v1/organizations/${orgId}/jit`, {
+    return this.request<OrganizationJitSettings>(`/v1/organizations/${pathSegment(orgId)}/jit`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   listOrganizationApplications(orgId: string) {
-    return this.request<ListResponse<unknown>>(`/v1/organizations/${orgId}/applications`);
+    return this.request<ListResponse<unknown>>(`/v1/organizations/${pathSegment(orgId)}/applications`);
   }
 
   bindOrganizationApplication(orgId: string, appId: string) {
-    return this.request<unknown>(`/v1/organizations/${orgId}/applications/${appId}`, {
+    return this.request<unknown>(`/v1/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, {
       method: 'PUT',
       body: '{}',
     });
   }
 
   removeOrganizationApplication(orgId: string, appId: string) {
-    return this.request<unknown>(`/v1/organizations/${orgId}/applications/${appId}`, { method: 'DELETE' });
+    return this.request<unknown>(`/v1/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, { method: 'DELETE' });
   }
 
   getOrganizationBranding(orgId: string) {
-    return this.request<Record<string, unknown>>(`/v1/organizations/${orgId}/branding`);
+    return this.request<Record<string, unknown>>(`/v1/organizations/${pathSegment(orgId)}/branding`);
   }
 
   updateOrganizationBranding(orgId: string, data: Record<string, unknown>) {
-    return this.request<Record<string, unknown>>(`/v1/organizations/${orgId}/branding`, {
+    return this.request<Record<string, unknown>>(`/v1/organizations/${pathSegment(orgId)}/branding`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
@@ -824,37 +840,37 @@ export class SupaOAuthClient {
   }
 
   getRole(roleId: string) {
-    return this.request<Role>(`/v1/roles/${roleId}`);
+    return this.request<Role>(`/v1/roles/${pathSegment(roleId)}`);
   }
 
   updateRole(roleId: string, data: { name?: string; description?: string }) {
-    return this.request<Role>(`/v1/roles/${roleId}`, {
+    return this.request<Role>(`/v1/roles/${pathSegment(roleId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   deleteRole(roleId: string) {
-    return this.request<void>(`/v1/roles/${roleId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/roles/${pathSegment(roleId)}`, { method: 'DELETE' });
   }
 
   // ─── Permissions ──────────────────────────────────────
   listRolePermissions(roleId: string) {
-    return this.request<ListResponse<Permission>>(`/v1/roles/${roleId}/permissions`);
+    return this.request<ListResponse<Permission>>(`/v1/roles/${pathSegment(roleId)}/permissions`);
   }
 
   createRolePermission(
     roleId: string,
     data: { name: string; description?: string; scope_id?: string },
   ) {
-    return this.request<Permission>(`/v1/roles/${roleId}/permissions`, {
+    return this.request<Permission>(`/v1/roles/${pathSegment(roleId)}/permissions`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   deleteRolePermission(roleId: string, permissionId: string) {
-    return this.request<void>(`/v1/roles/${roleId}/permissions/${permissionId}`, {
+    return this.request<void>(`/v1/roles/${pathSegment(roleId)}/permissions/${pathSegment(permissionId)}`, {
       method: 'DELETE',
     });
   }
@@ -864,24 +880,24 @@ export class SupaOAuthClient {
     roleId: string,
     data: { user_id?: string; organization_id?: string; application_id?: string },
   ) {
-    return this.request<RoleAssignment>(`/v1/roles/${roleId}/assign`, {
+    return this.request<RoleAssignment>(`/v1/roles/${pathSegment(roleId)}/assign`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   listRoleAssignments(roleId: string) {
-    return this.request<ListResponse<RoleAssignment>>(`/v1/roles/${roleId}/assign`);
+    return this.request<ListResponse<RoleAssignment>>(`/v1/roles/${pathSegment(roleId)}/assign`);
   }
 
   revokeRole(roleId: string, assignmentId: string) {
-    return this.request<void>(`/v1/roles/${roleId}/assign/${assignmentId}`, {
+    return this.request<void>(`/v1/roles/${pathSegment(roleId)}/assign/${pathSegment(assignmentId)}`, {
       method: 'DELETE',
     });
   }
 
   getOrgRoleAssignments(orgId: string) {
-    return this.request<ListResponse<RoleAssignment>>(`/v1/organizations/${orgId}/roles`);
+    return this.request<ListResponse<RoleAssignment>>(`/v1/organizations/${pathSegment(orgId)}/roles`);
   }
 
   // ─── Sign-in Experience ───────────────────────────────
@@ -890,8 +906,7 @@ export class SupaOAuthClient {
   }
 
   resolveSignInExperience(applicationId?: string) {
-    const qs = applicationId ? `?application_id=${encodeURIComponent(applicationId)}` : '';
-    return this.request<EffectiveSignInExperience>(`/v1/sign-in-experience/resolve${qs}`);
+    return this.request<EffectiveSignInExperience>(`/v1/sign-in-experience/resolve${queryString({ application_id: applicationId })}`);
   }
 
   resolvePublicSignInExperience(params: { application_id?: string; authorization_id?: string } = {}) {
@@ -903,7 +918,7 @@ export class SupaOAuthClient {
   }
 
   getPublicPhrases(languageTag: string) {
-    return this.request<PublicPhraseBundle>(`/v1/public/phrases/${encodeURIComponent(languageTag)}`);
+    return this.request<PublicPhraseBundle>(`/v1/public/phrases/${pathSegment(languageTag)}`);
   }
 
   updateSignInExperience(data: Partial<SignInExperience>) {
@@ -932,29 +947,28 @@ export class SupaOAuthClient {
 
   // ─── Tenant Config ────────────────────────────────────
   listTenantConfigs(type?: string) {
-    const qs = type ? `?type=${encodeURIComponent(type)}` : '';
-    return this.request<ListResponse<TenantConfig>>(`/v1/tenant-config${qs}`);
+    return this.request<ListResponse<TenantConfig>>(`/v1/tenant-config${queryString({ type })}`);
   }
 
   getTenantConfig(type: string, key: string) {
-    return this.request<TenantConfig>(`/v1/tenant-config/${encodeURIComponent(type)}/${encodeURIComponent(key)}`);
+    return this.request<TenantConfig>(`/v1/tenant-config/${pathSegment(type)}/${pathSegment(key)}`);
   }
 
   upsertTenantConfig(type: string, key: string, data: { value?: Record<string, unknown>; enabled?: boolean }) {
-    return this.request<TenantConfig>(`/v1/tenant-config/${encodeURIComponent(type)}/${encodeURIComponent(key)}`, {
+    return this.request<TenantConfig>(`/v1/tenant-config/${pathSegment(type)}/${pathSegment(key)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   deleteTenantConfig(type: string, key: string) {
-    return this.request<TenantConfig>(`/v1/tenant-config/${encodeURIComponent(type)}/${encodeURIComponent(key)}`, {
+    return this.request<TenantConfig>(`/v1/tenant-config/${pathSegment(type)}/${pathSegment(key)}`, {
       method: 'DELETE',
     });
   }
 
   checkTenantDomain(domain: string) {
-    return this.request<unknown>(`/v1/tenant-config/domain/${encodeURIComponent(domain)}/check`, { method: 'POST' });
+    return this.request<unknown>(`/v1/tenant-config/domain/${pathSegment(domain)}/check`, { method: 'POST' });
   }
 
   // ─── Auth Hooks ───────────────────────────────────────
@@ -987,14 +1001,14 @@ export class SupaOAuthClient {
   }
 
   updateTenantMember(memberId: string, data: Record<string, unknown>) {
-    return this.request<Record<string, unknown>>(`/v1/tenant/members/${memberId}`, {
+    return this.request<Record<string, unknown>>(`/v1/tenant/members/${pathSegment(memberId)}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
 
   removeTenantMember(memberId: string) {
-    return this.request<void>(`/v1/tenant/members/${memberId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/tenant/members/${pathSegment(memberId)}`, { method: 'DELETE' });
   }
 
   listTenantInvitations(params: { page?: number; limit?: number; status?: string } = {}) {
@@ -1025,33 +1039,32 @@ export class SupaOAuthClient {
   }
 
   getWebhook(webhookId: string) {
-    return this.request<Webhook>(`/v1/webhooks/${webhookId}`);
+    return this.request<Webhook>(`/v1/webhooks/${pathSegment(webhookId)}`);
   }
 
   updateWebhook(webhookId: string, data: Partial<{ url: string; events: string[]; enabled: boolean }>) {
-    return this.request<Webhook>(`/v1/webhooks/${webhookId}`, {
+    return this.request<Webhook>(`/v1/webhooks/${pathSegment(webhookId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   deleteWebhook(webhookId: string) {
-    return this.request<void>(`/v1/webhooks/${webhookId}`, { method: 'DELETE' });
+    return this.request<void>(`/v1/webhooks/${pathSegment(webhookId)}`, { method: 'DELETE' });
   }
 
   rotateWebhookSecret(webhookId: string) {
-    return this.request<Webhook>(`/v1/webhooks/${webhookId}/rotate-secret`, {
+    return this.request<Webhook>(`/v1/webhooks/${pathSegment(webhookId)}/rotate-secret`, {
       method: 'POST',
     });
   }
 
   listWebhookLogs(webhookId: string, limit?: number) {
-    const qs = limit ? `?limit=${limit}` : '';
-    return this.request<ListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${webhookId}/logs${qs}`);
+    return this.request<ListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${pathSegment(webhookId)}/logs${queryString({ limit })}`);
   }
 
   testWebhook(webhookId: string) {
-    return this.request<{ ok: boolean; status?: number; error?: string }>(`/v1/webhooks/${webhookId}/test`, {
+    return this.request<{ ok: boolean; status?: number; error?: string }>(`/v1/webhooks/${pathSegment(webhookId)}/test`, {
       method: 'POST',
       body: '{}',
     });
@@ -1066,28 +1079,27 @@ export class SupaOAuthClient {
     if (params.limit) query.set('limit', String(params.limit));
     if (params.cursor) query.set('cursor', params.cursor);
     if (params.status) query.set('status', params.status);
-    return this.request<CursorListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${webhookId}/deliveries${query.toString() ? `?${query}` : ''}`);
+    return this.request<CursorListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${pathSegment(webhookId)}/deliveries${query.toString() ? `?${query}` : ''}`);
   }
 
   getWebhookDelivery(webhookId: string, deliveryId: string) {
-    return this.request<WebhookDeliveryLog>(`/v1/webhooks/${webhookId}/deliveries/${deliveryId}`);
+    return this.request<WebhookDeliveryLog>(`/v1/webhooks/${pathSegment(webhookId)}/deliveries/${pathSegment(deliveryId)}`);
   }
 
   replayWebhookDelivery(webhookId: string, deliveryId: string) {
-    return this.request<WebhookDeliveryLog>(`/v1/webhooks/${webhookId}/deliveries/${deliveryId}/replay`, {
+    return this.request<WebhookDeliveryLog>(`/v1/webhooks/${pathSegment(webhookId)}/deliveries/${pathSegment(deliveryId)}/replay`, {
       method: 'POST',
     });
   }
 
   // ─── Metadata sync ────────────────────────────────────
   syncUserMetadata(userId: string, orgId?: string) {
-    const qs = orgId ? `?org_id=${orgId}` : '';
-    return this.request<SyncResult>(`/v1/sync/user/${userId}${qs}`, { method: 'POST' });
+    return this.request<SyncResult>(`/v1/sync/user/${pathSegment(userId)}${queryString({ org_id: orgId })}`, { method: 'POST' });
   }
 
   syncOrgMetadata(orgId: string) {
     return this.request<{ results: SyncResult[]; total: number; failed: number }>(
-      `/v1/sync/org/${orgId}`,
+      `/v1/sync/org/${pathSegment(orgId)}`,
       { method: 'POST' },
     );
   }
@@ -1119,7 +1131,7 @@ export class SupaOAuthClient {
   }
 
   getAuditLog(logId: string) {
-    return this.request<AuditLogEntry>(`/v1/audit/${logId}`);
+    return this.request<AuditLogEntry>(`/v1/audit/${pathSegment(logId)}`);
   }
 
   createAuditExport(params: Record<string, unknown> = {}) {
@@ -1130,11 +1142,11 @@ export class SupaOAuthClient {
   }
 
   getAuditExport(exportId: string) {
-    return this.request<Record<string, unknown>>(`/v1/audit/export/${exportId}`);
+    return this.request<Record<string, unknown>>(`/v1/audit/export/${pathSegment(exportId)}`);
   }
 
   getAuditExportDownload(exportId: string) {
-    return this.requestBlob(`/v1/audit/export/${exportId}/download`);
+    return this.requestBlob(`/v1/audit/export/${pathSegment(exportId)}/download`);
   }
 
   getAuditIntegrity() {
@@ -1183,7 +1195,7 @@ export class SupaOAuthClient {
   }
 
   instantiateOrgTemplate(templateId: string, data: { name: string; description?: string; creator_user_id: string }) {
-    return this.request<unknown>(`/v1/org-templates/${templateId}/instantiate`, {
+    return this.request<unknown>(`/v1/org-templates/${pathSegment(templateId)}/instantiate`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -1195,11 +1207,11 @@ export class SupaOAuthClient {
   }
 
   getProvisioningStatus(projectRef: string) {
-    return this.request<unknown>(`/v1/provisioning/${projectRef}`);
+    return this.request<unknown>(`/v1/provisioning/${pathSegment(projectRef)}`);
   }
 
   reconcileProject(projectRef: string) {
-    return this.request<unknown>(`/v1/provisioning/${projectRef}/reconcile`, { method: 'POST' });
+    return this.request<unknown>(`/v1/provisioning/${pathSegment(projectRef)}/reconcile`, { method: 'POST' });
   }
 
   // ─── Enterprise SSO ───────────────────────────────────

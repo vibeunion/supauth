@@ -1,12 +1,16 @@
 <script>
-  import { onMount } from "svelte";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import DetailTabs from "$lib/components/DetailTabs.svelte";
   import RequestState from "$lib/components/RequestState.svelte";
   import { AdminApiError } from "$lib/admin-api.js";
   import { t } from "$lib/i18n.js";
-  import { capabilityAvailable, tabFromRoute } from "$lib/resource-page.js";
+  import {
+    capabilityAvailable,
+    createOperationTracker,
+    isLatestResourceLoad,
+    tabFromRoute,
+  } from "$lib/resource-page.js";
   import {
     getCapabilities,
     getEnterpriseSSOConfig,
@@ -29,6 +33,9 @@
   });
   let loading = $state(true);
   let saving = $state(false);
+  const mutationTracker = createOperationTracker((pending) => {
+    saving = pending;
+  });
   let error = $state(null);
   let configId = $derived(page.params.configId);
   let idpInitiatedAvailable = $derived(
@@ -40,6 +47,8 @@
       : baseTabs,
   );
   let requestedTab = $derived(page.params.tab || "connection");
+  let loadGeneration = 0;
+  let loadedConfigurationContext = $state(null);
   let activeTab = $derived(
     tabFromRoute(
       requestedTab,
@@ -57,46 +66,96 @@
       : null,
   );
 
+  function currentLoadContext() {
+    return {
+      generation: loadGeneration,
+      resourceId: configId,
+      tab: requestedTab,
+    };
+  }
+
+  function isCurrentLoad(loadContext) {
+    return isLatestResourceLoad(loadContext, currentLoadContext());
+  }
+
+  function currentMutationContext() {
+    return loadedConfigurationContext && isCurrentLoad(loadedConfigurationContext)
+      ? loadedConfigurationContext
+      : null;
+  }
+
+  function isCurrentMutation(operation) {
+    return (
+      mutationTracker.isCurrent(operation) &&
+      isCurrentLoad(operation.ownerContext)
+    );
+  }
+
   async function loadConfiguration() {
+    mutationTracker.invalidate();
+    return loadConfigurationData();
+  }
+
+  async function loadConfigurationData() {
+    const loadContext = {
+      generation: loadGeneration + 1,
+      resourceId: configId,
+      tab: requestedTab,
+    };
+    loadGeneration = loadContext.generation;
+    loadedConfigurationContext = null;
     loading = true;
     error = null;
+    configuration = null;
+    capabilities = null;
     try {
-      [configuration, capabilities] = await Promise.all([
-        getEnterpriseSSOConfig(configId),
+      const [configurationResponse, capabilityResponse] = await Promise.all([
+        getEnterpriseSSOConfig(loadContext.resourceId),
         getCapabilities(),
       ]);
+      if (!isCurrentLoad(loadContext)) return;
+      configuration = configurationResponse;
+      capabilities = capabilityResponse;
       form = {
-        domains: (configuration.domains || []).join(", "),
+        domains: (configurationResponse.domains || []).join(", "),
         sso_protocol:
-          configuration.ssoProtocol || configuration.sso_protocol || "oidc",
+          configurationResponse.ssoProtocol ||
+          configurationResponse.sso_protocol ||
+          "oidc",
         jit_provisioning:
-          configuration.jitProvisioning ??
-          configuration.jit_provisioning ??
+          configurationResponse.jitProvisioning ??
+          configurationResponse.jit_provisioning ??
           true,
         org_membership_mapping: JSON.stringify(
-          configuration.orgMembershipMapping ||
-            configuration.org_membership_mapping ||
+          configurationResponse.orgMembershipMapping ||
+            configurationResponse.org_membership_mapping ||
             {},
           null,
           2,
         ),
         role_mapping: JSON.stringify(
-          configuration.roleMapping || configuration.role_mapping || {},
+          configurationResponse.roleMapping ||
+            configurationResponse.role_mapping ||
+            {},
           null,
           2,
         ),
       };
+      loadedConfigurationContext = loadContext;
     } catch (requestError) {
-      error = requestError;
+      if (isCurrentLoad(loadContext)) error = requestError;
+    } finally {
+      if (isCurrentLoad(loadContext)) loading = false;
     }
-    loading = false;
   }
 
   async function saveConfiguration() {
-    saving = true;
+    const mutationContext = currentMutationContext();
+    if (!mutationContext) return;
+    const operation = mutationTracker.begin(mutationContext);
     error = null;
     try {
-      await updateEnterpriseSSOConfig(configId, {
+      await updateEnterpriseSSOConfig(operation.ownerContext.resourceId, {
         domains: form.domains
           .split(",")
           .map((domain) => domain.trim())
@@ -106,14 +165,21 @@
         org_membership_mapping: JSON.parse(form.org_membership_mapping || "{}"),
         role_mapping: JSON.parse(form.role_mapping || "{}"),
       });
-      await loadConfiguration();
+      if (isCurrentMutation(operation)) await loadConfigurationData();
     } catch (requestError) {
-      error = requestError;
+      if (isCurrentMutation(operation)) error = requestError;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    saving = false;
   }
 
-  onMount(loadConfiguration);
+  let lastLoadKey = "";
+  $effect(() => {
+    const loadKey = `${configId}:${requestedTab}`;
+    if (!configId || loadKey === lastLoadKey) return;
+    lastLoadKey = loadKey;
+    void loadConfiguration();
+  });
 </script>
 
 <div class="mb-5">

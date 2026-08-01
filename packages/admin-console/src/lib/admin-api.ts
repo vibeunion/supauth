@@ -9,6 +9,8 @@ type AdminFetch = (
 
 let refreshAwareFetch: AdminFetch | null = null;
 
+export const ADMIN_REQUEST_TIMEOUT_MS = 8_000;
+
 export class AdminApiError extends Error {
   constructor(
     message: string,
@@ -18,6 +20,82 @@ export class AdminApiError extends Error {
   ) {
     super(message);
     this.name = "AdminApiError";
+  }
+}
+
+interface AdminRequestBoundaryOptions {
+  signal?: AbortSignal | null;
+  timeoutMs?: number;
+}
+
+type AdminRequestInterruptionCode = "request_timeout" | "request_aborted";
+
+interface AdminRequestBoundary {
+  signal: AbortSignal;
+  interrupted: Promise<never>;
+  dispose(): void;
+}
+
+function interruptedAdminRequest(code: AdminRequestInterruptionCode) {
+  const message = code === "request_timeout"
+    ? "Admin API request timed out"
+    : "Admin API request was cancelled";
+  return new AdminApiError(message, 0, code);
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && (error as { name?: unknown }).name === "AbortError";
+}
+
+function createAdminRequestBoundary(
+  options: AdminRequestBoundaryOptions,
+): AdminRequestBoundary {
+  const controller = new AbortController();
+  let rejectInterruption = (_error: AdminApiError) => {};
+  const interrupted = new Promise<never>((_, reject) => {
+    rejectInterruption = reject;
+  });
+  const interrupt = (code: AdminRequestInterruptionCode) => {
+    rejectInterruption(interruptedAdminRequest(code));
+    controller.abort();
+  };
+  const callerAbort = () => interrupt("request_aborted");
+  options.signal?.addEventListener("abort", callerAbort, { once: true });
+  const timeoutId = setTimeout(
+    () => interrupt("request_timeout"),
+    options.timeoutMs ?? ADMIN_REQUEST_TIMEOUT_MS,
+  );
+  return {
+    signal: controller.signal,
+    interrupted,
+    dispose() {
+      clearTimeout(timeoutId);
+      options.signal?.removeEventListener("abort", callerAbort);
+    },
+  };
+}
+
+export async function runBoundedAdminRequest<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  options: AdminRequestBoundaryOptions = {},
+): Promise<T> {
+  if (options.signal?.aborted)
+    throw interruptedAdminRequest("request_aborted");
+
+  const boundary = createAdminRequestBoundary(options);
+
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => operation(boundary.signal)),
+      boundary.interrupted,
+    ]);
+  } catch (error) {
+    if (!isAbortError(error) || error instanceof AdminApiError) throw error;
+    throw interruptedAdminRequest("request_aborted");
+  } finally {
+    boundary.dispose();
   }
 }
 
@@ -93,7 +171,6 @@ async function authenticatedAdminResponse(
     const token = await getAdminAccessToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
-
   const response = await fetcher(`${API_BASE}${path}`, {
     ...options,
     headers,
@@ -107,16 +184,26 @@ export async function adminApiRequest(
   path: string,
   options: RequestInit = {},
 ): Promise<unknown> {
-  const response = await authenticatedAdminResponse(path, options);
-  if (response.status === 204) return null;
-  const responseBody = await readResponseBody(response);
-  return responseBody ?? null;
+  return runBoundedAdminRequest(async (signal) => {
+    const response = await authenticatedAdminResponse(path, {
+      ...options,
+      signal,
+    });
+    if (response.status === 204) return null;
+    const responseBody = await readResponseBody(response);
+    return responseBody ?? null;
+  }, { signal: options.signal });
 }
 
 export async function adminApiBlob(
   path: string,
   options: RequestInit = {},
 ): Promise<Blob> {
-  const response = await authenticatedAdminResponse(path, options);
-  return response.blob();
+  return runBoundedAdminRequest(async (signal) => {
+    const response = await authenticatedAdminResponse(path, {
+      ...options,
+      signal,
+    });
+    return response.blob();
+  }, { signal: options.signal });
 }

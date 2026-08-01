@@ -262,6 +262,10 @@
           <label id="external-id-label" for="external-id">数字 ID</label>
           <input id="external-id" name="external_id" inputmode="numeric" autocomplete="off" required>
         </div>
+        <div class="field">
+          <label id="claim-proof-label" for="claim-proof">领取凭证</label>
+          <input id="claim-proof" name="claim_proof" type="password" autocomplete="one-time-code" required>
+        </div>
         <div id="password-fields" hidden>
           <div class="field">
             <label id="new-password-label" for="new-password">设置登录密码</label>
@@ -303,10 +307,11 @@
       en: {
         documentTitle: 'SupaOAuth Account Claim',
         title: 'Claim SupAuth account',
-        leadInitial: 'Enter your name and numeric ID to find your login email and claim your one-time initial password.',
-        leadSetPassword: 'Enter your name and numeric ID to verify your account and set your login password.',
+        leadInitial: 'Enter your name, numeric ID, and one-time claim proof to claim your account.',
+        leadSetPassword: 'Enter your name, numeric ID, and one-time claim proof to set your login password.',
         name: 'Name',
         externalId: 'Numeric ID',
+        claimProof: 'One-time claim proof',
         newPassword: 'Set login password',
         confirmPassword: 'Confirm login password',
         submitInitial: 'Find account',
@@ -318,7 +323,7 @@
         copyPassword: 'Copy password',
         footerInitial: 'The initial password is shown only once. Future lookups only show the email.',
         footerSetPassword: 'After the password is set, sign in with your login email and new password.',
-        required: 'Enter your name and numeric ID.',
+        required: 'Enter your name, numeric ID, and one-time claim proof.',
         passwordTooShort: 'Password must be at least {min} characters.',
         passwordRequiresUppercase: 'Password must include an uppercase letter.',
         passwordRequiresLowercase: 'Password must include a lowercase letter.',
@@ -334,25 +339,24 @@
         passwordMismatch: 'The two passwords do not match.',
         claimSuccessSetPassword: 'Account claimed. Your password has been set. Sign in with the new password.',
         claimSuccessInitial: 'Account claimed. Please sign in and change your password soon.',
-        alreadyClaimed: 'The account has already been claimed. Contact an administrator if you forgot the password.',
-        passwordUnavailable: 'Account found, but the initial password is unavailable. Contact an administrator.',
+        claimRejected: 'The account cannot be claimed with the supplied credentials.',
         copiedEmail: 'Email copied.',
         copiedPassword: 'Password copied.',
         tooManyAttempts: 'Too many attempts. Please try again later.',
         claimUnavailable: 'Account claiming configuration is temporarily unavailable. Please try again later.',
         claimDisabled: 'Account claiming is currently disabled.',
         serverError: 'The system cannot complete the lookup right now. Please try again later or contact an administrator.',
-        invalidRequest: 'Enter your name and numeric ID.',
-        notFound: 'No matching account found. Check your name and numeric ID.',
+        invalidRequest: 'Enter your name, numeric ID, and one-time claim proof.',
         networkError: 'Lookup failed. Please try again later.',
       },
       'zh-CN': {
         documentTitle: 'SupaOAuth 账号领取',
         title: '领取 SupAuth 账号',
-        leadInitial: '输入姓名和数字 ID，查询你的登录邮箱并领取一次性初始密码。',
-        leadSetPassword: '输入姓名和数字 ID，验证账号后设置你的登录密码。',
+        leadInitial: '输入姓名、数字 ID 和一次性领取凭证，领取你的账号。',
+        leadSetPassword: '输入姓名、数字 ID 和一次性领取凭证，设置登录密码。',
         name: '姓名',
         externalId: '数字 ID',
+        claimProof: '一次性领取凭证',
         newPassword: '设置登录密码',
         confirmPassword: '确认登录密码',
         submitInitial: '查询账号',
@@ -364,7 +368,7 @@
         copyPassword: '复制密码',
         footerInitial: '初始密码只展示一次。再次查询时只会显示邮箱。',
         footerSetPassword: '密码设置成功后，请使用登录邮箱和新密码登录。',
-        required: '请填写姓名和数字 ID。',
+        required: '请填写姓名、数字 ID 和一次性领取凭证。',
         passwordTooShort: '密码至少需要 {min} 个字符。',
         passwordRequiresUppercase: '密码必须包含大写字母。',
         passwordRequiresLowercase: '密码必须包含小写字母。',
@@ -380,16 +384,14 @@
         passwordMismatch: '两次输入的密码不一致。',
         claimSuccessSetPassword: '账号领取成功，密码已设置。请使用新密码登录。',
         claimSuccessInitial: '账号领取成功，请尽快登录并修改密码。',
-        alreadyClaimed: '账号已领取，如忘记密码请联系管理员重置。',
-        passwordUnavailable: '账号已找到，但初始密码不可用，请联系管理员。',
+        claimRejected: '无法使用当前凭据领取账号。',
         copiedEmail: '邮箱已复制。',
         copiedPassword: '密码已复制。',
         tooManyAttempts: '查询次数过多，请稍后再试。',
         claimUnavailable: '账号领取配置暂时不可用，请稍后重试。',
         claimDisabled: '账号领取功能当前未启用。',
         serverError: '系统暂时无法完成查询，请稍后重试或联系管理员。',
-        invalidRequest: '请填写姓名和数字 ID。',
-        notFound: '未找到匹配账号，请核对姓名和数字 ID。',
+        invalidRequest: '请填写姓名、数字 ID 和一次性领取凭证。',
         networkError: '查询失败，请稍后重试。',
       },
     };
@@ -410,6 +412,7 @@
     const passwordRow = document.getElementById('password-row');
     const passwordEl = document.getElementById('password');
     const passwordFields = document.getElementById('password-fields');
+    const claimProofInput = document.getElementById('claim-proof');
     const passwordPolicyHint = document.getElementById('password-policy-hint');
     const newPasswordInput = document.getElementById('new-password');
     const confirmPasswordInput = document.getElementById('confirm-password');
@@ -528,6 +531,7 @@
       }
       document.getElementById('name-label').textContent = t('name');
       document.getElementById('external-id-label').textContent = t('externalId');
+      document.getElementById('claim-proof-label').textContent = t('claimProof');
       document.getElementById('new-password-label').textContent = t('newPassword');
       document.getElementById('confirm-password-label').textContent = t('confirmPassword');
       document.querySelector('#result .row:first-child .key').textContent = t('email');
@@ -602,7 +606,7 @@
       const next = config && typeof config === 'object' ? config : {};
       const password = next.password && typeof next.password === 'object' ? next.password : {};
       claimConfig = {
-        enabled: next.enabled !== false,
+        enabled: next.enabled === true,
         external_type: typeof next.external_type === 'string' && next.external_type ? next.external_type : 'employee',
         password: {
           mode: password.mode === 'set_on_claim' ? 'set_on_claim' : 'show_initial_password',
@@ -650,8 +654,7 @@
         setMessage('success', t('claimSuccessInitial'));
       } else {
         passwordRow.style.display = 'none';
-        const text = data.status === 'already_claimed' ? t('alreadyClaimed') : t('passwordUnavailable');
-        setMessage('muted', text);
+        setMessage('muted', t('claimRejected'));
       }
       result.classList.add('active');
     }
@@ -690,11 +693,10 @@
       if (['password_too_short', 'password_requires_uppercase', 'password_requires_lowercase', 'password_requires_number', 'password_requires_symbol', 'weak_password'].includes(code)) {
         return passwordPolicyErrorMessage(code);
       }
-      if (code === 'account_already_claimed') return t('alreadyClaimed');
       if (response.status === 429) return t('tooManyAttempts');
       if (response.status >= 500) return t('serverError');
       if (response.status === 400) return t('invalidRequest');
-      return t('notFound');
+      return t('claimRejected');
     }
 
     form.addEventListener('submit', async (event) => {
@@ -702,7 +704,8 @@
       clearResult();
       const name = form.name.value.trim();
       const externalId = form.external_id.value.trim();
-      if (!name || !externalId) {
+      const claimProof = claimProofInput.value.trim();
+      if (!name || !externalId || !claimProof) {
         setMessage('error', t('required'));
         return;
       }
@@ -726,6 +729,7 @@
           display_name: name,
           external_id: externalId,
           external_type: claimConfig.external_type || 'employee',
+          claim_proof: claimProof,
         };
         if (mustSetPassword) payload.new_password = newPassword;
         const response = await fetch(`${apiBase}/account-claims/claim`, {

@@ -4,7 +4,7 @@
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { swagger } from '@elysiajs/swagger';
-import { getConfig, validateConfig } from './config/index.js';
+import { enforceStartupConfig, getConfig } from './config/index.js';
 import { generateRequestId, observabilityMiddleware } from './middleware/index.js';
 import { withRequestContext } from './auth/request-context.js';
 import { adminAuthGuard, authRoutes } from './auth/index.js';
@@ -43,17 +43,12 @@ import { capabilityRoutes } from './routes/capabilities.js';
 import { tenantRoutes } from './routes/tenant.js';
 
 const config = getConfig();
-const configErrors = validateConfig(config);
-
-if (configErrors.length > 0) {
-  console.warn('SupaOAuth config warnings:', configErrors.join('; '));
-}
+enforceStartupConfig(config);
 
 const app = new Elysia()
   .use(observabilityMiddleware)
   .use(cors({ origin: config.corsOrigins, credentials: true }))
   .use(authRoutes)
-  .use(storageRoutes)
   .use(hostedPageRoutes)
   .use(publicSignInExperienceRoutes)
   .use(publicOAuthRoutes)
@@ -116,6 +111,7 @@ const app = new Elysia()
   .use(adminAuthGuard)
 
   // ─── Route groups ────────────────────────────────────
+  .use(storageRoutes)
   .use(healthRoutes)
   .use(runtimeRoutes)
   .use(authHookAdminRoutes)

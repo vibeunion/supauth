@@ -716,6 +716,8 @@
   <script src="/hosted-auth.js"></script>
   <script>
     const apiBase = (window.__SUPAOAUTH_PUBLIC_API_BASE__ || '/v1/public').replace(/\/$/, '');
+    const HOSTED_LOOPBACK_AUTHORITY_PATTERN = /^(?:localhost|127(?:\.\d{1,3}){3})(?::\d{1,5})?$/i;
+    const HOSTED_IPV4_OCTET_PATTERN = /^(?:0|[1-9]\d{0,2})$/;
     const hostedAuth = window.SupaOAuthHostedAuth;
     const brandMark = document.getElementById('brand-mark');
     const logo = document.getElementById('logo');
@@ -774,6 +776,74 @@
       providers: [],
       redirect_to: null,
     };
+
+    // DRY 例外：独立 hosted HTML 不能导入 workspace helper；三端契约由 hosted-account-page-behavior.test.ts 锁定，待 generator 支持注入共享策略时移除此镜像。
+    function isCanonicalIpv4Loopback(hostname) {
+      const octets = hostname.split('.');
+      return octets.length === 4
+        && octets[0] === '127'
+        && octets.slice(1).every((octet) => HOSTED_IPV4_OCTET_PATTERN.test(octet) && Number(octet) <= 255);
+    }
+
+    function isLiteralLoopbackAuthority(authority) {
+      if (/^\[::1\](?::\d{1,5})?$/i.test(authority)) return true;
+      if (!HOSTED_LOOPBACK_AUTHORITY_PATTERN.test(authority)) return false;
+      const hostname = authority.replace(/:\d{1,5}$/, '');
+      return hostname.toLowerCase() === 'localhost' || isCanonicalIpv4Loopback(hostname);
+    }
+
+    function authorityFromExternalUrl(urlInput) {
+      const schemeSeparator = urlInput.indexOf('://');
+      if (schemeSeparator < 0) return '';
+      return urlInput.slice(schemeSeparator + 3).split(/[/?#]/, 1)[0];
+    }
+
+    function isExplicitExternalUrl(urlCandidate) {
+      return /^https?:\/\//i.test(urlCandidate)
+        && !/[\u0000-\u001f\u007f]/.test(urlCandidate)
+        && !urlCandidate.includes('#')
+        && !urlCandidate.includes('\\');
+    }
+
+    function hostedPageUsesLocalEnvironment() {
+      return typeof window.location?.host === 'string'
+        && isLiteralLoopbackAuthority(window.location.host);
+    }
+
+    function parseExternalDeleteAccountUrl(urlCandidate) {
+      try {
+        const externalUrl = new URL(urlCandidate);
+        const authority = authorityFromExternalUrl(urlCandidate);
+        if (authority.includes('@') || externalUrl.username || externalUrl.password || externalUrl.hash) {
+          return { ok: false };
+        }
+        if (externalUrl.protocol === 'https:') return { ok: true, url: externalUrl.toString() };
+        return hostedPageUsesLocalEnvironment() && isLiteralLoopbackAuthority(authority)
+          ? { ok: true, url: externalUrl.toString() }
+          : { ok: false };
+      } catch (error) {
+        if (error instanceof TypeError) return { ok: false };
+        throw error;
+      }
+    }
+
+    function validateExternalDeleteAccountUrl(urlInput) {
+      if (urlInput === null || urlInput === undefined || (typeof urlInput === 'string' && !urlInput.trim())) {
+        return { ok: true, url: null };
+      }
+      if (typeof urlInput !== 'string') return { ok: false };
+      const urlCandidate = urlInput.trim();
+      return isExplicitExternalUrl(urlCandidate)
+        ? parseExternalDeleteAccountUrl(urlCandidate)
+        : { ok: false };
+    }
+
+    function sanitizedDeleteAccountConfig(deleteAccount) {
+      const urlValidation = validateExternalDeleteAccountUrl(deleteAccount.url);
+      return urlValidation.ok
+        ? { ...deleteAccount, url: urlValidation.url }
+        : { ...deleteAccount, enabled: false, url: null };
+    }
 
     function applyBranding(branding) {
       if (!branding) return;
@@ -840,6 +910,10 @@
 
     function applyAccountConfig(config, capabilities) {
       const next = config || {};
+      const deleteAccount = sanitizedDeleteAccountConfig({
+        ...accountConfig.delete_account,
+        ...(next.delete_account || {}),
+      });
       accountConfig = {
         ...accountConfig,
         ...next,
@@ -847,7 +921,7 @@
         security: { ...accountConfig.security, ...(next.security || {}) },
         grants: { ...accountConfig.grants, ...(next.grants || {}) },
         identities: { ...accountConfig.identities, ...(next.identities || {}) },
-        delete_account: { ...accountConfig.delete_account, ...(next.delete_account || {}) },
+        delete_account: deleteAccount,
       };
       if (!accountConfig.enabled) {
         accountPanel.hidden = true;
@@ -877,6 +951,7 @@
         deleteAccountLink.href = accountConfig.delete_account.url;
         deleteAccountLinkWrap.hidden = false;
       } else {
+        deleteAccountLink.removeAttribute('href');
         deleteAccountLinkWrap.hidden = true;
       }
       applyProfileFields();
@@ -943,10 +1018,16 @@
       accountStatusNote.textContent = '已加载当前账号，可在下方查看和管理资料。';
     }
 
+    function showPartiallyLoadedState() {
+      accountStatusNote.textContent = '账号资料已加载，但部分账号项目暂时不可用。';
+    }
+
     function readableError(error, fallback) {
-      return error && typeof error.message === 'string' && error.message.trim()
-        ? error.message
-        : fallback;
+      const code = error && typeof error.code === 'string' ? error.code : '';
+      if (['session_missing', 'refresh_failed', 'invalid_token'].includes(code)) {
+        return '登录状态已失效，请重新登录。';
+      }
+      return fallback;
     }
 
     function authErrorEndsSession(error) {
@@ -1045,42 +1126,97 @@
         totpCodeInput.focus();
       }
 
+    class AccountRequestError extends Error {
+      constructor(code, message, options = {}) {
+        super(message);
+        this.name = 'AccountRequestError';
+        this.code = code;
+        this.sessionEnded = options.sessionEnded === true;
+        this.status = options.status || 0;
+      }
+    }
+
+    function endAccountSession() {
+      resetAccountView();
+      showSignedOutState();
+    }
+
+    function accountResponseError(status) {
+      if (status === 401) {
+        endAccountSession();
+        return new AccountRequestError('session_expired', '登录状态已失效，请重新登录。', {
+          sessionEnded: true,
+          status,
+        });
+      }
+      const message = status >= 500 ? '账号服务暂时不可用，请稍后重试。' : '账号请求失败，请检查后重试。';
+      return new AccountRequestError('request_failed', message, { status });
+    }
+
+    function accountNetworkError(error) {
+      if (authErrorEndsSession(error)) {
+        endAccountSession();
+        return new AccountRequestError('session_expired', '登录状态已失效，请重新登录。', {
+          sessionEnded: true,
+        });
+      }
+      const code = error && typeof error.code === 'string' ? error.code : '';
+      if (error instanceof TypeError || ['session_read_failed', 'refresh_retryable'].includes(code)) {
+        return new AccountRequestError('network_error', '账号认证请求失败，请稍后重试。');
+      }
+      if (code === 'request_not_replayable') {
+        return new AccountRequestError('request_invalid', '账号请求无法安全发送，请刷新页面后重试。');
+      }
+      throw error;
+    }
+
+    function reportAccountFailure(error, fallback) {
+      const text = error instanceof AccountRequestError ? error.message : fallback;
+      setMessage('error', text);
+    }
+
+    function accountRequestHeaders(options) {
+      const headers = new Headers(options.headers || {});
+      if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+      return headers;
+    }
+
+    async function accountResponsePayload(response) {
+      if (!response.ok) throw accountResponseError(response.status);
+      const payload = await response.json().catch(() => null);
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.success === false) {
+        throw accountResponseError(response.status);
+      }
+      return payload;
+    }
+
     async function accountFetch(path, options = {}) {
       if (!hostedAuth) {
-        setMessage('error', '登录组件加载失败，请刷新页面后重试。');
-        return null;
-      }
-      const headers = new Headers(options.headers || {});
-      if (options.body && !headers.has('Content-Type')) {
-        headers.set('Content-Type', 'application/json');
+        throw new AccountRequestError('hosted_auth_unavailable', '登录组件加载失败，请刷新页面后重试。');
       }
       let response;
       try {
         response = await hostedAuth.authenticatedFetch(`${apiBase}${path}`, {
           ...options,
-          headers,
+          headers: accountRequestHeaders(options),
         });
       } catch (error) {
-        if (authErrorEndsSession(error)) {
-          resetAccountView();
-          showSignedOutState();
-        }
-        setMessage('error', readableError(error, '账号认证请求失败，请稍后重试。'));
-        return null;
+        throw accountNetworkError(error);
       }
-      const data = await response.json().catch(() => null);
-      if (response.status === 401) {
-        resetAccountView();
-        showSignedOutState();
-        setMessage('error', '登录状态已失效，请重新登录。');
-        return null;
+      return accountResponsePayload(response);
+    }
+
+    async function loadAccountContent() {
+      const accountPayload = await accountFetch('/account/me');
+      displayUser(accountPayload.user || {});
+      const moduleState = await loadAccountModules();
+      if (!moduleState.ok) {
+        showPartiallyLoadedState();
+        setMessage('error', '账号资料已加载，但部分账号项目加载失败，请重试。');
+        return;
       }
-      if (!response.ok || !data || data.success === false) {
-        const apiMessage = data && data.error && data.error.message ? data.error.message : '账号请求失败。';
-        setMessage('error', apiMessage);
-        return null;
-      }
-      return data;
+      showLoadedState();
+      setMessage('ok', '账号资料已加载。');
     }
 
     async function loadAccount() {
@@ -1092,14 +1228,9 @@
       loadAccountButton.disabled = true;
       showLoadingState();
       try {
-        const data = await accountFetch('/account/me');
-        if (!data) return;
-        displayUser(data.user || {});
-        await loadAccountModules();
-        showLoadedState();
-        setMessage('ok', '账号资料已加载。');
+        await loadAccountContent();
       } catch (error) {
-        setMessage('error', readableError(error, '无法连接账号中心，请稍后重试。'));
+        reportAccountFailure(error, '无法连接账号中心，请稍后重试。');
       } finally {
         loadAccountButton.disabled = false;
       }
@@ -1120,35 +1251,74 @@
           method: 'PATCH',
           body: JSON.stringify({ data: { name } }),
         });
-        if (!data) return;
         displayUser(data.user || {});
         setMessage('ok', '资料已更新。');
-      } catch {
-        setMessage('error', '无法保存资料，请稍后重试。');
+      } catch (error) {
+        reportAccountFailure(error, '无法保存资料，请稍后重试。');
       } finally {
         saveButton.disabled = false;
       }
     }
 
-      async function loadAccountModules() {
-        const requests = [];
-        const load = async (key, path) => {
-          const data = await accountFetch(path);
-          return [key, data];
-        };
-        if (moduleEnabled('grants')) requests.push(load('grants', '/account/grants'));
-        if (moduleEnabled('identities')) requests.push(load('identities', '/account/identities'));
-        if (accountConfig.security && accountConfig.security.mfa) requests.push(load('mfa', '/account/mfa'));
-
-        const results = Object.fromEntries(await Promise.all(requests));
+      function enabledAccountModules() {
+        const modules = [];
         if (moduleEnabled('grants')) {
-          renderModuleList(grantsList, results.grants && results.grants.items, '没有应用授权记录。', 'revoke-grant');
+          modules.push({ name: '应用授权', path: '/account/grants', list: grantsList, emptyText: '没有应用授权记录。', action: 'revoke-grant' });
         }
         if (moduleEnabled('identities')) {
-          renderModuleList(identitiesList, results.identities && results.identities.items, '没有可管理身份。', 'unlink-identity');
+          modules.push({ name: '登录身份', path: '/account/identities', list: identitiesList, emptyText: '没有可管理身份。', action: 'unlink-identity' });
         }
         if (accountConfig.security && accountConfig.security.mfa) {
-          renderModuleList(mfaList, results.mfa && results.mfa.items, '没有 MFA 因子。', 'unenroll-mfa');
+          modules.push({ name: 'MFA 因子', path: '/account/mfa', list: mfaList, emptyText: '没有 MFA 因子。', action: 'unenroll-mfa' });
+        }
+        return modules;
+      }
+
+      async function loadAccountModule(moduleDefinition) {
+        const modulePayload = await accountFetch(moduleDefinition.path);
+        if (!Array.isArray(modulePayload.items)) {
+          throw new AccountRequestError('invalid_response', '账号项目响应无效，请稍后重试。');
+        }
+        return modulePayload.items;
+      }
+
+      function renderModuleFailure(moduleDefinition) {
+        moduleDefinition.list.innerHTML = '';
+        const failure = document.createElement('li');
+        failure.textContent = `${moduleDefinition.name}加载失败，请重试。`;
+        moduleDefinition.list.appendChild(failure);
+      }
+
+      async function loadAccountModules() {
+        const accountModules = enabledAccountModules();
+        const moduleOutcomes = await Promise.allSettled(accountModules.map(loadAccountModule));
+        const blockingFailure = moduleOutcomes.find((outcome) => outcome.status === 'rejected'
+          && (!(outcome.reason instanceof AccountRequestError) || outcome.reason.sessionEnded));
+        if (blockingFailure && blockingFailure.status === 'rejected') throw blockingFailure.reason;
+
+        const failedModules = [];
+        moduleOutcomes.forEach((outcome, index) => {
+          const moduleDefinition = accountModules[index];
+          if (outcome.status === 'fulfilled') {
+            renderModuleList(moduleDefinition.list, outcome.value, moduleDefinition.emptyText, moduleDefinition.action);
+          } else {
+            failedModules.push(moduleDefinition.name);
+            renderModuleFailure(moduleDefinition);
+          }
+        });
+        return { ok: failedModules.length === 0, failedModules };
+      }
+
+      function accountModuleForAction(action) {
+        return enabledAccountModules().find((moduleDefinition) => moduleDefinition.action === action) || null;
+      }
+
+      async function removeAccountModuleItem(moduleDefinition, id) {
+        await accountFetch(`${moduleDefinition.path}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const items = await loadAccountModule(moduleDefinition);
+        renderModuleList(moduleDefinition.list, items, moduleDefinition.emptyText, moduleDefinition.action);
+        if (items.some((item) => itemId(item) === id)) {
+          throw new AccountRequestError('mutation_not_confirmed', '服务器尚未确认账号项目已移除，请重试。');
         }
       }
 
@@ -1181,7 +1351,6 @@
               redirect_to: providerLinkingCapability.redirect_to,
             }),
           });
-          if (!linkResponse) return;
           const redirectUrl = providerAuthorizationRedirect(linkResponse.authorization && linkResponse.authorization.url);
           if (!redirectUrl) {
             setMessage('error', '认证运行时返回了无效的身份绑定地址。');
@@ -1189,7 +1358,7 @@
           }
           window.location.assign(redirectUrl);
         } catch (error) {
-          setMessage('error', readableError(error, '无法启动身份绑定，请稍后重试。'));
+          reportAccountFailure(error, '无法启动身份绑定，请稍后重试。');
         } finally {
           submitButton.disabled = false;
         }
@@ -1203,11 +1372,13 @@
             method: 'POST',
             body: JSON.stringify({ friendly_name: 'Authenticator app', issuer: document.title || 'SupaOAuth' }),
           });
-          if (!data || !data.enrollment) return;
+          if (!data.enrollment) {
+            throw new AccountRequestError('invalid_response', '认证服务未返回 MFA 绑定信息，请稍后重试。');
+          }
           showTotpEnrollment(data.enrollment);
           setMessage('ok', '请使用 Authenticator 扫描二维码，然后输入动态码完成绑定。');
-        } catch {
-          setMessage('error', '无法创建 MFA 绑定，请稍后重试。');
+        } catch (error) {
+          reportAccountFailure(error, '无法创建 MFA 绑定，请稍后重试。');
         } finally {
           startTotpEnrollButton.disabled = false;
         }
@@ -1227,7 +1398,6 @@
             method: 'POST',
             body: JSON.stringify({ code }),
           });
-          if (!verificationResponse) return;
           const mfaSession = verificationResponse.session;
           if (!mfaSession
             || typeof mfaSession !== 'object'
@@ -1245,10 +1415,14 @@
             return;
           }
           resetTotpEnrollment();
-          await loadAccountModules();
+          const moduleState = await loadAccountModules();
+          if (!moduleState.ok) {
+            setMessage('error', 'Authenticator 已绑定，但部分账号项目刷新失败，请重新加载。');
+            return;
+          }
           setMessage('ok', 'Authenticator 已绑定，当前登录状态已升级。');
         } catch (error) {
-          setMessage('error', readableError(error, '动态码验证失败，请重试。'));
+          reportAccountFailure(error, '动态码验证失败，请重试。');
         } finally {
           verifyButton.disabled = false;
         }
@@ -1256,20 +1430,16 @@
 
     async function handleModuleAction(event) {
       const button = event.target.closest('button[data-action]');
-      if (!button) return;
+      if (!button || button.disabled) return;
       const id = button.dataset.id;
-      if (!id) return;
+      const moduleDefinition = accountModuleForAction(button.dataset.action);
+      if (!id || !moduleDefinition) return;
       button.disabled = true;
       try {
-        if (button.dataset.action === 'revoke-grant') {
-          await accountFetch(`/account/grants/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        } else if (button.dataset.action === 'unlink-identity') {
-          await accountFetch(`/account/identities/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        } else if (button.dataset.action === 'unenroll-mfa') {
-          await accountFetch(`/account/mfa/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        }
-        await loadAccountModules();
+        await removeAccountModuleItem(moduleDefinition, id);
         setMessage('ok', '账号项目已更新。');
+      } catch (error) {
+        reportAccountFailure(error, '无法更新账号项目，请稍后重试。');
       } finally {
         button.disabled = false;
       }
@@ -1282,13 +1452,15 @@
         setMessage('error', '请输入新邮箱。');
         return;
       }
-      const data = await accountFetch('/account/email', {
-        method: 'PATCH',
-        body: JSON.stringify({ email }),
-      });
-      if (data) {
+      try {
+        const data = await accountFetch('/account/email', {
+          method: 'PATCH',
+          body: JSON.stringify({ email }),
+        });
         displayUser(data.user || {});
         setMessage('ok', '邮箱变更请求已提交，请完成验证。');
+      } catch (error) {
+        reportAccountFailure(error, '无法提交邮箱变更，请稍后重试。');
       }
     }
 
@@ -1299,13 +1471,15 @@
         setMessage('error', '请输入新手机号。');
         return;
       }
-      const data = await accountFetch('/account/phone', {
-        method: 'PATCH',
-        body: JSON.stringify({ phone }),
-      });
-      if (data) {
+      try {
+        const data = await accountFetch('/account/phone', {
+          method: 'PATCH',
+          body: JSON.stringify({ phone }),
+        });
         displayUser(data.user || {});
         setMessage('ok', '手机号变更请求已提交，请完成验证。');
+      } catch (error) {
+        reportAccountFailure(error, '无法提交手机号变更，请稍后重试。');
       }
     }
 
@@ -1315,17 +1489,19 @@
         setMessage('error', '请输入 DELETE 确认注销账号。');
         return;
       }
-      const data = await accountFetch('/account', {
-        method: 'DELETE',
-        body: JSON.stringify({ confirmation: 'DELETE' }),
-      });
-      if (data) {
+      try {
+        await accountFetch('/account', {
+          method: 'DELETE',
+          body: JSON.stringify({ confirmation: 'DELETE' }),
+        });
         const { error } = await hostedAuth.signOut();
         resetAccountView();
         showSignedOutState();
         setMessage(error ? 'error' : 'ok', error
           ? `账号已注销；${readableError(error, '本地已退出，但服务端撤销失败。')}`
           : '账号已注销并退出登录。');
+      } catch (error) {
+        reportAccountFailure(error, '无法注销账号，请稍后重试。');
       }
     }
 

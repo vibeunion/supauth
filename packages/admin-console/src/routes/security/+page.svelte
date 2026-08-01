@@ -4,6 +4,14 @@
   import DetailTabs from "$lib/components/DetailTabs.svelte";
   import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
+  import {
+    blocklistSettingsAuthority,
+    canonicalTrimmedStringSet,
+    captchaSettingsAuthority,
+    generalSecuritySettingsAuthority,
+    passwordPolicySettingsAuthority,
+    settleAuthoritativeSettingsMutation,
+  } from "$lib/authoritative-settings-readback.js";
   import { collectionItems, tabFromRoute } from "$lib/resource-page.js";
   import {
     getAuthConfig,
@@ -59,6 +67,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
+  let reconciliationStatus = $state(null);
   let error = $state(null);
   let activeTab = $derived(
     tabFromRoute(page.params.tab, tabValues, "password"),
@@ -126,10 +135,10 @@
   function initializeCaptchaForm(captchaConfig) {
     captchaForm = {
       provider: "none",
-      enabled: false,
       secret: "",
       secret_configured: false,
       ...(captchaConfig?.value || {}),
+      enabled: captchaConfig?.enabled ?? false,
     };
     captchaForm.secret = "";
   }
@@ -146,123 +155,220 @@
     initializeCaptchaForm(captchaConfig);
   }
 
-  async function loadSecurity() {
-    loading = true;
-    error = null;
-    saved = false;
-    try {
-      const [
-        authResponse,
-        securityResponse,
-        captchaResponse,
-        authHookResponse,
-        consistencyResponse,
-        beforeUserCreatedHookStatus,
-      ] = await Promise.all([
-        getAuthConfig(),
-        getSecurityConfig(),
-        listTenantConfigs("captcha"),
-        listTenantConfigs("auth_hook"),
-        getAuthConfigRuntimeConsistency(),
-        getBeforeUserCreatedHookStatus(),
-      ]);
-      authConfig = authResponse;
-      runtimeConsistency = consistencyResponse;
-      initializeForms(
-        securityResponse,
-        collectionItems(captchaResponse).find(
-          (config) => config.key === "default",
-        ),
-        collectionItems(authHookResponse).find(
-          (config) => config.key === "signup_policy",
-        ),
-        beforeUserCreatedHookStatus,
-      );
-    } catch (requestError) {
-      error = requestError;
-    }
-    loading = false;
+  async function fetchSecuritySnapshot() {
+    const responses = await Promise.all([
+      getAuthConfig(),
+      getSecurityConfig(),
+      listTenantConfigs("captcha"),
+      listTenantConfigs("auth_hook"),
+      getAuthConfigRuntimeConsistency(),
+      getBeforeUserCreatedHookStatus(),
+    ]);
+    const [
+      authResponse,
+      securityResponse,
+      captchaResponse,
+      authHookResponse,
+      consistencyResponse,
+      beforeUserCreatedHookStatus,
+    ] = responses;
+    return {
+      authConfig: authResponse,
+      securityConfig: securityResponse,
+      captchaConfigs: captchaResponse,
+      authHookConfigs: authHookResponse,
+      runtimeConsistency: consistencyResponse,
+      beforeUserCreatedHookStatus,
+    };
   }
 
-  async function saveCommand(command) {
-    saving = true;
+  function defaultCaptchaConfig(securitySnapshot) {
+    return collectionItems(securitySnapshot.captchaConfigs).find(
+      (config) => config.key === "default",
+    );
+  }
+
+  function signupPolicyConfig(securitySnapshot) {
+    return collectionItems(securitySnapshot.authHookConfigs).find(
+      (config) => config.key === "signup_policy",
+    );
+  }
+
+  function applySecuritySnapshot(securitySnapshot) {
+    authConfig = securitySnapshot.authConfig;
+    runtimeConsistency = securitySnapshot.runtimeConsistency;
+    initializeForms(
+      securitySnapshot.securityConfig,
+      defaultCaptchaConfig(securitySnapshot),
+      signupPolicyConfig(securitySnapshot),
+      securitySnapshot.beforeUserCreatedHookStatus,
+    );
+  }
+
+  async function readSecurityState() {
+    applySecuritySnapshot(await fetchSecuritySnapshot());
+  }
+
+  async function loadSecurity() {
+    loading = true;
     saved = false;
+    reconciliationStatus = null;
     error = null;
     try {
-      await command();
-      await loadSecurity();
-      saved = true;
+      await readSecurityState();
     } catch (requestError) {
       error = requestError;
+    } finally {
+      loading = false;
     }
-    saving = false;
+  }
+
+  async function saveCommand(settingsMutation) {
+    saving = true;
+    saved = false;
+    reconciliationStatus = null;
+    error = null;
+    try {
+      const reconciliation = await settleAuthoritativeSettingsMutation({
+        ...settingsMutation,
+        readSnapshot: fetchSecuritySnapshot,
+      });
+      if (reconciliation.status === "success") {
+        applySecuritySnapshot(reconciliation.readBackValue);
+        saved = true;
+      }
+      else reconciliationStatus = reconciliation.status;
+    } finally {
+      saving = false;
+    }
+  }
+
+  function commaSeparatedValues(fieldDraft) {
+    return fieldDraft
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
   }
 
   function savePasswordPolicy() {
-    return saveCommand(() =>
-      updateAuthConfig({
+    const command = {
+      authConfig: {
         password_min_length: Number(passwordForm.password_min_length),
         password_required_characters: requiredCharacters(),
-      }),
-    );
+      },
+    };
+    return saveCommand({
+      draft: {
+        command,
+        authority: passwordPolicySettingsAuthority(command),
+      },
+      writeCommands: (frozenCommand) => [
+        () => updateAuthConfig(frozenCommand.authConfig),
+      ],
+      authorityFromSnapshot: passwordPolicySettingsAuthority,
+    });
   }
 
   function saveCaptcha() {
-    const value = {
-      provider: captchaForm.provider,
-      secret_configured: captchaForm.secret_configured,
+    const provider = captchaForm.provider;
+    const secret = captchaForm.secret.trim();
+    const secretConfigured = secret
+      ? true
+      : captchaForm.secret_configured === true;
+    const captchaConfig = {
+      enabled: captchaForm.enabled === true && provider !== "none",
+      value: { provider, secret_configured: secretConfigured },
     };
-    if (captchaForm.secret) value.secret = captchaForm.secret;
-    return saveCommand(() =>
-      upsertTenantConfig("captcha", "default", {
-        enabled: captchaForm.enabled,
-        value,
-      }),
-    );
+    if (secret) captchaConfig.value.secret = secret;
+    const command = { captchaConfig };
+    return saveCommand({
+      draft: {
+        command,
+        authority: captchaSettingsAuthority(captchaConfig),
+      },
+      writeCommands: (frozenCommand) => [
+        () =>
+          upsertTenantConfig(
+            "captcha",
+            "default",
+            frozenCommand.captchaConfig,
+          ),
+      ],
+      authorityFromSnapshot: (snapshot) =>
+        captchaSettingsAuthority(defaultCaptchaConfig(snapshot)),
+    });
+  }
+
+  function blocklistConfigDraft() {
+    return {
+      enabled: true,
+      value: {
+        allowed_email_domains: canonicalTrimmedStringSet(
+          commaSeparatedValues(blocklistForm.allowed_email_domains),
+          "blocklist.allowed_email_domains",
+        ),
+        blocked_email_domains: canonicalTrimmedStringSet(
+          commaSeparatedValues(blocklistForm.blocked_email_domains),
+          "blocklist.blocked_email_domains",
+        ),
+        blocked_oauth_providers: canonicalTrimmedStringSet(
+          commaSeparatedValues(blocklistForm.blocked_oauth_providers),
+          "blocklist.blocked_oauth_providers",
+        ),
+        allowed_oauth_providers: canonicalTrimmedStringSet(
+          commaSeparatedValues(blocklistForm.allowed_oauth_providers),
+          "blocklist.allowed_oauth_providers",
+        ),
+        invite_only: blocklistForm.invite_only,
+      },
+    };
   }
 
   function saveBlocklist() {
-    return saveCommand(() =>
-      upsertTenantConfig("auth_hook", "signup_policy", {
-        enabled: true,
-        value: {
-          allowed_email_domains: blocklistForm.allowed_email_domains
-            .split(",")
-            .map((domain) => domain.trim())
-            .filter(Boolean),
-          blocked_email_domains: blocklistForm.blocked_email_domains
-            .split(",")
-            .map((domain) => domain.trim())
-            .filter(Boolean),
-          blocked_oauth_providers: blocklistForm.blocked_oauth_providers
-            .split(",")
-            .map((provider) => provider.trim())
-            .filter(Boolean),
-          allowed_oauth_providers: blocklistForm.allowed_oauth_providers
-            .split(",")
-            .map((provider) => provider.trim())
-            .filter(Boolean),
-          invite_only: blocklistForm.invite_only,
-        },
-      }),
-    );
+    const authHookConfig = blocklistConfigDraft();
+    const command = { authHookConfig };
+    return saveCommand({
+      draft: {
+        command,
+        authority: blocklistSettingsAuthority(authHookConfig),
+      },
+      writeCommands: (frozenCommand) => [
+        () =>
+          upsertTenantConfig(
+            "auth_hook",
+            "signup_policy",
+            frozenCommand.authHookConfig,
+          ),
+      ],
+      authorityFromSnapshot: (snapshot) =>
+        blocklistSettingsAuthority(signupPolicyConfig(snapshot)),
+    });
   }
 
   function saveGeneral() {
-    return saveCommand(() =>
-      Promise.all([
-        updateAuthConfig({
-          jwt_expiry: Number(generalForm.jwt_expiry),
-          enable_confirmations: generalForm.enable_confirmations,
-          external_anonymous_users_enabled:
-            generalForm.external_anonymous_users_enabled,
-        }),
-        updateSecurityConfig({
-          brute_force_protection: generalForm.brute_force_protection,
-          max_login_attempts: Number(generalForm.max_login_attempts),
-        }),
-      ]),
-    );
+    const command = {
+      authConfig: {
+        jwt_expiry: Number(generalForm.jwt_expiry),
+        enable_confirmations: generalForm.enable_confirmations,
+        external_anonymous_users_enabled:
+          generalForm.external_anonymous_users_enabled,
+      },
+      securityConfig: {
+        brute_force_protection: generalForm.brute_force_protection,
+        max_login_attempts: Number(generalForm.max_login_attempts),
+      },
+    };
+    return saveCommand({
+      draft: {
+        command,
+        authority: generalSecuritySettingsAuthority(command),
+      },
+      writeCommands: (frozenCommand) => [
+        () => updateAuthConfig(frozenCommand.authConfig),
+        () => updateSecurityConfig(frozenCommand.securityConfig),
+      ],
+      authorityFromSnapshot: generalSecuritySettingsAuthority,
+    });
   }
 
   onMount(loadSecurity);
@@ -286,6 +392,17 @@
     class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-700"
   >
     {t("Saved")}
+  </div>{/if}
+{#if reconciliationStatus}<div
+    class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900"
+    role="alert"
+  >
+    <p class="font-semibold">
+      {t(`save.${reconciliationStatus}.title`)}
+    </p>
+    <p class="mt-1 text-sm text-amber-800">
+      {t(`save.${reconciliationStatus}.description`)}
+    </p>
   </div>{/if}
 
 <RequestState {loading} {error} onRetry={loadSecurity}>

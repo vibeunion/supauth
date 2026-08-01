@@ -13,7 +13,7 @@ import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
-type ProbeExpectation = 'exact-200' | 'route-exists' | 'runtime-preserved';
+type ProbeExpectation = 'exact-200' | 'exact-308' | 'route-exists' | 'runtime-preserved';
 
 interface ProbeSpec {
   name: string;
@@ -79,6 +79,7 @@ function sha256File(path: string) {
 function isExpectedStatus(status: number, expectation: ProbeExpectation, allowedStatuses?: number[]) {
   if (allowedStatuses) return allowedStatuses.includes(status);
   if (expectation === 'exact-200') return status === 200;
+  if (expectation === 'exact-308') return status === 308;
   if (expectation === 'route-exists') return status >= 200 && status < 500 && status !== 404;
   return status >= 200 && status < 500;
 }
@@ -86,6 +87,7 @@ function isExpectedStatus(status: number, expectation: ProbeExpectation, allowed
 function describeExpectation(expectation: ProbeExpectation, allowedStatuses?: number[]) {
   if (allowedStatuses) return `expected HTTP status in [${allowedStatuses.join(', ')}]`;
   if (expectation === 'exact-200') return 'expected HTTP 200';
+  if (expectation === 'exact-308') return 'expected HTTP 308';
   if (expectation === 'route-exists') return 'expected a non-404, non-5xx route response';
   return 'expected preserved Supabase runtime route to avoid upstream 5xx';
 }
@@ -94,11 +96,56 @@ function isHostedGoTrueAuthorizeLocation(location: string, baseUrl: string) {
   try {
     const actual = new URL(location, baseUrl);
     const expected = new URL(baseUrl);
-    return actual.host === expected.host
+    return actual.origin === expected.origin
       && actual.pathname === '/auth/v1/oauth/authorize'
-      && (actual.protocol === 'https:' || actual.protocol === 'http:');
+      && actual.protocol === 'https:';
   } catch {
     return false;
+  }
+}
+
+function cleartextRedirectProbeUrl(baseUrl: string, source: string) {
+  const url = new URL(`/.well-known/supauth-https-redirect/${source}/path`, baseUrl);
+  url.protocol = 'http:';
+  url.searchParams.set('source', `${source}/probe`);
+  url.searchParams.set('keep', '1');
+  return url;
+}
+
+function expectedHttpsRedirectUrl(cleartextUrl: URL) {
+  const expectedUrl = new URL(cleartextUrl);
+  expectedUrl.protocol = 'https:';
+  return expectedUrl;
+}
+
+function httpsRedirectProbeResult(name: string, cleartextUrl: URL, expectedUrl: URL, response: Response): ProbeResult {
+  const location = response.headers.get('location') || '';
+  const actualUrl = location ? new URL(location, cleartextUrl) : null;
+  const ok = response.status === 308 && actualUrl?.toString() === expectedUrl.toString();
+  return {
+    name,
+    url: cleartextUrl.toString(),
+    expectation: 'exact-308',
+    ok,
+    status: response.status,
+    error: ok ? undefined : `expected HTTP 308 Location ${expectedUrl}, got HTTP ${response.status} Location ${location || '<empty>'}`,
+  };
+}
+
+async function probeHttpsRedirect(fetchImpl: FetchLike, name: string, baseUrl: string, source: string): Promise<ProbeResult> {
+  const cleartextUrl = cleartextRedirectProbeUrl(baseUrl, source);
+  const expectedUrl = expectedHttpsRedirectUrl(cleartextUrl);
+  try {
+    const response = await fetchImpl(cleartextUrl, { method: 'GET', redirect: 'manual' });
+    return httpsRedirectProbeResult(name, cleartextUrl, expectedUrl, response);
+  } catch (error) {
+    return {
+      name,
+      url: cleartextUrl.toString(),
+      expectation: 'exact-308',
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -304,6 +351,8 @@ export async function verifySupacloudInstalledApp(input: {
     { name: 'supauth_function_health_preserved', url: joinUrl(runtimeUrl, '/functions/v1/supauth/api/v1/health'), expectation: 'exact-200' },
   ];
 
+  result.probes.push(await probeHttpsRedirect(fetchImpl, 'public_http_to_https', baseUrl, 'public'));
+  result.probes.push(await probeHttpsRedirect(fetchImpl, 'runtime_http_to_https', runtimeUrl, 'runtime'));
   result.probes.push(await probeAdminConsoleRedirect(fetchImpl, {
     name: 'admin_console_root',
     entryUrl: joinUrl(baseUrl, '/admin'),

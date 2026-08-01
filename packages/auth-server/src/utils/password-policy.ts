@@ -32,11 +32,10 @@ function isRecord(input: unknown): input is Record<string, unknown> {
 }
 
 function runtimeMinimumLength(input: unknown): number {
-  const parsed = typeof input === 'number' ? input : Number(input);
-  if (input === undefined || input === null || input === '' || !Number.isInteger(parsed) || parsed < 6 || parsed > 128) {
+  if (typeof input !== 'number' || !Number.isInteger(input) || input < 6 || input > 128) {
     throw new Error('GoTrue returned an invalid password_min_length');
   }
-  return parsed;
+  return input;
 }
 
 /** 未知字符策略无法被领取页精确表达，必须失败关闭以免放行弱密码。 */

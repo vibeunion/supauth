@@ -14,21 +14,64 @@
 import { describe, it, expect, beforeAll } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { SupaCloudAdapter } from '../../../packages/auth-server/src/supacloud/adapter.js';
+import {
+  SupaCloudAdapter,
+  SupaCloudApiError,
+} from '../../../packages/auth-server/src/supacloud/adapter.js';
 import { loadConfig } from '../../../packages/auth-server/src/config/index.js';
 
-const gate = process.env.RUN_SUPACLOUD_LIVE_CONTRACT === '1';
-const describeLive = gate ? describe : describe.skip;
-const itMutation = process.env.RUN_SUPACLOUD_LIVE_MUTATION === '1' ? it : it.skip;
+type LiveContractGates = {
+  contract: boolean;
+  mutation: boolean;
+};
 
-// Track capability report for unsupported paths
-const capabilityReport: Array<{ path: string; method: string; supported: boolean; error?: string }> = [];
+type CapabilityReportEntry = {
+  path: string;
+  method: string;
+  supported: boolean;
+  error?: string;
+};
+
+const SAFE_CAPABILITY_NOTES = new Set(['fixture env missing', 'not found (404)']);
+const PUBLIC_PROJECT_FIELDS = new Set(['id', 'ref', 'project_ref', 'name']);
+const SENSITIVE_PROJECT_FIELD = /(?:config|database|connection|credential|jwt|key|secret|token)/i;
+
+function liveContractGates(environment: Record<string, string | undefined>): LiveContractGates {
+  const contract = environment.RUN_SUPACLOUD_LIVE_CONTRACT === '1';
+  return {
+    contract,
+    mutation: contract && environment.RUN_SUPACLOUD_LIVE_MUTATION === '1',
+  };
+}
+
+function redactedCapabilityError(failure: unknown): string {
+  if (typeof failure === 'string' && SAFE_CAPABILITY_NOTES.has(failure)) return failure;
+  if (failure instanceof SupaCloudApiError) return `request failed (${failure.status})`;
+  if (failure instanceof Error && ['AbortError', 'TimeoutError'].includes(failure.name)) {
+    return 'request timed out';
+  }
+  return 'request failed';
+}
+
+function nestedFieldNames(candidate: unknown): string[] {
+  if (Array.isArray(candidate)) return candidate.flatMap(nestedFieldNames);
+  if (!candidate || typeof candidate !== 'object') return [];
+  return Object.entries(candidate as Record<string, unknown>).flatMap(([field, nested]) => (
+    [field, ...nestedFieldNames(nested)]
+  ));
+}
+
+const gates = liveContractGates(process.env);
+const describeLive = gates.contract ? describe : describe.skip;
+const itMutation = gates.mutation ? it : it.skip;
+
+const capabilityReport: CapabilityReportEntry[] = [];
 
 let adapter: SupaCloudAdapter;
 let testProjectRef: string;
 
 beforeAll(() => {
-  if (!gate) return;
+  if (!gates.contract) return;
   process.env.SUPACLOUD_API_URL = process.env.SUPACLOUD_API_URL || '';
   process.env.SUPACLOUD_MASTER_TOKEN = process.env.SUPACLOUD_MASTER_TOKEN || '';
   process.env.PROJECT_REF = process.env.PROJECT_REF || '';
@@ -39,16 +82,48 @@ beforeAll(() => {
   testProjectRef = process.env.PROJECT_REF!;
 });
 
-function recordCapability(path: string, method: string, supported: boolean, error?: string) {
-  capabilityReport.push({ path, method, supported, error });
+function recordCapability(path: string, method: string, supported: boolean, failure?: unknown) {
+  capabilityReport.push({
+    path,
+    method,
+    supported,
+    ...(!supported && failure !== undefined ? { error: redactedCapabilityError(failure) } : {}),
+  });
 }
 
-// Helper: assert response has expected envelope fields
-function assertEnvelope<T extends Record<string, unknown>>(obj: T, requiredFields: string[], label: string) {
+function assertEnvelope<T extends Record<string, unknown>>(response: T, requiredFields: string[]) {
   for (const field of requiredFields) {
-    expect(obj).toHaveProperty(field);
+    expect(Object.hasOwn(response, field)).toBe(true);
   }
 }
+
+describe('SupaCloud live contract local safety guards', () => {
+  it('requires both gates before enabling mutations', () => {
+    expect(liveContractGates({})).toEqual({ contract: false, mutation: false });
+    expect(liveContractGates({ RUN_SUPACLOUD_LIVE_MUTATION: '1' }))
+      .toEqual({ contract: false, mutation: false });
+    expect(liveContractGates({
+      RUN_SUPACLOUD_LIVE_CONTRACT: '1',
+      RUN_SUPACLOUD_LIVE_MUTATION: '0',
+    })).toEqual({ contract: true, mutation: false });
+    expect(liveContractGates({
+      RUN_SUPACLOUD_LIVE_CONTRACT: '1',
+      RUN_SUPACLOUD_LIVE_MUTATION: '1',
+    })).toEqual({ contract: true, mutation: true });
+  });
+
+  it('redacts tokens, response bodies, paths, and internal URLs from report errors', () => {
+    const upstreamFailure = new SupaCloudApiError(
+      503,
+      'token=dummy-secret; upstream=http://internal.invalid/v1; raw-response-body',
+      '/v1/projects/internal-project',
+    );
+    expect(redactedCapabilityError(upstreamFailure)).toBe('request failed (503)');
+    expect(redactedCapabilityError(new Error('connect ECONNREFUSED http://internal.invalid')))
+      .toBe('request failed');
+    expect(redactedCapabilityError('fixture env missing')).toBe('fixture env missing');
+  });
+});
 
 // ─── Project ──────────────────────────────────────────────────────
 describeLive('SupaCloud adapter live contract', () => {
@@ -56,11 +131,26 @@ describeLive('SupaCloud adapter live contract', () => {
   it('getProject returns project envelope', async () => {
     try {
       const project = await adapter.getProject() as Record<string, unknown>;
-      assertEnvelope(project, ['id'], 'getProject');
-      expect(project).toHaveProperty("id"); // SupaCloud returns UUID as id, not project ref
+      assertEnvelope(project, ['id']);
       recordCapability('/v1/projects/:ref', 'GET', true);
     } catch (e) {
-      recordCapability('/v1/projects/:ref', 'GET', false, (e as Error).message);
+      recordCapability('/v1/projects/:ref', 'GET', false, e);
+      throw e;
+    }
+  });
+
+  it('project route returns an allowlisted, redacted DTO', async () => {
+    try {
+      const { healthRoutes } = await import('../../../packages/auth-server/src/routes/health.js');
+      const response = await healthRoutes.handle(new Request('http://localhost/v1/project'));
+      const project = await response.json() as Record<string, unknown>;
+      expect(response.status).toBe(200);
+      assertEnvelope(project, ['id']);
+      expect(Object.keys(project).every((field) => PUBLIC_PROJECT_FIELDS.has(field))).toBe(true);
+      expect(nestedFieldNames(project).some((field) => SENSITIVE_PROJECT_FIELD.test(field))).toBe(false);
+      recordCapability('/v1/project', 'GET', true);
+    } catch (e) {
+      recordCapability('/v1/project', 'GET', false, e);
       throw e;
     }
   });
@@ -71,27 +161,25 @@ describeLive('SupaCloud adapter live contract', () => {
       const config = await adapter.getAuthConfig() as Record<string, unknown>;
       // Supabase Management API returns auth config with these fields
       const expectedFields = ['enable_signup', 'enable_confirmations'];
-      for (const f of expectedFields) {
-        expect(config).toHaveProperty(f);
-      }
+      assertEnvelope(config, expectedFields);
       recordCapability('/v1/projects/:ref/config/auth', 'GET', true);
     } catch (e) {
-      recordCapability('/v1/projects/:ref/config/auth', 'GET', false, (e as Error).message);
+      recordCapability('/v1/projects/:ref/config/auth', 'GET', false, e);
       throw e;
     }
   });
 
-  it('updateAuthConfig (PATCH) is idempotent', async () => {
+  itMutation('updateAuthConfig (PATCH) is idempotent', async () => {
     try {
       const original = await adapter.getAuthConfig() as Record<string, unknown>;
       // PATCH with same values → should be idempotent
-      const result = await adapter.updateAuthConfig({
+      const updatedConfig = await adapter.updateAuthConfig({
         enable_signup: original.enable_signup,
       }) as Record<string, unknown>;
-      expect(result).toBeDefined();
+      expect(updatedConfig).toBeDefined();
       recordCapability('/v1/projects/:ref/config/auth', 'PATCH', true);
     } catch (e) {
-      recordCapability('/v1/projects/:ref/config/auth', 'PATCH', false, (e as Error).message);
+      recordCapability('/v1/projects/:ref/config/auth', 'PATCH', false, e);
       throw e;
     }
   });
@@ -103,7 +191,7 @@ describeLive('SupaCloud adapter live contract', () => {
       expect(Array.isArray(clients)).toBe(true);
       recordCapability('/v1/projects/:ref/auth/oauth-clients', 'GET', true);
     } catch (e) {
-      recordCapability('/v1/projects/:ref/auth/oauth-clients', 'GET', false, (e as Error).message);
+      recordCapability('/v1/projects/:ref/auth/oauth-clients', 'GET', false, e);
       throw e;
     }
   });
@@ -120,7 +208,8 @@ describeLive('SupaCloud adapter live contract', () => {
       }) as Record<string, unknown>;
       clientId = String(created.client_id || created.id || '');
       expect(clientId).toBeTruthy();
-      expect(JSON.stringify(created)).not.toContain(process.env.SUPACLOUD_MASTER_TOKEN || '___not_set___');
+      const masterToken = process.env.SUPACLOUD_MASTER_TOKEN || '___not_set___';
+      expect(JSON.stringify(created).includes(masterToken)).toBe(false);
       recordCapability('/v1/projects/:ref/auth/oauth-clients', 'POST', true);
 
       const fetched = await adapter.getOAuthClient(clientId) as Record<string, unknown>;
@@ -149,7 +238,7 @@ describeLive('SupaCloud adapter live contract', () => {
       expect(Array.isArray(providers)).toBe(true);
       recordCapability('/v1/projects/:ref/auth/providers', 'GET', true);
     } catch (e) {
-      recordCapability('/v1/projects/:ref/auth/providers', 'GET', false, (e as Error).message);
+      recordCapability('/v1/projects/:ref/auth/providers', 'GET', false, e);
       throw e;
     }
   });
@@ -157,12 +246,11 @@ describeLive('SupaCloud adapter live contract', () => {
   // ─── Users ────────────────────────────────────────────────────
   it('listUsers returns users envelope', async () => {
     try {
-      const result = await adapter.listUsers();
-      // Supabase returns { users: [...], aud, ... } or array
-      expect(result).toBeDefined();
+      const users = await adapter.listUsers();
+      expect(users).toBeDefined();
       recordCapability('/v1/projects/:ref/auth/users', 'GET', true);
     } catch (e) {
-      recordCapability('/v1/projects/:ref/auth/users', 'GET', false, (e as Error).message);
+      recordCapability('/v1/projects/:ref/auth/users', 'GET', false, e);
       throw e;
     }
   });
@@ -174,25 +262,33 @@ describeLive('SupaCloud adapter live contract', () => {
       expect(Array.isArray(buckets)).toBe(true);
       recordCapability('/storage/v1/bucket', 'GET', true);
     } catch (e) {
-      recordCapability('/storage/v1/bucket', 'GET', false, (e as Error).message);
+      recordCapability('/storage/v1/bucket', 'GET', false, e);
       throw e;
     }
   });
 
   itMutation('create/get/delete storage bucket is clean and scoped', async () => {
     const bucketId = `supaoauth-live-${randomUUID()}`;
+    let bucketCreated = false;
     try {
       const created = await adapter.createStorageBucket(bucketId, { public: false });
       expect(created).toBeDefined();
+      bucketCreated = true;
       recordCapability('/storage/v1/bucket', 'POST', true);
 
       const fetched = await adapter.getStorageBucket(bucketId);
       expect(fetched).toBeDefined();
       recordCapability('/storage/v1/bucket/:id', 'GET', true);
     } finally {
-      await adapter.deleteStorageBucket(bucketId).catch((e) => {
-        recordCapability('/storage/v1/bucket/:id', 'DELETE', false, (e as Error).message);
-      });
+      if (bucketCreated) {
+        try {
+          await adapter.deleteStorageBucket(bucketId);
+          recordCapability('/storage/v1/bucket/:id', 'DELETE', true);
+        } catch (e) {
+          recordCapability('/storage/v1/bucket/:id', 'DELETE', false, e);
+          throw e;
+        }
+      }
     }
   });
 
@@ -205,7 +301,7 @@ describeLive('SupaCloud adapter live contract', () => {
       expect(Array.isArray(verification.probes)).toBe(true);
       recordCapability('verifyGatewayRoutes', 'GET', true);
     } catch (e) {
-      recordCapability('verifyGatewayRoutes', 'GET', false, (e as Error).message);
+      recordCapability('verifyGatewayRoutes', 'GET', false, e);
       throw e;
     }
   });
@@ -217,12 +313,10 @@ describeLive('SupaCloud adapter live contract', () => {
       expect(status).toBeDefined();
       recordCapability('/v1/projects/:ref/auth/oauth-server', 'GET', true);
     } catch (e) {
-      const msg = (e as Error).message;
-      // If the path doesn't exist, record as unsupported capability
-      if (msg.includes('404')) {
+      if (e instanceof SupaCloudApiError && e.status === 404) {
         recordCapability('/v1/projects/:ref/auth/oauth-server', 'GET', false, 'not found (404)');
       } else {
-        recordCapability('/v1/projects/:ref/auth/oauth-server', 'GET', false, msg);
+        recordCapability('/v1/projects/:ref/auth/oauth-server', 'GET', false, e);
         throw e;
       }
     }
@@ -250,43 +344,38 @@ describeLive('SupaCloud adapter live contract', () => {
 
   // ─── Error handling ───────────────────────────────────────────
   it('adapter rejects with meaningful error on bad path', async () => {
-    try {
-      // getUser with non-existent ID should error
-      await adapter.getUser('00000000-0000-0000-0000-000000000000');
-    } catch (e) {
-      expect((e as Error).message).toMatch(/SupaCloud \d{3}/);
-    }
+    await expect(adapter.getUser('00000000-0000-0000-0000-000000000000'))
+      .rejects.toBeInstanceOf(SupaCloudApiError);
   });
 
   // ─── Redacted fields ──────────────────────────────────────────
   it('master token is never in adapter responses', async () => {
     const token = process.env.SUPACLOUD_MASTER_TOKEN || '';
     if (!token) return;
-    const responses: unknown[] = [];
-    try { responses.push(await adapter.listOAuthClients()); } catch {}
-    try { responses.push(await adapter.listStorageBuckets()); } catch {}
-    for (const resp of responses) {
-      const str = JSON.stringify(resp);
-      expect(str).not.toContain(token);
+    const responses = await Promise.allSettled([
+      adapter.listOAuthClients(),
+      adapter.listStorageBuckets(),
+    ]);
+    for (const response of responses) {
+      if (response.status !== 'fulfilled') continue;
+      expect(JSON.stringify(response.value).includes(token)).toBe(false);
     }
   });
 
   // ─── Timeout ──────────────────────────────────────────────────
   it('adapter requests timeout within 35s on unreachable host', async () => {
     const start = Date.now();
-    const badAdapter = new (SupaCloudAdapter as any)();
-    // Override internal URL to unreachable host
-    badAdapter.apiUrl = 'http://192.0.2.1:9999';
-    badAdapter.masterToken = 'test';
-    badAdapter.projectRef = 'test';
-    try {
-      await badAdapter.getProject();
-    } catch {
-      // Should timeout — allow up to 12s for CI variance
-      const elapsed = Date.now() - start;
-      // Adapter default timeout is 30s; test process timeout may fire first
-      expect(elapsed).toBeLessThan(35_000);
-    }
+    const unreachableAdapter = new SupaCloudAdapter() as unknown as {
+      apiUrl: string;
+      masterToken: string;
+      projectRef: string;
+      getProject: () => Promise<unknown>;
+    };
+    unreachableAdapter.apiUrl = 'http://192.0.2.1:9999';
+    unreachableAdapter.masterToken = 'test';
+    unreachableAdapter.projectRef = 'test';
+    await expect(unreachableAdapter.getProject()).rejects.toBeInstanceOf(Error);
+    expect(Date.now() - start).toBeLessThan(35_000);
   }, { timeout: 35_000 });
 
   // ─── Capability report ────────────────────────────────────────

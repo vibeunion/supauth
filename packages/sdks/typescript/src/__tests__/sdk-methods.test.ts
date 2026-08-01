@@ -7,6 +7,20 @@ function mockFetch(fn: (input: string | Request, init?: RequestInit) => Promise<
   return () => { globalThis.fetch = orig; };
 }
 
+async function capturedRequestUrl(invoke: (client: SupaOAuthClient) => Promise<unknown>) {
+  let requestUrl = '';
+  const restore = mockFetch((input) => {
+    requestUrl = typeof input === 'string' ? input : input.url;
+    return Promise.resolve(Response.json({}));
+  });
+  try {
+    await invoke(new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' }));
+    return requestUrl;
+  } finally {
+    restore();
+  }
+}
+
 describe('SupaOAuthClient — all public methods exist', () => {
   const client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
 
@@ -278,6 +292,96 @@ describe('SupaOAuthClient — query string construction', () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe('SupaOAuthClient — dynamic URL boundaries', () => {
+  const encodedPathCases = [
+    {
+      name: 'application traversal input',
+      invoke: (client: SupaOAuthClient) => client.getApplication('../users/victim'),
+      expectedPath: '/v1/applications/..%2Fusers%2Fvictim',
+    },
+    {
+      name: 'connector slash',
+      invoke: (client: SupaOAuthClient) => client.getConnector('connector/child'),
+      expectedPath: '/v1/connectors/connector%2Fchild',
+    },
+    {
+      name: 'resource question mark',
+      invoke: (client: SupaOAuthClient) => client.getResource('resource?admin=true'),
+      expectedPath: '/v1/resources/resource%3Fadmin%3Dtrue',
+    },
+    {
+      name: 'nested scope segments',
+      invoke: (client: SupaOAuthClient) => client.updateScope('resource/one', 'scope#one', { name: 'scope' }),
+      expectedPath: '/v1/resources/resource%2Fone/scopes/scope%23one',
+    },
+    {
+      name: 'user traversal input',
+      invoke: (client: SupaOAuthClient) => client.deleteUser('../applications/victim-app'),
+      expectedPath: '/v1/users/..%2Fapplications%2Fvictim-app',
+    },
+    {
+      name: 'organization hash',
+      invoke: (client: SupaOAuthClient) => client.getOrganization('organization#fragment'),
+      expectedPath: '/v1/organizations/organization%23fragment',
+    },
+    {
+      name: 'role whitespace and Unicode',
+      invoke: (client: SupaOAuthClient) => client.getRole('角色 一'),
+      expectedPath: '/v1/roles/%E8%A7%92%E8%89%B2%20%E4%B8%80',
+    },
+    {
+      name: 'webhook traversal input',
+      invoke: (client: SupaOAuthClient) => client.getWebhook('../applications/victim-app'),
+      expectedPath: '/v1/webhooks/..%2Fapplications%2Fvictim-app',
+    },
+    {
+      name: 'tenant member slash',
+      invoke: (client: SupaOAuthClient) => client.updateTenantMember('member/one', { role: 'owner' }),
+      expectedPath: '/v1/tenant/members/member%2Fone',
+    },
+    {
+      name: 'audit export fragment',
+      invoke: (client: SupaOAuthClient) => client.getAuditExport('export#one'),
+      expectedPath: '/v1/audit/export/export%23one',
+    },
+    {
+      name: 'provisioning slash',
+      invoke: (client: SupaOAuthClient) => client.getProvisioningStatus('project/other'),
+      expectedPath: '/v1/provisioning/project%2Fother',
+    },
+  ] as const;
+
+  for (const pathCase of encodedPathCases) {
+    it(`encodes ${pathCase.name} as one path segment`, async () => {
+      const requestUrl = await capturedRequestUrl(pathCase.invoke);
+      expect(new URL(requestUrl).pathname).toBe(pathCase.expectedPath);
+    });
+  }
+
+  for (const invalidSegment of ['', '.', '..']) {
+    it(`rejects invalid path segment ${JSON.stringify(invalidSegment)}`, () => {
+      const client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
+      expect(() => client.getUser(invalidSegment)).toThrow(TypeError);
+    });
+  }
+
+  it('keeps org_id query input in one parameter', async () => {
+    const orgId = 'org-one&application_id=victim#fragment';
+    const requestUrl = await capturedRequestUrl((client) => client.getUserPermissions('user-one', orgId));
+    const url = new URL(requestUrl);
+    expect(url.searchParams.get('org_id')).toBe(orgId);
+    expect(url.searchParams.has('application_id')).toBe(false);
+  });
+
+  it('keeps sync org_id query input in one parameter', async () => {
+    const orgId = 'org-one&force=true#fragment';
+    const requestUrl = await capturedRequestUrl((client) => client.syncUserMetadata('user-one', orgId));
+    const url = new URL(requestUrl);
+    expect(url.searchParams.get('org_id')).toBe(orgId);
+    expect(url.searchParams.has('force')).toBe(false);
   });
 });
 

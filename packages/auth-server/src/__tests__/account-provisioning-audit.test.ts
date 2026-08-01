@@ -1,9 +1,17 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const accountClaimSecret = 'account-claim-secret-for-audit-test';
+const accountClaimProof = 'claim-proof-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const originalAccountClaimSecret = process.env.ACCOUNT_CLAIM_SECRET;
 const auditCalls = mock(async (_event: Record<string, unknown>) => ({ id: 'audit-one' }));
-const updateRecord = mock((_values: Record<string, unknown>) => ({ where: async () => [] }));
+const updateRecord = mock((values: Record<string, unknown>) => ({
+  where: () => ({
+    returning: async () => {
+      Object.assign(provisionedAccount, values);
+      return [provisionedAccount];
+    },
+  }),
+}));
 const provisionedAccount = {
   id: 'record-one',
   externalId: '10086',
@@ -12,10 +20,16 @@ const provisionedAccount = {
   normalizedDisplayName: '张三',
   email: 'zhangsan@example.com',
   userId: 'gotrue-user-one' as string | null,
-  initialPasswordEncrypted: '',
+  initialPasswordEncrypted: '' as string | null,
   initialPasswordClaimed: false,
   claimedAt: null,
   claimCount: 0,
+  claimProofHash: '' as string | null,
+  claimState: 'ready',
+  claimMode: null,
+  claimPasswordHash: null,
+  claimOperationId: null,
+  claimLeaseExpiresAt: null,
   sourceStatus: 'active',
   profile: {},
   importBatch: null,
@@ -30,9 +44,7 @@ const database = {
       where: () => ({ limit: async () => [provisionedAccount] }),
     }),
   })),
-  update: mock(() => ({
-    set: updateRecord,
-  })),
+  update: mock(() => ({ set: updateRecord })),
 };
 
 mock.module('../db/index.js', () => ({ getDb: () => database }));
@@ -45,6 +57,12 @@ describe('account provisioning audit actor', () => {
     process.env.ACCOUNT_CLAIM_SECRET = accountClaimSecret;
     provisionedAccount.userId = 'gotrue-user-one';
     provisionedAccount.initialPasswordClaimed = false;
+    provisionedAccount.claimState = 'ready';
+    provisionedAccount.claimMode = null;
+    provisionedAccount.claimPasswordHash = null;
+    provisionedAccount.claimOperationId = null;
+    provisionedAccount.claimLeaseExpiresAt = null;
+    provisionedAccount.claimProofHash = accountProvisioning.hashAccountClaimProof(accountClaimProof);
     provisionedAccount.initialPasswordEncrypted = accountProvisioning.encryptInitialPassword(
       'Init123!',
       accountClaimSecret,
@@ -61,10 +79,18 @@ describe('account provisioning audit actor', () => {
   test('uses the verified GoTrue user ID and falls back to the claimed email', async () => {
     for (const expectedActorId of ['gotrue-user-one', 'zhangsan@example.com']) {
       provisionedAccount.userId = expectedActorId === 'gotrue-user-one' ? expectedActorId : null;
+      provisionedAccount.initialPasswordClaimed = false;
+      provisionedAccount.claimState = 'ready';
+      provisionedAccount.claimProofHash = accountProvisioning.hashAccountClaimProof(accountClaimProof);
+      provisionedAccount.initialPasswordEncrypted = accountProvisioning.encryptInitialPassword(
+        'Init123!',
+        accountClaimSecret,
+      );
       await accountProvisioning.claimAccount({
         externalId: '10086',
         externalType: 'employee',
         displayName: '张三',
+        claimProof: accountClaimProof,
       });
       expect(auditCalls.mock.calls.at(-1)?.[0]).toMatchObject({
         eventType: 'account_provisioning.claimed',
@@ -85,6 +111,7 @@ describe('account provisioning audit actor', () => {
       externalId: '10086',
       externalType: 'employee',
       displayName: '张三',
+      claimProof: accountClaimProof,
       passwordMode: 'set_on_claim',
       newPassword: 'NewPass123!',
       updatePassword,
@@ -117,8 +144,46 @@ describe('account provisioning audit actor', () => {
       externalId: '10086',
       externalType: 'employee',
       displayName: '张三',
+      claimProof: accountClaimProof,
       passwordMode: 'show_initial_password',
     })).rejects.toThrow();
-    expect(updateRecord).not.toHaveBeenCalled();
+    expect(auditCalls).not.toHaveBeenCalled();
+    expect(updateRecord.mock.calls.some(([values]) => values.initialPasswordClaimed === true)).toBe(false);
+  });
+
+  test('imports only the claim proof hash into an unclaimed record', async () => {
+    const saved = await accountProvisioning.upsertAccountProvisioningRecord({
+      external_id: '10086',
+      external_type: 'employee',
+      display_name: '张三',
+      email: 'zhangsan@example.com',
+      claim_proof: accountClaimProof,
+    });
+    const updateValues = updateRecord.mock.calls.at(-1)?.[0];
+
+    expect(updateValues?.claimProofHash).toBe(accountProvisioning.hashAccountClaimProof(accountClaimProof));
+    expect(JSON.stringify(updateValues)).not.toContain(accountClaimProof);
+    expect(saved.record.claimProofHash).not.toContain(accountClaimProof);
+  });
+
+  test('does not reset password or proof after an account was claimed', async () => {
+    provisionedAccount.initialPasswordClaimed = true;
+    provisionedAccount.initialPasswordEncrypted = null;
+    provisionedAccount.claimProofHash = null;
+    provisionedAccount.claimState = 'claimed';
+
+    const saved = await accountProvisioning.upsertAccountProvisioningRecord({
+      external_id: '10086',
+      external_type: 'employee',
+      display_name: '张三',
+      email: 'zhangsan@example.com',
+      initial_password: 'MustNotReset123!',
+      claim_proof: accountClaimProof,
+    });
+    const updateValues = updateRecord.mock.calls.at(-1)?.[0];
+
+    expect(saved.initialPassword).toBeUndefined();
+    expect(updateValues?.initialPasswordEncrypted).toBeNull();
+    expect(updateValues?.claimProofHash).toBeNull();
   });
 });

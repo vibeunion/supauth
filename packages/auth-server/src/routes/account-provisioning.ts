@@ -21,11 +21,11 @@ import {
   type PasswordPolicyViolation,
   type PublicPasswordPolicy,
 } from '../utils/password-policy.js';
+import { BoundedFixedWindowLimiter, resolveClientIp } from '../utils/rate-limit.js';
 
 const adapter = getSupaCloudAdapter();
 const CLAIM_LIMIT_WINDOW_MS = 60_000;
 const CLAIM_LIMIT_MAX = 12;
-const claimAttempts = new Map<string, { count: number; resetAt: number }>();
 
 interface ImportPayload {
   records?: accountProvisioning.AccountProvisioningImportRecord[];
@@ -52,7 +52,7 @@ type AccountClaimConfig = {
 };
 
 const DEFAULT_ACCOUNT_CLAIM_CONFIG: AccountClaimConfig = {
-  enabled: true,
+  enabled: false,
   external_type: 'employee',
   password: {
     mode: 'show_initial_password',
@@ -74,19 +74,7 @@ function defaultProvisioningEmailDomain(): string {
 }
 
 function requestIp(headers: Record<string, string | undefined>): string {
-  return (headers['x-forwarded-for'] || headers['x-real-ip'] || 'unknown').split(',')[0].trim();
-}
-
-function consumeClaimLimit(ip: string): boolean {
-  const now = Date.now();
-  const current = claimAttempts.get(ip);
-  if (!current || current.resetAt <= now) {
-    claimAttempts.set(ip, { count: 1, resetAt: now + CLAIM_LIMIT_WINDOW_MS });
-    return true;
-  }
-  if (current.count >= CLAIM_LIMIT_MAX) return false;
-  current.count += 1;
-  return true;
+  return resolveClientIp(headers, getConfig().trustProxyHeaders);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -121,9 +109,7 @@ export function sanitizeAccountClaimConfig(config: unknown): AccountClaimConfig 
   const source = isRecord(config) && isRecord(config.value) ? config.value : config;
   const value = isRecord(source) ? source : {};
   const password = isRecord(value.password) ? value.password : {};
-  const enabled = isRecord(config) && typeof config.enabled === 'boolean'
-    ? config.enabled
-    : value.enabled !== false;
+  const enabled = isRecord(config) && config.enabled === true;
 
   return {
     enabled,
@@ -149,7 +135,7 @@ export function sanitizeAccountClaimConfig(config: unknown): AccountClaimConfig 
 
 async function readAccountClaimConfig() {
   const config = await tenantConfigRepo.getTenantConfig('account_claim', 'default');
-  return sanitizeAccountClaimConfig(config || {});
+  return sanitizeAccountClaimConfig(config);
 }
 
 function passwordPolicyFromClaimConfig(config: AccountClaimConfig): PublicPasswordPolicy {
@@ -190,42 +176,26 @@ function unwrapUser(value: Record<string, unknown>): Record<string, unknown> {
   return value;
 }
 
-export function resolveAccountClaimPasswordProjectRefs(input: {
+export function resolveAccountClaimPasswordProjectRef(input: {
   projectRef?: string;
   oauthAuthorizationProjectRef?: string;
-  extraProjectRefs?: string;
-}) {
-  const refs = new Set<string>();
-  for (const value of [
-    input.projectRef,
-    input.oauthAuthorizationProjectRef,
-    ...(input.extraProjectRefs || '').split(','),
-  ]) {
-    const ref = String(value || '').trim();
-    if (ref) refs.add(ref);
-  }
-  return [...refs];
+}): string {
+  const authorizationProjectRef = String(input.oauthAuthorizationProjectRef || '').trim();
+  return authorizationProjectRef || String(input.projectRef || '').trim();
 }
 
-function accountClaimPasswordAdapters(): SupaCloudAdapter[] {
+function accountClaimPasswordAdapter(): SupaCloudAdapter {
   const config = getConfig();
-  const projectRefs = resolveAccountClaimPasswordProjectRefs({
+  const projectRef = resolveAccountClaimPasswordProjectRef({
     projectRef: config.projectRef,
     oauthAuthorizationProjectRef: config.oauthAuthorizationProjectRef,
-    extraProjectRefs: runtimeEnv('SUPAUTH_ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS')
-      || process.env.ACCOUNT_CLAIM_PASSWORD_PROJECT_REFS,
   });
-  if (projectRefs.length === 0) throw new Error('No account claim password target project is configured');
-  return projectRefs.map(projectRef => (
-    projectRef === config.projectRef ? adapter : getSupaCloudAdapterForProject(projectRef)
-  ));
+  if (!projectRef) throw new Error('No authoritative account claim password project is configured');
+  return projectRef === config.projectRef ? adapter : getSupaCloudAdapterForProject(projectRef);
 }
 
 async function readAccountClaimRuntimePasswordPolicy(): Promise<PublicPasswordPolicy> {
-  const policies = await Promise.all(accountClaimPasswordAdapters().map(async targetAdapter => {
-    return passwordPolicyFromAuthConfig(await targetAdapter.getAuthConfig());
-  }));
-  return mergePasswordPolicies(...policies);
+  return passwordPolicyFromAuthConfig(await accountClaimPasswordAdapter().getAuthConfig());
 }
 
 function mergeAccountClaimPasswordPolicy(
@@ -239,14 +209,6 @@ function mergeAccountClaimPasswordPolicy(
       ...mergePasswordPolicies(passwordPolicyFromClaimConfig(config), runtimePolicy),
     },
   };
-}
-
-async function updateUserPasswordWithAdapter(
-  targetAdapter: SupaCloudAdapter,
-  target: accountProvisioning.AccountClaimPasswordUpdateTarget,
-  password: string,
-) {
-  await targetAdapter.updateUser(target.userId, { password });
 }
 
 function isWeakPasswordUpdateError(error: unknown): boolean {
@@ -280,9 +242,7 @@ async function updateClaimedUserPassword(
   target: accountProvisioning.AccountClaimPasswordUpdateTarget,
   password: string,
 ) {
-  for (const targetAdapter of accountClaimPasswordAdapters()) {
-    await updateUserPasswordWithAdapter(targetAdapter, target, password);
-  }
+  await accountClaimPasswordAdapter().updateUser(target.userId, { password });
 }
 
 function buildUserPayload(record: accountProvisioning.AccountProvisioningImportRecord, password?: string) {
@@ -349,6 +309,7 @@ export function createPublicAccountClaimRoutes(options?: {
   getPasswordPolicy?: () => Promise<PublicPasswordPolicy>;
   updatePassword?: (target: accountProvisioning.AccountClaimPasswordUpdateTarget, password: string) => Promise<void>;
 }) {
+  const claimAttempts = new BoundedFixedWindowLimiter({ windowMs: CLAIM_LIMIT_WINDOW_MS });
   const claimAccount = options?.claimAccount || accountProvisioning.claimAccount;
   const getConfig = options?.getConfig || readAccountClaimConfig;
   const getPasswordPolicy = options?.getPasswordPolicy
@@ -359,42 +320,50 @@ export function createPublicAccountClaimRoutes(options?: {
     if (!getPasswordPolicy || !config.enabled || config.password.mode !== 'set_on_claim') return config;
     return mergeAccountClaimPasswordPolicy(config, await getPasswordPolicy());
   };
+  const getSafeEffectiveConfig = async () => {
+    try {
+      return await getEffectiveConfig();
+    } catch {
+      return DEFAULT_ACCOUNT_CLAIM_CONFIG;
+    }
+  };
 
   return new Elysia({ prefix: '/v1/public/account-claims' })
     .get('/config', async () => {
-      return { success: true, config: await getEffectiveConfig() };
+      return { success: true, config: await getSafeEffectiveConfig() };
     }, {
       detail: { summary: 'Get public account claim configuration', tags: ['Public', 'Account Provisioning'] },
     })
     .post('/claim', async ({ body, headers, set }) => {
       const ip = requestIp(headers as Record<string, string | undefined>);
-      if (!consumeClaimLimit(ip)) {
+      if (!claimAttempts.consume(ip, CLAIM_LIMIT_MAX)) {
         set.status = 429;
         return { success: false, error: { code: 'too_many_attempts', message: 'Too many attempts. Please try again later.' } };
       }
 
-      const config = await getEffectiveConfig();
+      const config = await getSafeEffectiveConfig();
       if (!config.enabled) {
         set.status = 403;
         return { success: false, error: { code: 'account_claim_disabled', message: 'Account claiming is disabled.' } };
       }
 
-      const data = body as {
+      const requestBody = body as {
         display_name?: string;
         name?: string;
         external_id?: string;
         external_type?: string;
+        claim_proof?: string;
         new_password?: string;
       };
-      const displayName = String(data?.display_name || data?.name || '').trim();
-      const externalId = String(data?.external_id || '').trim();
-      const externalType = String(data?.external_type || config.external_type || 'generic').trim() || 'generic';
-      if (!displayName || !externalId) {
+      const displayName = String(requestBody?.display_name || requestBody?.name || '').trim();
+      const externalId = String(requestBody?.external_id || '').trim();
+      const externalType = String(requestBody?.external_type || config.external_type || 'generic').trim() || 'generic';
+      if (!displayName || !externalId || !String(requestBody?.claim_proof || '').trim()) {
         set.status = 400;
-        return { success: false, error: { code: 'invalid_request', message: 'Display name and external ID are required.' } };
+        return { success: false, error: { code: 'invalid_request', message: 'Display name, external ID, and claim proof are required.' } };
       }
       const passwordMode = config.password.mode;
-      const newPassword = String(data?.new_password || '');
+      const newPassword = String(requestBody?.new_password || '');
       const passwordViolation = passwordMode === 'set_on_claim'
         ? passwordPolicyViolation(newPassword, passwordPolicyFromClaimConfig(config))
         : null;
@@ -410,66 +379,57 @@ export function createPublicAccountClaimRoutes(options?: {
       }
 
       const headerMap = headers as Record<string, string | undefined>;
-      let result: accountProvisioning.AccountClaimResult;
+      let claimOutcome: accountProvisioning.AccountClaimResult;
       try {
-        result = await claimAccount({
+        claimOutcome = await claimAccount({
           displayName,
           externalId,
           externalType,
+          claimProof: String(requestBody.claim_proof).trim(),
           ip,
           userAgent: headerMap['user-agent'],
           passwordMode,
           newPassword: passwordMode === 'set_on_claim' ? newPassword : undefined,
           updatePassword: passwordMode === 'set_on_claim' ? updatePassword : undefined,
+          isDefinitivePasswordRejection: isWeakPasswordUpdateError,
         });
       } catch (error) {
-        if (!isWeakPasswordUpdateError(error)) throw error;
-        set.status = 400;
+        if (isWeakPasswordUpdateError(error)) {
+          set.status = 400;
+          return {
+            success: false,
+            error: {
+              code: 'weak_password',
+              message: 'Password does not satisfy the current password policy.',
+            },
+          };
+        }
+        set.status = 503;
         return {
           success: false,
           error: {
-            code: 'weak_password',
-            message: 'Password does not satisfy the current password policy.',
+            code: 'account_claim_unavailable',
+            message: 'Account claiming is temporarily unavailable. Please try again later.',
           },
         };
       }
 
-      if (result.status === 'not_found') {
-        set.status = 404;
-        return { success: false, error: { code: 'account_not_found', message: 'Account not found.' } };
-      }
-      if (result.status === 'already_claimed') {
-        if (passwordMode === 'set_on_claim') {
-          set.status = 409;
-          return {
-            success: false,
-            error: {
-              code: 'account_already_claimed',
-              message: 'Account has already been claimed.',
-            },
-          };
-        }
+      if (claimOutcome.status !== 'claimed') {
+        set.status = 409;
         return {
-          success: true,
-          status: result.status,
-          email: result.email,
-          message: 'Initial password has already been claimed.',
-        };
-      }
-      if (result.status === 'password_unavailable') {
-        return {
-          success: true,
-          status: result.status,
-          email: result.email,
-          message: 'Initial password is unavailable. Please contact an administrator.',
+          success: false,
+          error: {
+            code: 'account_claim_unavailable',
+            message: 'Account cannot be claimed with the supplied credentials.',
+          },
         };
       }
 
       return {
         success: true,
-        status: result.status,
-        email: result.email,
-        ...('passwordSet' in result ? { password_set: result.passwordSet } : { initial_password: result.initialPassword }),
+        status: claimOutcome.status,
+        email: claimOutcome.email,
+        ...('passwordSet' in claimOutcome ? { password_set: claimOutcome.passwordSet } : { initial_password: claimOutcome.initialPassword }),
       };
     }, {
       detail: { summary: 'Claim a pre-provisioned SupaOAuth account', tags: ['Public', 'Account Provisioning'] },

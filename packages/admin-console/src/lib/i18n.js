@@ -1,3 +1,8 @@
+import {
+  resolveDocumentLocale,
+  syncDocumentLocale,
+} from "./document-locale.js";
+
 const en = {
   "auth.checking": "Checking admin session...",
   "auth.requiredTitle": "Admin login required",
@@ -12,6 +17,26 @@ const en = {
   "common.notAvailable": "N/A",
   "common.cancel": "Cancel",
   "common.sectionNavigation": "Section navigation",
+  "mutation.storageUnavailable":
+    "Mutation reconciliation storage is unavailable. High-impact actions for {resource} are blocked.",
+  "mutation.outcomeUnknown":
+    "The write may have completed, but its authoritative outcome is unverified. Check the resource state before allowing a retry.",
+  "mutation.verifyAuthoritative":
+    "I have verified the authoritative {resource} state.",
+  "mutation.allowRetry": "Allow retry?",
+  "mutation.reconcile": "Unverified high-impact actions",
+  "mutation.stateChanged":
+    "The authoritative state changed before this action. Refresh and review it before trying again.",
+  "mutation.pending": "Action: {action} · Resource: {resourceId}",
+  "save.partial_failure.title": "Partially saved",
+  "save.partial_failure.description":
+    "Some settings were applied. The form was reloaded from the server and now shows the effective state.",
+  "save.write_failure.title": "Save failed",
+  "save.write_failure.description":
+    "The requested settings were not applied. The form was reloaded from the server.",
+  "save.readback_failure.title": "Save could not be verified",
+  "save.readback_failure.description":
+    "The write requests finished, but the effective server state could not be read back. Refresh before making further changes.",
   "state.forbidden": "Access denied",
   "state.forbiddenDescription":
     "Your administrator session does not have permission to read or manage this resource.",
@@ -26,6 +51,10 @@ const en = {
     "The management service could not be reached. Retry after the service recovers.",
   "state.requestFailed": "Request failed",
   "layout.subtitle": "User Center",
+  "layout.skipToContent": "Skip to main content",
+  "layout.openNavigation": "Open navigation",
+  "layout.closeNavigation": "Close navigation",
+  "layout.mobileNavigation": "Mobile navigation",
   "nav.section.overview": "Overview",
   "nav.section.authentication": "Authentication",
   "nav.section.authorization": "Authorization",
@@ -119,6 +148,11 @@ const en = {
     "This writes the SupaOAuth experience and the GoTrue sign-up configuration together.",
   "signIn.supabaseMethodBoundary":
     "Sign-in method metadata does not replace the Supabase Auth flows. Password, OTP, magic-link, sessions, and refresh behavior remain owned by GoTrue.",
+  "accountCenter.sessionsUnavailableTitle": "Per-session management unavailable",
+  "accountCenter.sessionsUnavailableDescription":
+    "GoTrue supports current-device, other-device, and all-device sign-out. This console does not provide a per-session list, revoke-by-ID action, or Sessions setting to save.",
+  "accountCenter.invalidDeleteAccountUrl":
+    "Use an HTTPS URL without credentials or fragments. HTTP is allowed only for literal localhost, 127.x.x.x, or [::1] URLs in local development or tests.",
   "profileFields.title": "Collect user profile",
   "profileFields.description":
     "Manage tenant profile-field definitions used by hosted onboarding and account experiences.",
@@ -290,6 +324,8 @@ const en = {
   "organizations.noData": "No organizations yet",
   "organizations.noDataHint":
     "Create an organization to manage members, JIT provisioning, and app access.",
+  "organizations.searchPlaceholder": "Search organizations by name or ID",
+  "organizations.resultCount": "{count} organizations",
   "organizations.controls": "Controls",
   "organizations.delete": "Delete",
   "organizations.deleteConfirm": "Delete this organization?",
@@ -531,6 +567,9 @@ const en = {
   "roles.searchUsers": "Search users by email, name, or ID",
   "roles.searchApplications": "Search applications by name or client ID",
   "roles.searchOrganizations": "Search organizations by name or ID",
+  "roles.loadMoreTargets": "Load more",
+  "roles.targetResultCount": "{loaded} of {total} loaded",
+  "pagination.pageOf": "Page {page} of {pages}",
   "roles.clearOrganization": "Clear",
   "audit.action": "Action",
   "audit.detailTitle": "Audit detail",
@@ -623,6 +662,20 @@ const zhCN = {
   "auth.checking": "正在检查管理员会话...",
   "auth.requiredTitle": "需要管理员登录",
   "auth.ssoNotConfigured": "当前控制台会话未配置管理员 SSO。",
+  "save.partial_failure.title": "部分设置已保存",
+  "save.partial_failure.description":
+    "部分设置已生效。表单已从服务器重新加载，当前显示实际生效状态。",
+  "save.write_failure.title": "保存失败",
+  "save.write_failure.description":
+    "请求的设置均未生效。表单已从服务器重新加载。",
+  "save.readback_failure.title": "无法验证保存结果",
+  "save.readback_failure.description":
+    "写入请求已结束，但无法读回服务器实际状态。请刷新后再继续修改。",
+  "accountCenter.sessionsUnavailableTitle": "逐会话管理不可用",
+  "accountCenter.sessionsUnavailableDescription":
+    "GoTrue 支持退出当前设备、其他设备和全部设备；当前控制台不提供逐会话列表、按会话 ID 撤销操作或可保存的 Sessions 开关。",
+  "accountCenter.invalidDeleteAccountUrl":
+    "请使用不含凭据或片段的 HTTPS URL。仅本地开发或测试环境允许字面量 localhost、127.x.x.x 或 [::1] 的 HTTP URL。",
   "auth.unauthorized": "未授权",
   "auth.logout": "退出登录",
   "auth.loggingOut": "正在退出...",
@@ -632,6 +685,16 @@ const zhCN = {
   "common.notAvailable": "暂无",
   "common.cancel": "取消",
   "common.sectionNavigation": "分区导航",
+  "mutation.storageUnavailable":
+    "变更核对存储不可用，已阻止 {resource} 的高影响操作。",
+  "mutation.outcomeUnknown":
+    "写入可能已经完成，但尚未从权威数据源确认结果。允许重试前，请先核对资源实际状态。",
+  "mutation.verifyAuthoritative": "我已核对 {resource} 的权威状态。",
+  "mutation.allowRetry": "允许重试？",
+  "mutation.reconcile": "尚未确认的高影响操作",
+  "mutation.stateChanged":
+    "执行操作前权威状态已发生变化，请刷新并核对后再试。",
+  "mutation.pending": "操作：{action} · 资源：{resourceId}",
   "state.forbidden": "无权访问",
   "state.forbiddenDescription": "当前管理员会话没有读取或管理此资源的权限。",
   "state.notFound": "资源不存在",
@@ -642,6 +705,10 @@ const zhCN = {
   "state.unavailableDescription": "管理服务当前无法访问，请在服务恢复后重试。",
   "state.requestFailed": "请求失败",
   "layout.subtitle": "用户中心",
+  "layout.skipToContent": "跳到主要内容",
+  "layout.openNavigation": "打开导航菜单",
+  "layout.closeNavigation": "关闭导航菜单",
+  "layout.mobileNavigation": "移动导航菜单",
   "nav.section.overview": "概览",
   "nav.section.authentication": "认证",
   "nav.section.authorization": "授权",
@@ -895,6 +962,8 @@ const zhCN = {
   "organizations.noData": "暂无组织",
   "organizations.noDataHint":
     "创建组织后即可管理成员、JIT 自动开通和应用访问。",
+  "organizations.searchPlaceholder": "按名称或 ID 搜索组织",
+  "organizations.resultCount": "共 {count} 个组织",
   "organizations.controls": "管理",
   "organizations.delete": "删除",
   "organizations.deleteConfirm": "确认删除此组织？",
@@ -1125,6 +1194,9 @@ const zhCN = {
   "roles.searchUsers": "按邮箱、姓名或 ID 搜索用户",
   "roles.searchApplications": "按名称或客户端 ID 搜索应用",
   "roles.searchOrganizations": "按名称或 ID 搜索组织",
+  "roles.loadMoreTargets": "加载更多",
+  "roles.targetResultCount": "已加载 {loaded} / {total}",
+  "pagination.pageOf": "第 {page} / {pages} 页",
   "roles.clearOrganization": "清空",
   "audit.action": "操作",
   "audit.detailTitle": "审计详情",
@@ -1495,20 +1567,19 @@ const dictionaries = {
   zh: zhCN,
 };
 
-function normalizeLocale(locale) {
-  if (!locale) return null;
-  const normalized = locale.replace("_", "-").toLowerCase();
-  if (normalized === "zh" || normalized.startsWith("zh-")) return "zh-CN";
-  if (normalized === "en" || normalized.startsWith("en-")) return "en";
-  return null;
+function storedLocale() {
+  try {
+    return globalThis.localStorage?.getItem("supaoauth.locale") || null;
+  } catch (error) {
+    if (error?.name === "SecurityError") return null;
+    throw error;
+  }
 }
 
 function localeCandidates() {
   const candidates = [];
-  if (typeof localStorage !== "undefined") {
-    const stored = localStorage.getItem("supaoauth.locale");
-    if (stored) candidates.push(stored);
-  }
+  const stored = storedLocale();
+  if (stored) candidates.push(stored);
   if (typeof navigator !== "undefined") {
     if (navigator.languages?.length) candidates.push(...navigator.languages);
     if (navigator.language) candidates.push(navigator.language);
@@ -1518,11 +1589,9 @@ function localeCandidates() {
 }
 
 function preferredLocale() {
-  for (const candidate of localeCandidates()) {
-    const locale = normalizeLocale(candidate);
-    if (locale && dictionaries[locale]) return locale;
-  }
-  return "en";
+  const locale = resolveDocumentLocale(localeCandidates());
+  syncDocumentLocale(globalThis.document?.documentElement, locale);
+  return locale;
 }
 
 export function t(key, params = {}) {

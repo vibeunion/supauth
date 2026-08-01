@@ -2,6 +2,13 @@
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import { t } from "$lib/i18n.js";
+  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
+  import {
+    completeCollectionItems,
+    createKeyedSingleFlightTracker,
+    createLatestRequestTracker,
+    mutationOutcomeUnknown,
+  } from "$lib/resource-page.js";
   import {
     listEnterpriseSSOConfigs,
     createEnterpriseSSOConfig,
@@ -11,6 +18,25 @@
   let loading = $state(true);
   let error = $state(null);
   let showCreate = $state(false);
+  let creating = $state(false);
+  let mutationLocks = $state({});
+  let mutationStorageReady = $state(false);
+  let mutationStorageError = $state(null);
+  const createOperations = createKeyedSingleFlightTracker();
+  const listRequests = createLatestRequestTracker();
+  const createLock = {
+    action: "create",
+    ownerId: "enterprise-sso",
+    targetId: "new",
+  };
+  const mutationLockStore = createDurableMutationLockStore({
+    storageKey: "supaoauth.admin.enterprise-sso-mutation-locks.v1",
+    allowedActions: ["create"],
+    storageProvider: () => globalThis.localStorage,
+  });
+  let createOutcomeUnknown = $derived(
+    mutationLockStore.isLocked(mutationLocks, createLock),
+  );
   let form = $state({
     connector_id: "",
     domains: "",
@@ -20,39 +46,162 @@
     role_mapping: "{}",
   });
 
+  function configIdentity(config) {
+    return typeof config?.id === "string" ? config.id : "";
+  }
+
+  function mutationStorageFailure() {
+    mutationStorageReady = false;
+    mutationStorageError = t("mutation.storageUnavailable", {
+      resource: t("Enterprise SSO"),
+    });
+  }
+
+  function updateMutationLocks(lockCommand) {
+    try {
+      mutationLocks = lockCommand();
+      mutationStorageReady = true;
+      mutationStorageError = null;
+      return true;
+    } catch {
+      mutationStorageFailure();
+      return false;
+    }
+  }
+
+  function restoreMutationLocks() {
+    updateMutationLocks(() => mutationLockStore.restore());
+  }
+
+  function stageCreateLock() {
+    return updateMutationLocks(() =>
+      mutationLockStore.stage(mutationLocks, createLock),
+    );
+  }
+
+  function clearCreateLock() {
+    return updateMutationLocks(() =>
+      mutationLockStore.clear(mutationLocks, createLock),
+    );
+  }
+
+  function createDraft() {
+    return {
+      connector_id: form.connector_id,
+      domains: form.domains
+        .split(",")
+        .map((domain) => domain.trim())
+        .filter(Boolean),
+      sso_protocol: form.sso_protocol,
+      jit_provisioning: form.jit_provisioning,
+      org_membership_mapping: JSON.parse(form.org_membership_mapping || "{}"),
+      role_mapping: JSON.parse(form.role_mapping || "{}"),
+    };
+  }
+
+  function completeConfigList(response) {
+    const listedConfigs = completeCollectionItems(response);
+    if (listedConfigs.every((config) => configIdentity(config))) return listedConfigs;
+    throw new Error("Management API returned an SSO config without an identity");
+  }
+
+  async function readConfigList() {
+    const request = listRequests.begin("enterprise-sso");
+    try {
+      const response = await listEnterpriseSSOConfigs();
+      return { request, configs: completeConfigList(response), requestError: null };
+    } catch (requestError) {
+      return { request, configs: [], requestError };
+    }
+  }
+
+  function applyConfigList(readBack) {
+    if (!listRequests.isCurrent(readBack.request)) return false;
+    if (readBack.requestError) throw readBack.requestError;
+    configs = readBack.configs;
+    return true;
+  }
+
   async function load() {
     loading = true;
     error = null;
     try {
-      const res = await listEnterpriseSSOConfigs();
-      configs = res.items || [];
-    } catch (e) {
-      error = e.message;
+      const readBack = await readConfigList();
+      if (applyConfigList(readBack)) loading = false;
+    } catch (requestError) {
+      error = requestError.message;
+      loading = false;
     }
-    loading = false;
   }
 
   async function handleCreate() {
+    if (creating || !mutationStorageReady || createOutcomeUnknown) return;
+    const operation = createOperations.begin("create");
+    if (!operation) return;
+    creating = true;
+    error = null;
+    let creationMayHaveCommitted = false;
     try {
-      await createEnterpriseSSOConfig({
-        connector_id: form.connector_id,
-        domains: form.domains
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-        sso_protocol: form.sso_protocol,
-        jit_provisioning: form.jit_provisioning,
-        org_membership_mapping: JSON.parse(form.org_membership_mapping || "{}"),
-        role_mapping: JSON.parse(form.role_mapping || "{}"),
-      });
+      const draft = createDraft();
+      const beforeReadBack = await readConfigList();
+      if (!createOperations.isCurrent(operation)) return;
+      if (!listRequests.isCurrent(beforeReadBack.request)) return;
+      if (beforeReadBack.requestError) throw beforeReadBack.requestError;
+      const beforeIds = new Set(beforeReadBack.configs.map(configIdentity));
+      if (!stageCreateLock()) return;
+      let response = null;
+      try {
+        response = await createEnterpriseSSOConfig(draft);
+        creationMayHaveCommitted = true;
+      } catch (requestError) {
+        if (!mutationOutcomeUnknown(requestError)) throw requestError;
+        creationMayHaveCommitted = true;
+      }
+      const readBack = await readConfigList();
+      if (!createOperations.isCurrent(operation)) return;
+      if (readBack.requestError) throw readBack.requestError;
+      const responseId = configIdentity(response);
+      const created = readBack.configs.find(
+        (config) =>
+          !beforeIds.has(configIdentity(config)) &&
+          (!responseId || configIdentity(config) === responseId) &&
+          (config.connectorId || config.connector_id) === draft.connector_id,
+      );
+      if (!created || !applyConfigList(readBack)) {
+        error = t(
+          "Enterprise SSO creation could not be reconciled. Verify the authoritative list before creating again.",
+        );
+        return;
+      }
+      if (!clearCreateLock()) return;
       showCreate = false;
-      await load();
-    } catch (e) {
-      error = e.message;
+    } catch (requestError) {
+      if (!createOperations.isCurrent(operation)) return;
+      if (creationMayHaveCommitted) {
+        error = t(
+          "Enterprise SSO creation outcome is unknown. Reconcile the authoritative list before trying again.",
+        );
+      } else {
+        clearCreateLock();
+        error = requestError.message;
+      }
+    } finally {
+      if (createOperations.finish(operation)) creating = false;
     }
   }
 
-  onMount(load);
+  function acknowledgeUnknownCreate() {
+    if (!confirm(t("I have reconciled the authoritative SSO configuration list."))) {
+      return;
+    }
+    if (!confirm(t("Allow another enterprise SSO configuration create?"))) return;
+    clearCreateLock();
+  }
+
+  onMount(() => {
+    restoreMutationLocks();
+    void load();
+  });
 </script>
 
 <div class="flex items-center justify-between mb-6">
@@ -71,9 +220,37 @@
   </div>
 {/if}
 
+{#if mutationStorageError}
+  <div
+    class="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+    role="alert"
+  >
+    {mutationStorageError}
+  </div>
+{/if}
+
+{#if createOutcomeUnknown}
+  <div
+    class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+    role="alert"
+  >
+    <p>
+      {t(
+        "Enterprise SSO creation has an unknown outcome. Reconcile the authoritative list before creating again.",
+      )}
+    </p>
+    <button
+      onclick={acknowledgeUnknownCreate}
+      class="mt-3 font-semibold underline"
+      >{t("I verified the list; allow another create")}</button
+    >
+  </div>
+{/if}
+
 {#if showCreate}
-  <section
+  <fieldset
     class="bg-white rounded-xl border border-surface-200 p-6 mb-6 space-y-4"
+    disabled={creating}
   >
     <div>
       <label
@@ -146,11 +323,15 @@
       ></textarea>
     </div>
     <button
+      disabled={creating ||
+        !mutationStorageReady ||
+        createOutcomeUnknown ||
+        !form.connector_id.trim()}
       onclick={handleCreate}
-      class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-      >{t("Create")}</button
+      class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+      >{creating ? t("Loading...") : t("Create")}</button
     >
-  </section>
+  </fieldset>
 {/if}
 
 {#if loading}

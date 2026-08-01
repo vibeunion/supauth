@@ -6,11 +6,31 @@
 import { Elysia } from 'elysia';
 import { getConfig } from '../config/index.js';
 import * as auditRepo from '../repositories/audit.js';
+import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import {
+  passwordPolicyFromAuthConfig,
+  passwordPolicyViolation,
+  type PasswordPolicyViolation,
+  type PublicPasswordPolicy,
+} from '../utils/password-policy.js';
+import { BoundedFixedWindowLimiter, resolveClientIp } from '../utils/rate-limit.js';
+import {
+  isInvalidCredentialsResponse,
+  isWeakPasswordResponse,
+  preferredUpstreamNetworkFailure,
+  upstreamNetworkFailure,
+  upstreamResponseFailure,
+  type PublicUpstreamFailure,
+} from '../utils/upstream-failure.js';
+import {
+  readAccountCenterConfig,
+  type AccountCenterConfig,
+} from './account-self-service.js';
 
 const PASSWORD_CHANGE_LIMIT_WINDOW_MS = 60_000;
 const PASSWORD_CHANGE_LIMIT_MAX = 8;
-const MIN_PASSWORD_LENGTH = 6;
-const attempts = new Map<string, { count: number; resetAt: number }>();
+const attempts = new BoundedFixedWindowLimiter({ windowMs: PASSWORD_CHANGE_LIMIT_WINDOW_MS });
+const adapter = getSupaCloudAdapter();
 
 interface PasswordChangeInput {
   email: string;
@@ -23,17 +43,40 @@ interface PasswordChangeSuccess {
   userId?: string;
 }
 
-interface PasswordChangeFailure {
-  ok: false;
-  status: number;
-  code: string;
-  message: string;
-}
+type PasswordChangeFailure = PublicUpstreamFailure;
 
 type PasswordChangeResult = PasswordChangeSuccess | PasswordChangeFailure;
 
+interface RuntimeRequestOptions {
+  bases: string[];
+  fetchImpl: typeof fetch;
+}
+
+interface RuntimeResponseSuccess {
+  ok: true;
+  response: Response;
+}
+
+type RuntimeResponseResult = RuntimeResponseSuccess | PasswordChangeFailure;
+
+interface PasswordGrantSuccess {
+  ok: true;
+  accessToken: string;
+  tokenPayload: Record<string, unknown> | null;
+}
+
+interface PasswordUpdateSuccess {
+  ok: true;
+  payload: Record<string, unknown> | null;
+}
+
+interface RuntimeJsonSuccess {
+  ok: true;
+  payload: Record<string, unknown> | null;
+}
+
 function requestIp(headers: Record<string, string | undefined>): string {
-  return (headers['x-forwarded-for'] || headers['x-real-ip'] || 'unknown').split(',')[0].trim();
+  return resolveClientIp(headers, getConfig().trustProxyHeaders);
 }
 
 function rateLimitKey(ip: string, email: string) {
@@ -41,16 +84,8 @@ function rateLimitKey(ip: string, email: string) {
 }
 
 function consumeLimit(ip: string, email: string): boolean {
-  const now = Date.now();
   const key = rateLimitKey(ip, email);
-  const current = attempts.get(key);
-  if (!current || current.resetAt <= now) {
-    attempts.set(key, { count: 1, resetAt: now + PASSWORD_CHANGE_LIMIT_WINDOW_MS });
-    return true;
-  }
-  if (current.count >= PASSWORD_CHANGE_LIMIT_MAX) return false;
-  current.count += 1;
-  return true;
+  return attempts.consume(key, PASSWORD_CHANGE_LIMIT_MAX);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,7 +100,25 @@ function readString(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
-function validatePayload(body: unknown): PasswordChangeInput | PasswordChangeFailure {
+function passwordChangeFailure(status: number, code: string, message: string): PasswordChangeFailure {
+  return { ok: false, status, code, message };
+}
+
+function passwordViolationFailure(
+  violation: PasswordPolicyViolation,
+  minLength: number,
+): PasswordChangeFailure {
+  const messages: Record<PasswordPolicyViolation, string> = {
+    password_too_short: `New password must be at least ${minLength} characters.`,
+    password_requires_uppercase: 'New password must include an uppercase letter.',
+    password_requires_lowercase: 'New password must include a lowercase letter.',
+    password_requires_number: 'New password must include a number.',
+    password_requires_symbol: 'New password must include a symbol.',
+  };
+  return { ok: false, status: 400, code: violation, message: messages[violation] };
+}
+
+function parsePasswordChangeInput(body: unknown): PasswordChangeInput | PasswordChangeFailure {
   const data = isRecord(body) ? body : {};
   const email = normalizeEmail(data.email);
   const currentPassword = readString(data.current_password || data.currentPassword);
@@ -88,14 +141,6 @@ function validatePayload(body: unknown): PasswordChangeInput | PasswordChangeFai
       message: 'Enter a valid email address.',
     };
   }
-  if (newPassword.length < MIN_PASSWORD_LENGTH) {
-    return {
-      ok: false,
-      status: 400,
-      code: 'weak_password',
-      message: `New password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
-    };
-  }
   if (confirmPassword && confirmPassword !== newPassword) {
     return {
       ok: false,
@@ -114,6 +159,14 @@ function validatePayload(body: unknown): PasswordChangeInput | PasswordChangeFai
   }
 
   return { email, currentPassword, newPassword };
+}
+
+function passwordPolicyFailure(
+  input: PasswordChangeInput,
+  passwordPolicy: PublicPasswordPolicy,
+): PasswordChangeFailure | null {
+  const violation = passwordPolicyViolation(input.newPassword, passwordPolicy);
+  return violation ? passwordViolationFailure(violation, passwordPolicy.min_length) : null;
 }
 
 function isPasswordChangeFailure(value: PasswordChangeInput | PasswordChangeFailure): value is PasswordChangeFailure {
@@ -147,12 +200,22 @@ function goTrueBaseCandidates(runtimeBaseUrls?: string[]) {
 }
 
 async function readJson(response: Response) {
-  const text = await response.text().catch(() => '');
+  const text = await response.text();
   if (!text.trim()) return null;
   try {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
     return null;
+  }
+}
+
+async function readRuntimeJson(
+  response: Response,
+): Promise<RuntimeJsonSuccess | PasswordChangeFailure> {
+  try {
+    return { ok: true, payload: await readJson(response) };
+  } catch (error) {
+    return upstreamNetworkFailure(error);
   }
 }
 
@@ -164,12 +227,15 @@ function userIdFromTokenPayload(payload: Record<string, unknown> | null): string
 }
 
 function invalidCurrentPassword(): PasswordChangeFailure {
-  return {
-    ok: false,
-    status: 400,
-    code: 'invalid_current_password',
-    message: 'Current password is incorrect.',
-  };
+  return passwordChangeFailure(400, 'invalid_current_password', 'Current password is incorrect.');
+}
+
+function weakPassword(): PasswordChangeFailure {
+  return passwordChangeFailure(400, 'weak_password', 'New password does not satisfy the current password policy.');
+}
+
+function invalidRuntimeResponse(): PasswordChangeFailure {
+  return passwordChangeFailure(502, 'invalid_upstream_response', 'Authentication runtime returned an invalid response.');
 }
 
 async function auditPasswordChange(userId: string | undefined, email: string) {
@@ -181,6 +247,78 @@ async function auditPasswordChange(userId: string | undefined, email: string) {
     resourceId: userId || email,
     details: { method: 'password' },
   });
+}
+
+async function firstRuntimeResponse(
+  options: RuntimeRequestOptions,
+  request: (base: string) => Promise<Response>,
+): Promise<RuntimeResponseResult> {
+  let lastFailure: PasswordChangeFailure | null = null;
+  for (const base of options.bases) {
+    try {
+      return { ok: true, response: await request(base) };
+    } catch (error) {
+      lastFailure = preferredUpstreamNetworkFailure(lastFailure, error);
+    }
+  }
+  return lastFailure || upstreamNetworkFailure(null);
+}
+
+async function passwordGrant(
+  input: PasswordChangeInput,
+  options: RuntimeRequestOptions,
+): Promise<PasswordGrantSuccess | PasswordChangeFailure> {
+  const runtime = await firstRuntimeResponse(options, (base) => options.fetchImpl(
+    `${buildGoTrueApiUrl(base, '/token')}?grant_type=password`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: input.email, password: input.currentPassword }),
+      signal: AbortSignal.timeout(5000),
+    },
+  ));
+  if (!runtime.ok) return runtime;
+
+  const parsed = await readRuntimeJson(runtime.response);
+  if (!parsed.ok) return parsed;
+  const { payload } = parsed;
+  if (isInvalidCredentialsResponse(runtime.response.status, payload)) return invalidCurrentPassword();
+  if (!runtime.response.ok) {
+    return upstreamResponseFailure(runtime.response.status, {
+      code: 'password_grant_rejected',
+      message: 'Authentication runtime rejected the password verification request.',
+    });
+  }
+  const accessToken = typeof payload?.access_token === 'string' ? payload.access_token : '';
+  return accessToken ? { ok: true, accessToken, tokenPayload: payload } : invalidRuntimeResponse();
+}
+
+async function updatePassword(
+  accessToken: string,
+  newPassword: string,
+  options: RuntimeRequestOptions,
+): Promise<PasswordUpdateSuccess | PasswordChangeFailure> {
+  const runtime = await firstRuntimeResponse(options, (base) => options.fetchImpl(
+    buildGoTrueApiUrl(base, '/user'),
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ password: newPassword }),
+      signal: AbortSignal.timeout(5000),
+    },
+  ));
+  if (!runtime.ok) return runtime;
+  const parsed = await readRuntimeJson(runtime.response);
+  if (!parsed.ok) return parsed;
+  const { payload } = parsed;
+  if (isWeakPasswordResponse(runtime.response.status, payload)) return weakPassword();
+  if (!runtime.response.ok) {
+    return upstreamResponseFailure(runtime.response.status, {
+      code: 'password_update_failed',
+      message: 'Authentication runtime rejected the password update request.',
+    });
+  }
+  return { ok: true, payload };
 }
 
 export async function changePasswordWithGoTrue(
@@ -195,102 +333,71 @@ export async function changePasswordWithGoTrue(
   const auditImpl = options.auditImpl || auditPasswordChange;
   const bases = goTrueBaseCandidates(options.runtimeBaseUrls);
   if (bases.length === 0) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'runtime_unavailable',
-      message: 'Authentication runtime is not configured.',
-    };
+    return passwordChangeFailure(500, 'runtime_unavailable', 'Authentication runtime is not configured.');
   }
-
-  let tokenPayload: Record<string, unknown> | null = null;
-  let accessToken = '';
-  let lastError: unknown = null;
-
-  for (const base of bases) {
-    try {
-      const response = await fetchImpl(`${buildGoTrueApiUrl(base, '/token')}?grant_type=password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: input.email, password: input.currentPassword }),
-        signal: AbortSignal.timeout(5000),
-      });
-      const payload = await readJson(response);
-      if (!response.ok) return invalidCurrentPassword();
-      accessToken = typeof payload?.access_token === 'string' ? payload.access_token : '';
-      if (!accessToken) return invalidCurrentPassword();
-      tokenPayload = payload;
-      break;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (!accessToken) {
-    return {
-      ok: false,
-      status: 502,
-      code: 'runtime_unavailable',
-      message: lastError instanceof Error ? lastError.message : 'Authentication runtime is unavailable.',
-    };
-  }
-
-  let updateLastError: unknown = null;
-  let updatedUserId: string | undefined;
-  let passwordUpdated = false;
-  for (const base of bases) {
-    try {
-      const response = await fetchImpl(buildGoTrueApiUrl(base, '/user'), {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ password: input.newPassword }),
-        signal: AbortSignal.timeout(5000),
-      });
-      const payload = await readJson(response);
-      if (!response.ok) {
-        return {
-          ok: false,
-          status: response.status,
-          code: 'password_update_failed',
-          message: typeof payload?.message === 'string' ? payload.message : 'Password update failed.',
-        };
-      }
-      updatedUserId = userIdFromTokenPayload(tokenPayload)
-        || (typeof payload?.id === 'string' ? payload.id : undefined);
-      passwordUpdated = true;
-      break;
-    } catch (error) {
-      updateLastError = error;
-    }
-  }
-
-  if (!passwordUpdated) {
-    return {
-      ok: false,
-      status: 502,
-      code: 'runtime_unavailable',
-      message: updateLastError instanceof Error ? updateLastError.message : 'Authentication runtime is unavailable.',
-    };
-  }
-
+  const runtimeOptions = { bases, fetchImpl };
+  const grant = await passwordGrant(input, runtimeOptions);
+  if (!grant.ok) return grant;
+  const update = await updatePassword(grant.accessToken, input.newPassword, runtimeOptions);
+  if (!update.ok) return update;
+  const updatedUserId = userIdFromTokenPayload(grant.tokenPayload)
+    || (typeof update.payload?.id === 'string' ? update.payload.id : undefined);
   await auditImpl(updatedUserId, input.email);
   return { ok: true, userId: updatedUserId };
 }
 
+async function accountCenterFeatureFailure(
+  getAccountCenterConfig: () => Promise<AccountCenterConfig>,
+): Promise<PasswordChangeFailure | null> {
+  let accountCenterConfig: AccountCenterConfig;
+  try {
+    accountCenterConfig = await getAccountCenterConfig();
+  } catch {
+    return passwordChangeFailure(
+      503,
+      'account_center_unavailable',
+      'Account center configuration is temporarily unavailable.',
+    );
+  }
+  return accountCenterConfig.enabled && accountCenterConfig.security.password_change
+    ? null
+    : passwordChangeFailure(403, 'password_change_disabled', 'Password change is disabled for this account center.');
+}
+
+async function authoritativePasswordPolicy(
+  getAuthConfig: () => Promise<unknown>,
+): Promise<{ ok: true; policy: PublicPasswordPolicy } | PasswordChangeFailure> {
+  try {
+    return { ok: true, policy: passwordPolicyFromAuthConfig(await getAuthConfig()) };
+  } catch {
+    return passwordChangeFailure(503, 'password_policy_unavailable', 'Password policy is temporarily unavailable.');
+  }
+}
+
+function publicPasswordChangeFailure(failure: PasswordChangeFailure) {
+  return { success: false, error: { code: failure.code, message: failure.message } };
+}
+
 export function createPublicAccountPasswordRoutes(options?: {
   changePassword?: (input: PasswordChangeInput) => Promise<PasswordChangeResult>;
+  getAccountCenterConfig?: () => Promise<AccountCenterConfig>;
+  getAuthConfig?: () => Promise<unknown>;
 }) {
   const changePassword = options?.changePassword || changePasswordWithGoTrue;
+  const getAccountCenterConfig = options?.getAccountCenterConfig || readAccountCenterConfig;
+  const getAuthConfig = options?.getAuthConfig || (() => adapter.getAuthConfig());
 
   return new Elysia({ prefix: '/v1/public/account-password' })
     .post('/change', async ({ body, headers, set }) => {
-      const parsed = validatePayload(body);
+      const featureFailure = await accountCenterFeatureFailure(getAccountCenterConfig);
+      if (featureFailure) {
+        set.status = featureFailure.status;
+        return publicPasswordChangeFailure(featureFailure);
+      }
+      const parsed = parsePasswordChangeInput(body);
       if (isPasswordChangeFailure(parsed)) {
         set.status = parsed.status;
-        return { success: false, error: { code: parsed.code, message: parsed.message } };
+        return publicPasswordChangeFailure(parsed);
       }
 
       const ip = requestIp(headers as Record<string, string | undefined>);
@@ -299,10 +406,21 @@ export function createPublicAccountPasswordRoutes(options?: {
         return { success: false, error: { code: 'too_many_attempts', message: 'Too many attempts. Please try again later.' } };
       }
 
+      const policy = await authoritativePasswordPolicy(getAuthConfig);
+      if (!policy.ok) {
+        set.status = policy.status;
+        return publicPasswordChangeFailure(policy);
+      }
+      const policyFailure = passwordPolicyFailure(parsed, policy.policy);
+      if (policyFailure) {
+        set.status = policyFailure.status;
+        return publicPasswordChangeFailure(policyFailure);
+      }
+
       const result = await changePassword(parsed);
       if (!result.ok) {
         set.status = result.status;
-        return { success: false, error: { code: result.code, message: result.message } };
+        return publicPasswordChangeFailure(result);
       }
 
       return { success: true, status: 'password_changed' };

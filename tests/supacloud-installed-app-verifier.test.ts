@@ -40,11 +40,18 @@ interface MockFetchRequest {
   init?: RequestInit;
 }
 
+const OMIT_REDIRECT_LOCATION = Symbol('omit-redirect-location');
+type MockResponseHeaders = HeadersInit | typeof OMIT_REDIRECT_LOCATION;
+
+function headersForMockResponse(config?: MockResponseHeaders) {
+  return new Headers(config === OMIT_REDIRECT_LOCATION ? undefined : config);
+}
+
 function mockFetch(
   overrides: Record<string, number> = {},
   ssoAuthorizeLocation?: string,
   requestLog: MockFetchRequest[] = [],
-  responseHeaders: Record<string, HeadersInit> = {},
+  responseHeaders: Record<string, MockResponseHeaders> = {},
 ) {
   const defaultStatuses: Record<string, number> = {
     '/api/v1/health': 200,
@@ -83,6 +90,17 @@ function mockFetch(
   return async (input: string | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     requestLog.push({ url, init });
+    if (url.protocol === 'http:' && url.pathname.startsWith('/.well-known/supauth-https-redirect/')) {
+      const status = overrides[url.pathname] ?? 308;
+      const configuredHeaders = responseHeaders[url.pathname];
+      const headers = headersForMockResponse(configuredHeaders);
+      if (configuredHeaders !== OMIT_REDIRECT_LOCATION && !headers.has('location')) {
+        const redirectUrl = new URL(url);
+        redirectUrl.protocol = 'https:';
+        headers.set('location', redirectUrl.toString());
+      }
+      return new Response('redirect', { status, headers });
+    }
     if (url.pathname === '/oauth/sso/authorize' && url.searchParams.has('client_id')) {
       const location = overrides['/oauth/sso/authorize'] === 302
         ? ssoAuthorizeLocation || 'https://auth.example.test/auth/v1/oauth/authorize?client_id=app_123'
@@ -90,7 +108,7 @@ function mockFetch(
       return new Response('redirect', { status: 302, headers: { location } });
     }
     const status = defaultStatuses[url.pathname] ?? 404;
-    const headers = new Headers(responseHeaders[url.pathname]);
+    const headers = headersForMockResponse(responseHeaders[url.pathname]);
     if (url.pathname === '/admin' && status === 307 && !headers.has('location')) {
       headers.set('location', '/admin/get-started');
     }
@@ -132,6 +150,18 @@ describe('SupaCloud installed app verifier', () => {
     expect(verification.probes.every((probe) => probe.ok)).toBe(true);
     expect(verification.probes.find((probe) => probe.name === 'functions_preserved')?.status).toBe(400);
     expect(verification.probes.find((probe) => probe.name === 'supauth_function_health_preserved')?.status).toBe(200);
+    expect(verification.probes.find((probe) => probe.name === 'public_http_to_https')).toMatchObject({
+      ok: true,
+      status: 308,
+    });
+    expect(verification.probes.find((probe) => probe.name === 'runtime_http_to_https')).toMatchObject({
+      ok: true,
+      status: 308,
+    });
+    const publicRedirectRequest = requestLog.find(({ url }) => url.protocol === 'http:' && url.pathname.endsWith('/public/path'));
+    const runtimeRedirectRequest = requestLog.find(({ url }) => url.protocol === 'http:' && url.pathname.endsWith('/runtime/path'));
+    expect(publicRedirectRequest?.url.search).toBe('?source=public%2Fprobe&keep=1');
+    expect(runtimeRedirectRequest?.url.search).toBe('?source=runtime%2Fprobe&keep=1');
     expect(realtimeRequest?.url.searchParams.get('vsn')).toBe('1.0.0');
     expect(realtimeHeaders.get('connection')).toBe('Upgrade');
     expect(realtimeHeaders.get('upgrade')).toBe('websocket');
@@ -331,6 +361,79 @@ describe('SupaCloud installed app verifier', () => {
     expect(result.errors[0]).toContain('Installed verifier manifest hash mismatch');
   });
 
+  const publicRedirectPath = '/.well-known/supauth-https-redirect/public/path';
+  const expectedPublicRedirect = `https://auth.example.test${publicRedirectPath}?source=public%2Fprobe&keep=1`;
+  for (const invalidRedirect of [
+    {
+      name: 'cross-host target',
+      status: 308,
+      location: `https://attacker.example.test${publicRedirectPath}?source=public%2Fprobe&keep=1`,
+    },
+    {
+      name: 'changed path',
+      status: 308,
+      location: 'https://auth.example.test/changed?source=public%2Fprobe&keep=1',
+    },
+    {
+      name: 'missing query parameter',
+      status: 308,
+      location: `https://auth.example.test${publicRedirectPath}?source=public%2Fprobe`,
+    },
+    {
+      name: 'relative Location',
+      status: 308,
+      location: `${publicRedirectPath}?source=public%2Fprobe&keep=1`,
+    },
+    {
+      name: 'cleartext Location',
+      status: 308,
+      location: `http://auth.example.test${publicRedirectPath}?source=public%2Fprobe&keep=1`,
+    },
+    {
+      name: 'temporary redirect status',
+      status: 307,
+      location: expectedPublicRedirect,
+    },
+  ] as const) {
+    it(`rejects an HTTP upgrade with ${invalidRedirect.name}`, async () => {
+      const { root, artifactDir } = createFixture();
+
+      const result = await verifySupacloudInstalledApp({
+        root,
+        artifactDir,
+        baseUrl: 'https://auth.example.test',
+        runtimeUrl: 'https://project.example.test',
+        fetchImpl: mockFetch({ [publicRedirectPath]: invalidRedirect.status }, undefined, [], {
+          [publicRedirectPath]: { location: invalidRedirect.location },
+        }),
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(
+        `public_http_to_https failed: expected HTTP 308 Location ${expectedPublicRedirect}, got HTTP ${invalidRedirect.status} Location ${invalidRedirect.location}`,
+      );
+    });
+  }
+
+  it('rejects an HTTP 308 redirect without Location', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({ [publicRedirectPath]: 308 }, undefined, [], {
+        [publicRedirectPath]: OMIT_REDIRECT_LOCATION,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      `public_http_to_https failed: expected HTTP 308 Location ${expectedPublicRedirect}, got HTTP 308 Location <empty>`,
+    );
+  });
+
   it('accepts a live SSO authorize probe when the redirect stays on the hosted auth domain', async () => {
     const { root, artifactDir } = createFixture();
 
@@ -347,7 +450,7 @@ describe('SupaCloud installed app verifier', () => {
     expect(result.probes.find((probe) => probe.name === 'sso_authorize_redirect_origin')?.ok).toBe(true);
   });
 
-  it('accepts a live SSO authorize probe when the first hosted auth redirect uses http before HTTPS upgrade', async () => {
+  it('rejects a live SSO authorize probe when the hosted auth redirect uses HTTP', async () => {
     const { root, artifactDir } = createFixture();
 
     const result = await verifySupacloudInstalledApp({
@@ -362,8 +465,9 @@ describe('SupaCloud installed app verifier', () => {
       ),
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.probes.find((probe) => probe.name === 'sso_authorize_redirect_origin')?.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.probes.find((probe) => probe.name === 'sso_authorize_redirect_origin')?.ok).toBe(false);
+    expect(result.errors.some((error) => error.includes('expected 3xx Location to stay on hosted GoTrue authorize path'))).toBe(true);
   });
 
   it('rejects a live SSO authorize probe when the redirect leaks the project runtime domain', async () => {

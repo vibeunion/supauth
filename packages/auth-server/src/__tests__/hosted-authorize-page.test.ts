@@ -24,14 +24,12 @@ describe('hostedPageRoutes', () => {
     expect(fromSrc.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
     expect(fromSrc.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
     expect(fromSrc.logoutHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/logout.html');
-    expect(fromSrc.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
 
     const fromDist = resolveHostedPagePaths('/opt/supauth/packages/auth-server/dist', '/opt/supauth');
     expect(fromDist.authorizeHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/authorize.html');
     expect(fromDist.changePasswordHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/change-password.html');
     expect(fromDist.accountHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/account.html');
     expect(fromDist.logoutHtmlCandidates).toContain('/opt/supauth/packages/admin-console/build/logout.html');
-    expect(fromDist.customUiDirs).toContain('/opt/supauth/packages/auth-server/custom-ui');
 
     const fromActiveVersion = resolveHostedPagePaths(
       '/opt/supacloud/functions/supauth/.versions/version-123',
@@ -264,18 +262,22 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('.password-hint {\n      margin: 8px 0 0;');
     expect(body).not.toContain('.password-hint {\n      margin: -8px 0 16px;');
     expect(body).toContain('type="submit" disabled');
+    expect(body).toContain('id="claim-proof" name="claim_proof" type="password"');
+    expect(body).toContain('enabled: next.enabled === true');
     expect(body).toContain("setMessage('error', t('claimUnavailable'))");
     expect(body).toContain("return 'passwordRequiresUppercase'");
     expect(body).toContain("return 'passwordRequiresSymbol'");
     expect(body).toContain("code === 'password_requires_uppercase'");
     expect(body).toContain("'weak_password'].includes(code)");
     expect(body).toContain('领取账号并设置密码');
+    expect(body).toContain('claim_proof: claimProof');
     expect(body).toContain('payload.new_password = newPassword;');
     expect(body).toContain('title.textContent = branding.page_title;');
     expect(body).toContain('/account-claims/claim');
     expect(body).toContain('data.password_set');
     expect(body).toContain('function claimErrorMessage(response, data = {})');
-    expect(body).toContain("code === 'account_already_claimed'");
+    expect(body).toContain("return t('claimRejected')");
+    expect(body).not.toContain("code === 'account_already_claimed'");
     expect(body).toContain("if (response.status >= 500) return t('serverError');");
     expect(body).not.toContain('http://auth.example.com/v1/public');
     expect(body).not.toContain('Example User Center');
@@ -313,24 +315,24 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain("accountFetch('/account/me')");
       expect(body).toContain("accountFetch('/account/profile'");
       expect(body).not.toContain("load('sessions', '/account/sessions')");
-      expect(body).toContain("load('grants', '/account/grants')");
-      expect(body).toContain("load('identities', '/account/identities')");
-      expect(body).toContain("load('mfa', '/account/mfa')");
+      expect(body).toContain("path: '/account/grants'");
+      expect(body).toContain("path: '/account/identities'");
+      expect(body).toContain("path: '/account/mfa'");
       expect(body).toContain('id="start-totp-enroll"');
       expect(body).toContain('id="totp-qr"');
       expect(body).toContain('id="totp-verify-form"');
       expect(body).toContain("accountFetch('/account/mfa/totp/enroll'");
       expect(body).toContain("`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`");
       expect(body).toContain('await hostedAuth.setSession({');
-      expect(body).toContain("button.dataset.action === 'unenroll-mfa'");
-      expect(body).toContain("accountFetch(`/account/mfa/${encodeURIComponent(id)}`, { method: 'DELETE' })");
+      expect(body).toContain("action: 'unenroll-mfa'");
+      expect(body).toContain('removeAccountModuleItem(moduleDefinition, id)');
       expect(body).not.toContain('/account/passkeys');
       expect(body).toContain("accountFetch('/account/email'");
       expect(body).toContain("accountFetch('/account/phone'");
       expect(body).toContain("accountFetch('/account',");
       expect(body).not.toContain("button.dataset.action === 'revoke-session'");
-      expect(body).toContain("button.dataset.action === 'revoke-grant'");
-      expect(body).toContain("button.dataset.action === 'unlink-identity'");
+      expect(body).toContain("action: 'revoke-grant'");
+      expect(body).toContain("action: 'unlink-identity'");
       expect(body).not.toContain("button.dataset.action === 'revoke-passkey'");
       expect(body).toContain('class="account-actions"');
       expect(body).toContain('登录 / 重新登录');

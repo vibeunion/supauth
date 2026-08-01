@@ -23,6 +23,18 @@ function publicAdminUrl(path: string): string {
   return publicBaseUrl ? `${publicBaseUrl}${path}` : '';
 }
 
+function projectSummary(upstreamProject: unknown) {
+  const projectRecord = upstreamProject && typeof upstreamProject === 'object' && !Array.isArray(upstreamProject)
+    ? upstreamProject as Record<string, unknown>
+    : {};
+  return {
+    id: typeof projectRecord.id === 'string' ? projectRecord.id : undefined,
+    ref: typeof projectRecord.ref === 'string' ? projectRecord.ref : undefined,
+    project_ref: typeof projectRecord.project_ref === 'string' ? projectRecord.project_ref : undefined,
+    name: typeof projectRecord.name === 'string' ? projectRecord.name : undefined,
+  };
+}
+
 export function resolvePublicAdminSsoConfig() {
   const issuer = trimTrailingSlash(runtimeEnv('ADMIN_SSO_ISSUER') || '');
   const clientId = runtimeEnv('ADMIN_SSO_CLIENT_ID') || '';
@@ -50,7 +62,7 @@ export const healthRoutes = new Elysia({ prefix: '/v1' })
       tags: ['Health'],
     },
   })
-  .get('/project', async () => adapter.getProject(), {
+  .get('/project', async () => projectSummary(await adapter.getProject()), {
     detail: {
       summary: 'Get project info',
       tags: ['Project'],

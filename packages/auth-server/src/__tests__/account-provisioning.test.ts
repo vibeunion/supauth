@@ -3,7 +3,7 @@ import { Elysia } from 'elysia';
 import {
   createPublicAccountClaimRoutes,
   mergeUserPayload,
-  resolveAccountClaimPasswordProjectRefs,
+  resolveAccountClaimPasswordProjectRef,
   resolveProvisioningInitialPassword,
   sanitizeAccountClaimConfig,
 } from '../routes/account-provisioning.js';
@@ -11,6 +11,7 @@ import {
   decryptInitialPassword,
   encryptInitialPassword,
   externalIdLookupCandidates,
+  hashAccountClaimProof,
   normalizeDisplayName,
   normalizeExternalId,
 } from '../repositories/account-provisioning.js';
@@ -21,6 +22,22 @@ import {
   passwordPolicyViolation,
 } from '../utils/password-policy.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
+
+const VALID_CLAIM_PROOF = 'claim-proof-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+function enabledClaimConfig(value: Record<string, unknown> = {}) {
+  return sanitizeAccountClaimConfig({ enabled: true, value });
+}
+
+function claimRequestBody(overrides: Record<string, unknown> = {}) {
+  return {
+    display_name: '张三',
+    external_id: '10086',
+    external_type: 'employee',
+    claim_proof: VALID_CLAIM_PROOF,
+    ...overrides,
+  };
+}
 
 describe('account provisioning and claiming', () => {
   test('normalizes account claim identity fields', () => {
@@ -38,9 +55,16 @@ describe('account provisioning and claiming', () => {
     expect(decryptInitialPassword(encrypted, secret)).toBe('Abc123!@#');
   });
 
+  test('hashes one-time claim proofs without retaining plaintext', () => {
+    const hashed = hashAccountClaimProof(VALID_CLAIM_PROOF);
+    expect(hashed).toMatch(/^v1:[A-Za-z0-9_-]{43}$/);
+    expect(hashed).not.toContain(VALID_CLAIM_PROOF);
+    expect(hashAccountClaimProof(VALID_CLAIM_PROOF)).toBe(hashed);
+  });
+
   test('public claim route returns email and initial password once', async () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
-      getConfig: async () => sanitizeAccountClaimConfig({}),
+      getConfig: async () => enabledClaimConfig(),
       claimAccount: async () => ({
         status: 'claimed',
         email: 'zhangsan@example.com',
@@ -51,7 +75,7 @@ describe('account provisioning and claiming', () => {
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: '张三', external_id: '10086', external_type: 'employee' }),
+      body: JSON.stringify(claimRequestBody()),
     }));
     const body = await response.json();
 
@@ -94,7 +118,7 @@ describe('account provisioning and claiming', () => {
     });
 
     expect(sanitizeAccountClaimConfig({ value: { password: { mode: 'unknown', min_length: 2 } } })).toEqual({
-      enabled: true,
+      enabled: false,
       external_type: 'employee',
       password: {
         mode: 'show_initial_password',
@@ -146,6 +170,12 @@ describe('account provisioning and claiming', () => {
     expect(() => passwordPolicyFromAuthConfig({
       password_min_length: 10,
     })).toThrow('invalid password_required_characters');
+    for (const passwordMinLength of ['12', [12], { value: 12 }]) {
+      expect(() => passwordPolicyFromAuthConfig({
+        password_min_length: passwordMinLength,
+        password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.none,
+      })).toThrow('invalid password_min_length');
+    }
   });
 
   test('merges password policies without weakening any target project', () => {
@@ -189,22 +219,80 @@ describe('account provisioning and claiming', () => {
     expect(passwordPolicyViolation('Abcdefgh1!', strongPolicy)).toBeNull();
   });
 
-  test('resolves password update target projects for external hosted auth', () => {
-    expect(resolveAccountClaimPasswordProjectRefs({
+  test('resolves one authoritative password update project for external hosted auth', () => {
+    expect(resolveAccountClaimPasswordProjectRef({
       projectRef: 'business-project',
       oauthAuthorizationProjectRef: 'central-auth-project',
-      extraProjectRefs: 'central-auth-project, backup-auth-project, ',
-    })).toEqual(['business-project', 'central-auth-project', 'backup-auth-project']);
+    })).toBe('central-auth-project');
 
-    expect(resolveAccountClaimPasswordProjectRefs({
+    expect(resolveAccountClaimPasswordProjectRef({
       projectRef: 'same-project',
       oauthAuthorizationProjectRef: 'same-project',
-    })).toEqual(['same-project']);
+    })).toBe('same-project');
+    expect(resolveAccountClaimPasswordProjectRef({
+      projectRef: 'business-project',
+      oauthAuthorizationProjectRef: '  ',
+    })).toBe('business-project');
+  });
+
+  test('fails closed without explicit configuration and skips claim and GoTrue calls', async () => {
+    let claimCalls = 0;
+    let passwordPolicyCalls = 0;
+    const app = new Elysia().use(createPublicAccountClaimRoutes({
+      getConfig: async () => sanitizeAccountClaimConfig({}),
+      getPasswordPolicy: async () => {
+        passwordPolicyCalls += 1;
+        throw new Error('must not be called');
+      },
+      claimAccount: async () => {
+        claimCalls += 1;
+        return { status: 'unavailable' };
+      },
+    }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(claimRequestBody()),
+    }));
+
+    expect(response.status).toBe(403);
+    expect(claimCalls).toBe(0);
+    expect(passwordPolicyCalls).toBe(0);
+  });
+
+  test('fails closed when configuration lookup fails and skips claim and GoTrue calls', async () => {
+    let claimCalls = 0;
+    let passwordPolicyCalls = 0;
+    const app = new Elysia().use(createPublicAccountClaimRoutes({
+      getConfig: async () => { throw new Error('configuration database unavailable'); },
+      getPasswordPolicy: async () => {
+        passwordPolicyCalls += 1;
+        throw new Error('must not be called');
+      },
+      claimAccount: async () => {
+        claimCalls += 1;
+        return { status: 'unavailable' };
+      },
+    }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(claimRequestBody()),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe('account_claim_disabled');
+    expect(claimCalls).toBe(0);
+    expect(passwordPolicyCalls).toBe(0);
   });
 
   test('public claim config route exposes sanitized configuration', async () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
+        enabled: true,
         value: {
           external_type: 'member',
           password: { mode: 'set_on_claim', min_length: 12 },
@@ -217,7 +305,7 @@ describe('account provisioning and claiming', () => {
         require_numbers: true,
         require_symbols: false,
       }),
-      claimAccount: async () => ({ status: 'not_found' }),
+      claimAccount: async () => ({ status: 'unavailable' }),
     }));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/config'));
@@ -245,6 +333,7 @@ describe('account provisioning and claiming', () => {
   test('public claim route requires a new password when configured', async () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
+        enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 10 } },
       }),
       claimAccount: async () => ({
@@ -257,7 +346,7 @@ describe('account provisioning and claiming', () => {
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: '张三', external_id: '10086', external_type: 'employee' }),
+      body: JSON.stringify(claimRequestBody()),
     }));
     const body = await response.json();
 
@@ -270,6 +359,7 @@ describe('account provisioning and claiming', () => {
     let claimCalled = false;
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
+        enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 8 } },
       }),
       getPasswordPolicy: async () => ({
@@ -281,19 +371,16 @@ describe('account provisioning and claiming', () => {
       }),
       claimAccount: async () => {
         claimCalled = true;
-        return { status: 'not_found' };
+        return { status: 'unavailable' };
       },
     }));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.0.2.10' },
-      body: JSON.stringify({
-        display_name: '张三',
-        external_id: '10086',
-        external_type: 'employee',
+      body: JSON.stringify(claimRequestBody({
         new_password: '1234567890',
-      }),
+      })),
     }));
     const body = await response.json();
 
@@ -305,6 +392,7 @@ describe('account provisioning and claiming', () => {
   test('public claim route maps an authoritative weak-password rejection', async () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
+        enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 8 } },
       }),
       claimAccount: async () => {
@@ -319,12 +407,9 @@ describe('account provisioning and claiming', () => {
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.0.2.11' },
-      body: JSON.stringify({
-        display_name: '张三',
-        external_id: '10086',
-        external_type: 'employee',
+      body: JSON.stringify(claimRequestBody({
         new_password: 'NewPass123!',
-      }),
+      })),
     }));
     const body = await response.json();
 
@@ -332,14 +417,38 @@ describe('account provisioning and claiming', () => {
     expect(body.error.code).toBe('weak_password');
   });
 
+  test('public claim route hides upstream failure details', async () => {
+    const app = new Elysia().use(createPublicAccountClaimRoutes({
+      getConfig: async () => enabledClaimConfig(),
+      claimAccount: async () => {
+        throw new Error('connect ECONNREFUSED 10.0.0.8:5432 secret-host');
+      },
+    }));
+    const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(claimRequestBody()),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error).toEqual({
+      code: 'account_claim_unavailable',
+      message: 'Account claiming is temporarily unavailable. Please try again later.',
+    });
+    expect(JSON.stringify(body)).not.toContain('10.0.0.8');
+  });
+
   test('public claim route can claim by setting a new password instead of returning the initial password', async () => {
     let receivedInput: {
       passwordMode?: string;
+      claimProof?: string;
       newPassword?: string;
       updatePassword?: unknown;
     } | undefined;
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
+        enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 8 } },
       }),
       updatePassword: async () => {},
@@ -356,12 +465,9 @@ describe('account provisioning and claiming', () => {
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        display_name: '张三',
-        external_id: '10086',
-        external_type: 'employee',
+      body: JSON.stringify(claimRequestBody({
         new_password: 'NewPass123!',
-      }),
+      })),
     }));
     const body = await response.json();
 
@@ -375,32 +481,57 @@ describe('account provisioning and claiming', () => {
     expect(body.initial_password).toBeUndefined();
     expect(receivedInput).toMatchObject({
       passwordMode: 'set_on_claim',
+      claimProof: VALID_CLAIM_PROOF,
       newPassword: 'NewPass123!',
     });
     expect(typeof receivedInput?.updatePassword).toBe('function');
+    expect(JSON.stringify(body)).not.toContain(VALID_CLAIM_PROOF);
+  });
+
+  test('uses one public error for wrong identity, proof, claimed, and unavailable records', async () => {
+    for (const body of [
+      claimRequestBody({ display_name: '错误姓名' }),
+      claimRequestBody({ external_id: 'wrong-id' }),
+      claimRequestBody({ claim_proof: 'wrong-proof' }),
+      claimRequestBody(),
+    ]) {
+      const app = new Elysia().use(createPublicAccountClaimRoutes({
+        getConfig: async () => enabledClaimConfig(),
+        claimAccount: async () => ({ status: 'unavailable' }),
+      }));
+      const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        success: false,
+        error: {
+          code: 'account_claim_unavailable',
+          message: 'Account cannot be claimed with the supplied credentials.',
+        },
+      });
+    }
   });
 
   test('public claim route rejects repeat claims after a password was set on claim', async () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
+        enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 8 } },
       }),
       claimAccount: async () => ({
-        status: 'already_claimed',
-        email: 'zhangsan@example.com',
-        claimedAt: new Date('2026-06-09T00:00:00.000Z'),
+        status: 'unavailable',
       }),
     }));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        display_name: '张三',
-        external_id: '10086',
-        external_type: 'employee',
+      body: JSON.stringify(claimRequestBody({
         new_password: 'NewPass123!',
-      }),
+      })),
     }));
     const body = await response.json();
 
@@ -408,8 +539,8 @@ describe('account provisioning and claiming', () => {
     expect(body).toEqual({
       success: false,
       error: {
-        code: 'account_already_claimed',
-        message: 'Account has already been claimed.',
+        code: 'account_claim_unavailable',
+        message: 'Account cannot be claimed with the supplied credentials.',
       },
     });
     expect(body.email).toBeUndefined();
@@ -419,32 +550,35 @@ describe('account provisioning and claiming', () => {
 
   test('public claim route does not return password after it was claimed', async () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
-      getConfig: async () => sanitizeAccountClaimConfig({}),
+      getConfig: async () => enabledClaimConfig(),
       claimAccount: async () => ({
-        status: 'already_claimed',
-        email: 'zhangsan@example.com',
-        claimedAt: new Date('2026-06-09T00:00:00.000Z'),
+        status: 'unavailable',
       }),
     }));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: '张三', external_id: '10086', external_type: 'employee' }),
+      body: JSON.stringify(claimRequestBody()),
     }));
     const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(body.status).toBe('already_claimed');
-    expect(body.email).toBe('zhangsan@example.com');
+    expect(response.status).toBe(409);
+    expect(body).toEqual({
+      success: false,
+      error: {
+        code: 'account_claim_unavailable',
+        message: 'Account cannot be claimed with the supplied credentials.',
+      },
+    });
+    expect(body.email).toBeUndefined();
     expect(body.initial_password).toBeUndefined();
   });
 
   test('public claim route rejects incomplete requests', async () => {
     const app = new Elysia().use(createPublicAccountClaimRoutes({
-      getConfig: async () => sanitizeAccountClaimConfig({}),
-      claimAccount: async () => ({ status: 'not_found' }),
+      getConfig: async () => enabledClaimConfig(),
+      claimAccount: async () => ({ status: 'unavailable' }),
     }));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {

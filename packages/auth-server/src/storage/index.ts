@@ -23,6 +23,13 @@ function validateMimeType(contentType: string): boolean {
 }
 
 export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
+  // adapter 对非法 bucket/对象路径/expiry 抛 TypeError；这些是请求输入问题，
+  // 必须映射为 400 而不是全局 500，其他错误继续交给全局错误处理。
+  .onError(({ error }) => {
+    if (error instanceof TypeError) {
+      return new Response('Invalid storage path or parameters', { status: 400 });
+    }
+  })
   // ─── List buckets ────────────────────────────────────────────────
   .get('/buckets', async () => {
     const adapter = getSupaCloudAdapter();

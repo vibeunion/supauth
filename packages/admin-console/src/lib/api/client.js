@@ -336,8 +336,8 @@ export function listUserGrants(userId) {
 }
 
 // Organizations
-export function listOrganizations() {
-  return request("/v1/organizations");
+export function listOrganizations(params = {}) {
+  return request(`/v1/organizations${queryString(params)}`);
 }
 
 export function createOrganization(data) {

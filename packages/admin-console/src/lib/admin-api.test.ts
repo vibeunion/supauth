@@ -2,8 +2,10 @@
 // @ts-nocheck
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
+  ADMIN_REQUEST_TIMEOUT_MS,
   AdminApiError,
   adminApiRequest,
+  runBoundedAdminRequest,
   setAdminAuthenticatedFetch,
 } from "./admin-api.js";
 
@@ -12,6 +14,71 @@ afterEach(() => {
 });
 
 describe("admin API authentication recovery", () => {
+  test("bounds a hung request with a stable timeout that contains no upstream detail", async () => {
+    expect(ADMIN_REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(5_000);
+    expect(ADMIN_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(10_000);
+
+    try {
+      await runBoundedAdminRequest(
+        async () => new Promise(() => {}),
+        { timeoutMs: 5 },
+      );
+      throw new Error("Expected request to time out");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AdminApiError);
+      expect(error).toMatchObject({
+        statusCode: 0,
+        code: "request_timeout",
+        message: "Admin API request timed out",
+      });
+      expect(JSON.stringify(error)).not.toContain("token=secret");
+      expect(error.body).toBeUndefined();
+    }
+  });
+
+  test("composes caller cancellation without leaking its abort reason", async () => {
+    const caller = new AbortController();
+    let operationSignal;
+    const pendingRequest = runBoundedAdminRequest(
+      async (signal) => {
+        operationSignal = signal;
+        return new Promise(() => {});
+      },
+      { signal: caller.signal, timeoutMs: 50 },
+    );
+
+    caller.abort(new Error("https://private.example/?token=secret"));
+
+    await expect(pendingRequest).rejects.toMatchObject({
+      statusCode: 0,
+      code: "request_aborted",
+      message: "Admin API request was cancelled",
+    });
+    expect(operationSignal).not.toBe(caller.signal);
+    expect(operationSignal.aborted).toBe(true);
+    await expect(pendingRequest).rejects.not.toHaveProperty("cause");
+  });
+
+  test("keeps response-body reads inside the caller cancellation boundary", async () => {
+    setAdminAuthenticatedFetch(
+      mock(async () => new Response(new ReadableStream({ pull() {} }))),
+    );
+    const caller = new AbortController();
+    const pendingRequest = adminApiRequest("/v1/hung-body", {
+      signal: caller.signal,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    caller.abort(new Error("raw body abort with token=secret"));
+
+    await expect(pendingRequest).rejects.toMatchObject({
+      code: "request_aborted",
+      message: "Admin API request was cancelled",
+    });
+    await expect(pendingRequest).rejects.not.toHaveProperty("cause");
+  });
+
   test("uses the refresh-aware fetch layer when the installed SSO provider exposes it", async () => {
     const fetcher = mock(
       async () =>

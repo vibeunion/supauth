@@ -13,6 +13,7 @@ import {
   MIGRATION_V9_SQL,
   MIGRATION_V10_SQL,
   MIGRATION_V11_SQL,
+  MIGRATION_V12_SQL,
 } from '../db/migrate.js';
 
 const __dirname2 = dirname(fileURLToPath(import.meta.url));
@@ -101,9 +102,24 @@ describe('Hosted migration chain', () => {
       { name: 'supauth-overlay-legacy-webhook-revoke-v9', sql: MIGRATION_V9_SQL },
       { name: 'supauth-overlay-legacy-webhook-retirement-v10', sql: MIGRATION_V10_SQL },
       { name: 'supauth-overlay-application-permissions-v11', sql: MIGRATION_V11_SQL },
+      { name: 'supauth-overlay-account-claim-state-v12', sql: MIGRATION_V12_SQL },
     ]);
     expect(migrateSrc).toContain('for (const migration of HOSTED_MIGRATIONS)');
     expect(migrateSrc).toContain('await sql.unsafe(migration.sql)');
+  });
+
+  it('adds forward-only account claim proof and state columns without changing prior migrations', () => {
+    expect(MIGRATION_V12_SQL).toContain('ALTER TABLE supaoauth.account_provisioning_records');
+    expect(MIGRATION_V12_SQL).toContain('claim_proof_hash');
+    expect(MIGRATION_V12_SQL).toContain('claim_state');
+    expect(MIGRATION_V12_SQL).toContain('claim_operation_id');
+    expect(MIGRATION_V12_SQL).toContain('claim_lease_expires_at');
+    expect(MIGRATION_V12_SQL).toContain('claim_password_hash');
+    expect(MIGRATION_V12_SQL).toContain("initial_password_claimed THEN 'claimed'");
+    expect(MIGRATION_V12_SQL).toContain('claim_state IN');
+    expect(MIGRATION_V12_SQL).toContain('password_update_unknown');
+    expect(MIGRATION_SQL).not.toContain('claim_proof_hash');
+    expect(MIGRATION_V11_SQL).not.toContain('claim_proof_hash');
   });
 
   it('reads only the current schema-v2 project projection and rejects legacy roots', () => {

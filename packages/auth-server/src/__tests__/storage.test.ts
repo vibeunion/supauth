@@ -1,4 +1,119 @@
-import { describe, it, expect } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+
+mock.module('../repositories/security-config.js', () => ({
+  getSecurityConfig: mock(async () => null),
+}));
+
+process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
+process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
+process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-32-characters';
+process.env.SUPACLOUD_PROJECT_REF = 'test-project';
+process.env.OAUTH_RUNTIME_URL = 'http://runtime.internal';
+process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
+process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
+process.env.ADMIN_AUTH_MODE = 'token';
+process.env.ADMIN_TOKEN = 'storage-route-admin-token';
+process.env.NODE_ENV = 'test';
+
+const { handleSupAuthRequest } = await import('../index.js');
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+async function expectAnonymousStorageRejection(method: string, path: string) {
+  const upstreamFetch = mock(async () => Response.json([]));
+  globalThis.fetch = upstreamFetch as unknown as typeof fetch;
+
+  const response = await handleSupAuthRequest(new Request(`http://supauth.local${path}`, { method }));
+
+  expect(response.status).toBe(401);
+  expect(upstreamFetch).toHaveBeenCalledTimes(0);
+}
+
+async function adminSessionToken() {
+  const response = await handleSupAuthRequest(new Request('http://supauth.local/v1/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: 'storage-route-admin-token' }),
+  }));
+  expect(response.status).toBe(200);
+  const payload = await response.json() as { token?: string };
+  expect(typeof payload.token).toBe('string');
+  return payload.token as string;
+}
+
+function authenticatedStorageRequest(path: string, token: string) {
+  return new Request(`http://supauth.local${path}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+
+describe('Storage authentication boundary', () => {
+  it('rejects anonymous bucket listing before calling Storage', async () => {
+    await expectAnonymousStorageRejection('GET', '/v1/storage/buckets');
+  });
+
+  it('rejects anonymous bucket creation before validating the bucket', async () => {
+    await expectAnonymousStorageRejection('POST', '/v1/storage/buckets/not-allowed');
+  });
+
+  it('rejects anonymous deletion before validating the bucket or path', async () => {
+    await expectAnonymousStorageRejection('DELETE', '/v1/storage/delete/not-allowed/file.png');
+  });
+});
+
+describe('Storage signed URL boundary', () => {
+  it('preserves nested Unicode paths and the minimum valid expiry through the real route', async () => {
+    const token = await adminSessionToken();
+    const upstreamCalls: Array<{ path: string; body: string | null }> = [];
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      upstreamCalls.push({
+        path: new URL(url).pathname,
+        body: typeof init?.body === 'string' ? init.body : null,
+      });
+      return Response.json({ signedURL: 'https://storage.test/signed/avatar' });
+    }) as unknown as typeof fetch;
+
+    const objectPath = '用户 one/folder/avatar #1.png';
+    const encodedPath = objectPath.split('/').map(encodeURIComponent).join('/');
+    const response = await handleSupAuthRequest(authenticatedStorageRequest(
+      `/v1/storage/sign-url/avatars/${encodedPath}?expires=1`,
+      token,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      url: 'https://storage.test/signed/avatar',
+      public: false,
+      expiresIn: 1,
+    });
+    expect(upstreamCalls).toEqual([{
+      path: '/storage/v1/object/sign/avatars/%25E7%2594%25A8%25E6%2588%25B7%2520one/folder/avatar%2520%25231.png',
+      body: '{"expiresIn":1}',
+    }]);
+  });
+
+  it('rejects encoded traversal and invalid expiry before Storage without weakening the bucket allowlist', async () => {
+    const token = await adminSessionToken();
+    const upstreamFetch = mock(async () => Response.json({ signedURL: 'https://storage.test/should-not-run' }));
+    globalThis.fetch = upstreamFetch as unknown as typeof fetch;
+
+    const rejectedPaths = [
+      '/v1/storage/sign-url/avatars/%252e%252e%252fbranding%252flogo.svg',
+      '/v1/storage/sign-url/avatars/users%252f..%252fbranding%252flogo.svg',
+      '/v1/storage/sign-url/avatars/users/avatar.png?expires=0',
+      '/v1/storage/sign-url/not-allowed/users/avatar.png?expires=1',
+    ];
+    for (const path of rejectedPaths) {
+      const response = await handleSupAuthRequest(authenticatedStorageRequest(path, token));
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    }
+    expect(upstreamFetch).toHaveBeenCalledTimes(0);
+  });
+});
 
 describe('Storage validation — bucket allowlist', () => {
   it('accepts avatars bucket', async () => {

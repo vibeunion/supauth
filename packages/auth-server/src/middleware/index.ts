@@ -5,6 +5,32 @@ import { enterRequestContext, getCurrentRequestId } from '../auth/request-contex
 import { SupaCloudApiError } from '../supacloud/adapter.js';
 import { ApiContractError } from '../utils/api-contract.js';
 
+const securityResponseHeaders = {
+  'strict-transport-security': 'max-age=31536000; includeSubDomains',
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+};
+
+function applySecurityResponseHeaders(headers: Record<string, string | number> | Headers) {
+  for (const [name, value] of Object.entries(securityResponseHeaders)) {
+    if (headers instanceof Headers) headers.set(name, value);
+    else headers[name] = value;
+  }
+}
+
+function protectRawResponse(response: Response, requestId: string) {
+  const headers = new Headers(response.headers);
+  applySecurityResponseHeaders(headers);
+  headers.set('x-request-id', requestId);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export function generateRequestId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(8));
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -17,8 +43,9 @@ export const observabilityMiddleware = new Elysia({ name: 'observability' })
     if (!getCurrentRequestId()) enterRequestContext({ requestId });
     return { requestId, startTime: performance.now() };
   })
-  .onAfterHandle({ as: 'global' }, ({ requestId, startTime, request, set }) => {
+  .onAfterHandle({ as: 'global' }, ({ requestId, startTime, request, response, set }) => {
     const duration = performance.now() - (startTime ?? 0);
+    applySecurityResponseHeaders(set.headers);
     set.headers['x-request-id'] = requestId;
 
     if (process.env.LOG_LEVEL === 'debug') {
@@ -31,9 +58,11 @@ export const observabilityMiddleware = new Elysia({ name: 'observability' })
         duration_ms: Math.round(duration),
       }));
     }
+    if (response instanceof Response) return protectRawResponse(response, requestId);
   })
   .onError({ as: 'global' }, ({ requestId, startTime, request, error, set }) => {
     const duration = performance.now() - (startTime ?? 0);
+    applySecurityResponseHeaders(set.headers);
     set.headers['x-request-id'] = requestId;
 
     console.error(JSON.stringify({

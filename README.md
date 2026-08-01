@@ -51,7 +51,7 @@ packages/
   sdks/auth-ui/    # Supabase Auth UI adapter (React/Svelte)
 ```
 
-Root `src/` is a thin sync of `packages/admin-console/src/` for backward compatibility.
+`packages/admin-console` is the only Admin Console source of truth for development, testing, builds, and deployment. Root `src/` is non-executable historical code: it is not a mirror and is never a release input. Use `bun run dev:admin` or the filtered package scripts; the root Vite entry fails closed to prevent stale UI builds.
 
 ### Quick Start
 
@@ -254,7 +254,7 @@ packages/
   sdks/auth-ui/    # Supabase Auth UI adapter (React/Svelte)
 ```
 
-根目录 `src/` 是 `packages/admin-console/src/` 的轻量同步，用于保留向后兼容。
+`packages/admin-console` 是 Admin Console 开发、测试、构建和部署的唯一 source of truth。根目录 `src/` 仅保留不可执行的历史代码：它不是同步镜像，也不会作为发布输入。请使用 `bun run dev:admin` 或 package filter 命令；根目录 Vite 入口会直接失败，防止误构建陈旧 UI。
 
 ### 快速开始
 

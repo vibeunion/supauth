@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -6,6 +7,7 @@
   import RequestState from "$lib/components/RequestState.svelte";
   import { AdminApiError } from "$lib/admin-api.js";
   import { t } from "$lib/i18n.js";
+  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
   import {
     GOTRUE_OAUTH_GRANT_TYPES,
     supportedOAuthGrantTypes,
@@ -13,6 +15,10 @@
   import {
     applicationDetailTabValues,
     collectionItems,
+    completeCollectionItems,
+    createOperationTracker,
+    isLatestResourceLoad,
+    mutationOutcomeUnknown,
     tabFromRoute,
   } from "$lib/resource-page.js";
   import {
@@ -24,6 +30,7 @@
     getApplicationAccessControl,
     getApplicationConsent,
     getApplicationSignInExperience,
+    listApplications,
     listApplicationBindings,
     listApplicationLogs,
     listApplicationOrganizations,
@@ -46,6 +53,13 @@
     { value: "organizations", labelKey: "detail.organizations" },
   ];
   const confidentialAuthMethods = ["client_secret_basic", "client_secret_post"];
+  const APPLICATION_LOCK_OWNER = "applications";
+  const applicationMutationLockStore = createDurableMutationLockStore({
+    storageKey: "supaoauth.admin.application-mutation-locks.v2",
+    allowedActions: ["clear-sign-in", "create", "delete", "rotate", "unbind"],
+    storageProvider: () => globalThis.localStorage,
+    legacyStorageKeys: ["supaoauth.admin.application-mutation-locks.v1"],
+  });
 
   let application = $state(null);
   let roles = $state([]);
@@ -82,11 +96,19 @@
   });
   let newBinding = $state({ resource_id: "", scope_id: "" });
   let revealedSecret = $state("");
+  let applicationMutationLocks = $state({});
+  let mutationStorageReady = $state(false);
+  let mutationStorageError = $state(null);
   let loading = $state(true);
   let saving = $state(false);
+  const mutationTracker = createOperationTracker((pending) => {
+    saving = pending;
+  });
   let error = $state(null);
   let appId = $derived(page.params.appId);
   let requestedTab = $derived(page.params.tab || "settings");
+  let loadGeneration = 0;
+  let loadedApplicationContext = $state(null);
   let tabs = $derived(applicationTabs());
   let activeTab = $derived(
     tabFromRoute(
@@ -100,6 +122,118 @@
       ? new AdminApiError(t("state.notFoundDescription"), 404, "not_found")
       : null,
   );
+  let rotationOutcomeUnknown = $derived(
+    applicationMutationLocked("rotate", appId),
+  );
+  let deletionOutcomeUnknown = $derived(
+    applicationMutationLocked("delete", appId),
+  );
+  let clearSignInOutcomeUnknown = $derived(
+    applicationMutationLocked("clear-sign-in", appId),
+  );
+
+  function mutationStorageFailure() {
+    mutationStorageReady = false;
+    mutationStorageError = t(
+      "Mutation reconciliation storage is unavailable. High-impact application actions are blocked.",
+    );
+  }
+
+  function applicationMutationDescriptor(action, targetId) {
+    return { action, ownerId: APPLICATION_LOCK_OWNER, targetId };
+  }
+
+  function updateApplicationMutationLocks(lockCommand) {
+    try {
+      applicationMutationLocks = lockCommand();
+      mutationStorageReady = true;
+      mutationStorageError = null;
+      return true;
+    } catch {
+      mutationStorageFailure();
+      return false;
+    }
+  }
+
+  function restoreApplicationMutationLocks() {
+    updateApplicationMutationLocks(() => applicationMutationLockStore.restore());
+  }
+
+  function stageApplicationMutation(action, targetId) {
+    return updateApplicationMutationLocks(() =>
+      applicationMutationLockStore.stage(
+        applicationMutationLocks,
+        applicationMutationDescriptor(action, targetId),
+      ),
+    );
+  }
+
+  function clearApplicationMutationLock(action, targetId) {
+    return updateApplicationMutationLocks(() =>
+      applicationMutationLockStore.clear(
+        applicationMutationLocks,
+        applicationMutationDescriptor(action, targetId),
+      ),
+    );
+  }
+
+  function recordApplicationMutationUnknown(action, targetId) {
+    if (applicationMutationLocked(action, targetId)) return true;
+    return stageApplicationMutation(action, targetId);
+  }
+
+  function applicationMutationLocked(action, targetId) {
+    return applicationMutationLockStore.isLocked(
+      applicationMutationLocks,
+      applicationMutationDescriptor(action, targetId),
+    );
+  }
+
+  function acknowledgeApplicationMutation(action, resourceId) {
+    if (!confirm(t("I have verified the authoritative application state."))) return;
+    if (!confirm(t("Allow this high-impact application action to run again?"))) return;
+    clearApplicationMutationLock(action, resourceId);
+  }
+
+  function applicationIdentity(applicationResponse) {
+    const identity = applicationResponse?.client_id || applicationResponse?.id;
+    return typeof identity === "string" ? identity : "";
+  }
+
+  function completeApplicationList(response) {
+    const listedApplications = completeCollectionItems(response);
+    if (listedApplications.every((entry) => applicationIdentity(entry))) {
+      return listedApplications;
+    }
+    throw new Error("Management API returned an application without an identity");
+  }
+
+  function bindingMutationResourceId(bindingId) {
+    return `${appId}:${bindingId}`;
+  }
+
+  function completeBindingList(response) {
+    const listedBindings = completeCollectionItems(response);
+    if (listedBindings.every((binding) => typeof binding?.id === "string")) {
+      return listedBindings;
+    }
+    throw new Error("Management API returned a binding without an identity");
+  }
+
+  function signInOverrideCleared(response, ownerId) {
+    if (
+      response?.application_id !== ownerId ||
+      response?.enabled !== false ||
+      response?._meta
+    )
+      return false;
+    const brandingValues = Object.values(response.branding || {});
+    return brandingValues.length >= 7 && brandingValues.every((entry) => entry == null);
+  }
+
+  function reconciliationError(message) {
+    return new Error(t(message));
+  }
 
   function applicationTabs() {
     if (!application) return allTabs.filter((tab) => tab.value === "settings");
@@ -118,13 +252,13 @@
       .filter(Boolean);
   }
 
-  function initializeApplicationForm() {
+  function initializeApplicationForm(applicationResponse) {
     applicationForm = {
-      client_name: application.client_name || "",
-      redirect_uris: (application.redirect_uris || []).join(", "),
-      grant_types: supportedOAuthGrantTypes(application.grant_types),
+      client_name: applicationResponse.client_name || "",
+      redirect_uris: (applicationResponse.redirect_uris || []).join(", "),
+      grant_types: supportedOAuthGrantTypes(applicationResponse.grant_types),
       token_endpoint_auth_method:
-        application.token_endpoint_auth_method || "client_secret_basic",
+        applicationResponse.token_endpoint_auth_method || "client_secret_basic",
     };
   }
 
@@ -172,61 +306,125 @@
     resources = [];
   }
 
-  async function loadActiveTab() {
-    if (activeTab === "roles") {
-      roles = collectionItems(await listApplicationRoles(appId));
-    } else if (activeTab === "logs") {
-      logs = collectionItems(await listApplicationLogs(appId, { limit: 50 }));
-    } else if (activeTab === "organizations") {
-      organizations = collectionItems(
-        await listApplicationOrganizations(appId),
+  function currentLoadContext() {
+    return { generation: loadGeneration, resourceId: appId, tab: requestedTab };
+  }
+
+  function isCurrentLoad(loadContext) {
+    return isLatestResourceLoad(loadContext, currentLoadContext());
+  }
+
+  function currentMutationContext() {
+    return loadedApplicationContext && isCurrentLoad(loadedApplicationContext)
+      ? loadedApplicationContext
+      : null;
+  }
+
+  function isCurrentMutation(operation) {
+    return (
+      mutationTracker.isCurrent(operation) &&
+      isCurrentLoad(operation.ownerContext)
+    );
+  }
+
+  async function loadActiveTab(loadContext, loadTab) {
+    if (loadTab === "roles") {
+      const roleResponse = await listApplicationRoles(loadContext.resourceId);
+      if (isCurrentLoad(loadContext)) roles = collectionItems(roleResponse);
+    } else if (loadTab === "logs") {
+      const logResponse = await listApplicationLogs(loadContext.resourceId, {
+        limit: 50,
+      });
+      if (isCurrentLoad(loadContext)) logs = collectionItems(logResponse);
+    } else if (loadTab === "organizations") {
+      const organizationResponse = await listApplicationOrganizations(
+        loadContext.resourceId,
       );
-    } else if (activeTab === "branding") {
-      initializeBranding(await getApplicationSignInExperience(appId));
-    } else if (activeTab === "rules") {
-      initializeAccessControl(await getApplicationAccessControl(appId));
-    } else if (activeTab === "permissions") {
+      if (isCurrentLoad(loadContext)) {
+        organizations = collectionItems(organizationResponse);
+      }
+    } else if (loadTab === "branding") {
+      const brandingResponse = await getApplicationSignInExperience(
+        loadContext.resourceId,
+      );
+      if (isCurrentLoad(loadContext)) initializeBranding(brandingResponse);
+    } else if (loadTab === "rules") {
+      const accessControlResponse = await getApplicationAccessControl(
+        loadContext.resourceId,
+      );
+      if (isCurrentLoad(loadContext)) {
+        initializeAccessControl(accessControlResponse);
+      }
+    } else if (loadTab === "permissions") {
       const [bindingResponse, resourceResponse, consentResponse] =
         await Promise.all([
-          listApplicationBindings(appId),
+          listApplicationBindings(loadContext.resourceId),
           listResources(),
-          getApplicationConsent(appId),
+          getApplicationConsent(loadContext.resourceId),
         ]);
-      bindings = collectionItems(bindingResponse);
-      resources = collectionItems(resourceResponse);
-      initializeConsent(consentResponse);
+      if (isCurrentLoad(loadContext)) {
+        bindings = collectionItems(bindingResponse);
+        resources = collectionItems(resourceResponse);
+        initializeConsent(consentResponse);
+      }
     }
   }
 
   async function loadApplication() {
+    return loadApplicationData();
+  }
+
+  async function loadApplicationData() {
+    const loadContext = {
+      generation: loadGeneration + 1,
+      resourceId: appId,
+      tab: requestedTab,
+    };
+    loadGeneration = loadContext.generation;
+    loadedApplicationContext = null;
     loading = true;
     error = null;
+    application = null;
+    revealedSecret = "";
+    resetRelatedData();
     try {
-      application = await getApplication(appId);
-      initializeApplicationForm();
-      resetRelatedData();
-      await loadActiveTab();
+      const applicationResponse = await getApplication(loadContext.resourceId);
+      if (!isCurrentLoad(loadContext)) return;
+      application = applicationResponse;
+      initializeApplicationForm(applicationResponse);
+      const loadTab = tabFromRoute(
+        loadContext.tab,
+        applicationDetailTabValues(applicationResponse),
+        "settings",
+      );
+      await loadActiveTab(loadContext, loadTab);
+      if (isCurrentLoad(loadContext)) loadedApplicationContext = loadContext;
     } catch (requestError) {
-      error = requestError;
+      if (isCurrentLoad(loadContext)) error = requestError;
+    } finally {
+      if (isCurrentLoad(loadContext)) loading = false;
     }
-    loading = false;
   }
 
   async function runMutation(command) {
-    saving = true;
+    if (saving) return;
+    const mutationContext = currentMutationContext();
+    if (!mutationContext) return;
+    const operation = mutationTracker.begin(mutationContext);
     error = null;
     try {
-      await command();
-      await loadApplication();
+      await command(operation.ownerContext.resourceId);
+      if (isCurrentMutation(operation)) await loadApplicationData();
     } catch (requestError) {
-      error = requestError;
+      if (isCurrentMutation(operation)) error = requestError;
+    } finally {
+      mutationTracker.finish(operation);
     }
-    saving = false;
   }
 
   function saveApplication() {
-    return runMutation(() =>
-      updateApplication(appId, {
+    return runMutation((ownerId) =>
+      updateApplication(ownerId, {
         client_name: applicationForm.client_name,
         redirect_uris: stringList(applicationForm.redirect_uris),
         grant_types: applicationForm.grant_types,
@@ -239,8 +437,8 @@
   }
 
   function saveConsent() {
-    return runMutation(() =>
-      updateApplicationConsent(appId, {
+    return runMutation((ownerId) =>
+      updateApplicationConsent(ownerId, {
         user_scopes: stringList(consent.user_scopes),
         organization_scopes: stringList(consent.organization_scopes),
         allowed_organization_ids: stringList(consent.allowed_organization_ids),
@@ -251,8 +449,8 @@
 
   function saveBranding() {
     const { enabled, ...brandingValues } = branding;
-    return runMutation(() =>
-      updateApplicationSignInExperience(appId, {
+    return runMutation((ownerId) =>
+      updateApplicationSignInExperience(ownerId, {
         enabled,
         branding: brandingValues,
       }),
@@ -260,34 +458,309 @@
   }
 
   async function rotateSecret() {
-    saving = true;
-    error = null;
-    try {
-      const response = await rotateApplicationSecret(appId);
-      revealedSecret = response.client_secret || response.secret || "";
-    } catch (requestError) {
-      error = requestError;
+    if (saving) return;
+    if (!mutationStorageReady || rotationOutcomeUnknown) return;
+    const mutationContext = currentMutationContext();
+    if (!mutationContext) return;
+    if (
+      !confirm(
+        t("Rotate client secret? The old secret will be invalidated immediately."),
+      )
+    )
+      return;
+    const operation = mutationTracker.begin(mutationContext);
+    if (!stageApplicationMutation("rotate", operation.ownerContext.resourceId)) {
+      mutationTracker.finish(operation);
+      return;
     }
-    saving = false;
+    revealedSecret = "";
+    error = null;
+    let rotationAccepted = false;
+    try {
+      let response;
+      try {
+        response = await rotateApplicationSecret(operation.ownerContext.resourceId);
+        rotationAccepted = true;
+      } catch (requestError) {
+        if (!mutationOutcomeUnknown(requestError)) throw requestError;
+        recordApplicationMutationUnknown(
+          "rotate",
+          operation.ownerContext.resourceId,
+        );
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Secret rotation outcome is unknown. Reconcile the credential before allowing another rotation.",
+          );
+        }
+        return;
+      }
+      const readBack = await getApplication(operation.ownerContext.resourceId);
+      const returnedSecret = response?.client_secret || response?.secret;
+      const verified =
+        applicationIdentity(readBack) === operation.ownerContext.resourceId &&
+        typeof returnedSecret === "string" &&
+        returnedSecret.length > 0 &&
+        isCurrentMutation(operation);
+      if (!verified) {
+        recordApplicationMutationUnknown(
+          "rotate",
+          operation.ownerContext.resourceId,
+        );
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Secret rotation could not be verified. Reconcile the credential before unlocking another rotation.",
+          );
+        }
+        return;
+      }
+      if (!clearApplicationMutationLock("rotate", operation.ownerContext.resourceId)) {
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Secret rotation was verified but the reconciliation lock could not be cleared. Reconcile storage before trying again.",
+          );
+        }
+        return;
+      }
+      revealedSecret = returnedSecret;
+    } catch (requestError) {
+      if (rotationAccepted) {
+        recordApplicationMutationUnknown(
+          "rotate",
+          operation.ownerContext.resourceId,
+        );
+      } else {
+        clearApplicationMutationLock("rotate", operation.ownerContext.resourceId);
+      }
+      if (isCurrentMutation(operation)) {
+        error = rotationAccepted
+          ? reconciliationError(
+              "Secret rotation read-back failed. Reconcile the credential before unlocking another rotation.",
+            )
+          : requestError;
+      }
+    } finally {
+      mutationTracker.finish(operation);
+    }
   }
 
   async function removeApplication() {
+    if (saving) return;
+    if (!mutationStorageReady || deletionOutcomeUnknown) return;
+    const mutationContext = currentMutationContext();
+    if (!mutationContext) return;
     if (!confirm(t("Delete this application permanently?"))) return;
+    const operation = mutationTracker.begin(mutationContext);
+    if (!stageApplicationMutation("delete", operation.ownerContext.resourceId)) {
+      mutationTracker.finish(operation);
+      return;
+    }
+    error = null;
+    let deletionMayHaveCommitted = false;
     try {
-      await deleteApplication(appId);
-      await goto(resolve("/applications"));
+      try {
+        await deleteApplication(operation.ownerContext.resourceId);
+        deletionMayHaveCommitted = true;
+      } catch (requestError) {
+        if (!mutationOutcomeUnknown(requestError)) throw requestError;
+        deletionMayHaveCommitted = true;
+      }
+      const response = await listApplications();
+      const listedApplications = completeApplicationList(response);
+      const stillPresent = listedApplications.some(
+        (entry) =>
+          applicationIdentity(entry) === operation.ownerContext.resourceId,
+      );
+      if (stillPresent) {
+        recordApplicationMutationUnknown(
+          "delete",
+          operation.ownerContext.resourceId,
+        );
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Application deletion could not be verified. Reconcile the authoritative list before deleting again.",
+          );
+        }
+        return;
+      }
+      if (!clearApplicationMutationLock("delete", operation.ownerContext.resourceId)) {
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Application deletion was verified but the reconciliation lock could not be cleared. Reconcile storage before trying again.",
+          );
+        }
+        return;
+      }
+      if (isCurrentMutation(operation)) await goto(resolve("/applications"));
     } catch (requestError) {
-      error = requestError;
+      if (deletionMayHaveCommitted) {
+        recordApplicationMutationUnknown(
+          "delete",
+          operation.ownerContext.resourceId,
+        );
+      } else {
+        clearApplicationMutationLock("delete", operation.ownerContext.resourceId);
+      }
+      if (isCurrentMutation(operation)) {
+        error = deletionMayHaveCommitted
+          ? reconciliationError(
+              "Application deletion read-back failed. Reconcile the authoritative list before deleting again.",
+            )
+          : requestError;
+      }
+    } finally {
+      mutationTracker.finish(operation);
+    }
+  }
+
+  async function clearSignInOverride() {
+    if (saving || !mutationStorageReady || clearSignInOutcomeUnknown) return;
+    const mutationContext = currentMutationContext();
+    if (!mutationContext) return;
+    if (!confirm(t("Clear this application's sign-in experience override?"))) return;
+    const operation = mutationTracker.begin(mutationContext);
+    if (!stageApplicationMutation("clear-sign-in", operation.ownerContext.resourceId)) {
+      mutationTracker.finish(operation);
+      return;
+    }
+    error = null;
+    let clearingMayHaveCommitted = false;
+    try {
+      try {
+        await deleteApplicationSignInExperience(operation.ownerContext.resourceId);
+        clearingMayHaveCommitted = true;
+      } catch (requestError) {
+        if (!mutationOutcomeUnknown(requestError)) throw requestError;
+        clearingMayHaveCommitted = true;
+      }
+      const readBack = await getApplicationSignInExperience(
+        operation.ownerContext.resourceId,
+      );
+      if (!signInOverrideCleared(readBack, operation.ownerContext.resourceId)) {
+        recordApplicationMutationUnknown(
+          "clear-sign-in",
+          operation.ownerContext.resourceId,
+        );
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Sign-in override clearing could not be verified. Reconcile the authoritative state before clearing again.",
+          );
+        }
+        return;
+      }
+      if (!clearApplicationMutationLock(
+        "clear-sign-in",
+        operation.ownerContext.resourceId,
+      )) {
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Sign-in override clearing was verified but the reconciliation lock could not be cleared. Reconcile storage before trying again.",
+          );
+        }
+        return;
+      }
+      if (isCurrentMutation(operation)) initializeBranding(readBack);
+    } catch (requestError) {
+      if (clearingMayHaveCommitted) {
+        recordApplicationMutationUnknown(
+          "clear-sign-in",
+          operation.ownerContext.resourceId,
+        );
+      } else {
+        clearApplicationMutationLock(
+          "clear-sign-in",
+          operation.ownerContext.resourceId,
+        );
+      }
+      if (isCurrentMutation(operation)) {
+        error = clearingMayHaveCommitted
+          ? reconciliationError(
+              "Sign-in override read-back failed. Reconcile the authoritative state before clearing again.",
+            )
+          : requestError;
+      }
+    } finally {
+      mutationTracker.finish(operation);
+    }
+  }
+
+  async function unbindApplication(bindingId) {
+    const mutationResourceId = bindingMutationResourceId(bindingId);
+    if (
+      saving ||
+      !mutationStorageReady ||
+      applicationMutationLocked("unbind", mutationResourceId)
+    )
+      return;
+    const mutationContext = currentMutationContext();
+    if (!mutationContext) return;
+    if (!confirm(t("Unbind this API resource from the application?"))) return;
+    const operation = mutationTracker.begin(mutationContext);
+    if (!stageApplicationMutation("unbind", mutationResourceId)) {
+      mutationTracker.finish(operation);
+      return;
+    }
+    error = null;
+    let unbindMayHaveCommitted = false;
+    try {
+      try {
+        await deleteApplicationBinding(
+          operation.ownerContext.resourceId,
+          bindingId,
+        );
+        unbindMayHaveCommitted = true;
+      } catch (requestError) {
+        if (!mutationOutcomeUnknown(requestError)) throw requestError;
+        unbindMayHaveCommitted = true;
+      }
+      const response = await listApplicationBindings(
+        operation.ownerContext.resourceId,
+      );
+      const listedBindings = completeBindingList(response);
+      if (listedBindings.some((binding) => binding.id === bindingId)) {
+        recordApplicationMutationUnknown("unbind", mutationResourceId);
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Application unbind could not be verified. Reconcile the binding list before unbinding again.",
+          );
+        }
+        return;
+      }
+      if (!clearApplicationMutationLock("unbind", mutationResourceId)) {
+        if (isCurrentMutation(operation)) {
+          error = reconciliationError(
+            "Application unbind was verified but the reconciliation lock could not be cleared. Reconcile storage before trying again.",
+          );
+        }
+        return;
+      }
+      if (isCurrentMutation(operation)) bindings = listedBindings;
+    } catch (requestError) {
+      if (unbindMayHaveCommitted) {
+        recordApplicationMutationUnknown("unbind", mutationResourceId);
+      } else {
+        clearApplicationMutationLock("unbind", mutationResourceId);
+      }
+      if (isCurrentMutation(operation)) {
+        error = unbindMayHaveCommitted
+          ? reconciliationError(
+              "Application binding read-back failed. Reconcile the binding list before unbinding again.",
+            )
+          : requestError;
+      }
+    } finally {
+      mutationTracker.finish(operation);
     }
   }
 
   let lastLoadKey = "";
   $effect(() => {
-    const loadKey = `${appId}:${activeTab}`;
+    const loadKey = `${appId}:${requestedTab}`;
     if (!appId || loadKey === lastLoadKey) return;
     lastLoadKey = loadKey;
     void loadApplication();
   });
+
+  onMount(restoreApplicationMutationLocks);
 </script>
 
 <div class="mb-5">
@@ -304,13 +777,40 @@
       <p class="mt-1 font-mono text-xs text-surface-500">{appId}</p>
     </div>
     <button
-      disabled={saving}
+      disabled={saving || !mutationStorageReady || deletionOutcomeUnknown}
       onclick={removeApplication}
       class="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
       >{t("Delete")}</button
     >
   </div>
 </div>
+
+{#if mutationStorageError}
+  <div
+    class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
+    role="alert"
+  >
+    {mutationStorageError}
+  </div>
+{/if}
+
+{#if deletionOutcomeUnknown}
+  <div
+    class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+    role="alert"
+  >
+    <p>
+      {t(
+        "Application deletion outcome is unknown. Reconcile the authoritative list before deleting again.",
+      )}
+    </p>
+    <button
+      onclick={() => acknowledgeApplicationMutation("delete", appId)}
+      class="mt-3 font-semibold text-amber-950 underline"
+      >{t("I verified the list; allow delete again")}</button
+    >
+  </div>
+{/if}
 
 <DetailTabs
   {tabs}
@@ -415,12 +915,29 @@
             </p>
           </div>
           <button
-            disabled={saving}
+            disabled={saving || !mutationStorageReady || rotationOutcomeUnknown}
             onclick={rotateSecret}
             class="text-sm font-semibold text-brand-700 disabled:opacity-50"
             >{t("Rotate Secret")}</button
           >
         </div>
+        {#if rotationOutcomeUnknown}
+          <div
+            class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+            role="alert"
+          >
+            <p>
+              {t(
+                "Secret rotation outcome is unknown. Verify the client credential before allowing another rotation; this block survives reload.",
+              )}
+            </p>
+            <button
+              onclick={() => acknowledgeApplicationMutation("rotate", appId)}
+              class="mt-3 font-semibold text-amber-950 underline"
+              >{t("I verified the credential; allow rotation again")}</button
+            >
+          </div>
+        {/if}
       </section>
     </div>
   {:else if activeTab === "roles"}
@@ -519,12 +1036,31 @@
         class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >{saving ? t("Saving...") : t("Save")}</button
       ><button
-        disabled={saving}
-        onclick={() =>
-          runMutation(() => deleteApplicationSignInExperience(appId))}
+        disabled={saving ||
+          !mutationStorageReady ||
+          clearSignInOutcomeUnknown}
+        onclick={clearSignInOverride}
         class="ml-3 text-sm font-medium text-surface-600 disabled:opacity-50"
         >{t("Clear Override")}</button
       >
+      {#if clearSignInOutcomeUnknown}
+        <div
+          class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+          role="alert"
+        >
+          <p>
+            {t(
+              "Sign-in override clearing has an unknown outcome. Reconcile the authoritative state before clearing again.",
+            )}
+          </p>
+          <button
+            onclick={() =>
+              acknowledgeApplicationMutation("clear-sign-in", appId)}
+            class="mt-3 font-semibold text-amber-950 underline"
+            >{t("I verified the override; allow clearing again")}</button
+          >
+        </div>
+      {/if}
     </section>
   {:else if activeTab === "permissions"}
     <div class="space-y-5">
@@ -565,7 +1101,7 @@
           ><button
             disabled={saving || !newBinding.resource_id}
             onclick={() =>
-              runMutation(() => createApplicationBinding(appId, newBinding))}
+              runMutation((ownerId) => createApplicationBinding(ownerId, newBinding))}
             class="rounded-lg border border-brand-300 px-3 py-2 text-sm text-brand-700 disabled:opacity-50"
             >{t("Bind")}</button
           >
@@ -578,14 +1114,42 @@
                 >{binding.resourceId || binding.resource_id}
                 {binding.scopeId || binding.scope_id || ""}</span
               ><button
-                disabled={saving}
-                onclick={() =>
-                  runMutation(() =>
-                    deleteApplicationBinding(appId, binding.id),
+                disabled={saving ||
+                  !mutationStorageReady ||
+                  applicationMutationLocked(
+                    "unbind",
+                    bindingMutationResourceId(binding.id),
                   )}
-                class="text-xs text-red-600">{t("Unbind")}</button
+                onclick={() => unbindApplication(binding.id)}
+                class="text-xs text-red-600 disabled:opacity-50"
+                >{t("Unbind")}</button
               >
-            </div>{/each}
+            </div>
+            {#if applicationMutationLocked(
+              "unbind",
+              bindingMutationResourceId(binding.id),
+            )}
+              <div
+                class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+                role="alert"
+              >
+                <p>
+                  {t(
+                    "Application unbind outcome is unknown. Reconcile the binding list before unbinding again.",
+                  )}
+                </p>
+                <button
+                  onclick={() =>
+                    acknowledgeApplicationMutation(
+                      "unbind",
+                      bindingMutationResourceId(binding.id),
+                    )}
+                  class="mt-2 font-semibold underline"
+                  >{t("I verified the binding; allow unbind again")}</button
+                >
+              </div>
+            {/if}
+          {/each}
         </div>
       </section>
     </div>
@@ -610,8 +1174,8 @@
       ><button
         disabled={saving}
         onclick={() =>
-          runMutation(() =>
-            updateApplicationAccessControl(appId, accessControl),
+          runMutation((ownerId) =>
+            updateApplicationAccessControl(ownerId, accessControl),
           )}
         class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >{saving ? t("Saving...") : t("Save")}</button

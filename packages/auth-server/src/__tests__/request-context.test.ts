@@ -262,8 +262,10 @@ describe('admin request context propagation', () => {
 
   it('overrides direct audit event body actors with the trusted admin context', async () => {
     let requestBody = '';
+    let requestHeaders = new Headers();
     globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
       requestBody = String(init?.body || '{}');
+      requestHeaders = new Headers(init?.headers);
       return Promise.resolve(Response.json({ id: 'audit-admin' }));
     }) as unknown as typeof fetch;
 
@@ -276,13 +278,14 @@ describe('admin request context propagation', () => {
         actor_type: 'user',
         resource_type: 'resource',
         resource_id: 'resource-one',
-      }),
+      }, '1a6c732b-d2c3-4c77-8c40-70f7943e5093'),
     );
 
     expect(JSON.parse(requestBody)).toMatchObject({
       actor_id: 'direct-admin',
       actor_type: 'admin',
     });
+    expect(requestHeaders.get('idempotency-key')).toBe('1a6c732b-d2c3-4c77-8c40-70f7943e5093');
   });
 
   it('signs user audit events from a request context without impersonating master', async () => {
