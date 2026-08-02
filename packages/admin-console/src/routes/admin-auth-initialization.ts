@@ -1,6 +1,6 @@
 import type { AuthProvider, CheckResult } from '@svadmin/core';
-import type { AdminMfaFactor, AdminMfaStepUpState } from '$lib/admin-mfa-step-up';
-import { runBoundedAdminRequest } from '$lib/admin-api';
+import type { AdminMfaFactor, AdminMfaStepUpState } from '../lib/admin-mfa-step-up';
+import { runBoundedAdminRequest } from '../lib/admin-api';
 
 type AdminInitializationErrorCode =
   | 'authentication_required'
