@@ -509,8 +509,14 @@ async function mergePR() {
 // --- Main --------------------------------------------------------------
 
 async function main() {
-  if (!API_KEY || !API_BASE || !GH_TOKEN || !PR_NUM || !REPO) {
-    console.error('Missing required environment variables.');
+  // AI 评审是可选集成：未配置 AI_API_KEY/AI_API_BASE 时安静跳过，
+  // 不在每个 PR 上制造红色失败；缺少 GitHub/PR 上下文仍是工作流错误。
+  if (!API_KEY || !API_BASE) {
+    console.log('AI review is not configured (AI_API_KEY/AI_API_BASE missing); skipping.');
+    return;
+  }
+  if (!GH_TOKEN || !PR_NUM || !REPO) {
+    console.error('Missing required environment variables: GITHUB_TOKEN, PR_NUMBER or GITHUB_REPOSITORY.');
     process.exit(1);
   }
 
