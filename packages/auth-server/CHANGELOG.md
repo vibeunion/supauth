@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.5.0...auth-server-v0.5.1) (2026-08-02)
+
+
+### Bug Fixes
+
+* **auth:** harden SupAuth release and admin boundaries ([e0adfc0](https://github.com/zuohuadong/supauth/commit/e0adfc012cf1d8db6e5ef4c7ce5a68031a3ebdc3))
+
 ## [0.5.0](https://github.com/zuohuadong/supauth/compare/auth-server-v0.4.0...auth-server-v0.5.0) (2026-07-30)
 
 

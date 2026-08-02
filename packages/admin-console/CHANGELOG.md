@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/zuohuadong/supauth/compare/admin-console-v0.5.0...admin-console-v0.5.1) (2026-08-02)
+
+
+### Bug Fixes
+
+* **admin:** use relative imports in admin auth initialization for CI test runner ([f2e9e39](https://github.com/zuohuadong/supauth/commit/f2e9e3959234ccf7ae744df6d5fb0cab101e7af7))
+* **auth:** harden SupAuth release and admin boundaries ([e0adfc0](https://github.com/zuohuadong/supauth/commit/e0adfc012cf1d8db6e5ef4c7ce5a68031a3ebdc3))
+
 ## [0.5.0](https://github.com/zuohuadong/supauth/compare/admin-console-v0.4.0...admin-console-v0.5.0) (2026-07-30)
 
 
