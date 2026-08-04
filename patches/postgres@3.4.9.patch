@@ -1,0 +1,13 @@
+diff --git a/src/index.js b/src/index.js
+index c7fba3dace20173f4cb13f3f138bb6d213b43683..40ab655186fd8ff10758a1bdefc855aee2ff2ee7 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -1,2 +1,7 @@
+ import os from 'os'
+-import fs from 'fs'
++
++const fs = {
++  readFile(_path, _encoding, callback) {
++    queueMicrotask(() => callback(Error('postgres.sql.file() is unavailable in the SupaCloud Edge Runtime')))
++  }
++}

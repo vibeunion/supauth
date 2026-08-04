@@ -35,8 +35,12 @@
     "@supabase/supabase-js": "2.110.9",
     "@supacloud/js": "0.21.0",
     "@types/bun": "^1.2.0",
+    "es-module-lexer": "2.3.1",
     "pinyin-pro": "^3.28.1",
     "typescript": "^5.8.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "patchedDependencies": {
+    "postgres@3.4.9": "patches/postgres@3.4.9.patch"
   }
 }

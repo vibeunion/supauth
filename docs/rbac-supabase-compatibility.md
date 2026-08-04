@@ -10,7 +10,7 @@ The application-local kit has two compatible identity modes:
 
 | Mode | Principal identity | Application boundary | Requires SupAuth |
 | --- | --- | --- | --- |
-| Native SupaCloud/GoTrue | Signed JWT `iss` + `sub` | Static application ID embedded in the reviewed RLS policy | No |
+| Native SupaCloud/GoTrue | Signed JWT `iss` + `sub` | Static application ID embedded in the reviewed RLS policy; any signed application claim that is present must match it exactly | No |
 | SupAuth/OAuth | Signed JWT `iss` + `sub` | The same static policy ID plus exact signed `client_id` / authorization-context consistency | Optional |
 
 Both modes resolve current membership, role assignment, and audit facts from the business application's own database. They do not copy those facts into SupaCloud control-plane RBAC, and ordinary SupaCloud users do not need an additional runtime service or JWT-mutating package.

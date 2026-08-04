@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.6.0...auth-server-v0.6.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* **auth:** build Edge Runtime compatible function ([386a17f](https://github.com/zuohuadong/supauth/commit/386a17f3eafd5c0c735f6ed69379753192e500af))
+* **auth:** build Edge Runtime compatible function ([84a00fa](https://github.com/zuohuadong/supauth/commit/84a00faa1df14c1c75a6fccbcba0da7a432795a7))
+
 ## [0.6.0](https://github.com/zuohuadong/supauth/compare/auth-server-v0.5.1...auth-server-v0.6.0) (2026-08-04)
 
 

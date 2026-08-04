@@ -8,6 +8,7 @@ import {
   adminConsoleRedirectLocation,
   adminConsoleSpaCandidates,
   hostedPageRoutes,
+  readFirstAvailableText,
   resolveHostedPagePaths,
   serveAdminConsolePage,
 } from '../routes/hosted-pages.js';
@@ -71,6 +72,33 @@ describe('hostedPageRoutes', () => {
       '/opt/supauth/packages/admin-console/build/_app/immutable/missing.js.html',
       '/opt/supauth/packages/admin-console/build/_app/immutable/missing.js/index.html',
     ]);
+  });
+
+  test('hosted page probes only continue after a confined optional path', async () => {
+    const buildDir = mkdtempSync(join(tmpdir(), 'supauth-hosted-probe-'));
+    const availablePath = join(buildDir, 'authorize.html');
+    const deniedPath = '/opt/supacloud/admin-console/static/authorize.html';
+    const failedPath = '/opt/supacloud/admin-console/static/failed.html';
+    const bunApi = Bun as unknown as Record<string, unknown>;
+    const originalBunFile = Bun.file;
+    writeFileSync(availablePath, '<main>Embedded fallback</main>');
+    bunApi.file = (...args: unknown[]) => {
+      if (args[0] === deniedPath) {
+        throw new Error(`Access denied: path "${deniedPath}" is outside the project directory`);
+      }
+      if (args[0] === failedPath) throw new Error('hosted page read failed');
+      return Reflect.apply(originalBunFile, Bun, args);
+    };
+
+    try {
+      await expect(readFirstAvailableText([deniedPath, availablePath])).resolves
+        .toBe('<main>Embedded fallback</main>');
+      await expect(readFirstAvailableText([deniedPath])).resolves.toBeNull();
+      await expect(readFirstAvailableText([failedPath])).rejects.toThrow('hosted page read failed');
+    } finally {
+      bunApi.file = originalBunFile;
+      rmSync(buildDir, { recursive: true, force: true });
+    }
   });
 
   test('versioned Function Admin assets preserve deep-link fallback and exact static paths', () => {

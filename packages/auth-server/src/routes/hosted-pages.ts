@@ -120,11 +120,19 @@ const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"
   <path d="M19 22.5c0-5.2 4.2-9.5 9.5-9.5H48v9H28.5a.5.5 0 0 0-.5.5V28h17v8H28v5.5c0 .3.2.5.5.5H48v9H28.5c-5.3 0-9.5-4.3-9.5-9.5v-19Z" fill="#f8fafc"/>
 </svg>`;
 
-async function findFirstExistingFile(candidates: string[]) {
+function isProjectConfinementError(error: unknown) {
+  return error instanceof Error
+    && error.message.startsWith('Access denied: path "')
+    && error.message.endsWith('" is outside the project directory');
+}
+
+export async function readFirstAvailableText(candidates: string[]) {
   for (const candidate of candidates) {
-    const file = Bun.file(candidate);
-    if (await file.exists()) {
-      return file;
+    try {
+      const file = Bun.file(candidate);
+      if (await file.exists()) return await file.text();
+    } catch (error) {
+      if (!isProjectConfinementError(error)) throw error;
     }
   }
   return null;
@@ -238,49 +246,37 @@ export function adminConsoleRedirectLocation(requestUrl: URL) {
 }
 
 async function loadAuthorizeHtml(): Promise<string | null> {
-  const htmlFile = await findFirstExistingFile(hostedPagePaths.authorizeHtmlCandidates);
-  if (htmlFile) {
-    return htmlFile.text();
-  }
-  return EMBEDDED_AUTHORIZE_HTML;
+  return await readFirstAvailableText(hostedPagePaths.authorizeHtmlCandidates)
+    ?? EMBEDDED_AUTHORIZE_HTML;
 }
 
 async function loadClaimHtml(): Promise<string | null> {
   const customHtml = await loadCustomUiText(['claim.html']);
   if (customHtml) return customHtml;
 
-  const htmlFile = await findFirstExistingFile(hostedPagePaths.claimHtmlCandidates);
-  if (htmlFile) {
-    return htmlFile.text();
-  }
-  return EMBEDDED_CLAIM_HTML;
+  return await readFirstAvailableText(hostedPagePaths.claimHtmlCandidates)
+    ?? EMBEDDED_CLAIM_HTML;
 }
 
 async function loadChangePasswordHtml(): Promise<string | null> {
   const customHtml = await loadCustomUiText(['change-password.html']);
   if (customHtml) return customHtml;
 
-  const htmlFile = await findFirstExistingFile(hostedPagePaths.changePasswordHtmlCandidates);
-  if (htmlFile) {
-    return htmlFile.text();
-  }
-  return EMBEDDED_CHANGE_PASSWORD_HTML;
+  return await readFirstAvailableText(hostedPagePaths.changePasswordHtmlCandidates)
+    ?? EMBEDDED_CHANGE_PASSWORD_HTML;
 }
 
 async function loadAccountHtml(): Promise<string | null> {
   const customHtml = await loadCustomUiText(['account.html']);
   if (customHtml) return customHtml;
 
-  const htmlFile = await findFirstExistingFile(hostedPagePaths.accountHtmlCandidates);
-  if (htmlFile) {
-    return htmlFile.text();
-  }
-  return EMBEDDED_ACCOUNT_HTML;
+  return await readFirstAvailableText(hostedPagePaths.accountHtmlCandidates)
+    ?? EMBEDDED_ACCOUNT_HTML;
 }
 
 async function loadLogoutHtml(): Promise<string | null> {
-  const htmlFile = await findFirstExistingFile(hostedPagePaths.logoutHtmlCandidates);
-  return htmlFile ? htmlFile.text() : EMBEDDED_LOGOUT_HTML;
+  return await readFirstAvailableText(hostedPagePaths.logoutHtmlCandidates)
+    ?? EMBEDDED_LOGOUT_HTML;
 }
 
 function renderAuthorizeHtml(html: string) {
