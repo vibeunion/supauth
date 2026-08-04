@@ -9,6 +9,10 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {
+  initSync as initModuleLexerSync,
+  parse as parseModuleImports,
+} from 'es-module-lexer';
 import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
 
 const ADMIN_SSO_REQUIRED_ENV = ['ADMIN_SSO_ISSUER', 'ADMIN_SSO_CLIENT_ID'];
@@ -134,6 +138,64 @@ const FORBIDDEN_FUNCTION_BUNDLE_MARKERS = [
   'deliverWebhookOnce',
   'X-SupaOAuth-Signature',
 ];
+const EDGE_RUNTIME_DISABLED_IMPORTS = new Set([
+  'bun:ffi',
+  'child_process',
+  'cluster',
+  'node:child_process',
+  'node:cluster',
+  'node:worker_threads',
+  'worker_threads',
+  'fs',
+  'fs/promises',
+  'node:fs',
+  'node:fs/promises',
+  'bun:jsc',
+  'inspector',
+  'module',
+  'node:inspector',
+  'node:module',
+  'node:v8',
+  'node:vm',
+  'v8',
+  'vm',
+]);
+// 必须与 SupaCloud Edge Runtime tenantBuiltinSpecifier 保持一致；
+// 额外放行 host builtin 会让本地门禁产生误绿。
+const EDGE_RUNTIME_ALLOWED_NODE_BUILTINS = new Set([
+  'assert',
+  'assert/strict',
+  'async_hooks',
+  'buffer',
+  'constants',
+  'crypto',
+  'dns',
+  'dns/promises',
+  'events',
+  'http',
+  'https',
+  'net',
+  'os',
+  'path',
+  'path/posix',
+  'path/win32',
+  'perf_hooks',
+  'punycode',
+  'querystring',
+  'stream',
+  'stream/consumers',
+  'stream/promises',
+  'stream/web',
+  'string_decoder',
+  'timers',
+  'timers/promises',
+  'tls',
+  'tty',
+  'url',
+  'util',
+  'util/types',
+  'zlib',
+]);
 
 interface VerificationResult {
   ok: boolean;
@@ -246,6 +308,94 @@ function assertNoRuntimeRouteCollision(result: VerificationResult, functionRoute
       }
     }
   }
+}
+
+function isDynamicImportLiteral(source: string, start: number, end: number) {
+  const expression = source.slice(start, end).trim();
+  const quote = expression[0];
+  if ((quote !== '"' && quote !== "'" && quote !== '`') || expression.length < 2) return false;
+  for (let index = 1; index < expression.length; index++) {
+    const character = expression[index];
+    if (character === '\\') {
+      index++;
+      continue;
+    }
+    if (quote === '`' && character === '$' && expression[index + 1] === '{') return false;
+    if (character === quote) return expression.slice(index + 1).trim() === '';
+  }
+  return false;
+}
+
+type ModuleImport = ReturnType<typeof parseModuleImports>[0][number];
+
+function parseFunctionBundleModuleImports(result: VerificationResult, functionSource: string): ModuleImport[] | null {
+  try {
+    initModuleLexerSync();
+    return parseModuleImports(functionSource)[0];
+  } catch (error) {
+    result.errors.push(`Function bundle module lexer failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+function runtimeImportAllowed(path: string) {
+  if (EDGE_RUNTIME_DISABLED_IMPORTS.has(path)) return false;
+  if (path === 'bun') return true;
+  const runtimeModule = path.startsWith('node:') ? path.slice('node:'.length) : path;
+  return EDGE_RUNTIME_ALLOWED_NODE_BUILTINS.has(runtimeModule);
+}
+
+function assertNoImportMetaLoaders(
+  result: VerificationResult,
+  functionSource: string,
+  moduleImports: ModuleImport[],
+) {
+  for (const imported of moduleImports.filter((entry) => entry.d === -2 && entry.t === 3)) {
+    if (!/^\s*\.\s*(?:url|dir)\b/.test(functionSource.slice(imported.e))) {
+      result.errors.push('Function bundle contains import.meta loader access rejected by the multi-tenant Edge Runtime');
+      return;
+    }
+  }
+}
+
+function assertNoComputedDynamicImports(
+  result: VerificationResult,
+  functionSource: string,
+  moduleImports: ModuleImport[],
+) {
+  if (moduleImports.some((imported) => (
+    imported.d >= 0 && !isDynamicImportLiteral(functionSource, imported.s, imported.e)
+  ))) {
+    result.errors.push('Function bundle contains computed dynamic imports rejected by the multi-tenant Edge Runtime');
+  }
+}
+
+function assertNoUnsupportedRuntimeImports(result: VerificationResult, functionSource: string) {
+  let imports: Array<{ kind?: string; path?: string }>;
+  try {
+    imports = new Bun.Transpiler({ loader: 'js' }).scanImports(functionSource) as Array<{ kind?: string; path?: string }>;
+  } catch (error) {
+    result.errors.push(`Function bundle import scan failed: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+
+  for (const dependency of imports) {
+    const path = typeof dependency.path === 'string' ? dependency.path : '';
+    if (EDGE_RUNTIME_DISABLED_IMPORTS.has(path)) {
+      result.errors.push(`Function bundle imports Edge Runtime-disabled module: ${path}`);
+    } else if (!runtimeImportAllowed(path)) {
+      result.errors.push(`Function bundle contains unresolved import: ${path}`);
+    }
+  }
+}
+
+function assertEdgeRuntimeCompatibleFunctionBundle(result: VerificationResult, functionSource: string) {
+  const moduleImports = parseFunctionBundleModuleImports(result, functionSource);
+  if (moduleImports) {
+    assertNoImportMetaLoaders(result, functionSource, moduleImports);
+    assertNoComputedDynamicImports(result, functionSource, moduleImports);
+  }
+  assertNoUnsupportedRuntimeImports(result, functionSource);
 }
 
 export function verifySupacloudAppArtifact(input: {
@@ -363,6 +513,7 @@ export function verifySupacloudAppArtifact(input: {
         result.errors.push(`Function bundle contains removed local webhook implementation: ${marker}`);
       }
     }
+    assertEdgeRuntimeCompatibleFunctionBundle(result, functionSource);
   }
 
   if (adminStaticDir) {
