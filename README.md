@@ -44,6 +44,9 @@ See [docs/supabase-compatibility.md](docs/supabase-compatibility.md) for the ful
 
 ```text
 packages/
+  authorization-core/        # Dependency-free request snapshot and in-memory decisions
+  authorization-postgres/    # Reviewable application-owned PostgreSQL/RLS SQL generators
+  authorization-conformance/ # Pure adapter, SQL, and EXPLAIN checks
   auth-server/     # Elysia/Bun Management API + BFF + SupaCloud adapter + metadata APIs
   admin-console/   # SvelteKit + @svadmin/core management UI
   shared/          # Shared schemas and types
@@ -95,7 +98,7 @@ bun run check        # typecheck + tests + admin-console build
 
 ### SDK
 
-Published npm packages for client-side integration:
+Release-managed npm packages (new packages require their one-time npm bootstrap before installation):
 
 ```sh
 # Management API client
@@ -106,7 +109,12 @@ npm install @supauth/sdk-auth-ui
 
 # Shared types and claims mapping
 npm install @supauth/shared
+
+# Application-owned authorization contracts, PostgreSQL generators, and CI checks
+npm install @supauth/authorization-core @supauth/authorization-postgres @supauth/authorization-conformance
 ```
+
+The authorization packages are a business data-plane kit, not a second SupAuth or SupaCloud RBAC source of truth. See [docs/application-authorization-kit.md](docs/application-authorization-kit.md).
 
 Management API usage:
 
@@ -247,6 +255,9 @@ SupaOAuth 不重新实现 OIDC token 签名或 authorization code 签发。协�
 
 ```text
 packages/
+  authorization-core/        # 零依赖请求快照与内存权限判定
+  authorization-postgres/    # 可审查的业务本地 PostgreSQL/RLS SQL 生成器
+  authorization-conformance/ # 纯函数 adapter、SQL 与 EXPLAIN 检查器
   auth-server/     # Elysia/Bun Management API + BFF + SupaCloud adapter + metadata APIs
   admin-console/   # SvelteKit + @svadmin/core management UI
   shared/          # Shared schemas and types
@@ -296,7 +307,7 @@ bun run check        # typecheck + tests + admin-console build
 
 ### SDK
 
-已发布到 npm 的客户端集成包：
+由 release 管理的 npm 包（新包安装前需由维护者完成一次性 npm bootstrap）：
 
 ```sh
 # Management API 客户端
@@ -307,7 +318,12 @@ npm install @supauth/sdk-auth-ui
 
 # 共享类型和 Claims 映射
 npm install @supauth/shared
+
+# 业务本地授权契约、PostgreSQL 生成器与 CI 检查
+npm install @supauth/authorization-core @supauth/authorization-postgres @supauth/authorization-conformance
 ```
+
+三个 authorization 包只统一授权协议、SQL 模板和一致性检查；业务 membership、role assignment、权限事实与审计仍由各子系统本地持有，不集中到 SupAuth 或 SupaCloud。边界与首次发布流程见 [docs/application-authorization-kit.md](docs/application-authorization-kit.md)。
 
 Management API 用法：
 

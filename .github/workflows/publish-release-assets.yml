@@ -32,7 +32,7 @@ jobs:
             admin-console-v*)
               echo "package=admin-console" >> "$GITHUB_OUTPUT"
               ;;
-            shared-v*|sdk-typescript-v*|sdk-auth-ui-v*)
+            authorization-core-v*|authorization-postgres-v*|authorization-conformance-v*|shared-v*|sdk-typescript-v*|sdk-auth-ui-v*)
               echo "package=npm" >> "$GITHUB_OUTPUT"
               ;;
             *)

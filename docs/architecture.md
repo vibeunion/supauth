@@ -207,3 +207,4 @@ Orchestration APIs:
 - In `runtime_mode=gotrue`, RBAC is read from SupaCloud and projected into the current project entry / RLS helper functions, not by changing the JWT `role` claim or writing local RBAC source tables. Legacy root-level projection fields fail closed.
 - OAuth response `scope` is consent/UserInfo metadata, not a database permission source; database authorization remains in RLS, helper functions, and versioned RBAC lookups.
 - See `docs/rbac-supabase-compatibility.md` for the RBAC migration baseline.
+- See `docs/application-authorization-kit.md` for the separate application-owned data-plane authorization packages and ownership boundary.

@@ -898,10 +898,16 @@ function rbacMigrationVerificationErrors(result: RbacDbVerification) {
   if (!result.hasPermissionExists) errors.push('supaoauth.has_permission() is missing');
   if (!result.hasOrgPermissionExists) errors.push('supaoauth.has_org_permission() is missing');
   if (!result.currentProjectClaimsExists) errors.push('supaoauth.current_project_claims() is missing');
+  if (!result.currentPermissionClaimsExists) errors.push('supaoauth.current_permission_claims(UUID) is missing');
   if (!result.authorizeGranted) errors.push('authenticated lacks EXECUTE on supaoauth.authorize(TEXT, UUID)');
   if (!result.hasPermissionGranted) errors.push('authenticated lacks EXECUTE on supaoauth.has_permission(TEXT, UUID)');
   if (!result.hasOrgPermissionGranted) errors.push('authenticated lacks EXECUTE on supaoauth.has_org_permission(UUID, TEXT)');
   if (!result.currentProjectClaimsGranted) errors.push('authenticated lacks EXECUTE on supaoauth.current_project_claims()');
+  if (!result.currentPermissionClaimsGranted) errors.push('authenticated lacks EXECUTE on supaoauth.current_permission_claims(UUID)');
+  if (!result.currentPermissionClaimsPublicRevoked) errors.push('PUBLIC can execute supaoauth.current_permission_claims(UUID)');
+  if (!result.currentPermissionClaimsAnonRevoked) errors.push('anon can execute supaoauth.current_permission_claims(UUID)');
+  if (!result.currentPermissionClaimsSecurityDefiner) errors.push('supaoauth.current_permission_claims(UUID) is not SECURITY DEFINER');
+  if (!result.currentPermissionClaimsSearchPathHardened) errors.push('supaoauth.current_permission_claims(UUID) search_path is not empty');
   if (!result.legacyWebhookDeliveriesAbsent) {
     errors.push('reason_code=legacy_webhook_table_present: supaoauth.webhook_deliveries must be retired; recreate and rotate webhooks in SupaCloud Secret Manager first');
   }

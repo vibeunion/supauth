@@ -120,6 +120,9 @@ jobs:
 
       - name: Build SDK packages
         run: |
+          bun run --filter '@supauth/authorization-core' build
+          bun run --filter '@supauth/authorization-postgres' build
+          bun run --filter '@supauth/authorization-conformance' build
           bun run --filter '@supauth/shared' build
           bun run --filter '@supauth/sdk-typescript' build
           bun run --filter '@supauth/sdk-auth-ui' build
@@ -130,7 +133,7 @@ jobs:
       - name: Verify npm package contents
         run: |
           set -e
-          for pkg_dir in packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
+          for pkg_dir in packages/authorization-core packages/authorization-postgres packages/authorization-conformance packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
             echo "Packing $pkg_dir"
             (cd "$pkg_dir" && bunx npm pack --dry-run)
           done

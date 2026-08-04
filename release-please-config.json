@@ -10,6 +10,21 @@
     { "type": "ci", "section": "CI", "hidden": false }
   ],
   "packages": {
+    "packages/authorization-core": {
+      "release-type": "node",
+      "component": "authorization-core",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "packages/authorization-postgres": {
+      "release-type": "node",
+      "component": "authorization-postgres",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "packages/authorization-conformance": {
+      "release-type": "node",
+      "component": "authorization-conformance",
+      "changelog-path": "CHANGELOG.md"
+    },
     "packages/auth-server": {
       "release-type": "node",
       "component": "auth-server",

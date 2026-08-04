@@ -873,6 +873,14 @@ ALTER TABLE supaoauth.account_provisioning_records
   CHECK (claim_state IN ('ready', 'pending', 'password_applied', 'password_update_unknown', 'claimed'));
 `;
 
+export const MIGRATION_V13_SQL = `
+-- current_permission_claims reads only the caller's signed JWT projection. Direct
+-- execution enables reviewable one-time RLS scope sets without exposing server data.
+REVOKE ALL ON FUNCTION supaoauth.current_permission_claims(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION supaoauth.current_permission_claims(UUID) TO authenticated;
+ALTER FUNCTION supaoauth.current_permission_claims(UUID) SET search_path = '';
+`;
+
 export const HOSTED_MIGRATIONS = [
   { name: 'supauth-overlay-schema-v1', sql: MIGRATION_SQL },
   { name: 'supauth-overlay-hardening-v4', sql: MIGRATION_V4_SQL },
@@ -884,6 +892,7 @@ export const HOSTED_MIGRATIONS = [
   { name: 'supauth-overlay-legacy-webhook-retirement-v10', sql: MIGRATION_V10_SQL },
   { name: 'supauth-overlay-application-permissions-v11', sql: MIGRATION_V11_SQL },
   { name: 'supauth-overlay-account-claim-state-v12', sql: MIGRATION_V12_SQL },
+  { name: 'supauth-overlay-rls-permission-projection-v13', sql: MIGRATION_V13_SQL },
 ] as const;
 
 export async function runMigration(databaseUrl?: string) {

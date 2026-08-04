@@ -16,7 +16,15 @@ describe('Authorization compiler', () => {
     });
 
     expect(result.permissions).toEqual(['project.read', 'project.update']);
-    expect(result.sql.tables).toContain('supaoauth.has_org_permission("org_id", \'project.read\')');
+    expect(result.sql.tables).toContain('"org_id" IN (');
+    expect(result.sql.tables).toContain('(SELECT supaoauth.current_permission_claims())');
+    expect(result.sql.tables).toContain('AS allowed_scope_ids');
+    expect(result.sql.tables).toContain('AS declared_scope_ids');
+    expect(result.sql.tables).toContain("'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'");
+    expect(result.sql.tables).toContain("(SELECT supaoauth.authorize('project.read'))");
+    expect(result.sql.tables).toContain('"org_id" NOT IN (');
+    expect(result.sql.tables).not.toContain('has_org_permission("org_id"');
+    expect(result.sql.tables).not.toMatch(/current_permission_claims\([^)]*"org_id"/);
     expect(result.sql.tables).toContain('FOR SELECT');
     expect(result.sql.tables).toContain('FOR UPDATE');
     expect(result.sql.helpers).toContain('supaoauth.has_permission(permission_name text, target_organization_id uuid default null)');
@@ -37,7 +45,7 @@ describe('Authorization compiler', () => {
       ],
     });
 
-    expect(result.sql.tables).toContain('"owner_id" = auth.uid() OR supaoauth.authorize(\'document.read\')');
+    expect(result.sql.tables).toContain('"owner_id" = (SELECT auth.uid()) OR (SELECT supaoauth.authorize(\'document.read\'))');
   });
 
   it('generates Storage, Realtime, and Edge Function artifacts', () => {
