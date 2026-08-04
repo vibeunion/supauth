@@ -14,6 +14,7 @@ import {
   MIGRATION_V10_SQL,
   MIGRATION_V11_SQL,
   MIGRATION_V12_SQL,
+  MIGRATION_V13_SQL,
 } from '../db/migrate.js';
 
 const __dirname2 = dirname(fileURLToPath(import.meta.url));
@@ -103,6 +104,7 @@ describe('Hosted migration chain', () => {
       { name: 'supauth-overlay-legacy-webhook-retirement-v10', sql: MIGRATION_V10_SQL },
       { name: 'supauth-overlay-application-permissions-v11', sql: MIGRATION_V11_SQL },
       { name: 'supauth-overlay-account-claim-state-v12', sql: MIGRATION_V12_SQL },
+      { name: 'supauth-overlay-rls-permission-projection-v13', sql: MIGRATION_V13_SQL },
     ]);
     expect(migrateSrc).toContain('for (const migration of HOSTED_MIGRATIONS)');
     expect(migrateSrc).toContain('await sql.unsafe(migration.sql)');
@@ -120,6 +122,18 @@ describe('Hosted migration chain', () => {
     expect(MIGRATION_V12_SQL).toContain('password_update_unknown');
     expect(MIGRATION_SQL).not.toContain('claim_proof_hash');
     expect(MIGRATION_V11_SQL).not.toContain('claim_proof_hash');
+  });
+
+  it('grants only authenticated callers direct access to their own permission projection', () => {
+    expect(MIGRATION_V13_SQL).toContain(
+      'REVOKE ALL ON FUNCTION supaoauth.current_permission_claims(UUID) FROM PUBLIC, anon',
+    );
+    expect(MIGRATION_V13_SQL).toContain(
+      'GRANT EXECUTE ON FUNCTION supaoauth.current_permission_claims(UUID) TO authenticated',
+    );
+    expect(MIGRATION_V13_SQL).toContain(
+      "ALTER FUNCTION supaoauth.current_permission_claims(UUID) SET search_path = ''",
+    );
   });
 
   it('reads only the current schema-v2 project projection and rejects legacy roots', () => {

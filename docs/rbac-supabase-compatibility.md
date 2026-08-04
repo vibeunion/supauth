@@ -4,6 +4,8 @@
 
 SupaOAuth uses SupaCloud-owned product RBAC plus a Supabase-compatible projection layer. See `docs/enterprise-iam-supabase-boundary.md` for the broader enterprise IAM boundary.
 
+This document describes the SupaCloud-authoritative control-plane compatibility layer. Independent business systems use the application-local data-plane kit in `docs/application-authorization-kit.md`; their memberships and assignments do not become SupaCloud RBAC records.
+
 This is the default RBAC architecture for `runtime_mode=gotrue`:
 
 ```text
@@ -108,7 +110,7 @@ CREATE POLICY "owner can read"
 ON public.projects
 FOR SELECT
 TO authenticated
-USING (owner_id = auth.uid());
+USING (owner_id = (SELECT auth.uid()));
 ```
 
 ### Wrapper Policy During Migration
@@ -119,22 +121,16 @@ ON public.projects
 FOR SELECT
 TO authenticated
 USING (
-  owner_id = auth.uid()
-  OR supaoauth.authorize('project.read')
+  owner_id = (SELECT auth.uid())
+  OR (SELECT supaoauth.authorize('project.read'))
 );
 ```
 
 ### Organization-Scoped Policy
 
-```sql
-CREATE POLICY "org member can update"
-ON public.projects
-FOR UPDATE
-TO authenticated
-USING (
-  supaoauth.has_org_permission(org_id, 'project.update')
-);
-```
+The compiler emits two uncorrelated UUID sets: all explicitly projected organizations and the subset that grants the requested permission. The policy allows the explicit granted set, then applies the V11 root permission only to organization IDs absent from the declared set. This preserves root inheritance without letting a root grant override an explicit organization projection that omits or truncates the permission.
+
+Do not call `has_org_permission(org_id, permission)` as the default for a large table: passing the row ID to a permission function can execute authorization work per row. The generated sets appear as hashed subplans or equivalent one-time plan nodes in authenticated `EXPLAIN (ANALYZE, BUFFERS)`.
 
 ## Helper Functions
 
@@ -143,6 +139,7 @@ The migration creates:
 ```sql
 supaoauth.current_project_ref()
 supaoauth.current_project_claims()
+supaoauth.current_permission_claims(target_organization_id uuid default null)
 supaoauth.authorize(permission_name text, target_organization_id uuid default null)
 supaoauth.has_permission(permission_name text, target_organization_id uuid default null)
 supaoauth.has_org_permission(organization_id uuid, permission_name text)
@@ -157,6 +154,7 @@ The functions are:
 - fail-closed to `{}` when `schema_version != 2`, the project entry is missing, or the database is not a SupaCloud project database
 
 Authenticated users should execute the helpers but should not receive direct table privileges on SupaOAuth overlay tables.
+Hosted migration v13 grants direct execution of `current_permission_claims(UUID)` so the compiler can build uncorrelated scope sets. It explicitly revokes `PUBLIC` and `anon`, preserves `SECURITY DEFINER`, and sets an empty search path. The function reads only the caller's signed JWT projection and does not query or expose SupaCloud RBAC tables.
 
 ## Migration Levels
 
@@ -167,7 +165,7 @@ Authenticated users should execute the helpers but should not receive direct tab
    Create the `supaoauth` schema helpers and sync the SupaCloud RBAC projection into `app_metadata.supaoauth.projects[projectRef]` without changing existing RLS.
 
 3. **Wrapper**
-   Add `OR supaoauth.has_permission(...)`, `supaoauth.authorize(...)`, or `supaoauth.has_org_permission(...)` to selected policies.
+   Add InitPlan-wrapped `supaoauth.has_permission(...)` / `supaoauth.authorize(...)` checks or the compiler's organization scope-set policy to selected tables.
 
 4. **Managed**
    Let SupaOAuth generate and apply RBAC-aware policy migrations for selected tables.

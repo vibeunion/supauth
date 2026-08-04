@@ -3,6 +3,9 @@ import path from 'node:path';
 
 // SDK packages that publish to npm — need workspace:* rewrite
 const npmPackageDirs = [
+  'packages/authorization-core',
+  'packages/authorization-postgres',
+  'packages/authorization-conformance',
   'packages/shared',
   'packages/sdks/typescript',
   'packages/sdks/auth-ui',

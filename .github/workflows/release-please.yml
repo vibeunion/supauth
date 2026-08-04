@@ -42,16 +42,24 @@ jobs:
       id-token: write
     steps:
       - name: Validate release tag
+        id: release-package
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          case "${{ inputs.release_tag }}" in
-            shared-v*|sdk-typescript-v*|sdk-auth-ui-v*)
-              ;;
+          case "$RELEASE_TAG" in
+            authorization-core-v*) PACKAGE_DIR=packages/authorization-core ;;
+            authorization-postgres-v*) PACKAGE_DIR=packages/authorization-postgres ;;
+            authorization-conformance-v*) PACKAGE_DIR=packages/authorization-conformance ;;
+            shared-v*) PACKAGE_DIR=packages/shared ;;
+            sdk-typescript-v*) PACKAGE_DIR=packages/sdks/typescript ;;
+            sdk-auth-ui-v*) PACKAGE_DIR=packages/sdks/auth-ui ;;
             *)
-              echo "::error::Unsupported npm release tag: ${{ inputs.release_tag }}"
+              echo "::error::Unsupported npm release tag: $RELEASE_TAG"
               exit 1
               ;;
           esac
+          echo "package_dir=$PACKAGE_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release tag
         uses: actions/checkout@v6
@@ -74,6 +82,9 @@ jobs:
 
       - name: Build SDK packages
         run: |
+          bun run --filter '@supauth/authorization-core' build
+          bun run --filter '@supauth/authorization-postgres' build
+          bun run --filter '@supauth/authorization-conformance' build
           bun run --filter '@supauth/shared' build
           bun run --filter '@supauth/sdk-typescript' build
           bun run --filter '@supauth/sdk-auth-ui' build
@@ -84,7 +95,7 @@ jobs:
       - name: Verify npm package contents
         run: |
           set -e
-          for pkg_dir in packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
+          for pkg_dir in packages/authorization-core packages/authorization-postgres packages/authorization-conformance packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
             echo "Packing $pkg_dir"
             (cd "$pkg_dir" && bunx npm pack --dry-run)
           done
@@ -92,45 +103,28 @@ jobs:
       - name: Check npm bootstrap status
         id: npm-bootstrap
         run: |
-          set -e
-          MISSING=0
-          for pkg_dir in packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
-            NAME=$(node -p "require('./$pkg_dir/package.json').name")
-            if npm view "$NAME" version >/dev/null 2>&1; then
-              echo "$NAME already exists on npm"
-            else
-              echo "::notice::$NAME does not exist on npm yet. First publish must be bootstrapped manually from a maintainer npm session."
-              MISSING=1
-            fi
-          done
-
-          if [ "$MISSING" -eq 1 ]; then
-            echo "npm_bootstrapped=false" >> "$GITHUB_OUTPUT"
-          else
+          set -euo pipefail
+          PACKAGE_DIR="${{ steps.release-package.outputs.package_dir }}"
+          NAME=$(node -p "require('./$PACKAGE_DIR/package.json').name")
+          if npm view "$NAME" version >/dev/null 2>&1; then
+            echo "$NAME already exists on npm"
             echo "npm_bootstrapped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$NAME does not exist on npm yet. Bootstrap only this package manually from a maintainer npm session."
+            echo "npm_bootstrapped=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish changed SDK packages to npm
+      - name: Publish tagged npm package
         if: ${{ steps.npm-bootstrap.outputs.npm_bootstrapped == 'true' }}
         run: |
-          set -e
-          PUBLISH_FAILED=0
-          for pkg_dir in packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
-            NAME=$(node -p "require('./$pkg_dir/package.json').name")
-            LOCAL_VER=$(node -p "require('./$pkg_dir/package.json').version")
-            NPM_EXISTS=$(npm view "$NAME@$LOCAL_VER" version 2>/dev/null || echo "")
-
-            if [ -z "$NPM_EXISTS" ]; then
-              echo "Publishing $NAME@$LOCAL_VER"
-              if ! (cd "$pkg_dir" && bunx npm publish --provenance --access public); then
-                echo "::error::Publish failed for $NAME"
-                PUBLISH_FAILED=1
-              fi
-            else
-              echo "$NAME@$LOCAL_VER already exists on npm, skipping"
-            fi
-          done
-
-          if [ "$PUBLISH_FAILED" -eq 1 ]; then
-            exit 1
+          set -euo pipefail
+          PACKAGE_DIR="${{ steps.release-package.outputs.package_dir }}"
+          NAME=$(node -p "require('./$PACKAGE_DIR/package.json').name")
+          LOCAL_VER=$(node -p "require('./$PACKAGE_DIR/package.json').version")
+          NPM_EXISTS=$(npm view "$NAME@$LOCAL_VER" version 2>/dev/null || echo "")
+          if [ -z "$NPM_EXISTS" ]; then
+            echo "Publishing $NAME@$LOCAL_VER"
+            (cd "$PACKAGE_DIR" && bunx npm publish --provenance --access public)
+          else
+            echo "$NAME@$LOCAL_VER already exists on npm, skipping"
           fi

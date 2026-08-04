@@ -102,14 +102,54 @@ function storagePolicyName(bucketId: string, operation: AuthorizationOperation):
   return `supaoauth_storage_${bucketId}_${operation}`.replace(/[^\w]+/g, '_');
 }
 
+const UUID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+
+function organizationScopeRowsSql(): string {
+  return `SELECT organization_scope.key AS scope_id, organization_scope.permission_claims
+      FROM (SELECT (SELECT supaoauth.current_permission_claims()) AS permission_claims) AS authorization_context
+      CROSS JOIN LATERAL jsonb_each(
+        CASE
+          WHEN jsonb_typeof(authorization_context.permission_claims -> 'organizations') = 'object'
+            THEN authorization_context.permission_claims -> 'organizations'
+          ELSE '{}'::jsonb
+        END
+      ) AS organization_scope(key, permission_claims)`;
+}
+
+function validOrganizationIdsSql(scopeRows: string, rowsAlias: string): string {
+  return `SELECT valid_scope.scope_id
+    FROM (
+      SELECT CASE WHEN ${rowsAlias}.scope_id ~* '${UUID_PATTERN}' THEN ${rowsAlias}.scope_id::uuid END AS scope_id
+      FROM (${scopeRows}) AS ${rowsAlias}
+    ) AS valid_scope
+    WHERE valid_scope.scope_id IS NOT NULL`;
+}
+
+function allowedOrganizationIdsSql(permission: string): string {
+  const allowedRows = `${organizationScopeRowsSql()}
+      WHERE COALESCE((organization_scope.permission_claims -> 'permissions') ? ${quoteLiteral(permission)}, false)
+        AND COALESCE(organization_scope.permission_claims -> 'projection_unavailable', 'false'::jsonb) <> 'true'::jsonb
+        AND COALESCE(organization_scope.permission_claims -> 'truncated', 'false'::jsonb) <> 'true'::jsonb
+        AND COALESCE(organization_scope.permission_claims -> 'permissions_truncated', 'false'::jsonb) <> 'true'::jsonb`;
+  return validOrganizationIdsSql(allowedRows, 'allowed_scope_ids');
+}
+
+function organizationScopePredicate(organizationColumn: string, permission: string): string {
+  const organizationId = quoteIdent(organizationColumn);
+  const allowedIds = allowedOrganizationIdsSql(permission);
+  const declaredIds = validOrganizationIdsSql(organizationScopeRowsSql(), 'declared_scope_ids');
+  return `(${organizationId} IN (${allowedIds})
+    OR ((SELECT supaoauth.authorize(${quoteLiteral(permission)})) AND ${organizationId} NOT IN (${declaredIds})))`;
+}
+
 function buildTablePredicate(target: AuthorizationTableTarget, permission: string): string {
   if (target.organization_column) {
-    return `supaoauth.has_org_permission(${quoteIdent(target.organization_column)}, ${quoteLiteral(permission)})`;
+    return organizationScopePredicate(target.organization_column, permission);
   }
 
-  const rbac = `supaoauth.authorize(${quoteLiteral(permission)})`;
+  const rbac = `(SELECT supaoauth.authorize(${quoteLiteral(permission)}))`;
   if (target.owner_column) {
-    return `(${quoteIdent(target.owner_column)} = auth.uid() OR ${rbac})`;
+    return `(${quoteIdent(target.owner_column)} = (SELECT auth.uid()) OR ${rbac})`;
   }
   return rbac;
 }
@@ -131,10 +171,10 @@ function buildTablePolicy(target: AuthorizationTableTarget, operation: Authoriza
 }
 
 function buildStoragePredicate(target: StorageBucketTarget, permission: string): string {
-  const rbac = `supaoauth.authorize(${quoteLiteral(permission)})`;
+  const rbac = `(SELECT supaoauth.authorize(${quoteLiteral(permission)}))`;
   const clauses = [`bucket_id = ${quoteLiteral(target.bucket_id)}`];
   if (target.owner_path_prefix) {
-    clauses.push(`(storage.foldername(name))[1] = auth.uid()::text`);
+    clauses.push(`(storage.foldername(name))[1] = (SELECT auth.uid())::text`);
   }
   if (target.organization_path_prefix) {
     clauses.push(`(storage.foldername(name))[1] = (supaoauth.current_project_claims() ->> 'current_org_id')`);
@@ -193,13 +233,14 @@ const HELPER_SQL = `-- SupaOAuth helper functions are installed by the main auth
 --   supaoauth.authorize(permission_name text, target_organization_id uuid default null)
 --   supaoauth.has_permission(permission_name text, target_organization_id uuid default null)
 --   supaoauth.has_org_permission(organization_id uuid, permission_name text)
+--   supaoauth.current_permission_claims(target_organization_id uuid default null)
 -- Install SupAuth through SupaCloud hosted migrations first: bun run install:supacloud`;
 
 export function compileAuthorizationPlan(request: AuthorizationCompileRequest = {}): AuthorizationCompileResult {
   const warnings: string[] = [];
   const assumptions = [
     'GoTrue/Supabase remains the JWT issuer and top-level JWT role keeps Supabase semantics.',
-    'RLS authorization is delegated to supaoauth.authorize(...) or supaoauth.has_org_permission(...).',
+    'RLS authorization uses an InitPlan permission check or one uncorrelated organization scope set per statement.',
     'Generated SQL is review-only and is not applied by this compiler.',
   ];
 
@@ -295,7 +336,7 @@ export function compileAuthorizationPlan(request: AuthorizationCompileRequest = 
     edge_functions: edgeFunctions,
     negative_tests: negativeTests,
     deploy_checklist: [
-      'Run auth-server migration and verify supaoauth.authorize / supaoauth.has_org_permission grants.',
+      'Run auth-server migrations through v13 and verify supaoauth.authorize / supaoauth.current_permission_claims grants.',
       'Create or sync matching SupaOAuth permissions before applying policies.',
       'Apply generated RLS/Storage SQL in a staging project first.',
       'Run generated negative tests with users that have no roles, stale JWTs, and revoked assignments.',

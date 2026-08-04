@@ -55,6 +55,31 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/authorization-conformance": {
+      "name": "@supauth/authorization-conformance",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^5.8.0",
+      },
+    },
+    "packages/authorization-core": {
+      "name": "@supauth/authorization-core",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^5.8.0",
+      },
+    },
+    "packages/authorization-postgres": {
+      "name": "@supauth/authorization-postgres",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "postgres": "^3.4.9",
+        "typescript": "^5.8.0",
+      },
+    },
     "packages/sdks/auth-ui": {
       "name": "@supauth/sdk-auth-ui",
       "version": "0.4.0",
@@ -235,6 +260,12 @@
     "@supauth/admin-console": ["@supauth/admin-console@workspace:packages/admin-console"],
 
     "@supauth/auth-server": ["@supauth/auth-server@workspace:packages/auth-server"],
+
+    "@supauth/authorization-conformance": ["@supauth/authorization-conformance@workspace:packages/authorization-conformance"],
+
+    "@supauth/authorization-core": ["@supauth/authorization-core@workspace:packages/authorization-core"],
+
+    "@supauth/authorization-postgres": ["@supauth/authorization-postgres@workspace:packages/authorization-postgres"],
 
     "@supauth/sdk-auth-ui": ["@supauth/sdk-auth-ui@workspace:packages/sdks/auth-ui"],
 

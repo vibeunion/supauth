@@ -213,6 +213,7 @@ describe('SupAuth SupaCloud app contract', () => {
       'supauth-overlay-legacy-webhook-retirement-v10',
       'supauth-overlay-application-permissions-v11',
       'supauth-overlay-account-claim-state-v12',
+      'supauth-overlay-rls-permission-projection-v13',
     ]);
     expect(manifest.migrations.map((migration) => migration.name)).toEqual(
       HOSTED_MIGRATIONS.map((migration) => migration.name),
@@ -270,12 +271,19 @@ describe('SupAuth SupaCloud app contract', () => {
     expect(verifier).toContain("to_regprocedure('supaoauth.has_permission(text, uuid)')");
     expect(verifier).toContain("to_regprocedure('supaoauth.has_org_permission(uuid, text)')");
     expect(verifier).toContain("to_regprocedure('supaoauth.current_project_claims()')");
+    expect(verifier).toContain("to_regprocedure('supaoauth.current_permission_claims(uuid)')");
     expect(verifier).toContain("to_regclass('supaoauth.webhooks') IS NULL");
     expect(verifier).toContain("to_regclass('supaoauth.webhook_deliveries') IS NULL");
     expect(verifier).toContain('WHEN authorize_oid IS NULL THEN NULL');
     expect(verifier).toContain('WHEN has_permission_oid IS NULL THEN NULL');
     expect(verifier).toContain('WHEN has_org_permission_oid IS NULL THEN NULL');
     expect(verifier).toContain('WHEN current_project_claims_oid IS NULL THEN NULL');
+    expect(verifier).toContain('WHEN current_permission_claims_oid IS NULL THEN NULL');
+    expect(verifier).toContain("aclexplode(COALESCE(pg_proc.proacl, acldefault('f', pg_proc.proowner)))");
+    expect(verifier).toContain('function_acl.grantee = 0');
+    expect(verifier).toContain("NOT has_function_privilege('anon', pg_proc.oid, 'EXECUTE')");
+    expect(verifier).toContain('pg_proc.prosecdef AS security_definer');
+    expect(verifier).toContain("function_setting ~ '^search_path=(\"\"|)$'");
     expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.authorize(TEXT, UUID)'");
     expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.has_permission(TEXT, UUID)'");
     expect(verifier).not.toContain("has_function_privilege('authenticated', 'supaoauth.has_org_permission(UUID, TEXT)'");
