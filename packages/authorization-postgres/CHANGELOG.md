@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/zuohuadong/supauth/compare/authorization-postgres-v0.2.0...authorization-postgres-v0.2.1) (2026-08-04)
+
+
+### Documentation
+
+* **authorization:** document native SupaCloud RBAC adoption ([a8604f4](https://github.com/zuohuadong/supauth/commit/a8604f499b8a068bd202ba913d39755205a6f9de))
+* **authorization:** update SupaCloud RBAC guidance ([88ce68e](https://github.com/zuohuadong/supauth/commit/88ce68e22d317813294f36d421bdb697e7dc609d))
+
 ## [0.2.0](https://github.com/zuohuadong/supauth/compare/authorization-postgres-v0.1.0...authorization-postgres-v0.2.0) (2026-08-04)
 
 
