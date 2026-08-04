@@ -78,10 +78,18 @@ AS $$
         claims -> 'app_metadata' -> 'authorization_context' ->> 'subject',
         claims ->> 'sub'
       ) AS principal_subject,
-      COALESCE(
-        claims ->> 'client_id',
-        claims -> 'app_metadata' -> 'authorization_context' ->> 'application_id'
-      ) AS application_id
+      CASE
+        WHEN claims ? 'client_id' THEN claims ->> 'client_id'
+        WHEN (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id'
+          THEN claims -> 'app_metadata' -> 'authorization_context' ->> 'application_id'
+        ELSE NULL
+      END AS token_application_id,
+      claims ? 'client_id'
+        OR COALESCE(
+          (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id',
+          FALSE
+        )
+        AS has_token_application_claim
     FROM jwt_context
   ), membership_candidates AS (
     SELECT
@@ -94,8 +102,11 @@ AS $$
       AND current_principal.principal_kind IN ('user', 'service')
       AND membership.principal_issuer = current_principal.principal_issuer
       AND membership.principal_subject = current_principal.principal_subject
-      AND membership.application_id = current_principal.application_id
       AND membership.application_id = requested_application_id
+      AND (
+        NOT current_principal.has_token_application_claim
+        OR current_principal.token_application_id = requested_application_id
+      )
       AND membership.domain_type = requested_domain_type
   ), eligible_memberships AS (
     SELECT membership_key, domain_id

@@ -13,6 +13,15 @@ describe('@supauth/authorization-postgres', () => {
     expect(sql).toContain('COUNT(*) OVER (PARTITION BY membership.domain_id) AS membership_count');
     expect(sql).toContain('WHERE membership_count = 1');
     expect(sql).toContain("current_principal.principal_kind IN ('user', 'service')");
+    expect(sql).toContain("WHEN claims ? 'client_id' THEN claims ->> 'client_id'");
+    expect(sql).toContain("WHEN (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id'");
+    expect(sql).toContain("OR COALESCE(\n          (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id',\n          FALSE");
+    expect(sql).toContain('AS has_token_application_claim');
+    expect(sql).toContain('membership.application_id = requested_application_id');
+    expect(sql).toContain('NOT current_principal.has_token_application_claim');
+    expect(sql).toContain('current_principal.token_application_id = requested_application_id');
+    expect(sql).not.toContain('membership.application_id = current_principal.application_id');
+    expect(sql).not.toContain('user_metadata');
     expect(sql.match(/"auth"\."jwt"\(\)/g)).toHaveLength(1);
     expect(sql).toContain('REVOKE ALL ON SCHEMA "fa_authorization" FROM PUBLIC');
     expect(sql).toContain('GRANT USAGE ON SCHEMA "fa_authorization" TO authenticated');
