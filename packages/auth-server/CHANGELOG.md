@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/zuohuadong/supauth/compare/auth-server-v0.6.1...auth-server-v0.6.2) (2026-08-04)
+
+
+### Documentation
+
+* **authorization:** align RBAC guidance with main ([9d36d5c](https://github.com/zuohuadong/supauth/commit/9d36d5c05cff66dc64a71208a56aed887972d0be))
+
 ## [0.6.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.6.0...auth-server-v0.6.1) (2026-08-04)
 
 
