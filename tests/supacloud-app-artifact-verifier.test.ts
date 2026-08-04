@@ -24,11 +24,11 @@ function createFixture() {
   writeFileSync(join(root, adminDir, 'logout.html'), '<!doctype html>');
   writeFileSync(join(root, openapiPath), JSON.stringify({ openapi: '3.0.3', paths: {} }));
 
-  const manifest = createSupacloudAppManifest({
+  const manifest = structuredClone(createSupacloudAppManifest({
     functionBundle,
     adminStaticDir: adminDir,
     openapiPath,
-  });
+  }));
   writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
   return { root, manifest };
@@ -112,6 +112,228 @@ describe('SupaCloud app artifact verifier', () => {
     expect(result.errors).toContain(
       'Function bundle contains removed local webhook implementation: processPendingDeliveries',
     );
+  });
+
+  it('rejects computed dynamic imports omitted by Bun import scanning', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      "const specifier = './adapter.js'; export const adapter = import(specifier);",
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'Function bundle contains computed dynamic imports rejected by the multi-tenant Edge Runtime',
+    );
+  });
+
+  it('rejects direct and aliased import.meta loaders', () => {
+    for (const loaderSource of [
+      'var __require = import.meta.require; var tty = __require("tty");',
+      'var processModule = import.meta.require("process");',
+      'const runtimeMeta = import.meta; runtimeMeta.require("fs");',
+      'const { require: runtimeRequire } = import.meta; runtimeRequire("fs");',
+      'const runtimeMeta = (import.meta); runtimeMeta.require("fs");',
+    ]) {
+      const { root } = createFixture();
+      writeFileSync(join(root, 'function/supacloud-function.js'), loaderSource);
+
+      const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(
+        'Function bundle contains import.meta loader access rejected by the multi-tenant Edge Runtime',
+      );
+    }
+  });
+
+  it('accepts import.meta metadata properties without loader access', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      'export const moduleUrl = import.meta.url; export const moduleDir = import.meta.dir;',
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('does not treat import.meta.require text in strings or comments as a loader', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      'const text = "import.meta.require"; // import.meta.require\nexport { text };',
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('does not reject an application-defined require helper', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      'const __require = (name) => name; export const runtime = __require("tty");',
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('rejects interpolated template dynamic imports as computed', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      'const adapter = "local"; export const loader = import(`./${adapter}.js`);',
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'Function bundle contains computed dynamic imports rejected by the multi-tenant Edge Runtime',
+    );
+  });
+
+  it('rejects concatenated computed dynamic imports', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      "const name = 'adapter.js'; export const adapter = import('./' + name);",
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'Function bundle contains computed dynamic imports rejected by the multi-tenant Edge Runtime',
+    );
+  });
+
+  it('rejects parenthesized dynamic import specifiers as computed', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      "export const pathModule = import(('node:path'));",
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'Function bundle contains computed dynamic imports rejected by the multi-tenant Edge Runtime',
+    );
+  });
+
+  it('rejects computed import.defer and import.source forms even when Bun cannot scan them', () => {
+    for (const importSource of [
+      "const specifier = 'node:path'; export const adapter = import.defer(specifier);",
+      "const specifier = 'node:path'; export const adapter = import.source(specifier);",
+    ]) {
+      const { root } = createFixture();
+      writeFileSync(join(root, 'function/supacloud-function.js'), importSource);
+
+      const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(
+        'Function bundle contains computed dynamic imports rejected by the multi-tenant Edge Runtime',
+      );
+    }
+  });
+
+  it('accepts runtime-supported literal dynamic imports with comments and import attributes', () => {
+    for (const importSource of [
+      "export const adapter = import(/*comment*/ 'node:path');",
+      "export const adapter = import('node:path' /*comment*/);",
+      "export const adapter = import('node:path', { with: { type: 'json' } });",
+      "export const runtime = import('bun');",
+    ]) {
+      const { root } = createFixture();
+      writeFileSync(join(root, 'function/supacloud-function.js'), importSource);
+
+      const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+      expect(result.errors).toEqual([]);
+      expect(result.ok).toBe(true);
+    }
+  });
+
+  it('rejects Edge Runtime-disabled imports', () => {
+    for (const disabledModule of ['module', 'node:module', 'child_process']) {
+      const { root } = createFixture();
+      writeFileSync(
+        join(root, 'function/supacloud-function.js'),
+        `import disabled from '${disabledModule}'; export { disabled };`,
+      );
+
+      const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(`Function bundle imports Edge Runtime-disabled module: ${disabledModule}`);
+    }
+  });
+
+  it('rejects runtime builtins outside the tenant allowlist', () => {
+    for (const disallowedModule of ['node:http2', 'process', 'diagnostics_channel', 'node:bun']) {
+      const { root } = createFixture();
+      writeFileSync(
+        join(root, 'function/supacloud-function.js'),
+        `import runtimeModule from '${disallowedModule}'; export { runtimeModule };`,
+      );
+
+      const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(`Function bundle contains unresolved import: ${disallowedModule}`);
+    }
+  });
+
+  it('rejects static imports of Edge Runtime-disabled modules', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      "import { readFile } from 'node:fs/promises'; export { readFile };",
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('Function bundle imports Edge Runtime-disabled module: node:fs/promises');
+  });
+
+  it('rejects template-literal imports of Edge Runtime-disabled modules', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      'export const loader = import(`node:fs`);',
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('Function bundle imports Edge Runtime-disabled module: node:fs');
+  });
+
+  it('rejects unresolved package imports in the Function bundle', () => {
+    const { root } = createFixture();
+    writeFileSync(
+      join(root, 'function/supacloud-function.js'),
+      "import unresolved from 'not-bundled-dependency'; export { unresolved };",
+    );
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('Function bundle contains unresolved import: not-bundled-dependency');
   });
 
   it('requires the BFF signing secret to be declared as a secret', () => {
