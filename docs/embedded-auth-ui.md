@@ -28,23 +28,11 @@ bun add @supabase/supabase-js @supabase/auth-ui-svelte
 bun add @supauth/sdk-auth-ui
 ```
 
-## 首次 npm 发布
+## npm 发布边界
 
-首次创建 `@supauth/*` 包时，需要维护者在本地 npm 会话中手动发布一次，顺序是：
+现有 `@supauth/shared`、`@supauth/sdk-typescript` 和 `@supauth/sdk-auth-ui` 包名已经完成 bootstrap，使用者只需通过 npm 或 Bun 安装，不应执行仓库内的发布命令。
 
-```bash
-bun install
-bun run --filter '@supauth/shared' build
-bun run --filter '@supauth/sdk-typescript' build
-bun run --filter '@supauth/sdk-auth-ui' build
-node .github/scripts/prepare-auth-ui-npm-package.mjs --write
-
-(cd packages/shared && npm publish --access public)
-(cd packages/sdks/typescript && npm publish --access public)
-(cd packages/sdks/auth-ui && npm publish --access public)
-```
-
-首次发布完成后，再在 npmjs 为这三个包配置 GitHub Trusted Publisher。之后 GitHub release workflow 会使用 npm OIDC provenance 自动发布新版本；如果包名尚未 bootstrap，workflow 只做打包验证并跳过自动 publish。
+新建的 npm 包名仍需维护者从本地认证会话完成一次 bootstrap，之后才能配置 `.github/workflows/release-please.yml` 的 Trusted Publisher。后续版本由 release tag 驱动：工作流先构建和 dry-run，再只发布目标包。发布完成必须回读 npm registry、执行全新安装/import smoke，并在声称 OIDC provenance 时验证 attestation；“版本已存在而跳过”只证明幂等，不证明该版本带 provenance。
 
 ## React 示例
 

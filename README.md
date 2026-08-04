@@ -98,7 +98,7 @@ bun run check        # typecheck + tests + admin-console build
 
 ### SDK
 
-Release-managed npm packages (new packages require their one-time npm bootstrap before installation):
+Release-managed npm packages:
 
 ```sh
 # Management API client
@@ -110,11 +110,14 @@ npm install @supauth/sdk-auth-ui
 # Shared types and claims mapping
 npm install @supauth/shared
 
-# Application-owned authorization contracts, PostgreSQL generators, and CI checks
-npm install @supauth/authorization-core @supauth/authorization-postgres @supauth/authorization-conformance
+# Application API authorization decisions
+npm install @supauth/authorization-core
+
+# PostgreSQL/RLS generation and conformance gates
+npm install --save-dev @supauth/authorization-postgres @supauth/authorization-conformance
 ```
 
-The authorization packages are a business data-plane kit, not a second SupAuth or SupaCloud RBAC source of truth. See [docs/application-authorization-kit.md](docs/application-authorization-kit.md).
+The authorization packages are public on npm and form a business data-plane kit, not a second SupAuth or SupaCloud RBAC source of truth. A native SupaCloud/GoTrue application can use the kit without installing SupAuth: verified `iss` + `sub` identify the principal, the generated RLS policy supplies the static application boundary, and current memberships remain in the application's database. SupAuth/OAuth tokens use the same path with an additional signed application-claim consistency check. Ordinary users need no extra runtime service or JWT-mutating package. See [docs/application-authorization-kit.md](docs/application-authorization-kit.md).
 
 Management API usage:
 
@@ -307,7 +310,7 @@ bun run check        # typecheck + tests + admin-console build
 
 ### SDK
 
-由 release 管理的 npm 包（新包安装前需由维护者完成一次性 npm bootstrap）：
+由 release 管理的 npm 包：
 
 ```sh
 # Management API 客户端
@@ -319,11 +322,14 @@ npm install @supauth/sdk-auth-ui
 # 共享类型和 Claims 映射
 npm install @supauth/shared
 
-# 业务本地授权契约、PostgreSQL 生成器与 CI 检查
-npm install @supauth/authorization-core @supauth/authorization-postgres @supauth/authorization-conformance
+# 应用 API 的授权判定
+npm install @supauth/authorization-core
+
+# PostgreSQL/RLS 生成与一致性门禁
+npm install --save-dev @supauth/authorization-postgres @supauth/authorization-conformance
 ```
 
-三个 authorization 包只统一授权协议、SQL 模板和一致性检查；业务 membership、role assignment、权限事实与审计仍由各子系统本地持有，不集中到 SupAuth 或 SupaCloud。边界与首次发布流程见 [docs/application-authorization-kit.md](docs/application-authorization-kit.md)。
+三个 authorization 包已经公开发布到 npm，只统一授权协议、SQL 模板和一致性检查；业务 membership、role assignment、权限事实与审计仍由各子系统本地持有，不集中到 SupAuth 或 SupaCloud。原生 SupaCloud/GoTrue 应用无需安装 SupAuth：签名 JWT 的 `iss` + `sub` 标识主体，生成的 RLS policy 提供静态应用边界；SupAuth/OAuth token 在同一路径上额外执行签名 application claim 一致性检查。普通用户不需要额外 runtime 服务或修改 JWT 的包。完整边界与发布机制见 [docs/application-authorization-kit.md](docs/application-authorization-kit.md)。
 
 Management API 用法：
 

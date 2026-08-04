@@ -17,6 +17,18 @@ The npm packages do not move business memberships, assignments, roles, or audit 
 - `@supauth/authorization-postgres` generates review-only PostgreSQL/Supabase SQL for an application-owned permission catalog, role-permission mapping, adapter views, hardened scope helpers, and RLS policies.
 - `@supauth/authorization-conformance` provides pure CI checks for negative authorization cases, SQL safety, and authenticated execution plans.
 
+The packages are published independently on npm. Install only the layers the application uses:
+
+```sh
+# Runtime dependency for API/resolver decisions
+npm install @supauth/authorization-core
+
+# Build/migration and CI dependencies for PostgreSQL/RLS adopters
+npm install --save-dev @supauth/authorization-postgres @supauth/authorization-conformance
+```
+
+Native SupaCloud applications do not install SupAuth to use these packages. `authorization-postgres` is normally a development or migration dependency; generated SQL runs in the application's PostgreSQL database, not in a package-provided service.
+
 V1 intentionally has no wildcard, explicit deny, role inheritance, ABAC, remote PDP, database connection, automatic migration, or cross-application role store.
 
 ## Revocation And JWT Consistency
@@ -49,20 +61,20 @@ The existing compiler still targets the SupaCloud-authoritative schema-v2 JWT pr
 
 FA adoption is a separate application PR: create its adapter views over FA-owned membership/assignment tables, install a dedicated FA authorization schema through a new immutable migration, integrate the resolver, run conformance, and capture authenticated plans. This package release does not modify FA or connect it to unrelated systems.
 
-## First npm Publish
+## npm Distribution And Release Boundary
 
-Release Please manages the three packages independently from version `0.1.0`. Merging this work does not publish them. npm Trusted Publisher cannot create a package, so a maintainer must bootstrap each package first from an authenticated npm session:
+The three package names are already bootstrapped and publicly installable. Consumers must not run repository publish commands; install a tagged npm version through the commands above.
 
-```sh
-bun run --filter '@supauth/authorization-core' build
-(cd packages/authorization-core && npm publish --access public)
-bun run --filter '@supauth/authorization-postgres' build
-(cd packages/authorization-postgres && npm publish --access public)
-bun run --filter '@supauth/authorization-conformance' build
-(cd packages/authorization-conformance && npm publish --access public)
-```
+Release Please versions and tags the packages independently. `.github/workflows/publish-release-assets.yml` dispatches `.github/workflows/release-please.yml` for the matching npm tag; that workflow builds every SDK dependency, runs package dry-runs, checks bootstrap state, and publishes only the tagged target when its version is absent. A newly named package still needs a one-time maintainer bootstrap before Trusted Publisher can manage later versions. A missing package must not block publication of unrelated packages.
 
-After each package exists, configure its npm Trusted Publisher for `.github/workflows/release-please.yml`. Subsequent matching release tags publish only their target package. A missing authorization package never blocks `shared` or SDK publication.
+Treat publishing evidence precisely:
+
+- a merged release PR proves only that source versions and changelogs reached `main`;
+- a GitHub tag or Release does not prove npm publication;
+- an idempotent workflow that skips an existing version does not prove that version was published with OIDC provenance;
+- release acceptance requires npm registry read-back, a clean install/import smoke, and provenance/attestation read-back when provenance is claimed.
+
+Publishing these packages does not apply SQL, migrate an application, install SupAuth, or deploy a SupaCloud project.
 
 ## References
 

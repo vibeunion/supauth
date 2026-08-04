@@ -191,7 +191,8 @@ Orchestration APIs:
 | `auth.users`, Identity, OAuth clients/Grants | GoTrue | Admin user CRUD plus documented current-user Grant/opt-in identity actions; no unsupported admin facade |
 | Session, Refresh Token, MFA factor/AAL | GoTrue | Scoped logout, user-token TOTP and supported admin MFA reset; no session inventory or copied tables |
 | JWT signing, JWKS, OAuth/OIDC and `/auth/v1/*` | GoTrue | Preserve and verify; never intercept |
-| Applications metadata, business Organizations, RBAC | SupaCloud | Authoritative control-plane APIs |
+| SupaOAuth application metadata, product Organizations, control-plane RBAC | SupaCloud | Authoritative control-plane APIs |
+| Independent application memberships, assignments, business permissions | Application PostgreSQL schema | Application-local authorization kit is optional; facts are not copied into SupAuth or SupaCloud RBAC |
 | Webhook delivery, Audit, tenant collaborators | SupaCloud | Durable control-plane APIs |
 | Connector/CAPTCHA/Webhook/Auth Hook secrets | SupaCloud Secret Manager | Browser and public APIs receive masked state only |
 | Hosted UI, branding and compatibility helpers | SupaOAuth overlay | Additive `supaoauth` schema only |

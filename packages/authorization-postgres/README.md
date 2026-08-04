@@ -2,6 +2,16 @@
 
 This package generates reviewable SQL strings. It never connects to PostgreSQL and never applies migrations automatically. This preset targets Supabase/PostgREST PostgreSQL with `auth.jwt()`, plus the standard `anon` and `authenticated` roles; it is not a generic bare-PostgreSQL identity layer.
 
+## Installation
+
+```sh
+npm install --save-dev @supauth/authorization-postgres
+# or
+bun add --dev @supauth/authorization-postgres
+```
+
+Use it while authoring an immutable migration; the deployed application does not need this package at request time.
+
 Each application chooses and owns its authorization schema. Before applying the generated installation SQL, the application must create these adapter views in that schema:
 
 - `active_memberships(membership_key TEXT, principal_kind TEXT, principal_issuer TEXT, principal_subject TEXT, application_id TEXT, domain_type TEXT, domain_id TEXT)`
@@ -33,3 +43,9 @@ RUN_AUTHORIZATION_POSTGRES_TESTS=1 \
 AUTHORIZATION_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:5432/supauth_authorization_test \
 bun test packages/authorization-postgres/src/postgres.integration.test.ts
 ```
+
+See the [Application Authorization Kit](https://github.com/zuohuadong/supauth/blob/main/docs/application-authorization-kit.md) for the complete dual-mode and ownership contract.
+
+## License
+
+MIT
