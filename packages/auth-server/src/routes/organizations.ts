@@ -39,6 +39,20 @@ function invalidCapabilityResponse() {
   return new ApiContractError(502, 'invalid_upstream_response', 'SupaCloud capability response has an invalid shape');
 }
 
+function organizationCreatePayload(input: unknown): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new ApiContractError(
+      400,
+      'invalid_request_body',
+      'Organization request body must be a JSON object',
+    );
+  }
+  const organization = input as Record<string, unknown>;
+  return Object.hasOwn(organization, 'jit_domains')
+    ? organization
+    : { ...organization, jit_domains: [] };
+}
+
 export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
   .get('/', async ({ query }) => {
     const organizations = await adapter.listOrganizations({
@@ -52,7 +66,9 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
     detail: { summary: 'List organizations', tags: ['Organizations'] },
   })
   .post('/', async ({ body }) => {
-    const created = await adapter.createOrganization(body as Record<string, unknown>);
+    const created = await adapter.createOrganization(
+      organizationCreatePayload(body),
+    );
     const record = created as Record<string, unknown>;
     await auditStrict('organization.create', 'organization', String(record.id || ''), { name: record.name });
     return created;
