@@ -139,9 +139,12 @@ function runtimeEnabled(payload: unknown, runtimeKind: ConnectorRuntimeKind) {
   }
   const runtime = payload as Record<string, unknown>;
   if (runtimeKind === 'saml') {
-    if (runtime.disabled == null) return true;
-    if (typeof runtime.disabled === 'boolean') return !runtime.disabled;
-    throw new ApiContractError(502, 'invalid_upstream_response', 'SAML runtime disabled state has an invalid type');
+    if (!Object.prototype.hasOwnProperty.call(runtime, 'disabled')) {
+      throw new ApiContractError(502, 'invalid_upstream_response', 'SAML connector readback did not include its disabled state');
+    }
+    if (runtime.disabled === true) return false;
+    if (runtime.disabled === false || runtime.disabled === null) return true;
+    throw new ApiContractError(502, 'invalid_upstream_response', 'SAML connector disabled state is invalid');
   }
   const enabled = runtime.enabled;
   if (typeof enabled !== 'boolean') {
@@ -399,7 +402,7 @@ export function customOidcFactoryRequest(input: Record<string, unknown>) {
   };
 }
 
-export function samlFactoryRequest(input: Record<string, unknown>) {
+export function samlFactoryRequest(input: Record<string, unknown>): Record<string, unknown> {
   requiredString(input, 'name');
   const optionalFields = ['resource_id', 'name_id_format'] as const;
   const metadataUrl = optionalString(input, 'metadata_url');

@@ -216,6 +216,7 @@ describe('SupAuth SupaCloud app contract', () => {
       'supauth-overlay-account-claim-state-v12',
       'supauth-overlay-rls-permission-projection-v13',
       'supauth-overlay-connector-runtime-kind-v14',
+      'supauth-overlay-connector-runtime-kind-repair-v15',
     ]);
     expect(manifest.migrations.map((migration) => migration.name)).toEqual(
       HOSTED_MIGRATIONS.map((migration) => migration.name),

@@ -16,6 +16,7 @@ import {
   MIGRATION_V12_SQL,
   MIGRATION_V13_SQL,
   MIGRATION_V14_SQL,
+  MIGRATION_V15_SQL,
 } from '../db/migrate.js';
 
 const __dirname2 = dirname(fileURLToPath(import.meta.url));
@@ -107,6 +108,7 @@ describe('Hosted migration chain', () => {
       { name: 'supauth-overlay-account-claim-state-v12', sql: MIGRATION_V12_SQL },
       { name: 'supauth-overlay-rls-permission-projection-v13', sql: MIGRATION_V13_SQL },
       { name: 'supauth-overlay-connector-runtime-kind-v14', sql: MIGRATION_V14_SQL },
+      { name: 'supauth-overlay-connector-runtime-kind-repair-v15', sql: MIGRATION_V15_SQL },
     ]);
     expect(migrateSrc).toContain('for (const migration of HOSTED_MIGRATIONS)');
     expect(migrateSrc).toContain('await sql.unsafe(migration.sql)');
@@ -120,6 +122,12 @@ describe('Hosted migration chain', () => {
     expect(MIGRATION_V14_SQL).toContain('"identifier","name","client_id","client_secret","issuer"');
     expect(MIGRATION_V14_SQL).toContain('"required":["name"]');
     expect(MIGRATION_V14_SQL).toContain('"one_of":[["metadata_url","metadata_xml"]]');
+  });
+
+  it('repairs legacy factory placeholders without rewriting the v14 migration', () => {
+    expect(MIGRATION_V15_SQL).toContain("SET runtime_kind = 'builtin_oauth'");
+    expect(MIGRATION_V15_SQL).toContain("provider_id IN ('oidc-enterprise', 'saml-enterprise')");
+    expect(MIGRATION_V15_SQL).toContain("runtime_kind IN ('custom_oidc', 'saml')");
   });
 
   it('adds forward-only account claim proof and state columns without changing prior migrations', () => {

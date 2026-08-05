@@ -119,7 +119,6 @@ describe('enterprise connector contracts', () => {
   });
 
   it('treats a nullable SAML disabled field as enabled', async () => {
-    let runtimeReads = 0;
     let overlay = {
       id: 'saml-one', provider_id: 'saml-one', runtime_kind: 'saml',
       name: 'SAML One', category: 'enterprise_sso', enabled: true, config: {},
@@ -127,9 +126,7 @@ describe('enterprise connector contracts', () => {
     await expect(updateConnectorEnabledState({
       providerId: 'saml-one', runtimeKind: 'saml', enabled: true, existingConfig: overlay,
     }, {
-      readRuntime: async () => runtimeReads++ === 0
-        ? { id: 'saml-one', disabled: null }
-        : { id: 'saml-one' },
+      readRuntime: async () => ({ id: 'saml-one', disabled: null }),
       updateRuntime: async () => ({ id: 'saml-one', disabled: null }),
       saveOverlay: async input => {
         overlay = { ...overlay, enabled: input.enabled === true };
@@ -137,7 +134,6 @@ describe('enterprise connector contracts', () => {
       },
       readOverlay: async () => overlay,
     })).resolves.toMatchObject({ enabled: true, provider_enabled: true });
-    expect(runtimeReads).toBe(2);
   });
 
   it('reports an unknown toggle outcome when runtime and overlay cannot be reconciled', async () => {
@@ -172,6 +168,10 @@ describe('enterprise connector contracts', () => {
       providerId: 'saml-one', runtimeKind: 'saml', enabled: true, existingConfig,
     }, dependencies)).rejects.toMatchObject({ code: 'connector_readback_mismatch' });
     dependencies.readRuntime = async () => ({ id: 'saml-one', disabled: 'false', enabled: true });
+    await expect(updateConnectorEnabledState({
+      providerId: 'saml-one', runtimeKind: 'saml', enabled: true, existingConfig,
+    }, dependencies)).rejects.toMatchObject({ code: 'invalid_upstream_response' });
+    dependencies.readRuntime = async () => ({ id: 'saml-one' });
     await expect(updateConnectorEnabledState({
       providerId: 'saml-one', runtimeKind: 'saml', enabled: true, existingConfig,
     }, dependencies)).rejects.toMatchObject({ code: 'invalid_upstream_response' });
@@ -241,13 +241,15 @@ describe('enterprise connector contracts', () => {
       name: 'Acme',
       metadata_xml: '<EntityDescriptor />',
       domains: 'example.test, corp.test',
-      attribute_mapping: '{"email":"mail"}',
+      attribute_mapping: '{"keys":{"email":{"name":"mail"}}}',
+      name_id_format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
       enabled: true,
     })).toEqual({
       type: 'saml',
       metadata_xml: '<EntityDescriptor />',
       domains: ['example.test', 'corp.test'],
-      attribute_mapping: { email: 'mail' },
+      attribute_mapping: { keys: { email: { name: 'mail' } } },
+      name_id_format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
       disabled: false,
     });
 

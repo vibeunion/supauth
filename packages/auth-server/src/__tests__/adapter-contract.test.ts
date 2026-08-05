@@ -400,6 +400,7 @@ describe('SupaCloudAdapter contract', () => {
       await adapter.createSamlProvider({
         type: 'saml',
         metadata_url: 'https://idp.example.test/metadata',
+        name_id_format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
         disabled: false,
       });
       await adapter.getSamlProvider('saml/provider');
@@ -430,7 +431,7 @@ describe('SupaCloudAdapter contract', () => {
         {
           method: 'POST',
           path: '/v1/projects/test-ref/auth/sso/providers',
-          body: '{"type":"saml","metadata_url":"https://idp.example.test/metadata","disabled":false}',
+          body: '{"type":"saml","metadata_url":"https://idp.example.test/metadata","name_id_format":"urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress","disabled":false}',
         },
         {
           method: 'GET',
