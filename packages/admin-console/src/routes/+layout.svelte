@@ -13,6 +13,7 @@
     enrollAdminTotp,
     getAdminMfaStepUpState,
     initializeAdminAuthProvider,
+    prepareAdminAuthCallbackRetry,
     verifyAdminMfaStepUp,
   } from '$lib/providers/auth.js';
   import { supaoauthResources } from '$lib/providers/resources.js';
@@ -104,11 +105,7 @@
     if (state.kind === 'redirect') {
       try {
         const target = new URL(state.redirectTo, window.location.href);
-        if (target.origin !== window.location.origin) {
-          window.location.assign(target.href);
-        } else {
-          void goto(target.href);
-        }
+        window.location.assign(target.href);
       } catch {
         authError = initializationErrorMessage('login_failed');
         checkingAuth = false;
@@ -120,6 +117,7 @@
 
   const authInitialization = createAdminAuthInitializationController({
     initializeProvider: (signal) => initializeAdminAuthProvider({ signal }),
+    prepareRetry: (signal) => prepareAdminAuthCallbackRetry({ signal }),
     getMfaStepUpState: (signal) => getAdminMfaStepUpState({ signal }),
     isSsoEnabled: () => adminSsoEnabled,
     isEnrollmentRoute: () => mfaEnrollmentRoute,

@@ -25,6 +25,7 @@ export type AdminAuthInitializationState =
 
 interface AdminAuthInitializationDependencies {
   initializeProvider(signal: AbortSignal): Promise<AuthProvider>;
+  prepareRetry(signal: AbortSignal): Promise<void>;
   getMfaStepUpState(signal: AbortSignal): Promise<AdminMfaStepUpState>;
   isSsoEnabled(): boolean;
   isEnrollmentRoute(): boolean;
@@ -42,6 +43,9 @@ type PreparedRedirectState = Extract<AdminAuthInitializationState, { kind: 'redi
 type PreparedInitializationState =
   | Exclude<AdminAuthInitializationState, { kind: 'redirect' }>
   | PreparedRedirectState;
+type AdminAttemptPreparation = (signal: AbortSignal) => Promise<void>;
+
+async function skipAttemptPreparation(): Promise<void> {}
 
 function errorRecord(error: unknown): Record<string, unknown> | null {
   return typeof error === 'object' && error !== null
@@ -160,15 +164,22 @@ export function createAdminAuthInitializationController(
     return committed;
   }
 
-  async function execute(attemptGeneration: number, controller: AbortController) {
+  async function execute(
+    attemptGeneration: number,
+    controller: AbortController,
+    prepareAttempt: AdminAttemptPreparation,
+  ) {
     commit(attemptGeneration, { kind: 'checking', pending: true });
     try {
       const state = await runBoundedAdminRequest(
-        async (signal) => commitPreparedRedirect(
-          attemptGeneration,
-          await initializationState(dependencies, signal),
-          signal,
-        ),
+        async (signal) => {
+          await prepareAttempt(signal);
+          return commitPreparedRedirect(
+            attemptGeneration,
+            await initializationState(dependencies, signal),
+            signal,
+          );
+        },
         { signal: controller.signal, timeoutMs: dependencies.timeoutMs },
       );
       commit(attemptGeneration, state);
@@ -181,17 +192,25 @@ export function createAdminAuthInitializationController(
     }
   }
 
-  function run(): Promise<void> {
+  function startAttempt(prepareAttempt: AdminAttemptPreparation): Promise<void> {
     if (pendingAttempt) return pendingAttempt;
     const attemptGeneration = ++generation;
     const controller = new AbortController();
     activeController = controller;
-    const attempt = execute(attemptGeneration, controller).finally(() => {
+    const attempt = execute(attemptGeneration, controller, prepareAttempt).finally(() => {
       if (pendingAttempt === attempt) pendingAttempt = null;
       if (activeController === controller) activeController = null;
     });
     pendingAttempt = attempt;
     return attempt;
+  }
+
+  function run(): Promise<void> {
+    return startAttempt(skipAttemptPreparation);
+  }
+
+  function retry(): Promise<void> {
+    return startAttempt(dependencies.prepareRetry);
   }
 
   function cancel() {
@@ -201,5 +220,5 @@ export function createAdminAuthInitializationController(
     pendingAttempt = null;
   }
 
-  return Object.freeze({ run, retry: run, cancel });
+  return Object.freeze({ run, retry, cancel });
 }

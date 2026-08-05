@@ -37,6 +37,7 @@ function controllerHarness(overrides = {}) {
   const authenticatedProvider = providerWith({ authenticated: true });
   const dependencies = {
     initializeProvider: async () => authenticatedProvider.provider,
+    prepareRetry: async () => {},
     getMfaStepUpState: async () => ({ factors: [] }),
     isSsoEnabled: () => true,
     isEnrollmentRoute: () => false,
@@ -63,6 +64,59 @@ async function flushMicrotasks() {
 }
 
 describe('admin auth initialization controller', () => {
+  test('prepares callback recovery only for an explicit retry', async () => {
+    let retryPreparationCount = 0;
+    const { controller, states } = controllerHarness({
+      prepareRetry: async () => {
+        retryPreparationCount += 1;
+      },
+    });
+
+    await controller.run();
+    expect(retryPreparationCount).toBe(0);
+
+    await controller.retry();
+    expect(retryPreparationCount).toBe(1);
+    expect(states.at(-1)).toMatchObject({ kind: 'authenticated' });
+  });
+
+  test('classifies retry preparation failures without exposing their details', async () => {
+    const { controller, states } = controllerHarness({
+      prepareRetry: async () => {
+        throw new Error('https://issuer.example.test/?client_secret=unsafe');
+      },
+    });
+
+    await controller.retry();
+    expect(states.at(-1)).toEqual({
+      kind: 'error',
+      code: 'initialization_failed',
+      pending: false,
+    });
+    expect(JSON.stringify(states)).not.toContain('client_secret');
+  });
+
+  test.each([
+    'State mismatch',
+    'Token exchange failed: upstream-private-detail',
+  ])('classifies OAuth callback failure safely: %s', async (upstreamMessage) => {
+    const callbackFailureProvider = providerWith({
+      authenticated: false,
+      error: { message: upstreamMessage },
+    });
+    const { controller, states } = controllerHarness({
+      initializeProvider: async () => callbackFailureProvider.provider,
+    });
+
+    await controller.run();
+    expect(states.at(-1)).toEqual({
+      kind: 'error',
+      code: 'auth_check_failed',
+      pending: false,
+    });
+    expect(JSON.stringify(states)).not.toContain(upstreamMessage);
+  });
+
   test('recovers from a 503 on retry without a page reload', async () => {
     const authenticatedProvider = providerWith({ authenticated: true });
     let initializationCount = 0;
@@ -137,7 +191,7 @@ describe('admin auth initialization controller', () => {
     const firstRetry = controller.retry();
     const secondRetry = controller.retry();
     expect(secondRetry).toBe(firstRetry);
-    await Promise.resolve();
+    await waitFor(() => initializationCount === 1, 'deduplicated initialization did not start');
     expect(initializationCount).toBe(1);
 
     initialization.resolve(loginProvider.provider);

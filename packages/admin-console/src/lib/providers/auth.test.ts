@@ -4,6 +4,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 import {
   buildAdminEndSessionUrl,
   initializeAdminAuthProvider,
+  prepareAdminAuthCallbackRetry,
 } from './auth';
 
 const originalFetch = globalThis.fetch;
@@ -119,6 +120,8 @@ describe('admin SSO runtime config', () => {
     ]);
     const tokenResponse = deferredRequest();
     let tokenRequests = 0;
+    const adminHistoryState = { svelteKitIndex: 7 };
+    let replacedHistoryState;
     let currentHref = `https://admin.example.test/admin?code=issued-code&state=${callbackState}`;
     const location = {
       get href() { return currentHref; },
@@ -129,10 +132,18 @@ describe('admin SSO runtime config', () => {
     };
     globalThis.window = {
       document: {},
-      navigator: { locks: { request: async (_name, operation) => operation() } },
+      navigator: {
+        locks: {
+          request: async (_name, optionsOrOperation, operation) => (
+            operation ?? optionsOrOperation
+          )(),
+        },
+      },
       location,
       history: {
-        replaceState: (_state, _title, nextUrl) => {
+        state: adminHistoryState,
+        replaceState: (state, _title, nextUrl) => {
+          replacedHistoryState = state;
           currentHref = new URL(String(nextUrl), currentHref).href;
         },
       },
@@ -206,6 +217,121 @@ describe('admin SSO runtime config', () => {
       expect(JSON.parse(storageValues.get('supaoauth_admin_sso_tokens'))).toMatchObject({
         access_token: 'safe-access-token',
       });
+
+      storageValues.delete('supaoauth_admin_sso_tokens');
+      storageValues.set('supaoauth_admin_sso_state', 'newer-state');
+      storageValues.set('supaoauth_admin_sso_pkce_verifier', 'newer-verifier');
+      currentHref = `https://admin.example.test/admin?code=stale-code&state=${callbackState}&view=members#permissions`;
+      await expect(provider.check({})).resolves.toMatchObject({
+        authenticated: false,
+        error: { message: 'State mismatch' },
+      });
+      expect(tokenRequests).toBe(1);
+
+      currentHref = `https://admin.example.test/admin?code=stale-code&state=${callbackState}&view=members&error=invalid_request&error_description=private-upstream-detail#permissions`;
+      const cancelledBeforeCleanup = new AbortController();
+      cancelledBeforeCleanup.abort();
+      await expect(prepareAdminAuthCallbackRetry({ signal: cancelledBeforeCleanup.signal }))
+        .rejects.toMatchObject({ name: 'AbortError' });
+      expect(currentHref).toContain('code=stale-code');
+      expect(storageValues.get('supaoauth_admin_sso_state')).toBe('newer-state');
+
+      const cancelledDuringCleanup = new AbortController();
+      const retryStorage = globalThis.window.sessionStorage;
+      const removeStorageItem = retryStorage.removeItem;
+      retryStorage.removeItem = (key) => {
+        removeStorageItem(key);
+        if (key === 'supaoauth_admin_sso_state') cancelledDuringCleanup.abort();
+      };
+      try {
+        await prepareAdminAuthCallbackRetry({ signal: cancelledDuringCleanup.signal });
+      } finally {
+        retryStorage.removeItem = removeStorageItem;
+      }
+      expect(cancelledDuringCleanup.signal.aborted).toBe(true);
+      expect(currentHref).toBe('https://admin.example.test/admin?view=members#permissions');
+      expect(storageValues.has('supaoauth_admin_sso_state')).toBe(false);
+      expect(storageValues.has('supaoauth_admin_sso_pkce_verifier')).toBe(false);
+
+      const rebuiltProvider = await initializeAdminAuthProvider({
+        signal: new AbortController().signal,
+      });
+      expect(rebuiltProvider).not.toBe(provider);
+      await expect(rebuiltProvider.check({})).resolves.toMatchObject({ authenticated: false });
+      const loginSignal = new AbortController().signal;
+      const freshLogin = await rebuiltProvider.login({ signal: loginSignal });
+      expect(freshLogin).toMatchObject({ success: true });
+      await freshLogin.commitRedirect(loginSignal);
+      const freshState = storageValues.get('supaoauth_admin_sso_state');
+      const freshVerifier = storageValues.get('supaoauth_admin_sso_pkce_verifier');
+      expect(freshState).toBeTruthy();
+      expect(freshVerifier).toBeTruthy();
+      expect(freshState).not.toBe(callbackState);
+      expect(freshState).not.toBe('newer-state');
+
+      currentHref = 'https://admin.example.test/admin?state=page-state&error_description=visible&view=members#permissions';
+      await prepareAdminAuthCallbackRetry({ signal: new AbortController().signal });
+      expect(currentHref).toBe(
+        'https://admin.example.test/admin?state=page-state&error_description=visible&view=members#permissions',
+      );
+      expect(storageValues.get('supaoauth_admin_sso_state')).toBe(freshState);
+      expect(storageValues.get('supaoauth_admin_sso_pkce_verifier')).toBe(freshVerifier);
+      await expect(initializeAdminAuthProvider({
+        signal: new AbortController().signal,
+      })).resolves.toBe(rebuiltProvider);
+
+      const navigationLock = deferredRequest();
+      let navigationLockRequested = false;
+      globalThis.window.navigator.locks.request = async (_name, optionsOrOperation, operation) => {
+        navigationLockRequested = true;
+        await navigationLock.promise;
+        return (operation ?? optionsOrOperation)();
+      };
+      currentHref = `https://admin.example.test/admin?code=stale-code&state=${freshState}&view=members#permissions`;
+      const navigationRetry = prepareAdminAuthCallbackRetry({
+        signal: new AbortController().signal,
+      });
+      await waitFor(() => navigationLockRequested, 'callback retry did not wait for the auth lock');
+      currentHref = 'https://admin.example.test/admin/users?view=active#details';
+      navigationLock.resolve();
+      await navigationRetry;
+      expect(currentHref).toBe('https://admin.example.test/admin/users?view=active#details');
+      expect(storageValues.get('supaoauth_admin_sso_state')).toBe(freshState);
+      expect(storageValues.get('supaoauth_admin_sso_pkce_verifier')).toBe(freshVerifier);
+      await expect(initializeAdminAuthProvider({
+        signal: new AbortController().signal,
+      })).resolves.toBe(rebuiltProvider);
+
+      const abortedLock = deferredRequest();
+      const queuedAbort = new AbortController();
+      let queuedLockSignal;
+      globalThis.window.navigator.locks.request = async (_name, options, operation) => {
+        queuedLockSignal = options.signal;
+        await abortedLock.promise;
+        options.signal.throwIfAborted();
+        return operation();
+      };
+      currentHref = `https://admin.example.test/admin?error=access_denied&state=${freshState}&view=members#permissions`;
+      const abortedRetry = prepareAdminAuthCallbackRetry({ signal: queuedAbort.signal });
+      await waitFor(() => queuedLockSignal === queuedAbort.signal, 'callback retry did not pass its abort signal to Web Locks');
+      queuedAbort.abort();
+      abortedLock.resolve();
+      await expect(abortedRetry).rejects.toMatchObject({ name: 'AbortError' });
+      expect(currentHref).toBe(
+        `https://admin.example.test/admin?error=access_denied&state=${freshState}&view=members#permissions`,
+      );
+      expect(storageValues.get('supaoauth_admin_sso_state')).toBe(freshState);
+      expect(storageValues.get('supaoauth_admin_sso_pkce_verifier')).toBe(freshVerifier);
+
+      globalThis.window.navigator.locks.request = async (_name, optionsOrOperation, operation) => (
+        operation ?? optionsOrOperation
+      )();
+      currentHref = `https://admin.example.test/admin?error=access_denied&error_description=private-detail&error_uri=https%3A%2F%2Fissuer.example.test%2Ferrors%2Fdenied&error_code=provider_denied&state=${freshState}&iss=https%3A%2F%2Fissuer.example.test&session_state=session-123&view=members#permissions`;
+      await prepareAdminAuthCallbackRetry({ signal: new AbortController().signal });
+      expect(currentHref).toBe('https://admin.example.test/admin?view=members#permissions');
+      expect(replacedHistoryState).toBe(adminHistoryState);
+      expect(storageValues.has('supaoauth_admin_sso_state')).toBe(false);
+      expect(storageValues.has('supaoauth_admin_sso_pkce_verifier')).toBe(false);
     } finally {
       globalThis.Request = OriginalRequest;
       globalThis.window = originalWindow;

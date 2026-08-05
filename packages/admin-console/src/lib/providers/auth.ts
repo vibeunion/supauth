@@ -96,6 +96,16 @@ const ADMIN_SSO_LOGIN_KEYS = {
   verifier: `${ADMIN_SSO_STORAGE_KEY}_pkce_verifier`,
   state: `${ADMIN_SSO_STORAGE_KEY}_state`,
 } as const;
+const ADMIN_OAUTH_CALLBACK_PARAMS = [
+  'code',
+  'state',
+  'error',
+  'error_description',
+  'error_uri',
+  'error_code',
+  'iss',
+  'session_state',
+] as const;
 const ADMIN_SSO_AUTH_LOCK = `${ADMIN_SSO_STORAGE_KEY}:auth`;
 
 const COMPILED_SSO_CONFIG = normalizeAdminSsoConfig({
@@ -283,7 +293,36 @@ function clearAdminLoginState(storage: TokenStorage, expectedState: string): voi
   storage.removeItem(ADMIN_SSO_LOGIN_KEYS.state);
 }
 
-async function withAdminSsoAuthLock<T>(operation: () => Promise<T> | T): Promise<T> {
+function adminOAuthCallbackUrl(href: string): URL | null {
+  const callbackUrl = new URL(href);
+  return callbackUrl.searchParams.has('code') || callbackUrl.searchParams.has('error')
+    ? callbackUrl
+    : null;
+}
+
+function clearAdminOAuthCallbackUrl(callbackUrl: URL): void {
+  for (const parameter of ADMIN_OAUTH_CALLBACK_PARAMS) {
+    callbackUrl.searchParams.delete(parameter);
+  }
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${callbackUrl.pathname}${callbackUrl.search}${callbackUrl.hash}`,
+  );
+}
+
+function destroyCurrentAdminSsoRuntime(): void {
+  currentSsoProvider?.destroy();
+  currentSsoProvider = null;
+  currentAdminMfaStepUp = null;
+  setAdminAccessTokenProvider(null);
+  setAdminAuthenticatedFetch(null);
+}
+
+async function withAdminSsoAuthLock<T>(
+  operation: () => Promise<T> | T,
+  signal?: AbortSignal,
+): Promise<T> {
   const lock = typeof window === 'undefined' ? null : window.navigator?.locks;
   // 与 @svadmin/sso 保持一致：非浏览器探针使用进程内串行语义，真实浏览器必须有 Web Locks。
   if (typeof window !== 'undefined' && window.document === undefined) {
@@ -292,7 +331,29 @@ async function withAdminSsoAuthLock<T>(operation: () => Promise<T> | T): Promise
   if (!lock) {
     throw new Error('Admin SSO login requires the browser Web Locks API');
   }
-  return lock.request(ADMIN_SSO_AUTH_LOCK, operation);
+  return signal
+    ? lock.request(ADMIN_SSO_AUTH_LOCK, { signal }, operation)
+    : lock.request(ADMIN_SSO_AUTH_LOCK, operation);
+}
+
+export async function prepareAdminAuthCallbackRetry(
+  options: AdminAuthInitializationOptions = {},
+): Promise<void> {
+  if (typeof window === 'undefined') return;
+  const callbackHref = window.location.href;
+  if (!adminOAuthCallbackUrl(callbackHref)) return;
+
+  options.signal?.throwIfAborted();
+  await withAdminSsoAuthLock(() => {
+    options.signal?.throwIfAborted();
+    if (window.location.href !== callbackHref) return;
+    const callbackUrl = adminOAuthCallbackUrl(window.location.href);
+    if (!callbackUrl) return;
+    window.sessionStorage.removeItem(ADMIN_SSO_LOGIN_KEYS.state);
+    window.sessionStorage.removeItem(ADMIN_SSO_LOGIN_KEYS.verifier);
+    destroyCurrentAdminSsoRuntime();
+    clearAdminOAuthCallbackUrl(callbackUrl);
+  }, options.signal);
 }
 
 function buildAdminAuthorizeUrl(
