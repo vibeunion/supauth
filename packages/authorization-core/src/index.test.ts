@@ -10,7 +10,6 @@ import {
   permission,
   resolveAuthorization,
   type AuthorizationRequest,
-  type AuthorizationSnapshot,
 } from './index.js';
 
 const request: AuthorizationRequest = {
@@ -19,27 +18,22 @@ const request: AuthorizationRequest = {
   domain: { type: 'organization', id: 'org-1' },
 };
 
-const resolvedAt = Date.now();
-
-function snapshot(overrides: Partial<AuthorizationSnapshot> = {}): AuthorizationSnapshot {
-  return {
-    ...request,
-    permissions: ['invoice:read', 'invoice:update'],
-    membershipState: 'active',
-    resolvedAt,
-    expiresAt: resolvedAt + 60_000,
-    policyVersion: 3,
-    assignmentVersion: 8,
-    ...overrides,
-  };
-}
-
 describe('@supauth/authorization-core', () => {
-  it('resolves exactly once and decides only from the in-memory snapshot', async () => {
+  it('resolves exactly once and decides only from current effective grants', async () => {
     let calls = 0;
-    const context = await resolveAuthorization(request, async () => {
+    const context = await resolveAuthorization(request, async receivedRequest => {
       calls += 1;
-      return snapshot();
+      expect(receivedRequest).toEqual({
+        principal: { kind: 'user', issuer: 'https://auth.example.test', subject: 'user-1' },
+        applicationId: 'billing-api',
+        domain: { type: 'organization', id: 'org-1' },
+      });
+      expect(Object.isFrozen(receivedRequest)).toBe(true);
+      expect(Object.isFrozen(receivedRequest.principal)).toBe(true);
+      expect(Object.isFrozen(receivedRequest.domain)).toBe(true);
+      // @ts-expect-error The runtime guard backs the public readonly contract.
+      expect(() => { receivedRequest.applicationId = 'reporting-api'; }).toThrow();
+      return ['invoice:read', 'invoice:update'];
     });
 
     expect(calls).toBe(1);
@@ -50,59 +44,32 @@ describe('@supauth/authorization-core', () => {
     expect(canAll(context, [])).toBe(false);
   });
 
-  it('denies missing, inactive, and revoked memberships with 403 semantics', async () => {
-    for (const membershipState of ['missing', 'inactive', 'revoked'] as const) {
-      const context = await resolveAuthorization(request, async () => snapshot({ membershipState }));
-      expect(decide(context, permission('invoice:read')).reason).toBe(`${membershipState}_membership`);
-      expect(() => assertCan(context, permission('invoice:read'))).toThrow(AuthorizationForbiddenError);
-    }
+  it('denies when the current effective grant set is empty', async () => {
+    const context = await resolveAuthorization(request, async () => []);
+    expect(decide(context, permission('invoice:read'))).toEqual({
+      allowed: false,
+      reason: 'missing_permission',
+      permission: 'invoice:read',
+    });
+    expect(() => assertCan(context, permission('invoice:read'))).toThrow(AuthorizationForbiddenError);
   });
 
-  it('keeps resolver failure and stale snapshots in the 503 error class', async () => {
+  it('keeps resolver failures in the 503 error class', async () => {
     await expect(resolveAuthorization(request, async () => {
       throw new Error('database offline');
     })).rejects.toMatchObject({ status: 503, code: 'authorization_unavailable' });
-    await expect(resolveAuthorization(request, async () => snapshot({ expiresAt: resolvedAt - 1 }))).rejects.toBeInstanceOf(
-      AuthorizationUnavailableError,
-    );
   });
 
-  it('rejects cross-principal, cross-application, and cross-domain snapshots', async () => {
-    const mismatches: Partial<AuthorizationSnapshot>[] = [
-      { principal: { ...request.principal, kind: 'service' } },
-      { applicationId: 'reporting-api' },
-      { domain: { ...request.domain, id: 'org-2' } },
-    ];
-    for (const mismatch of mismatches) {
-      await expect(resolveAuthorization(request, async () => snapshot(mismatch))).rejects.toBeInstanceOf(
-        AuthorizationUnavailableError,
-      );
-    }
-  });
+  it('maps malformed resolutions to 503 and freezes effective permissions', async () => {
+    await expect(resolveAuthorization(request, async () => ['invoice:*']))
+      .rejects.toMatchObject({ status: 503, code: 'authorization_unavailable' });
+    await expect(resolveAuthorization(request, async () => [42 as unknown as string]))
+      .rejects.toBeInstanceOf(AuthorizationUnavailableError);
+    await expect(resolveAuthorization(request, async () => null as unknown as string[]))
+      .rejects.toBeInstanceOf(AuthorizationUnavailableError);
 
-  it('maps malformed resolver snapshots to 503 without exposing mutable permissions', async () => {
-    await expect(resolveAuthorization(request, async () => snapshot({
-      permissions: ['invoice:*'],
-    }))).rejects.toMatchObject({ status: 503, code: 'authorization_unavailable' });
-    await expect(resolveAuthorization(request, async () => snapshot({
-      membershipState: 'unknown' as 'active',
-    }))).rejects.toBeInstanceOf(AuthorizationUnavailableError);
-    await expect(resolveAuthorization(request, async () => snapshot({
-      policyVersion: 'v3',
-    }))).rejects.toBeInstanceOf(AuthorizationUnavailableError);
-    await expect(resolveAuthorization(request, async () => snapshot({
-      permissions: [42 as unknown as string],
-    }))).rejects.toBeInstanceOf(AuthorizationUnavailableError);
-    await expect(resolveAuthorization(request, async () => snapshot({
-      membershipState: 'inactive',
-      permissions: [42 as unknown as string],
-    }))).rejects.toBeInstanceOf(AuthorizationUnavailableError);
-    await expect(resolveAuthorization(request, async () => snapshot({
-      resolvedAt: Date.now() + 60_000,
-      expiresAt: Date.now() + 120_000,
-    }))).rejects.toBeInstanceOf(AuthorizationUnavailableError);
-
-    const context = await resolveAuthorization(request, async () => snapshot());
+    const context = await resolveAuthorization(request, async () => ['invoice:read', 'invoice:read']);
+    expect(context.permissions).toEqual(['invoice:read']);
     expect(Object.isFrozen(context.permissions)).toBe(true);
     expect(() => (context.permissions as unknown as string[]).push('invoice:delete')).toThrow();
   });

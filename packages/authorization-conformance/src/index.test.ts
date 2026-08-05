@@ -1,108 +1,151 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  checkAuthorizationConformance,
   checkAuthorizationExplain,
   checkAuthorizationSql,
+  REQUIRED_AUTHORIZATION_DENIAL_SCENARIOS,
   REQUIRED_AUTHORIZATION_SCENARIOS,
-  type AuthorizationObservation,
+  runAuthorizationConformance,
+  type AuthorizationOutcome,
+  type AuthorizationDenialScenario,
 } from './index.js';
 
-function passingObservations(): AuthorizationObservation[] {
-  return REQUIRED_AUTHORIZATION_SCENARIOS.map(scenario => ({
-    scenario,
-    allowed: false,
-    status: scenario === 'stale_snapshot' || scenario === 'adapter_unavailable' ? 503 : 403,
-  }));
+function deniedOutcome(scenario: AuthorizationDenialScenario): AuthorizationOutcome {
+  return { allowed: false, status: scenario === 'adapter_unavailable' ? 503 : 403 };
+}
+
+const installSql = `
+DO $$
+DECLARE projection_oid OID := pg_catalog.to_regclass('authz.effective_permission_grants');
+BEGIN
+  IF (SELECT relkind FROM pg_catalog.pg_class WHERE oid = projection_oid) IS DISTINCT FROM 'v' THEN
+    RAISE EXCEPTION 'effective_permission_grants must be an ordinary view';
+  END IF;
+  IF ARRAY(
+    SELECT attribute.attname::TEXT FROM pg_catalog.pg_attribute AS attribute
+  ) IS DISTINCT FROM ARRAY['principal_kind']::TEXT[] THEN
+    RAISE EXCEPTION 'columns do not match the required contract';
+  END IF;
+  RAISE NOTICE 'columns do not match the required contract';
+  IF has_table_privilege('authenticated', projection_oid, 'SELECT') THEN
+    RAISE EXCEPTION 'effective_permission_grants must not be directly readable';
+  END IF;
+END $$;
+CREATE FUNCTION authorization_allowed_scope_ids(
+  requested_permission TEXT,
+  requested_domain_type TEXT
+)
+RETURNS TABLE(scope_id TEXT)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$ SELECT permission_grant.domain_id FROM effective_permission_grants AS permission_grant
+WHERE permission_grant.application_id = 'xigu-fa' $$;
+REVOKE ALL ON SCHEMA authz FROM PUBLIC;
+GRANT USAGE ON SCHEMA authz TO authenticated;
+REVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT, TEXT) FROM anon;
+GRANT EXECUTE ON FUNCTION authorization_allowed_scope_ids(TEXT, TEXT) TO authenticated;`;
+
+const rlsSql = `CREATE POLICY invoice_update ON invoices FOR UPDATE TO authenticated
+USING (organization_id IN (
+  SELECT allowed_scope.scope_id::uuid
+  FROM authorization_allowed_scope_ids('invoice:read', 'organization') AS allowed_scope
+))
+WITH CHECK (organization_id IN (
+  SELECT allowed_scope.scope_id::uuid
+  FROM authorization_allowed_scope_ids('invoice:update', 'organization') AS allowed_scope
+));`;
+
+function passingPlan(actualLoops = 1): unknown {
+  return [{
+    Plan: {
+      'Node Type': 'Seq Scan',
+      Filter: '(ANY (organization_id = (hashed SubPlan 1).col1))',
+      Plans: [{
+        'Node Type': 'Function Scan',
+        'Parent Relationship': 'SubPlan',
+        'Subplan Name': 'SubPlan 1',
+        'Function Name': 'authorization_allowed_scope_ids',
+        'Actual Loops': actualLoops,
+      }],
+    },
+  }];
 }
 
 describe('@supauth/authorization-conformance', () => {
-  it('requires every denial and availability scenario with distinct statuses', () => {
-    expect(checkAuthorizationConformance(passingObservations())).toEqual({ passed: true, violations: [] });
-
-    const incomplete = passingObservations().filter(observation => observation.scenario !== 'cross_domain');
-    incomplete.find(observation => observation.scenario === 'adapter_unavailable')!.status = 403;
-    const report = checkAuthorizationConformance(incomplete);
-    expect(report.passed).toBe(false);
-    expect(report.violations.map(violation => violation.rule)).toEqual(['cross_domain', 'adapter_unavailable']);
-  });
-
-  it('rejects accidental allow results for revoked or isolated principals', () => {
-    const observations = passingObservations();
-    observations.find(observation => observation.scenario === 'revoked_snapshot')!.allowed = true;
-    observations.find(observation => observation.scenario === 'service_user_isolation')!.allowed = true;
-    expect(checkAuthorizationConformance(observations).violations).toHaveLength(2);
-  });
-
-  it('reports duplicate observations instead of silently replacing them', () => {
-    const observations = passingObservations();
-    observations.push({ ...observations[0] });
-    expect(checkAuthorizationConformance(observations).violations[0].rule).toBe('duplicate_scenario');
-  });
-
-  it('checks SQL hardening and one-time scope-set invariants', () => {
-    const report = checkAuthorizationSql({
-      installSql: `LANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path = ''\nREVOKE ALL ON SCHEMA authz FROM PUBLIC;\nGRANT USAGE ON SCHEMA authz TO authenticated;\nREVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT) FROM PUBLIC;\nREVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT) FROM anon;\nGRANT EXECUTE ON FUNCTION authorization_allowed_scope_ids(TEXT) TO authenticated;`,
-      rlsSql: `CREATE POLICY invoice_read ON invoices FOR SELECT TO authenticated USING (organization_id IN (\nSELECT allowed_scope.scope_id::uuid\nFROM authorization_allowed_scope_ids('invoice:read', 'organization', 'xigu-fa') AS allowed_scope));`,
+  it('executes every required scenario through the supplied application harness', async () => {
+    const observed: string[] = [];
+    const report = await runAuthorizationConformance({
+      async runDenialScenario(scenario) {
+        observed.push(scenario);
+        return deniedOutcome(scenario);
+      },
+      async runRevocationVisibilityScenario() {
+        observed.push('revocation_visibility');
+        return { before: { allowed: true, status: 200 }, after: { allowed: false, status: 403 } };
+      },
     });
     expect(report).toEqual({ passed: true, violations: [] });
+    expect(observed).toEqual(REQUIRED_AUTHORIZATION_SCENARIOS);
+  });
 
-    const unsafe = checkAuthorizationSql({
-      installSql: 'SECURITY DEFINER',
-      rlsSql: `has_org_permission("organization_id", 'invoice:read')`,
+  it('reports unsafe outcomes and scenario runner failures', async () => {
+    const report = await runAuthorizationConformance({
+      async runDenialScenario(scenario) {
+        if (scenario === 'cross_domain') return { allowed: true, status: 200 };
+        if (scenario === 'adapter_unavailable') throw new Error('database offline');
+        return deniedOutcome(scenario);
+      },
+      async runRevocationVisibilityScenario() {
+        return { before: { allowed: false, status: 403 }, after: { allowed: false, status: 403 } };
+      },
     });
-    expect(unsafe.passed).toBe(false);
-    expect(unsafe.violations.map(violation => violation.rule)).toContain('row_permission_helper');
+    expect(report.violations.map(violation => violation.rule))
+      .toEqual(['cross_domain', 'adapter_unavailable', 'revocation_visibility']);
+    expect(REQUIRED_AUTHORIZATION_DENIAL_SCENARIOS).toContain('explicit_deny_precedence');
+  });
+
+  it('checks final-grant ownership, fixed application binding, and RLS shape', () => {
+    expect(checkAuthorizationSql({ installSql, rlsSql })).toEqual({ passed: true, violations: [] });
+    const unsafe = checkAuthorizationSql({
+      installSql: `${installSql}\nCREATE TABLE authz.role_permissions (role_key TEXT);`,
+      rlsSql: `CREATE POLICY open_access ON invoices FOR SELECT TO authenticated USING (true);`,
+    });
+    expect(unsafe.violations.map(violation => violation.rule)).toContain('package_owned_policy');
+    expect(unsafe.violations.map(violation => violation.rule)).toContain('policy_scope_set');
+    expect(unsafe.violations.map(violation => violation.rule)).toContain('permissive_policy');
   });
 
   it('does not accept safety keywords hidden in comments or string literals', () => {
     const report = checkAuthorizationSql({
-      installSql: `-- LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''\nSELECT 'REVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT) FROM PUBLIC;';`,
+      installSql: `-- effective_permission_grants ordinary view\nSELECT 'SECURITY DEFINER SET search_path = ''';`,
       rlsSql: `/* authorization_allowed_scope_ids('invoice:read') */\nCREATE POLICY open_access ON invoices FOR SELECT TO authenticated USING (true);`,
     });
     expect(report.passed).toBe(false);
+    expect(report.violations.map(violation => violation.rule)).toContain('effective_grant_projection');
     expect(report.violations.map(violation => violation.rule)).toContain('hardened_helper');
-    expect(report.violations.map(violation => violation.rule)).toContain('policy_scope_set');
   });
 
-  it('checks USING and WITH CHECK independently', () => {
+  it('does not accept safety keywords hidden in dollar-quoted literals', () => {
     const report = checkAuthorizationSql({
-      installSql: `LANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path = ''\nREVOKE ALL ON SCHEMA authz FROM PUBLIC;\nGRANT USAGE ON SCHEMA authz TO authenticated;\nREVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT) FROM PUBLIC;\nREVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT) FROM anon;\nGRANT EXECUTE ON FUNCTION authorization_allowed_scope_ids(TEXT) TO authenticated;`,
-      rlsSql: `CREATE POLICY invoice_update ON invoices FOR UPDATE TO authenticated USING (true) WITH CHECK (organization_id IN (SELECT allowed_scope.scope_id::uuid FROM authorization_allowed_scope_ids('invoice:update', 'organization', 'xigu-fa') AS allowed_scope));`,
+      installSql: `SELECT $spoof$${installSql}$spoof$;`,
+      rlsSql: `SELECT $$${rlsSql}$$;`,
     });
     expect(report.passed).toBe(false);
-    expect(report.violations.map(violation => violation.rule)).toContain('policy_scope_set');
-    expect(report.violations.map(violation => violation.rule)).toContain('permissive_policy');
+    expect(report.violations.map(violation => violation.rule)).toContain('effective_grant_projection');
+    expect(report.violations.map(violation => violation.rule)).toContain('rls_policy');
   });
 
-  it('requires command-specific policy clauses', () => {
-    const installSql = `LANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path = ''\nREVOKE ALL ON SCHEMA authz FROM PUBLIC;\nGRANT USAGE ON SCHEMA authz TO authenticated;\nREVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT) FROM PUBLIC;\nREVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT) FROM anon;\nGRANT EXECUTE ON FUNCTION authorization_allowed_scope_ids(TEXT) TO authenticated;`;
-    const scopePredicate = `organization_id IN (SELECT allowed_scope.scope_id::uuid FROM authorization_allowed_scope_ids('invoice:update', 'organization', 'xigu-fa') AS allowed_scope)`;
-    for (const rlsSql of [
-      `CREATE POLICY missing_using ON invoices FOR UPDATE TO authenticated WITH CHECK (${scopePredicate});`,
-      `CREATE POLICY missing_check ON invoices FOR UPDATE TO authenticated USING (${scopePredicate});`,
-    ]) {
-      const report = checkAuthorizationSql({ installSql, rlsSql });
-      expect(report.passed).toBe(false);
-      expect(report.violations.map(violation => violation.rule)).toContain('policy_scope_set');
-    }
-  });
-
-  it('requires real one-time execution evidence from authenticated EXPLAIN', () => {
-    expect(checkAuthorizationExplain(
-      'Hash Semi Join  (actual time=0.1..0.2 rows=4 loops=1)\n  InitPlan 1 (returns $0)\n    Function Scan on authorization_allowed_scope_ids (actual rows=4 loops=1)',
-    ).passed).toBe(true);
-    expect(checkAuthorizationExplain(
-      'Seq Scan\n  Function Scan on authorization_allowed_scope_ids (actual rows=1 loops=250000)',
-    ).violations.map(violation => violation.rule)).toEqual([
-      'one_time_scope_plan',
-      'one_time_execution',
-      'row_helper_execution',
-    ]);
-    expect(checkAuthorizationExplain(
-      'Hash Semi Join (actual rows=4 loops=1)\nFunction Scan on authorization_allowed_scope_ids\n(actual rows=1 loops=250000)',
-    ).passed).toBe(false);
-    expect(checkAuthorizationExplain(
-      'Hash Semi Join (actual rows=4 loops=1)\nFunction Scan on authorization_allowed_scope_ids (actual rows=1 loops=1)\nFunction Scan on authorization_allowed_scope_ids\n(actual rows=1 loops=250000)',
-    ).violations.map(violation => violation.rule)).toContain('row_helper_execution');
+  it('requires parsed JSON plans with one helper loop and a hashed subplan', () => {
+    expect(checkAuthorizationExplain(passingPlan())).toEqual({ passed: true, violations: [] });
+    expect(checkAuthorizationExplain(passingPlan(250_000)).violations.map(violation => violation.rule))
+      .toEqual(['one_time_execution']);
+    const unrelatedSubplan = passingPlan() as Array<{ Plan: { Plans: Array<Record<string, unknown>> } }>;
+    unrelatedSubplan[0]!.Plan.Plans[0]!['Subplan Name'] = 'SubPlan 2';
+    expect(checkAuthorizationExplain(unrelatedSubplan).violations.map(violation => violation.rule))
+      .toEqual(['one_time_scope_plan']);
+    expect(checkAuthorizationExplain('Seq Scan').violations.map(violation => violation.rule))
+      .toEqual(['explain_json']);
   });
 });
