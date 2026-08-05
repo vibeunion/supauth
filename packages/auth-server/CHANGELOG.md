@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.7.0...auth-server-v0.7.1) (2026-08-05)
+
+
+### Bug Fixes
+
+* **admin:** repair organization creation flow ([22b86b0](https://github.com/zuohuadong/supauth/commit/22b86b0cef05a2d481a833fa124ed5a3ac2e328d))
+* **admin:** repair organization creation flow ([#44](https://github.com/zuohuadong/supauth/issues/44)) ([01059a5](https://github.com/zuohuadong/supauth/commit/01059a52222e5c999b2c56ae1135f9f17078a7d3))
+* **admin:** repair roles and organization templates ([#48](https://github.com/zuohuadong/supauth/issues/48)) ([0272d15](https://github.com/zuohuadong/supauth/commit/0272d158e54faecf9c87c811f8bc641048c30a40))
+* **admin:** resolve CNB issues 5-9 ([c8415c7](https://github.com/zuohuadong/supauth/commit/c8415c710abace26c51f69de483f3f47b7c2dac4))
+* **auth:** default organization JIT domains ([#52](https://github.com/zuohuadong/supauth/issues/52)) ([11e7b77](https://github.com/zuohuadong/supauth/commit/11e7b778f8594d249ce8fdd5a1bf1e9439f72b2e))
+* **auth:** repair connector runtime workflows ([#45](https://github.com/zuohuadong/supauth/issues/45)) ([b4bee7e](https://github.com/zuohuadong/supauth/commit/b4bee7e3bc6d212dbc17154519b8f897c10854ad))
+* **auth:** resolve CNB issues 17-21 ([#51](https://github.com/zuohuadong/supauth/issues/51)) ([2d3edf8](https://github.com/zuohuadong/supauth/commit/2d3edf8cf484dba73951a105117257f242c1360a))
+* **connectors:** align SAML runtime readback ([#46](https://github.com/zuohuadong/supauth/issues/46)) ([c39ced9](https://github.com/zuohuadong/supauth/commit/c39ced99dedb29eca428b5d112797404a72b25e9))
+
 ## [0.7.0](https://github.com/zuohuadong/supauth/compare/auth-server-v0.6.2...auth-server-v0.7.0) (2026-08-05)
 
 
