@@ -14,6 +14,7 @@ import {
   parse as parseModuleImports,
 } from 'es-module-lexer';
 import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
+import { SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE } from './supacloud-app-contract.js';
 
 const ADMIN_SSO_REQUIRED_ENV = ['ADMIN_SSO_ISSUER', 'ADMIN_SSO_CLIENT_ID'];
 const ADMIN_SSO_OPTIONAL_ENV = [
@@ -46,6 +47,7 @@ const EXPECTED_FUNCTION_ROUTES = [
   '/api/*',
   '/v1/*',
   '/v1/public/*',
+  SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE,
   '/oauth/*',
   '/login',
   '/login.html',

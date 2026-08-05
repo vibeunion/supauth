@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { createSupacloudAppManifest } from '../scripts/supacloud-app-contract.js';
 import { verifySupacloudInstalledApp } from '../scripts/verify-supacloud-installed-app.js';
 
+const legacyCustomUiProbePath = '/custom-ui/legacy/index.html';
+const publicCustomUiProbePath = '/v1/public/custom-ui/legacy/index.html';
+
 function createFixture() {
   const root = mkdtempSync(join(tmpdir(), 'supauth-installed-app-'));
   const artifactDir = 'artifact';
@@ -58,6 +61,8 @@ function mockFetch(
     '/api/v1/capabilities': 401,
     '/v1/auth-config': 401,
     '/v1/public/sign-in-experience/resolve': 200,
+    [legacyCustomUiProbePath]: 404,
+    [publicCustomUiProbePath]: 404,
     '/admin': 307,
     '/admin/get-started': 200,
     '/admin/security': 307,
@@ -108,7 +113,12 @@ function mockFetch(
       return new Response('redirect', { status: 302, headers: { location } });
     }
     const status = defaultStatuses[url.pathname] ?? 404;
-    const headers = headersForMockResponse(responseHeaders[url.pathname]);
+    const configuredHeaders = responseHeaders[url.pathname];
+    const headers = headersForMockResponse(configuredHeaders);
+    if ((url.pathname === legacyCustomUiProbePath || url.pathname === publicCustomUiProbePath)
+      && configuredHeaders === undefined) {
+      headers.set('cache-control', 'private, No-Store');
+    }
     if (url.pathname === '/admin' && status === 307 && !headers.has('location')) {
       headers.set('location', '/admin/get-started');
     }
@@ -150,6 +160,14 @@ describe('SupaCloud installed app verifier', () => {
     expect(verification.probes.every((probe) => probe.ok)).toBe(true);
     expect(verification.probes.find((probe) => probe.name === 'functions_preserved')?.status).toBe(400);
     expect(verification.probes.find((probe) => probe.name === 'supauth_function_health_preserved')?.status).toBe(200);
+    expect(verification.probes.find((probe) => probe.name === 'custom_ui_legacy_inert')).toMatchObject({
+      ok: true,
+      status: 404,
+    });
+    expect(verification.probes.find((probe) => probe.name === 'public_custom_ui_legacy_inert')).toMatchObject({
+      ok: true,
+      status: 404,
+    });
     expect(verification.probes.find((probe) => probe.name === 'public_http_to_https')).toMatchObject({
       ok: true,
       status: 308,
@@ -214,6 +232,52 @@ describe('SupaCloud installed app verifier', () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors).toContain('supauth_health_api_strip_prefix failed: expected HTTP 200, got HTTP 404');
+  });
+
+  it('rejects Custom UI negative probes that do not return 404', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({
+        [legacyCustomUiProbePath]: 200,
+        [publicCustomUiProbePath]: 500,
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'custom_ui_legacy_inert failed: expected HTTP 404 with Cache-Control no-store, got HTTP 200',
+    );
+    expect(result.errors).toContain(
+      'public_custom_ui_legacy_inert failed: expected HTTP 404 with Cache-Control no-store, got HTTP 500',
+    );
+  });
+
+  it('requires an independent no-store directive on both Custom UI negative probes', async () => {
+    const { root, artifactDir } = createFixture();
+
+    const result = await verifySupacloudInstalledApp({
+      root,
+      artifactDir,
+      baseUrl: 'https://auth.example.test',
+      runtimeUrl: 'https://project.example.test',
+      fetchImpl: mockFetch({}, undefined, [], {
+        [legacyCustomUiProbePath]: { 'cache-control': 'private, no-store-if-error' },
+        [publicCustomUiProbePath]: {},
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'custom_ui_legacy_inert failed: expected HTTP 404 with Cache-Control no-store, got HTTP 404 Cache-Control private, no-store-if-error',
+    );
+    expect(result.errors).toContain(
+      'public_custom_ui_legacy_inert failed: expected HTTP 404 with Cache-Control no-store, got HTTP 404 Cache-Control <empty>',
+    );
   });
 
   it('rejects a missing Admin Console redirect target or static asset', async () => {
