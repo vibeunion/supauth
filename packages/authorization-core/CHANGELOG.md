@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/zuohuadong/supauth/compare/authorization-core-v0.2.1...authorization-core-v0.3.0) (2026-08-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **authorization:** replace snapshot and package-owned role adapter contracts with application-owned current effective grants and an executed conformance harness.
+
+### Features
+
+* **authorization:** consume application effective grants ([8e4a32e](https://github.com/zuohuadong/supauth/commit/8e4a32e80736f0cb94b43d22ef00d962ae8f1efd))
+
 ## [0.2.1](https://github.com/zuohuadong/supauth/compare/authorization-core-v0.2.0...authorization-core-v0.2.1) (2026-08-04)
 
 
