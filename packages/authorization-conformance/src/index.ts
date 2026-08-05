@@ -49,7 +49,9 @@ export interface ConformanceReport {
 
 export interface SqlConformanceInput {
   readonly installSql: string;
+  readonly projectionPreflightSql: string;
   readonly rlsSql: string;
+  readonly legacyCleanupSql?: string;
 }
 
 const UNAVAILABLE_SCENARIOS = new Set<AuthorizationDenialScenario>(['adapter_unavailable']);
@@ -260,18 +262,40 @@ function policyViolations(rlsSql: string): ConformanceViolation[] {
   return violations;
 }
 
+const TOP_LEVEL_DO_PATTERN = /(?:^|;)\s*DO\b/i;
+const SQL_MUTATION_PATTERN = /\b(?:INSERT|UPDATE|DELETE|MERGE|UPSERT|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|COMMENT|REINDEX|VACUUM|ANALYZE|REFRESH|CALL|DO|COPY|SET|RESET|LOCK)\b/i;
+const PROJECTION_PREFLIGHT_REQUIREMENTS: readonly PatternRule[] = [
+  { pattern: /pg_catalog\.to_regclass\(/i,
+    rule: 'catalog_resolution', message: 'Projection preflight must resolve the view through pg_catalog' },
+  { pattern: /relation_oid\s+IS\s+NULL/i,
+    rule: 'projection_presence', message: 'Projection preflight must report a missing view' },
+  { pattern: /relkind[\s\S]{0,200}IS DISTINCT FROM\s*''/i,
+    rule: 'ordinary_projection', message: 'Projection preflight must require an ordinary view' },
+  { pattern: /ARRAY\s*\(\s*SELECT[\s\S]*attname[\s\S]*pg_attribute/i,
+    rule: 'projection_columns', message: 'Projection preflight must validate the exact column contract' },
+  { pattern: /atttypid[\s\S]{0,100}pg_catalog\.regtype/i,
+    rule: 'projection_column_types', message: 'Projection preflight must require TEXT columns' },
+  { pattern: /has_table_privilege\([\s\S]*has_table_privilege\(/i,
+    rule: 'projection_privileges', message: 'Projection preflight must check both API roles for direct access' },
+  { pattern: /violations\s*\(\s*rule\s*,\s*message\s*\)[\s\S]*SELECT\s+rule\s*,\s*message\s+FROM\s+violations/i,
+    rule: 'projection_preflight_result', message: 'Projection preflight must return machine-readable rule and message rows' },
+];
+const PROJECTION_PREFLIGHT_REJECTIONS: readonly PatternRule[] = [
+  { pattern: SQL_MUTATION_PATTERN,
+    rule: 'projection_preflight_read_only', message: 'Projection preflight must be one read-only query' },
+  { pattern: /;\s*\S/i,
+    rule: 'projection_preflight_statement', message: 'Projection preflight must contain exactly one statement' },
+];
+
+function projectionPreflightViolations(preflightSql: string): Array<ConformanceViolation | undefined> {
+  return [
+    ...PROJECTION_PREFLIGHT_REQUIREMENTS.map(requirement => requirePattern(preflightSql, requirement)),
+    ...PROJECTION_PREFLIGHT_REJECTIONS.map(rejection => rejectPattern(preflightSql, rejection)),
+  ];
+}
+
 function installationViolations(installSql: string): Array<ConformanceViolation | undefined> {
   return [
-    requirePattern(installSql, { pattern: /effective_permission_grants/i,
-      rule: 'effective_grant_projection', message: 'Authorization SQL must consume effective_permission_grants' }),
-    requirePattern(installSql, { pattern: /pg_catalog\.to_regclass\(/i,
-      rule: 'catalog_resolution', message: 'Authorization SQL must resolve the projection through pg_catalog' }),
-    requirePattern(installSql, { pattern: /relkind[\s\S]{0,200}IS DISTINCT FROM\s*''/i,
-      rule: 'ordinary_projection', message: 'Authorization SQL must require an ordinary projection view' }),
-    requirePattern(installSql, { pattern: /ARRAY\s*\(\s*SELECT[\s\S]*attname[\s\S]*pg_attribute/i,
-      rule: 'projection_columns', message: 'Authorization SQL must validate the projection columns' }),
-    requirePattern(installSql, { pattern: /has_table_privilege\(/i,
-      rule: 'projection_privileges', message: 'Authorization SQL must reject direct API-role projection access' }),
     requirePattern(installSql, { pattern: /permission_grant\.application_id\s*=\s*''/i,
       rule: 'fixed_application', message: 'Authorization helper must bind a fixed application ID' }),
     requirePattern(installSql, { pattern: /authorization_allowed_scope_ids\(\s*requested_permission TEXT,\s*requested_domain_type TEXT\s*\)/i,
@@ -292,6 +316,10 @@ function installationViolations(installSql: string): Array<ConformanceViolation 
       rule: 'package_owned_policy', message: 'Authorization SQL must not create package-owned permission facts' }),
     rejectPattern(installSql, { pattern: /active_memberships|active_role_assignments|requested_application_id/i,
       rule: 'legacy_adapter', message: 'Authorization SQL must not use the legacy role adapter or caller application parameter' }),
+    rejectPattern(installSql, { pattern: TOP_LEVEL_DO_PATTERN,
+      rule: 'install_static_sql', message: 'Authorization installation must not contain top-level procedural SQL' }),
+    rejectPattern(installSql, { pattern: /pg_catalog\.to_regclass\(|pg_catalog\.pg_attribute|has_table_privilege\(/i,
+      rule: 'projection_preflight_separation', message: 'Projection catalog checks must remain separate from installation SQL' }),
   ];
 }
 
@@ -307,14 +335,36 @@ function rlsViolations(rlsSql: string): Array<ConformanceViolation | undefined> 
       rule: 'row_scope_argument', message: 'RLS must not pass a row column to the allowed-scope helper' }),
     rejectPattern(rlsSql, { pattern: /"[a-z_][a-z0-9_]*"::text\s*=\s*ANY|array_agg\(/i,
       rule: 'row_cast_scope_array', message: 'RLS must not cast the row column or use a per-row ANY scope array' }),
+    rejectPattern(rlsSql, { pattern: TOP_LEVEL_DO_PATTERN,
+      rule: 'rls_static_sql', message: 'RLS installation must not contain top-level procedural SQL' }),
     ...policyViolations(rlsSql),
+  ];
+}
+
+function legacyCleanupViolations(cleanupSql: string): Array<ConformanceViolation | undefined> {
+  return [
+    requirePattern(cleanupSql, { pattern: /^\s*DROP\s+FUNCTION\s+IF\s+EXISTS\s+(?:"[a-z_][a-z0-9_]*"\.)?authorization_allowed_scope_ids\s*\(\s*TEXT\s*,\s*TEXT\s*,\s*TEXT\s*\)\s*;\s*$/i,
+      rule: 'legacy_cleanup_target', message: 'Legacy cleanup must drop only the three-argument scope helper' }),
+    rejectPattern(cleanupSql, { pattern: TOP_LEVEL_DO_PATTERN,
+      rule: 'legacy_cleanup_static_sql', message: 'Legacy cleanup must not contain top-level procedural SQL' }),
+    rejectPattern(cleanupSql, { pattern: /\bCASCADE\b/i,
+      rule: 'legacy_cleanup_cascade', message: 'Legacy cleanup must fail closed when policies still depend on the helper' }),
   ];
 }
 
 export function checkAuthorizationSql(input: SqlConformanceInput): ConformanceReport {
   const installSql = executableSql(input.installSql);
+  const projectionPreflightSql = executableSql(input.projectionPreflightSql);
   const rlsSql = executableSql(input.rlsSql);
-  const violations = [...installationViolations(installSql), ...rlsViolations(rlsSql)]
+  const cleanupViolations = input.legacyCleanupSql === undefined
+    ? []
+    : legacyCleanupViolations(executableSql(input.legacyCleanupSql));
+  const violations = [
+    ...projectionPreflightViolations(projectionPreflightSql),
+    ...installationViolations(installSql),
+    ...rlsViolations(rlsSql),
+    ...cleanupViolations,
+  ]
     .filter((violation): violation is ConformanceViolation => violation !== undefined);
   return report(violations);
 }
