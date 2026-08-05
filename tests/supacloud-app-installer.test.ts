@@ -959,6 +959,7 @@ describe('SupaCloud app installer', () => {
       ]));
       expect(routeIds).toEqual([
         'supauth-function-hosted',
+        'supauth-function-custom-ui-fallback',
         'supauth-function-logout',
         'supauth-function-admin-root',
         'supauth-api',
@@ -966,7 +967,7 @@ describe('SupaCloud app installer', () => {
         expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
         expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
       ]);
-      expect(new Set(routeIds.slice(4)).size).toBe(3);
+      expect(new Set(routeIds.slice(5)).size).toBe(3);
     } finally {
       if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = previousDatabaseUrl;
@@ -1143,15 +1144,16 @@ describe('SupaCloud app installer', () => {
 
     const gatewayCalls = calls.filter((call) => call.path === '/v1/projects/project_123/gateway/routes');
     const hostedGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-hosted');
+    const customUiFallbackCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-custom-ui-fallback');
     const logoutGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-logout');
     const adminRootGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-admin-root');
     const proxyGatewayCalls = gatewayCalls.filter((call) => call.body?.upstream);
     const redirectGatewayCalls = gatewayCalls.filter((call) => call.body?.protocol === 'http');
     expect(result.ok).toBe(true);
     expect(result.steps).toContainEqual(expect.objectContaining({ name: 'gateway-routes', status: 'done' }));
-    expect(gatewayCalls).toHaveLength(5);
+    expect(gatewayCalls).toHaveLength(6);
     expect(gatewayCalls.every((call) => call.body.path.length <= 20)).toBe(true);
-    expect(proxyGatewayCalls).toHaveLength(3);
+    expect(proxyGatewayCalls).toHaveLength(4);
     expect(proxyGatewayCalls.every((call) => call.body.upstream === '127.0.0.1:9090')).toBe(true);
     expect(proxyGatewayCalls.every((call) => call.body.headers?.Host === 'auth.example.test')).toBe(true);
     expect(redirectGatewayCalls.map((call) => call.body.hosts[0])).toEqual([
@@ -1169,7 +1171,19 @@ describe('SupaCloud app installer', () => {
       cors: expect.arrayContaining(['https://auth.example.test']),
     });
     expect(hostedGatewayCall?.body.path).toEqual(expect.arrayContaining(['/api/*', '/oauth/*', '/login.html', '/authorize.html', '/hosted-auth.js', '/account', '/account.html', '/claim.html', '/admin/*', '/']));
+    expect(hostedGatewayCall?.body.path).toContain('/v1/public/*');
     expect(hostedGatewayCall?.body.path).not.toContain('/admin');
+    expect(customUiFallbackCall?.body).toMatchObject({
+      id: 'supauth-function-custom-ui-fallback',
+      hosts: ['auth.example.test'],
+      path: ['/custom-ui/*'],
+      upstream: '127.0.0.1:9090',
+      headers: { Host: 'auth.example.test' },
+      rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
+      priority: 100,
+      enabled: true,
+      cors: expect.arrayContaining(['https://auth.example.test']),
+    });
     expect(logoutGatewayCall?.body).toMatchObject({
       id: 'supauth-function-logout',
       hosts: ['auth.example.test'],
@@ -1229,11 +1243,18 @@ describe('SupaCloud app installer', () => {
     ];
     expect(result.ok).toBe(true);
     expect(seenSecrets).toContainEqual({ name: 'CORS_ORIGINS', value: cors.join(',') });
-    expect(routeBodies).toHaveLength(7);
+    expect(routeBodies).toHaveLength(8);
     expect(routeBodies.every((route) => route.path.length <= 20)).toBe(true);
     expect(routeBodies.find((route) => route.id === 'supauth-function-hosted')).toMatchObject({
       id: 'supauth-function-hosted',
       hosts: ['auth.example.test'],
+      cors,
+    });
+    expect(routeBodies.find((route) => route.id === 'supauth-function-custom-ui-fallback')).toMatchObject({
+      id: 'supauth-function-custom-ui-fallback',
+      hosts: ['auth.example.test'],
+      path: ['/custom-ui/*'],
+      rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       cors,
     });
     expect(routeBodies.find((route) => route.id === 'supauth-function-logout')).toMatchObject({
@@ -1266,7 +1287,7 @@ describe('SupaCloud app installer', () => {
     const proxyRoutes = routeBodies.filter((route) => route.upstream);
     const redirectRoutes = routeBodies.filter((route) => route.protocol === 'http');
     expect(apiRoute.path).not.toContain('/auth/v1/*');
-    expect(proxyRoutes).toHaveLength(4);
+    expect(proxyRoutes).toHaveLength(5);
     expect(proxyRoutes.every((route) => route.upstream === '127.0.0.1:9090')).toBe(true);
     expect(proxyRoutes.every((route) => route.headers?.Host === 'auth.example.test')).toBe(true);
     expect(redirectRoutes.map((route) => route.hosts[0])).toEqual([
@@ -1359,8 +1380,8 @@ describe('SupaCloud app installer', () => {
     const proxyRoutes = routeBodies.filter((route) => route.upstream);
     const redirectRoutes = routeBodies.filter((route) => route.protocol === 'http');
     expect(result.ok).toBe(true);
-    expect(routeBodies).toHaveLength(5);
-    expect(proxyRoutes).toHaveLength(3);
+    expect(routeBodies).toHaveLength(6);
+    expect(proxyRoutes).toHaveLength(4);
     expect(proxyRoutes.every((route) => route.upstream === '127.0.0.1:9000')).toBe(true);
     expect(proxyRoutes.every((route) => !('headers' in route))).toBe(true);
     expect(redirectRoutes).toHaveLength(2);
@@ -1393,8 +1414,8 @@ describe('SupaCloud app installer', () => {
     const proxyRoutes = routeBodies.filter((route) => route.upstream);
     const redirectRoutes = routeBodies.filter((route) => route.protocol === 'http');
     expect(result.ok).toBe(true);
-    expect(routeBodies).toHaveLength(5);
-    expect(proxyRoutes).toHaveLength(3);
+    expect(routeBodies).toHaveLength(6);
+    expect(proxyRoutes).toHaveLength(4);
     expect(proxyRoutes.every((route) => route.upstream === '127.0.0.1:9005')).toBe(true);
     expect(proxyRoutes.every((route) => !('headers' in route))).toBe(true);
     expect(redirectRoutes).toHaveLength(2);
