@@ -91,7 +91,7 @@ interface AdminLoginMaterial {
 }
 
 const ADMIN_SSO_STORAGE_KEY = 'supaoauth_admin_sso';
-// @svadmin/sso@0.11.3 的 callback 读取这两个 storageKey 派生键；真实 callback 回归用于锁定升级兼容性。
+// SSO callback 读取这两个 storageKey 派生键；真实 callback 回归用于锁定升级兼容性。
 const ADMIN_SSO_LOGIN_KEYS = {
   verifier: `${ADMIN_SSO_STORAGE_KEY}_pkce_verifier`,
   state: `${ADMIN_SSO_STORAGE_KEY}_state`,

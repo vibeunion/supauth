@@ -63,6 +63,7 @@
     external_anonymous_users_enabled: false,
     brute_force_protection: true,
     max_login_attempts: 10,
+    lockout_duration_sec: 900,
   });
   let loading = $state(true);
   let saving = $state(false);
@@ -108,6 +109,10 @@
         securityConfig.maxLoginAttempts ??
         securityConfig.max_login_attempts ??
         10,
+      lockout_duration_sec:
+        securityConfig.lockoutDurationSec ??
+        securityConfig.lockout_duration_sec ??
+        900,
     };
   }
 
@@ -354,8 +359,9 @@
           generalForm.external_anonymous_users_enabled,
       },
       securityConfig: {
-        brute_force_protection: generalForm.brute_force_protection,
-        max_login_attempts: Number(generalForm.max_login_attempts),
+        bruteForceProtection: generalForm.brute_force_protection,
+        maxLoginAttempts: Number(generalForm.max_login_attempts),
+        lockoutDurationSec: Number(generalForm.lockout_duration_sec),
       },
     };
     return saveCommand({
@@ -604,8 +610,11 @@
     <div class="space-y-5">
       <section class="console-card p-6">
         <h3 class="text-lg font-semibold text-surface-900">
-          {t("Account Protection")}
+          {t("security.gotrueRuntimeTitle")}
         </h3>
+        <p class="mt-1 text-sm leading-6 text-surface-500">
+          {t("security.gotrueRuntimeDescription")}
+        </p>
         <div class="mt-4 grid gap-3 md:grid-cols-2">
           <label
             class="flex items-center justify-between rounded-lg border border-surface-200 p-4"
@@ -623,27 +632,7 @@
               type="checkbox"
               bind:checked={generalForm.external_anonymous_users_enabled}
             /></label
-          ><label
-            class="flex items-center justify-between rounded-lg border border-surface-200 p-4"
-            ><span class="font-medium text-surface-900"
-              >{t("Brute Force Protection")}</span
-            ><input
-              type="checkbox"
-              bind:checked={generalForm.brute_force_protection}
-            /></label
           >
-          <div>
-            <label
-              for="max-attempts"
-              class="mb-1 block text-sm font-medium text-surface-700"
-              >{t("Max Login Attempts")}</label
-            ><input
-              id="max-attempts"
-              type="number"
-              min="1"
-              bind:value={generalForm.max_login_attempts}
-            />
-          </div>
           <div>
             <label
               for="jwt-expiry"
@@ -657,13 +646,61 @@
             />
           </div>
         </div>
-        <button
-          disabled={saving}
-          onclick={saveGeneral}
-          class="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >{saving ? t("Saving...") : t("Save")}</button
-        >
       </section>
+      <section class="console-card p-6">
+        <h3 class="text-lg font-semibold text-surface-900">
+          {t("security.adminLoginTitle")}
+        </h3>
+        <p class="mt-1 text-sm leading-6 text-surface-500">
+          {t("security.adminLoginDescription")}
+        </p>
+        <div class="mt-4 grid gap-3 md:grid-cols-2">
+          <label
+            class="flex items-center justify-between rounded-lg border border-surface-200 p-4 md:col-span-2"
+            ><span class="font-medium text-surface-900"
+              >{t("security.adminBruteForceProtection")}</span
+            ><input
+              type="checkbox"
+              bind:checked={generalForm.brute_force_protection}
+            /></label
+          >
+          <div>
+            <label
+              for="max-attempts"
+              class="mb-1 block text-sm font-medium text-surface-700"
+              >{t("security.adminMaxLoginAttempts")}</label
+            ><input
+              id="max-attempts"
+              type="number"
+              min="1"
+              max="10000"
+              bind:value={generalForm.max_login_attempts}
+            />
+          </div>
+          <div>
+            <label
+              for="lockout-duration"
+              class="mb-1 block text-sm font-medium text-surface-700"
+              >{t("security.adminLockoutDuration")}</label
+            ><input
+              id="lockout-duration"
+              type="number"
+              min="1"
+              max="2592000"
+              bind:value={generalForm.lockout_duration_sec}
+            />
+          </div>
+        </div>
+        <p class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+          {t("security.endUserLockoutBoundary")}
+        </p>
+      </section>
+      <button
+        disabled={saving}
+        onclick={saveGeneral}
+        class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >{saving ? t("Saving...") : t("Save")}</button
+      >
       <section class="rounded-xl border border-blue-200 bg-blue-50 p-5">
         <h3 class="font-semibold text-blue-950">
           {t("tenant.runtimeConsistency")}

@@ -74,6 +74,40 @@ describe('hostedPageRoutes', () => {
     ]);
   });
 
+  test('Admin Console rejects traversal and absolute paths without breaking SPA fallbacks', async () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), 'supauth-admin-confinement-'));
+    const buildDir = join(workspaceDir, 'build');
+    const escapedFile = join(workspaceDir, 'package.json');
+    let repeatedlyEncodedTraversal = '../package.json';
+    for (let pass = 0; pass < 5; pass += 1) {
+      repeatedlyEncodedTraversal = encodeURIComponent(repeatedlyEncodedTraversal);
+    }
+    mkdirSync(buildDir, { recursive: true });
+    writeFileSync(join(buildDir, 'index.html'), '<main>Confined Admin</main>');
+    writeFileSync(escapedFile, '{"secret":"outside-build"}');
+
+    try {
+      for (const sub of [
+        '../package.json',
+        escapedFile,
+        '%2e%2e%2fpackage.json',
+        '%252e%252e%252fpackage.json',
+        repeatedlyEncodedTraversal,
+        '%zz',
+      ]) {
+        const candidates = adminConsoleSpaCandidates([buildDir], sub);
+        expect(candidates).toEqual([]);
+        const response = serveAdminConsolePage([buildDir], sub);
+        expect(response.status).toBe(404);
+        expect(await response.text()).not.toContain('outside-build');
+      }
+      expect(serveAdminConsolePage([buildDir], 'settings').status).toBe(200);
+      expect(serveAdminConsolePage([buildDir], '_app/%2e%2e/%2e%2e/package.json').status).toBe(404);
+    } finally {
+      rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   test('hosted page probes only continue after a confined optional path', async () => {
     const buildDir = mkdtempSync(join(tmpdir(), 'supauth-hosted-probe-'));
     const availablePath = join(buildDir, 'authorize.html');
@@ -95,6 +129,36 @@ describe('hostedPageRoutes', () => {
         .toBe('<main>Embedded fallback</main>');
       await expect(readFirstAvailableText([deniedPath])).resolves.toBeNull();
       await expect(readFirstAvailableText([failedPath])).rejects.toThrow('hosted page read failed');
+    } finally {
+      bunApi.file = originalBunFile;
+      rmSync(buildDir, { recursive: true, force: true });
+    }
+  });
+
+  test('static probes skip only confined candidates before serving an available asset', async () => {
+    const buildDir = mkdtempSync(join(tmpdir(), 'supauth-static-probe-'));
+    const deniedDir = '/opt/supacloud/admin-console/restricted';
+    const failedDir = '/opt/supacloud/admin-console/failed';
+    const assetPath = join(buildDir, '_app', 'app.js');
+    const bunApi = Bun as unknown as Record<string, unknown>;
+    const originalBunFile = Bun.file;
+    mkdirSync(join(buildDir, '_app'), { recursive: true });
+    writeFileSync(assetPath, 'export const ready = true;');
+    bunApi.file = (...args: unknown[]) => {
+      const candidate = String(args[0]);
+      if (candidate.startsWith(deniedDir)) {
+        throw new Error(`Access denied: path "${candidate}" is outside the project directory`);
+      }
+      if (candidate.startsWith(failedDir)) throw new Error('static asset read failed');
+      return Reflect.apply(originalBunFile, Bun, args);
+    };
+
+    try {
+      const response = serveAdminConsolePage([deniedDir, buildDir], '_app/app.js');
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('ready = true');
+      expect(() => serveAdminConsolePage([failedDir, buildDir], '_app/app.js'))
+        .toThrow('static asset read failed');
     } finally {
       bunApi.file = originalBunFile;
       rmSync(buildDir, { recursive: true, force: true });

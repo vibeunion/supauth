@@ -328,6 +328,11 @@ function isDynamicImportLiteral(source: string, start: number, end: number) {
 
 type ModuleImport = ReturnType<typeof parseModuleImports>[0][number];
 
+interface ImportMetaRequireUsage {
+  specifiers: string[];
+  hasComputedCall: boolean;
+}
+
 function parseFunctionBundleModuleImports(result: VerificationResult, functionSource: string): ModuleImport[] | null {
   try {
     initModuleLexerSync();
@@ -338,6 +343,49 @@ function parseFunctionBundleModuleImports(result: VerificationResult, functionSo
   }
 }
 
+function isImportMetaRequire(functionSource: string, imported: ModuleImport) {
+  return imported.d === -2
+    && imported.t === 3
+    && functionSource.slice(imported.s, imported.e) === 'import.meta'
+    && /^\s*\.\s*require\b/.test(functionSource.slice(imported.e));
+}
+
+function isImportMetaMetadataAccess(functionSource: string, imported: ModuleImport) {
+  return imported.d === -2
+    && imported.t === 3
+    && functionSource.slice(imported.s, imported.e) === 'import.meta'
+    && /^\s*\.\s*(?:url|dir)\b/.test(functionSource.slice(imported.e));
+}
+
+function importMetaRequireAlias(functionSource: string, imported: ModuleImport) {
+  const statementStart = Math.max(
+    functionSource.lastIndexOf(';', imported.s),
+    functionSource.lastIndexOf('{', imported.s),
+    functionSource.lastIndexOf('}', imported.s),
+  ) + 1;
+  return functionSource.slice(statementStart, imported.s)
+    .match(/(?:^|\s)(?:var|let|const)\s+([\w$]+)\s*=\s*$/)?.[1] ?? null;
+}
+
+function literalRuntimeSpecifier(argument: string) {
+  return argument.trim().match(/^(["'])([A-Za-z0-9_:/.-]+)\1$/)?.[2] ?? null;
+}
+
+function importMetaRequireUsage(functionSource: string, imported: ModuleImport): ImportMetaRequireUsage {
+  const directCall = functionSource.slice(imported.e).match(/^\s*\.\s*require\s*\(([^)]*)\)/);
+  if (directCall) {
+    const specifier = literalRuntimeSpecifier(directCall[1]);
+    return { specifiers: specifier ? [specifier] : [], hasComputedCall: !specifier };
+  }
+
+  const alias = importMetaRequireAlias(functionSource, imported);
+  if (!alias) return { specifiers: [], hasComputedCall: true };
+  const escapedAlias = alias.replaceAll('$', '\\$');
+  const calls = [...functionSource.matchAll(new RegExp(`(?:^|[^\\w$])${escapedAlias}\\s*\\(([^)]*)\\)`, 'g'))];
+  const specifiers = calls.map((call) => literalRuntimeSpecifier(call[1])).filter((value): value is string => Boolean(value));
+  return { specifiers, hasComputedCall: calls.length === 0 || specifiers.length !== calls.length };
+}
+
 function runtimeImportAllowed(path: string) {
   if (EDGE_RUNTIME_DISABLED_IMPORTS.has(path)) return false;
   if (path === 'bun') return true;
@@ -345,15 +393,26 @@ function runtimeImportAllowed(path: string) {
   return EDGE_RUNTIME_ALLOWED_NODE_BUILTINS.has(runtimeModule);
 }
 
-function assertNoImportMetaLoaders(
+function assertSupportedImportMetaRequires(
   result: VerificationResult,
   functionSource: string,
   moduleImports: ModuleImport[],
 ) {
-  for (const imported of moduleImports.filter((entry) => entry.d === -2 && entry.t === 3)) {
-    if (!/^\s*\.\s*(?:url|dir)\b/.test(functionSource.slice(imported.e))) {
+  const importMetaEntries = moduleImports.filter((entry) => entry.d === -2 && entry.t === 3);
+  for (const imported of importMetaEntries) {
+    if (isImportMetaMetadataAccess(functionSource, imported)) continue;
+    if (!isImportMetaRequire(functionSource, imported)) {
       result.errors.push('Function bundle contains import.meta loader access rejected by the multi-tenant Edge Runtime');
-      return;
+      continue;
+    }
+    const usage = importMetaRequireUsage(functionSource, imported);
+    if (usage.hasComputedCall) {
+      result.errors.push('Function bundle contains computed import.meta.require calls that the artifact verifier cannot prove safe');
+    }
+    for (const specifier of usage.specifiers) {
+      if (!runtimeImportAllowed(specifier)) {
+        result.errors.push(`Function bundle loads an Edge Runtime-disallowed builtin via import.meta.require: ${specifier}`);
+      }
     }
   }
 }
@@ -392,7 +451,7 @@ function assertNoUnsupportedRuntimeImports(result: VerificationResult, functionS
 function assertEdgeRuntimeCompatibleFunctionBundle(result: VerificationResult, functionSource: string) {
   const moduleImports = parseFunctionBundleModuleImports(result, functionSource);
   if (moduleImports) {
-    assertNoImportMetaLoaders(result, functionSource, moduleImports);
+    assertSupportedImportMetaRequires(result, functionSource, moduleImports);
     assertNoComputedDynamicImports(result, functionSource, moduleImports);
   }
   assertNoUnsupportedRuntimeImports(result, functionSource);

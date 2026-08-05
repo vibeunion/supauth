@@ -76,7 +76,7 @@ const en = {
   "nav.audit": "Audit Logs",
   "nav.signInExperience": "Sign-in experience",
   "nav.mfa": "Multi-factor authentication",
-  "nav.customizeJwt": "Customize JWT",
+  "nav.customizeJwt": "JWT claims & Auth Hook",
   "nav.tenantSettings": "Tenant settings",
   "detail.settings": "Settings",
   "detail.roles": "Roles",
@@ -96,6 +96,17 @@ const en = {
   "detail.password": "Password policy",
   "detail.captcha": "CAPTCHA",
   "detail.blocklist": "Blocklist",
+  "security.gotrueRuntimeTitle": "GoTrue account and token settings",
+  "security.gotrueRuntimeDescription":
+    "These settings are read back from the active GoTrue runtime and affect Supabase Auth behavior.",
+  "security.adminLoginTitle": "Development admin-token login protection",
+  "security.adminLoginDescription":
+    "These controls apply only to the legacy /v1/auth/login ADMIN_TOKEN path by source IP. They do not protect GoTrue SSO, and token login is disabled in production.",
+  "security.adminBruteForceProtection": "Protect admin-token login",
+  "security.adminMaxLoginAttempts": "Failed attempts per source IP",
+  "security.adminLockoutDuration": "IP lockout duration (seconds)",
+  "security.endUserLockoutBoundary":
+    "End-user identifier lockout is unavailable until GoTrue/SupaCloud exposes an authoritative policy, status, and unlock API. SupaOAuth does not simulate it locally.",
   "dashboard.title": "Dashboard",
   "dashboard.onboarding": "Onboarding Checklist",
   "dashboard.createApplication": "Create application",
@@ -119,6 +130,24 @@ const en = {
   "dashboard.supabaseCompatibility": "Supabase Compatibility",
   "dashboard.checksPassed": "{passed}/{total} checks passed",
   "dashboard.supportedCapabilities": "Supported Capabilities",
+  "dashboard.identityCapabilities": "Identity runtime capabilities",
+  "dashboard.identityCapabilitiesDescription":
+    "Availability is negotiated from GoTrue and SupaCloud. Missing upstream contracts stay fail-closed and are never represented as empty data.",
+  "capability.available": "Available",
+  "capability.unavailable": "Unavailable",
+  "capability.source": "Authority",
+  "capability.version": "Version",
+  "capability.reason": "Reason",
+  "capability.lastVerified": "Last verified",
+  "capability.ready": "ready",
+  "capability.name.gotrue_admin_user_sessions": "Administrator session management",
+  "capability.name.gotrue_admin_identity_unlink": "Administrator identity unlink",
+  "capability.name.gotrue_admin_oauth_grants": "Administrator OAuth grant revoke",
+  "capability.name.gotrue_client_credentials": "OAuth client credentials",
+  "capability.name.gotrue_id_token_custom_claims": "ID Token custom claims",
+  "capability.name.gotrue_oauth_client_ownership": "First/third-party application ownership",
+  "capability.name.supacloud_identity_analytics_v1": "Identity analytics aggregation",
+  "capability.name.supacloud_webhook_metrics_v1": "Webhook runtime metrics",
   "getStarted.eyebrow": "Workspace setup",
   "getStarted.title": "Get started",
   "getStarted.description":
@@ -128,15 +157,40 @@ const en = {
   "getStarted.supabaseTitle": "Supabase-compatible by design",
   "getStarted.supabaseDescription":
     "GoTrue remains the owner of auth.users, sessions, refresh tokens, MFA, JWT signing, and OAuth/OIDC runtime. These console steps configure the SupaOAuth control plane through the authenticated /api/v1 facade.",
+  "getStarted.quickstartTitle": "Framework quickstarts",
+  "getStarted.quickstartDescription":
+    "Start with the standard Supabase client. SupAuth preserves the same password, OAuth, PKCE, session, refresh, and logout contracts.",
+  "getStarted.openApi": "Open management OpenAPI",
+  "getStarted.quickstart.supabaseJs": "Supabase JavaScript",
+  "getStarted.quickstart.svelteKit": "SvelteKit",
+  "getStarted.quickstart.react": "React",
+  "getStarted.quickstart.nextJs": "Next.js",
+  "getStarted.quickstart.serverApi": "Server API token verification",
+  "getStarted.quickstartBoundary":
+    "Use only a publishable/anon key in browser code. Service-role keys and SupaCloud management credentials stay server-side and must never be placed in this console or a client bundle.",
   "signIn.tab.branding": "Branding",
   "signIn.tab.methods": "Sign-up and sign-in",
   "signIn.tab.profile": "Collect user profile",
   "signIn.tab.accountCenter": "Account center",
   "signIn.tab.content": "Content",
+  "signIn.tab.customUi": "Custom UI",
   "signIn.brandingTitle": "Branding",
   "signIn.brandingDescription":
     "Configure the tenant identity shown by hosted sign-in and account pages.",
   "signIn.systemName": "System name",
+  "signIn.previewTitle": "Live sign-in preview",
+  "signIn.previewDescription":
+    "Preview unsaved branding locally in desktop, mobile, light, and dark modes. No authentication request is sent.",
+  "signIn.previewViewport": "Preview viewport",
+  "signIn.previewDesktop": "Desktop",
+  "signIn.previewMobile": "Mobile",
+  "signIn.previewTheme": "Preview theme",
+  "signIn.previewLight": "Light",
+  "signIn.previewDark": "Dark",
+  "signIn.previewSignInHint": "Sign in to continue",
+  "signIn.previewContinue": "Continue",
+  "signIn.previewBackgroundConfigured":
+    "A background URL is configured. The local preview does not fetch it before save.",
   "signIn.contentTitle": "Content",
   "signIn.contentDescription":
     "Manage hosted page copy, structured content, illustration, and tenant CSS.",
@@ -148,6 +202,52 @@ const en = {
     "This writes the SupaOAuth experience and the GoTrue sign-up configuration together.",
   "signIn.supabaseMethodBoundary":
     "Sign-in method metadata does not replace the Supabase Auth flows. Password, OTP, magic-link, sessions, and refresh behavior remain owned by GoTrue.",
+  "customUi.title": "Custom UI",
+  "customUi.description":
+    "Arbitrary HTML and JavaScript uploads are disabled until Custom UI has a dedicated isolated origin. Existing stored packages remain inert and can be deleted.",
+  "customUi.delete": "Delete stored Custom UI",
+  "customUi.deleteConfirm": "Delete the stored Custom UI package and its assets?",
+  "customUi.deleted": "Custom UI was removed and the default hosted UI is active.",
+  "customUi.deletionPending":
+    "Custom UI is disabled. Audit delivery or stored-asset cleanup is still pending.",
+  "customUi.authoritativeReadBackConfirmed":
+    "The authoritative status confirms that the previous request committed.",
+  "customUi.outcomeUnknownTitle": "Mutation outcome is not yet verified",
+  "customUi.outcomeUnknownDescription":
+    "Delete is blocked until the authoritative lifecycle status can be read again. Do not retry blindly.",
+  "customUi.reconcile": "Refresh authoritative status",
+  "customUi.acknowledge": "Manually acknowledge and unlock",
+  "customUi.acknowledgeConfirm":
+    "I have manually verified the default hosted UI and the stored Custom UI lifecycle state.",
+  "customUi.allowRetryConfirm":
+    "Clear the durable safety lock and allow this high-impact action to run again?",
+  "customUi.acknowledged": "The durable safety lock was manually cleared.",
+  "customUi.storageUnavailableTitle": "Mutation safety storage is unavailable",
+  "customUi.storageUnavailableDescription":
+    "Delete remains blocked because this browser cannot durably record an in-flight operation.",
+  "customUi.retryStorage": "Retry safety storage",
+  "customUi.lifecycleTitle": "Lifecycle status",
+  "customUi.status.blocked_unsafe_origin":
+    "Stored Custom UI assets are blocked because the configured host is not isolated from the Admin Console.",
+  "customUi.status.disabled": "The default SupAuth hosted UI is active.",
+  "customUi.status.cleanup_pending":
+    "Custom UI is disabled or old assets are awaiting cleanup. Refresh after maintenance completes.",
+  "customUi.statusLabel.blocked_unsafe_origin": "Blocked: unsafe origin",
+  "customUi.statusLabel.disabled": "Default UI",
+  "customUi.statusLabel.cleanup_pending": "Cleanup pending",
+  "customUi.uploadedAt": "Uploaded at",
+  "customUi.fileCount": "Files",
+  "customUi.auditState": "Audit",
+  "customUi.cleanupState": "Cleanup",
+  "customUi.pending": "Pending",
+  "customUi.settled": "Settled",
+  "customUi.filesTitle": "Verified file manifest",
+  "customUi.filePath": "Path",
+  "customUi.fileType": "Content type",
+  "customUi.fileSize": "Size",
+  "customUi.securityTitle": "Security boundary",
+  "customUi.securityDescription":
+    "The authentication origin always serves the built-in SupAuth pages and never executes or exposes stored Custom UI HTML or JavaScript. GoTrue and Supabase Auth flows are unchanged.",
   "accountCenter.sessionsUnavailableTitle": "Per-session management unavailable",
   "accountCenter.sessionsUnavailableDescription":
     "GoTrue supports current-device, other-device, and all-device sign-out. This console does not provide a per-session list, revoke-by-ID action, or Sessions setting to save.",
@@ -207,9 +307,12 @@ const en = {
   "tenant.oidcSupabaseBoundary":
     "These values are read from the active GoTrue runtime. SupaOAuth does not issue a second token, replace JWKS, or change /auth/v1 and /.well-known compatibility routes.",
   "jwt.eyebrow": "Developer",
-  "jwt.title": "Customize JWT",
+  "jwt.title": "JWT claims & Auth Hook",
   "jwt.description":
     "Use the Supabase Custom Access Token Hook to add a bounded app_metadata.supaoauth projection while preserving the required Supabase claims.",
+  "jwt.readOnlyTitle": "This editor is a local schema preview",
+  "jwt.readOnlyDescription":
+    "Changes are not saved as tenant claim policy and do not change issued tokens. Runtime behavior comes only from the registered GoTrue Custom Access Token Hook and its authoritative data sources.",
   "jwt.supabaseContractTitle": "Required claims are immutable",
   "jwt.supabaseContract":
     "Business roles must stay under app_metadata.supaoauth.projects[projectRef]. The top-level role remains anon, authenticated, or service_role; no supaoauth:* top-level claims are emitted.",
@@ -304,6 +407,10 @@ const en = {
   "jwt.hookTitle": "Custom Access Token Hook",
   "jwt.hookDescription":
     "Register the hook against the public SupaOAuth Function origin. The endpoint preserves GoTrue-issued claims and adds only the bounded SupaOAuth metadata marker.",
+  "jwt.hookStatusInvalid":
+    "GoTrue returned an invalid Auth Hook status. Runtime effectiveness is unavailable.",
+  "jwt.hookVerificationNotConfirmed":
+    "The verification request completed, but the authoritative read-back still reports that the Hook is not effective.",
   "jwt.secretHint":
     "The GoTrue v1,whsec_* signing secret is managed server-side and verified with a live Standard Webhooks probe. It is never exposed in this browser page.",
   "jwt.compatibilityTitle": "Current compatibility checks",
@@ -414,6 +521,13 @@ const en = {
     "Reset this MFA factor? The user will need to set it up again.",
   "users.noSessions": "No tracked sessions.",
   "users.noIdentities": "No connected accounts.",
+  "users.linkedIdentities": "GoTrue linked identities",
+  "users.linkedIdentitiesDescription":
+    "This is an authoritative read-only view. Administrator unlink remains hidden until GoTrue exposes a safe mutation contract.",
+  "users.noLinkedIdentities": "No linked identities were returned by GoTrue.",
+  "users.adminSecurityCapabilities": "Administrator security operations",
+  "users.adminSecurityCapabilitiesDescription":
+    "Unavailable operations remain visible as negotiated capability state; SupAuth does not delete sessions, identities, grants, or authentication credentials directly.",
   "users.unlinkConfirm":
     "Unlink this identity? The user will lose this sign-in method.",
   "users.assignedRoles": "Assigned roles",
@@ -730,7 +844,7 @@ const zhCN = {
   "nav.audit": "审计日志",
   "nav.signInExperience": "登录体验",
   "nav.mfa": "多因素认证",
-  "nav.customizeJwt": "自定义 JWT",
+  "nav.customizeJwt": "JWT Claims 与 Auth Hook",
   "nav.tenantSettings": "租户设置",
   "detail.settings": "设置",
   "detail.roles": "角色",
@@ -750,6 +864,17 @@ const zhCN = {
   "detail.password": "密码策略",
   "detail.captcha": "CAPTCHA",
   "detail.blocklist": "阻止列表",
+  "security.gotrueRuntimeTitle": "GoTrue 账户与令牌设置",
+  "security.gotrueRuntimeDescription":
+    "这些设置会从当前 GoTrue runtime 权威读回，并影响 Supabase Auth 行为。",
+  "security.adminLoginTitle": "开发环境管理员令牌登录保护",
+  "security.adminLoginDescription":
+    "这些设置仅按来源 IP 保护旧版 /v1/auth/login ADMIN_TOKEN 路径，不保护 GoTrue SSO；生产环境已禁用令牌登录。",
+  "security.adminBruteForceProtection": "保护管理员令牌登录",
+  "security.adminMaxLoginAttempts": "每个来源 IP 的失败次数",
+  "security.adminLockoutDuration": "IP 锁定时长（秒）",
+  "security.endUserLockoutBoundary":
+    "终端用户标识符锁定需等待 GoTrue/SupaCloud 提供权威策略、状态查询与解锁 API；SupaOAuth 不会在本地模拟。",
   "dashboard.title": "仪表盘",
   "dashboard.onboarding": "上线检查清单",
   "dashboard.createApplication": "创建应用",
@@ -773,6 +898,24 @@ const zhCN = {
   "dashboard.supabaseCompatibility": "Supabase 兼容性",
   "dashboard.checksPassed": "{passed}/{total} 项检查通过",
   "dashboard.supportedCapabilities": "支持能力",
+  "dashboard.identityCapabilities": "身份运行时能力",
+  "dashboard.identityCapabilitiesDescription":
+    "能力状态由 GoTrue 与 SupaCloud 协商；缺少上游合同时保持 fail-closed，不会伪装成空数据。",
+  "capability.available": "可用",
+  "capability.unavailable": "不可用",
+  "capability.source": "权威来源",
+  "capability.version": "版本",
+  "capability.reason": "原因",
+  "capability.lastVerified": "最近验证",
+  "capability.ready": "可用",
+  "capability.name.gotrue_admin_user_sessions": "管理员会话管理",
+  "capability.name.gotrue_admin_identity_unlink": "管理员解绑身份",
+  "capability.name.gotrue_admin_oauth_grants": "管理员撤销 OAuth Grant",
+  "capability.name.gotrue_client_credentials": "OAuth Client Credentials",
+  "capability.name.gotrue_id_token_custom_claims": "ID Token 自定义 Claims",
+  "capability.name.gotrue_oauth_client_ownership": "第一方/第三方应用归属",
+  "capability.name.supacloud_identity_analytics_v1": "身份分析聚合",
+  "capability.name.supacloud_webhook_metrics_v1": "Webhook 运行指标",
   "getStarted.eyebrow": "工作区配置",
   "getStarted.title": "开始使用",
   "getStarted.description":
@@ -782,14 +925,38 @@ const zhCN = {
   "getStarted.supabaseTitle": "以 Supabase 兼容为设计前提",
   "getStarted.supabaseDescription":
     "GoTrue 继续负责 auth.users、会话、刷新令牌、MFA、JWT 签名和 OAuth/OIDC runtime；控制台仅通过已认证的 /api/v1 门面配置 SupaOAuth 控制面。",
+  "getStarted.quickstartTitle": "框架快速开始",
+  "getStarted.quickstartDescription":
+    "继续使用标准 Supabase 客户端；SupAuth 保持密码、OAuth、PKCE、会话、刷新与登出合同不变。",
+  "getStarted.openApi": "打开管理 OpenAPI",
+  "getStarted.quickstart.supabaseJs": "Supabase JavaScript",
+  "getStarted.quickstart.svelteKit": "SvelteKit",
+  "getStarted.quickstart.react": "React",
+  "getStarted.quickstart.nextJs": "Next.js",
+  "getStarted.quickstart.serverApi": "服务端 API Token 验证",
+  "getStarted.quickstartBoundary":
+    "浏览器代码只能使用 publishable/anon key；service-role key 与 SupaCloud 管理凭据必须留在服务端，禁止写入控制台或客户端 bundle。",
   "signIn.tab.branding": "品牌",
   "signIn.tab.methods": "注册与登录",
   "signIn.tab.profile": "收集用户资料",
   "signIn.tab.accountCenter": "账户中心",
   "signIn.tab.content": "内容",
+  "signIn.tab.customUi": "Custom UI",
   "signIn.brandingTitle": "品牌",
   "signIn.brandingDescription": "配置托管登录页与账户页展示的租户身份。",
   "signIn.systemName": "系统名称",
+  "signIn.previewTitle": "登录实时预览",
+  "signIn.previewDescription":
+    "在桌面、移动、浅色和暗色模式下本地预览尚未保存的品牌配置；不会发起认证请求。",
+  "signIn.previewViewport": "预览设备",
+  "signIn.previewDesktop": "桌面",
+  "signIn.previewMobile": "移动",
+  "signIn.previewTheme": "预览主题",
+  "signIn.previewLight": "浅色",
+  "signIn.previewDark": "暗色",
+  "signIn.previewSignInHint": "登录后继续",
+  "signIn.previewContinue": "继续",
+  "signIn.previewBackgroundConfigured": "已配置背景地址；本地预览在保存前不会主动加载该地址。",
   "signIn.contentTitle": "内容",
   "signIn.contentDescription": "管理托管页面文案、结构化内容、插画和租户 CSS。",
   "signIn.methodsTitle": "注册与登录",
@@ -800,6 +967,47 @@ const zhCN = {
     "该操作同时写入 SupaOAuth 登录体验和 GoTrue 注册配置。",
   "signIn.supabaseMethodBoundary":
     "登录方式元数据不会替代 Supabase Auth 流程。密码、OTP、魔法链接、会话与刷新行为仍由 GoTrue 负责。",
+  "customUi.title": "Custom UI",
+  "customUi.description":
+    "在 Custom UI 具备独立隔离来源前，任意 HTML 与 JavaScript 上传已禁用。已有资源保持不可执行，可由管理员删除。",
+  "customUi.delete": "删除已存储 Custom UI",
+  "customUi.deleteConfirm": "删除已存储的 Custom UI 包及其资源？",
+  "customUi.deleted": "Custom UI 已移除，当前使用默认托管界面。",
+  "customUi.deletionPending": "Custom UI 已停用，但审计投递或资源清理仍在进行。",
+  "customUi.authoritativeReadBackConfirmed": "权威状态已确认上一请求实际提交。",
+  "customUi.outcomeUnknownTitle": "变更结果尚未确认",
+  "customUi.outcomeUnknownDescription":
+    "重新读到权威生命周期状态前，删除操作保持禁用；请勿盲目重试。",
+  "customUi.reconcile": "刷新权威状态",
+  "customUi.acknowledge": "人工确认并解锁",
+  "customUi.acknowledgeConfirm": "我已人工核对默认托管界面与已存储 Custom UI 的权威生命周期状态。",
+  "customUi.allowRetryConfirm": "清除持久安全锁，并允许再次执行该高影响操作？",
+  "customUi.acknowledged": "已人工清除持久安全锁。",
+  "customUi.storageUnavailableTitle": "变更安全存储不可用",
+  "customUi.storageUnavailableDescription":
+    "当前浏览器无法持久记录进行中的操作，因此删除保持禁用。",
+  "customUi.retryStorage": "重试安全存储",
+  "customUi.lifecycleTitle": "生命周期状态",
+  "customUi.status.blocked_unsafe_origin":
+    "已存储的 Custom UI 资源因当前主机未与管理控制台隔离而被阻断。",
+  "customUi.status.disabled": "当前使用 SupAuth 默认托管界面。",
+  "customUi.status.cleanup_pending": "Custom UI 已停用或旧资源等待清理；维护完成后请刷新。",
+  "customUi.statusLabel.blocked_unsafe_origin": "已阻断：来源不安全",
+  "customUi.statusLabel.disabled": "默认界面",
+  "customUi.statusLabel.cleanup_pending": "等待清理",
+  "customUi.uploadedAt": "上传时间",
+  "customUi.fileCount": "文件数",
+  "customUi.auditState": "审计",
+  "customUi.cleanupState": "清理",
+  "customUi.pending": "进行中",
+  "customUi.settled": "已完成",
+  "customUi.filesTitle": "已验证文件清单",
+  "customUi.filePath": "路径",
+  "customUi.fileType": "内容类型",
+  "customUi.fileSize": "大小",
+  "customUi.securityTitle": "安全边界",
+  "customUi.securityDescription":
+    "认证来源始终提供 SupAuth 内置页面，不执行或公开已存储的 Custom UI HTML/JavaScript；GoTrue 与 Supabase Auth 流程保持不变。",
   "profileFields.title": "收集用户资料",
   "profileFields.description": "管理托管注册和账户体验使用的租户资料字段定义。",
   "profileFields.key": "配置键",
@@ -850,9 +1058,12 @@ const zhCN = {
   "tenant.oidcSupabaseBoundary":
     "这些值读取自当前 GoTrue runtime。SupaOAuth 不签发第二种令牌、不替换 JWKS，也不改变 /auth/v1 与 /.well-known 兼容路径。",
   "jwt.eyebrow": "开发者",
-  "jwt.title": "自定义 JWT",
+  "jwt.title": "JWT Claims 与 Auth Hook",
   "jwt.description":
     "通过 Supabase Custom Access Token Hook 增加受限的 app_metadata.supaoauth 投影，同时保留 Supabase 必需 claims。",
+  "jwt.readOnlyTitle": "此编辑器仅用于本地 Schema 预览",
+  "jwt.readOnlyDescription":
+    "编辑内容不会保存为租户 Claim 策略，也不会改变已签发令牌；实际运行行为仅来自已注册的 GoTrue Custom Access Token Hook 及其权威数据源。",
   "jwt.supabaseContractTitle": "必需 claims 不可覆盖",
   "jwt.supabaseContract":
     "业务角色只能位于 app_metadata.supaoauth.projects[projectRef]。顶层 role 保持 anon、authenticated 或 service_role；不得生成 supaoauth:* 顶层 claims。",
@@ -942,6 +1153,10 @@ const zhCN = {
   "jwt.hookTitle": "Custom Access Token Hook",
   "jwt.hookDescription":
     "将 Hook 注册到 SupaOAuth Function 的公网来源。该端点保留 GoTrue 签发的 claims，只增加受限的 SupaOAuth 元数据标记。",
+  "jwt.hookStatusInvalid":
+    "GoTrue 返回了无效的 Auth Hook 状态，当前无法确认运行时是否生效。",
+  "jwt.hookVerificationNotConfirmed":
+    "验证请求已完成，但权威读回仍显示 Hook 未生效。",
   "jwt.secretHint":
     "GoTrue v1,whsec_* 签名密钥由服务端管理，并通过 Standard Webhooks 实时探测验证；浏览器不会看到密钥。",
   "jwt.compatibilityTitle": "当前兼容性检查",
@@ -1048,6 +1263,13 @@ const zhCN = {
   "users.resetFactorConfirm": "确认重置此 MFA 因子？用户需重新设置。",
   "users.noSessions": "暂无跟踪的会话。",
   "users.noIdentities": "暂无连接的账户。",
+  "users.linkedIdentities": "GoTrue 已连接身份",
+  "users.linkedIdentitiesDescription":
+    "此处为权威只读视图；GoTrue 提供安全的管理员解绑合同前，不会显示解绑操作。",
+  "users.noLinkedIdentities": "GoTrue 未返回已连接身份。",
+  "users.adminSecurityCapabilities": "管理员安全操作",
+  "users.adminSecurityCapabilitiesDescription":
+    "不可用操作会保留为协商能力状态；SupAuth 不会直接删除会话、身份、Grant 或认证凭据。",
   "users.unlinkConfirm": "确认解绑此身份？用户将失去该登录方式。",
   "users.assignedRoles": "已分配角色",
   "users.noRoles": "未分配角色。",

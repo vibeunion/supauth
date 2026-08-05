@@ -1,21 +1,8 @@
 // Hosted static pages: authorize UI, login redirect, admin console SPA.
 // The SupaOAuth HTTP app owns these hosted-page routes.
-// Supports Custom UI Assets: if custom-ui/index.html exists, it replaces the default page.
 
 import { Elysia } from 'elysia';
 import path from 'node:path';
-import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
-import * as tenantConfigRepo from '../repositories/tenant-config.js';
-import {
-  activeCustomUiManifestFromConfig,
-  CUSTOM_UI_CONFIG_KEY,
-  CUSTOM_UI_CONFIG_TYPE,
-  CUSTOM_UI_STORAGE_BUCKET,
-  manifestFileForPath,
-  normalizeCustomUiAssetPath,
-  readVerifiedStorageAsset,
-  type CustomUiManifest,
-} from '../utils/custom-ui-assets.js';
 import {
   EMBEDDED_ACCOUNT_HTML,
   EMBEDDED_AUTHORIZE_HTML,
@@ -25,8 +12,6 @@ import {
   EMBEDDED_LOGOUT_HTML,
 } from '../generated/hosted-pages.js';
 import { LOGOUT_PAGE_HEADERS, resolvePostLogoutRedirect } from './logout-page.js';
-
-const customUiStorage = getSupaCloudAdapter();
 
 function uniquePaths(paths: string[]) {
   return [...new Set(paths.map(candidate => path.normalize(candidate)))];
@@ -96,6 +81,7 @@ export function resolveHostedPagePaths(importMetaDir = import.meta.dir, cwd = pr
 const hostedPagePaths = resolveHostedPagePaths();
 const PUBLIC_API_BASE_PLACEHOLDER = 'window.__SUPAOAUTH_PUBLIC_API_BASE__ = null;';
 const SAME_ORIGIN_PUBLIC_API_BASE = '/v1/public';
+const ADMIN_PATH_DECODE_LIMIT = 4;
 const STATIC_CONTENT_TYPES = new Map([
   ['.css', 'text/css; charset=utf-8'],
   ['.gif', 'image/gif'],
@@ -138,71 +124,46 @@ export async function readFirstAvailableText(candidates: string[]) {
   return null;
 }
 
-async function customUiConfigWithinDeadline() {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<null>((resolve) => {
-    timeout = setTimeout(() => resolve(null), 250);
-  });
+function decodedAdminPath(sub: string) {
+  let decoded = sub;
   try {
-    return await Promise.race([
-      tenantConfigRepo.getTenantConfig(CUSTOM_UI_CONFIG_TYPE, CUSTOM_UI_CONFIG_KEY),
-      deadline,
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
-async function loadHostedCustomUiManifest(): Promise<CustomUiManifest | null> {
-  try {
-    return activeCustomUiManifestFromConfig(await customUiConfigWithinDeadline());
-  } catch {
-    console.error(JSON.stringify({ level: 'error', msg: 'custom_ui_hosted_manifest_unavailable' }));
-    return null;
-  }
-}
-
-async function loadCustomUiBytes(manifest: CustomUiManifest, assetPath: string): Promise<Uint8Array | null> {
-  const file = manifestFileForPath(manifest, assetPath);
-  if (!file) return null;
-  try {
-    const response = await customUiStorage.downloadFile(CUSTOM_UI_STORAGE_BUCKET, file.object_key);
-    return await readVerifiedStorageAsset(response, file);
+    for (let pass = 0; pass < ADMIN_PATH_DECODE_LIMIT; pass += 1) {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    }
   } catch (error) {
-    const missing = isSupaCloudApiError(error, [404]);
-    if (!missing) {
-      console.error(JSON.stringify({ level: 'error', msg: 'custom_ui_hosted_asset_unavailable' }));
-    }
+    if (!(error instanceof URIError)) throw error;
     return null;
   }
+  return /%[0-9a-f]{2}/i.test(decoded) || decoded.includes('\0') ? null : decoded;
 }
 
-async function loadCustomUiText(assetPaths: string[]): Promise<string | null> {
-  const manifest = await loadHostedCustomUiManifest();
-  if (!manifest) return null;
-  for (const assetPath of assetPaths) {
-    const content = await loadCustomUiBytes(manifest, assetPath);
-    if (!content) continue;
-    try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(content);
-    } catch {
-      console.error(JSON.stringify({ level: 'error', msg: 'custom_ui_hosted_html_invalid' }));
-    }
-  }
-  return null;
+function confinedBuildPath(buildDir: string, candidate: string) {
+  const root = path.resolve(buildDir);
+  const resolved = path.resolve(root, candidate);
+  const relative = path.relative(root, resolved);
+  const escaped = relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+  return escaped ? null : resolved;
 }
 
 export function adminConsoleSpaCandidates(buildDirs: string[], sub: string) {
-  const shouldFallbackToIndex = !sub.startsWith('_app/') && !sub.startsWith('assets/');
-  return buildDirs.flatMap(dir => {
-    const candidates = sub
+  const decodedSub = decodedAdminPath(sub);
+  if (decodedSub === null || path.isAbsolute(decodedSub)) return [];
+  const shouldFallbackToIndex = !decodedSub.startsWith('_app/') && !decodedSub.startsWith('assets/');
+  return buildDirs.flatMap(buildDir => {
+    if (decodedSub && confinedBuildPath(buildDir, decodedSub) === null) return [];
+    const relativeCandidates = decodedSub
       ? [
-        path.join(dir, sub),
-        path.join(dir, `${sub}.html`),
-        path.join(dir, sub, 'index.html'),
+        decodedSub,
+        `${decodedSub}.html`,
+        path.join(decodedSub, 'index.html'),
       ]
       : [];
-    return shouldFallbackToIndex ? [...candidates, path.join(dir, 'index.html')] : candidates;
+    if (shouldFallbackToIndex) relativeCandidates.push('index.html');
+    return relativeCandidates
+      .map(candidate => confinedBuildPath(buildDir, candidate))
+      .filter((candidate): candidate is string => candidate !== null);
   });
 }
 
@@ -251,25 +212,16 @@ async function loadAuthorizeHtml(): Promise<string | null> {
 }
 
 async function loadClaimHtml(): Promise<string | null> {
-  const customHtml = await loadCustomUiText(['claim.html']);
-  if (customHtml) return customHtml;
-
   return await readFirstAvailableText(hostedPagePaths.claimHtmlCandidates)
     ?? EMBEDDED_CLAIM_HTML;
 }
 
 async function loadChangePasswordHtml(): Promise<string | null> {
-  const customHtml = await loadCustomUiText(['change-password.html']);
-  if (customHtml) return customHtml;
-
   return await readFirstAvailableText(hostedPagePaths.changePasswordHtmlCandidates)
     ?? EMBEDDED_CHANGE_PASSWORD_HTML;
 }
 
 async function loadAccountHtml(): Promise<string | null> {
-  const customHtml = await loadCustomUiText(['account.html']);
-  if (customHtml) return customHtml;
-
   return await readFirstAvailableText(hostedPagePaths.accountHtmlCandidates)
     ?? EMBEDDED_ACCOUNT_HTML;
 }
@@ -301,24 +253,10 @@ function renderLogoutHtml(html: string, redirectUri: string) {
   );
 }
 
-function customUiRedirectResponse(request: Request, rawPath: string) {
-  const normalized = normalizeCustomUiAssetPath(rawPath);
-  if (!normalized) return new Response('Not Found', { status: 404 });
-  const encodedPath = normalized.split('/').map(encodeURIComponent).join('/');
-  const location = new URL(`/v1/public/custom-ui/${encodedPath}`, request.url);
-  return new Response(null, {
-    status: 307,
-    headers: { location: location.toString(), 'cache-control': 'no-store' },
-  });
-}
-
 const defaultHtmlCache: { html: string | null; checkedAt: number } = { html: null, checkedAt: 0 };
 const CACHE_TTL = 60_000;
 
 async function getAuthorizeHtml() {
-  const customHtml = await loadCustomUiText(['login.html', 'index.html']);
-  if (customHtml !== null) return customHtml;
-
   // Cache default HTML
   const now = Date.now();
   if (defaultHtmlCache.html !== null && now - defaultHtmlCache.checkedAt < CACHE_TTL) {
@@ -331,14 +269,18 @@ async function getAuthorizeHtml() {
 
 function serveFirstStaticFile(fileCandidates: string[]) {
   for (const candidate of fileCandidates) {
-    const file = Bun.file(candidate);
-    if (file.size) {
-      return new Response(file, {
-        headers: {
-          'content-type': STATIC_CONTENT_TYPES.get(path.extname(candidate).toLowerCase()) || 'application/octet-stream',
-          'x-content-type-options': 'nosniff',
-        },
-      });
+    try {
+      const file = Bun.file(candidate);
+      if (file.size) {
+        return new Response(file, {
+          headers: {
+            'content-type': STATIC_CONTENT_TYPES.get(path.extname(candidate).toLowerCase()) || 'application/octet-stream',
+            'x-content-type-options': 'nosniff',
+          },
+        });
+      }
+    } catch (error) {
+      if (!isProjectConfinementError(error)) throw error;
     }
   }
   return null;
@@ -549,11 +491,10 @@ export const hostedPageRoutes = new Elysia()
     detail: { summary: 'Serve hosted landing page (alias for authorize)', tags: ['Public'] },
   })
 
-  // Custom UI static assets: /custom-ui/*
-  .get('/custom-ui/*', ({ params, request }) => {
-    const sub = (params as Record<string, string>)['*'] || '';
-    return customUiRedirectResponse(request, sub);
-  })
+  .get('/custom-ui/*', () => new Response('Not Found', {
+    status: 404,
+    headers: { 'cache-control': 'no-store' },
+  }))
 
   // Admin console SPA static assets: /_app/*
   .get('/_app/*', ({ params }) => {

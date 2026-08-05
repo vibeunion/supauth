@@ -4,6 +4,7 @@ import {
   accountCenterSettingsAuthority,
   assertAuthoritativeSettingsReadBack,
   blocklistSettingsAuthority,
+  brandingSettingsAuthority,
   canonicalOrderedStrings,
   canonicalStringSet,
   canonicalTrimmedStringSet,
@@ -50,6 +51,17 @@ function signInSnapshot(overrides = {}) {
   };
 }
 
+function brandingSnapshot(overrides = {}) {
+  return {
+    branding: {
+      page_title: "Example",
+      primary_color: "#2563eb",
+      background_url: "https://example.test/background.png",
+      ...overrides,
+    },
+  };
+}
+
 function captchaConfig(overrides = {}) {
   return {
     enabled: true,
@@ -85,6 +97,7 @@ function generalSecuritySnapshot(overrides = {}) {
     securityConfig: {
       bruteForceProtection: true,
       maxLoginAttempts: 8,
+      lockoutDurationSec: 900,
     },
     ...overrides,
   };
@@ -253,6 +266,17 @@ describe("authoritative settings read-back", () => {
       ).allowed_oauth_providers,
     ).toEqual(["azure", "google"]);
     expect(
+      brandingSettingsAuthority(
+        brandingSnapshot({ page_title: " Example ", background_url: " " }),
+      ),
+    ).toEqual({
+      branding: {
+        page_title: "Example",
+        primary_color: "#2563eb",
+        background_url: null,
+      },
+    });
+    expect(
       organizationSettingsAuthority(
         organizationSnapshot({
           organizationResponse: {
@@ -267,6 +291,69 @@ describe("authoritative settings read-back", () => {
         }),
       ),
     ).toEqual(organizationSettingsAuthority(organizationSnapshot()));
+  });
+
+  test("validates every managed branding field at the response boundary", () => {
+    expect(
+      brandingSettingsAuthority(
+        brandingSnapshot({
+          page_title: null,
+          primary_color: " ",
+          background_url: null,
+        }),
+      ),
+    ).toEqual({
+      branding: {
+        page_title: null,
+        primary_color: null,
+        background_url: null,
+      },
+    });
+
+    for (const fieldName of [
+      "page_title",
+      "primary_color",
+      "background_url",
+    ]) {
+      expect(() =>
+        brandingSettingsAuthority(
+          brandingSnapshot({ [fieldName]: { unexpected: true } }),
+        ),
+      ).toThrow(
+        expect.objectContaining({ fields: [`branding.${fieldName}`] }),
+      );
+    }
+
+    const missingFieldSnapshot = brandingSnapshot();
+    delete missingFieldSnapshot.branding.page_title;
+    expect(() => brandingSettingsAuthority(missingFieldSnapshot)).toThrow(
+      expect.objectContaining({ fields: ["branding.page_title"] }),
+    );
+  });
+
+  test("keeps BrandingEditor draft failures inside the saving reset guard", async () => {
+    const brandingEditorSource = await Bun.file(
+      new URL(
+        "./components/sign-in-experience/BrandingEditor.svelte",
+        import.meta.url,
+      ),
+    ).text();
+    const saveStart = brandingEditorSource.indexOf(
+      "async function saveBranding()",
+    );
+    const saveEnd = brandingEditorSource.indexOf(
+      "async function uploadBrandingFile",
+      saveStart,
+    );
+    const saveSource = brandingEditorSource.slice(saveStart, saveEnd);
+
+    expect(brandingEditorSource).toContain(
+      "brandingSettingsAuthority(signInExperience).branding",
+    );
+    expect(saveSource).toMatch(
+      /try \{\s+const mutationDraft = brandingMutationDraft\(\);/,
+    );
+    expect(saveSource).toMatch(/finally \{\s+saving = false;/);
   });
 
   test.each([
@@ -293,6 +380,15 @@ describe("authoritative settings read-back", () => {
           }),
         ),
       "sign_in_experience.sign_in_methods",
+    ],
+    [
+      "Branding",
+      brandingSettingsAuthority(brandingSnapshot()),
+      () =>
+        brandingSettingsAuthority(
+          brandingSnapshot({ primary_color: "#000000" }),
+        ),
+      "branding.primary_color",
     ],
     [
       "Security",
@@ -370,6 +466,16 @@ describe("authoritative settings read-back", () => {
         return generalSecuritySettingsAuthority(dropped);
       },
       "enable_confirmations",
+    ],
+    [
+      "Admin login lockout duration",
+      generalSecuritySettingsAuthority(generalSecuritySnapshot()),
+      () => {
+        const dropped = generalSecuritySnapshot();
+        delete dropped.securityConfig.lockoutDurationSec;
+        return generalSecuritySettingsAuthority(dropped);
+      },
+      "lockout_duration_sec",
     ],
     [
       "Organization description",

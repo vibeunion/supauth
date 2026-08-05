@@ -117,7 +117,7 @@
 <svelte:window onkeydown={handleMobileNavigationKeydown} />
 
 {#snippet navigationPanel(sectionIdPrefix)}
-  <div class="flex flex-col justify-center border-b border-surface-100 px-6 py-5">
+  <div class="flex h-[70px] shrink-0 flex-col justify-center border-b border-surface-100 px-6">
     <div class="flex items-center gap-2">
       <span aria-hidden="true" class="select-none text-xl font-bold leading-none text-brand-600">✦</span>
       <h1 class="text-lg font-bold leading-none tracking-tight text-surface-900">{brand.systemName}</h1>
@@ -141,15 +141,12 @@
               href={resolve(navigationEntry.path)}
               aria-current={isActive ? 'page' : undefined}
               class={[
-                'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-medium transition-all duration-150',
+                'group flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-medium transition-colors duration-150',
                 isActive
-                  ? 'bg-brand-50/70 font-semibold text-brand-600'
-                  : 'text-surface-600 hover:bg-surface-50 hover:text-surface-900',
+                  ? 'font-semibold text-brand-600'
+                  : 'text-surface-600 hover:text-surface-900',
               ].join(' ')}
             >
-              {#if isActive}
-                <span aria-hidden="true" class="absolute bottom-2 left-0 top-2 w-[3px] rounded-r-md bg-brand-600"></span>
-              {/if}
               <span
                 aria-hidden="true"
                 class={[
@@ -167,7 +164,7 @@
     {/each}
   </div>
 
-  <div class="border-t border-surface-100 bg-surface-50/50 px-4 py-4">
+  <div class="border-t border-surface-100 px-4 py-4">
     <p class="px-2 text-xs font-medium text-surface-400">{brand.systemName}</p>
     <button
       type="button"
@@ -200,7 +197,7 @@
       {t('layout.skipToContent')}
     </a>
 
-    <header class="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b border-surface-200 bg-white px-4 shadow-xs md:hidden">
+    <header class="fixed inset-x-0 top-0 z-30 flex h-[70px] items-center justify-between border-b border-surface-100 bg-white px-4 md:hidden">
       <div class="flex min-w-0 items-center gap-2">
         <span aria-hidden="true" class="text-xl font-bold leading-none text-brand-600">✦</span>
         <span class="truncate text-base font-bold text-surface-900">{brand.systemName}</span>
@@ -222,13 +219,13 @@
 
     <nav
       aria-label={t('common.sectionNavigation')}
-      class="hidden w-64 shrink-0 flex-col border-r border-surface-200/80 bg-white shadow-xs md:flex"
+      class="hidden w-[252px] shrink-0 flex-col border-r border-surface-100 bg-surface-50 md:flex"
     >
       {@render navigationPanel('desktop-navigation')}
     </nav>
 
-    <main id="admin-main-content" tabindex="-1" class="flex-1 overflow-auto bg-surface-50 pt-16 md:pt-0">
-      <div class="mx-auto max-w-5xl px-4 py-6 sm:px-6 md:px-8 md:py-10">
+    <main id="admin-main-content" tabindex="-1" class="flex-1 overflow-auto bg-surface-50 pt-[70px] md:pt-0">
+      <div class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         {@render children()}
       </div>
     </main>
@@ -247,7 +244,7 @@
       role="dialog"
       aria-modal="true"
       aria-label={t('layout.mobileNavigation')}
-      class="fixed inset-y-0 left-0 z-50 flex w-64 max-w-[calc(100vw-3rem)] flex-col bg-white shadow-xl md:hidden"
+      class="fixed inset-y-0 left-0 z-50 flex w-[252px] max-w-[calc(100vw-3rem)] flex-col bg-surface-50 shadow-xl md:hidden"
     >
       <button
         bind:this={mobileNavigationCloseButton}

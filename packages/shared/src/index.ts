@@ -191,12 +191,16 @@ export interface Webhook {
 /** SupaOAuth delegates the authentication runtime to stock Supabase GoTrue. */
 export type RuntimeMode = 'gotrue';
 
-export interface CapabilityStatus {
-  available: boolean;
+interface CapabilityStatusMetadata {
   source: 'gotrue' | 'supacloud' | 'supaoauth';
   version: string | null;
-  reason_code: string | null;
+  last_verified_at: string;
 }
+
+export type CapabilityStatus = CapabilityStatusMetadata & (
+  | { available: true; reason_code: null }
+  | { available: false; reason_code: string }
+);
 
 export interface CapabilitiesResponse {
   runtime_mode: RuntimeMode;

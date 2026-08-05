@@ -17,8 +17,35 @@ import {
   SUPAOAUTH_PROJECT_PROJECTION_BYTE_LIMIT,
   SUPAOAUTH_ROLE_PROJECTION_LIMIT,
 } from '../index.js';
+import type { CapabilitiesResponse, CapabilityStatus } from '../index.js';
 
 describe('Shared types', () => {
+  it('requires capability verification timestamps in the shared API contract', () => {
+    const response: CapabilitiesResponse = {
+      runtime_mode: 'gotrue',
+      capabilities: {
+        example: {
+          available: false,
+          source: 'gotrue',
+          version: null,
+          reason_code: 'not_advertised_by_upstream',
+          last_verified_at: '2026-08-04T00:00:00.000Z',
+        },
+      },
+    };
+
+    expect(response.capabilities.example.last_verified_at)
+      .toBe('2026-08-04T00:00:00.000Z');
+  });
+
+  it('models capability availability and reason as one discriminated contract', () => {
+    const availableReason: Extract<CapabilityStatus, { available: true }>['reason_code'] = null;
+    const unavailableReason: Extract<CapabilityStatus, { available: false }>['reason_code'] = 'not_supported';
+
+    expect(availableReason).toBeNull();
+    expect(unavailableReason).toBe('not_supported');
+  });
+
   it('exports required Supabase claims', () => {
     expect(SUPABASE_REQUIRED_CLAIMS).toContain('sub');
     expect(SUPABASE_REQUIRED_CLAIMS).toContain('role');

@@ -32,11 +32,9 @@ import {
   CustomUiAssetError,
   customUiManifestFromConfig,
   customUiObjectKey,
-  manifestFileForPath,
-  normalizeCustomUiAssetPath,
+  customUiStatusFromConfig,
   parseCustomUiArchive,
   parseCustomUiCleanupQueue,
-  readVerifiedStorageAsset,
   type CustomUiAuditEventType,
   type CustomUiAuditPendingEvent,
   type CustomUiCleanupBatch,
@@ -320,6 +318,12 @@ async function readCustomUiConfig(key = CUSTOM_UI_CONFIG_KEY): Promise<CustomUiC
   } catch {
     throw customUiUnavailable('custom_ui_config_unavailable', 'Custom UI configuration is temporarily unavailable.');
   }
+}
+
+async function customUiStatus() {
+  const status = customUiStatusFromConfig(await readCustomUiConfig());
+  if (status) return status;
+  throw new ApiContractError(409, 'custom_ui_manifest_invalid', 'The current Custom UI manifest is invalid.');
 }
 
 function storageBucketExists(bucketListResponse: unknown): boolean {
@@ -1173,12 +1177,12 @@ async function deletionBaseState(): Promise<CustomUiState | null> {
   if (!configRecord) return null;
   const parsedManifest = customUiManifestFromConfig(configRecord);
   if (!parsedManifest) throw new ApiContractError(409, 'custom_ui_manifest_invalid', 'The current Custom UI manifest is invalid.');
-  const manifest = !configRecord.enabled && parsedManifest.lifecycle_state === 'active'
-    ? { ...parsedManifest, lifecycle_state: 'cleanup_pending' as const }
-    : parsedManifest;
-  const flushed = await requirePendingAuditDelivery(configRecord, manifest);
-  await retryCleanupQueue(flushed.configRecord.enabled ? flushed.manifest : null);
-  return { configRecord: flushed.configRecord, manifest: flushed.manifest };
+  const flushed = await requirePendingAuditDelivery(configRecord, parsedManifest);
+  const normalizedManifest = !flushed.configRecord.enabled && flushed.manifest.lifecycle_state === 'active'
+    ? { ...flushed.manifest, lifecycle_state: 'cleanup_pending' as const }
+    : flushed.manifest;
+  await retryCleanupQueue(flushed.configRecord.enabled ? normalizedManifest : null);
+  return { configRecord: flushed.configRecord, manifest: normalizedManifest };
 }
 
 async function removeCompletedCustomUiState(state: CustomUiState) {
@@ -1272,39 +1276,6 @@ export async function deleteCustomUiAssets() {
   return deleteStoredCustomUi(deactivated.state, auditIdentity);
 }
 
-async function activeCustomUiManifest() {
-  return activeCustomUiManifestFromConfig(await readCustomUiConfig());
-}
-
-export async function customUiAssetResponse(rawPath: string): Promise<Response> {
-  const normalizedPath = normalizeCustomUiAssetPath(rawPath || 'index.html');
-  if (!normalizedPath) return Response.json({ error: 'not_found' }, { status: 404 });
-  const manifest = await activeCustomUiManifest();
-  const file = manifest ? manifestFileForPath(manifest, normalizedPath) : null;
-  if (!file) return Response.json({ error: 'not_found' }, { status: 404 });
-  try {
-    const storageResponse = await adapter.downloadFile(CUSTOM_UI_STORAGE_BUCKET, file.object_key);
-    const content = await readVerifiedStorageAsset(storageResponse, file);
-    return new Response(Uint8Array.from(content).buffer, {
-      headers: {
-        'cache-control': 'no-store',
-        'content-length': String(content.length),
-        'content-type': file.content_type,
-        etag: `"${file.sha256}"`,
-        'x-content-type-options': 'nosniff',
-      },
-    });
-  } catch (error) {
-    if (isSupaCloudApiError(error, [404])) {
-      return Response.json({ error: 'not_found' }, { status: 404 });
-    }
-    if (error instanceof CustomUiAssetError) {
-      throw new ApiContractError(502, 'custom_ui_asset_integrity_failed', 'Custom UI asset integrity verification failed.');
-    }
-    throw customUiUnavailable('custom_ui_storage_unavailable', 'Custom UI asset storage is temporarily unavailable.');
-  }
-}
-
 export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
   .get('/', async () => sieRepo.getSignInExperience(), {
     detail: { summary: 'Get sign-in experience configuration', tags: ['Sign-in Experience'] },
@@ -1327,24 +1298,22 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
   })
 
   // ─── Custom UI Assets management ────────────────────────────────────
-  .post('/custom-ui-assets', async ({ body, set }) => {
-    const upload = body as Record<string, unknown>;
-    if (!(upload.file instanceof File)) {
-      set.status = 400;
-      return { error: 'file_required', message: 'Upload a zip file containing custom sign-in page assets (index.html required).' };
-    }
-    try {
-      const uploadResult = await uploadCustomUiArchive(upload.file);
-      if (uploadResult.audit_pending || uploadResult.maintenance_pending) set.status = 202;
-      return uploadResult;
-    } catch (error) {
-      if (!(error instanceof CustomUiAssetError)) throw error;
-      set.status = 400;
-      return { error: error.code, message: 'The Custom UI archive did not pass validation.' };
-    }
-  }, {
+  .get('/custom-ui-assets', customUiStatus, {
+    detail: { summary: 'Get safe Custom UI lifecycle status', tags: ['Sign-in Experience', 'Custom UI Assets'] },
+  })
 
-    detail: { summary: 'Upload custom UI assets (zip) for hosted sign-in page', tags: ['Sign-in Experience', 'Custom UI Assets'] },
+  .post('/custom-ui-assets', () => {
+    throw new ApiContractError(
+      501,
+      'capability_unavailable',
+      'Custom UI upload requires a dedicated isolated origin.',
+      {
+        capability: 'custom_ui_assets',
+        reason_code: 'custom_ui_isolated_origin_required',
+      },
+    );
+  }, {
+    detail: { summary: 'Custom UI upload availability', tags: ['Sign-in Experience', 'Custom UI Assets'] },
   })
 
   .delete('/custom-ui-assets', async ({ set }) => {
@@ -1460,11 +1429,13 @@ export const publicPhrasesRoutes = new Elysia({ prefix: '/v1/public/phrases' })
   });
 
 export const publicCustomUiRoutes = new Elysia({ prefix: '/v1/public/custom-ui' })
-  .get('/*', ({ params }) => {
-    const sub = (params as Record<string, string>)['*'] || 'index.html';
-    return customUiAssetResponse(sub);
+  .get('/*', () => {
+    return Response.json({ error: 'not_found' }, {
+      status: 404,
+      headers: { 'cache-control': 'no-store' },
+    });
   }, {
-    detail: { summary: 'Serve custom UI assets for hosted sign-in page', tags: ['Public', 'Custom UI Assets'] },
+    detail: { hide: true },
   });
 
 function oauthBearerToken(headers: Record<string, string | undefined>) {

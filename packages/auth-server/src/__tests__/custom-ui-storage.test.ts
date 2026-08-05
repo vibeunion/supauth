@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 import { strToU8, zipSync } from 'fflate';
 import { currentAdminRequestContext, withAdminRequestContext } from '../auth/request-context.js';
-import { CUSTOM_UI_LIMITS } from '../utils/custom-ui-assets.js';
+import { CUSTOM_UI_LIMITS, parseCustomUiManifest } from '../utils/custom-ui-assets.js';
+import { ApiContractError } from '../utils/api-contract.js';
 
 process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
 process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
@@ -322,7 +323,6 @@ mock.module('../supacloud/adapter.js', () => ({
 }));
 
 const {
-  customUiAssetResponse,
   deleteCustomUiAssets,
   publicCustomUiRoutes,
   sieRoutes,
@@ -330,7 +330,16 @@ const {
 } = await import('../routes/sign-in-experience.js');
 const { hostedPageRoutes } = await import('../routes/hosted-pages.js');
 const customUiApp = new Elysia().use(hostedPageRoutes).use(publicCustomUiRoutes);
-const managementApp = new Elysia().use(sieRoutes);
+const managementApp = new Elysia()
+  .onError(({ error, set }) => {
+    if (!(error instanceof ApiContractError)) return;
+    set.status = error.status;
+    return {
+      success: false,
+      error: { code: error.code, message: error.message, details: error.details },
+    };
+  })
+  .use(sieRoutes);
 
 function customUiZip(label: string, filename = `${label}.zip`) {
   const archive = zipSync({
@@ -339,11 +348,6 @@ function customUiZip(label: string, filename = `${label}.zip`) {
     [`${label}/assets/site.css`]: strToU8(`body { --theme: ${label}; }`),
   }, { level: 9 });
   return new File([Uint8Array.from(archive).buffer], filename, { type: 'application/zip' });
-}
-
-function emptyEntrypointZip() {
-  const archive = zipSync({ 'theme/index.html': new Uint8Array() }, { level: 9 });
-  return new File([Uint8Array.from(archive).buffer], 'empty-entry.zip', { type: 'application/zip' });
 }
 
 function currentManifest() {
@@ -371,9 +375,20 @@ function cleanupObjectKey(index: number) {
   return `versions/${assetsId}/${'a'.repeat(64)}/assets/stale-${index}.txt`;
 }
 
-async function responseText(assetPath: string) {
-  const response = await customUiAssetResponse(assetPath);
-  return { response, text: await response.text() };
+function storedAssetText(assetPath: string) {
+  const files = currentManifest().files as Array<Record<string, unknown>>;
+  const file = files.find(candidate => candidate.path === assetPath);
+  const content = file ? storedObjects.get(String(file.object_key)) : null;
+  if (!content) throw new Error(`Expected stored Custom UI asset: ${assetPath}`);
+  return new TextDecoder().decode(content);
+}
+
+function invalidActiveManifestWriteCount() {
+  return tenantConfigRepository.compareAndSwapTenantConfig.mock.calls.filter((configWriteCall) => {
+    const [configType, key, , configWrite] = configWriteCall;
+    if (configType !== 'custom_ui_assets' || key !== 'active') return false;
+    return !parseCustomUiManifest(configWrite.value);
+  }).length;
 }
 
 beforeEach(() => {
@@ -426,13 +441,10 @@ describe('Custom UI durable activation', () => {
     expect(operationOrder.slice(0, activationIndex).filter(entry => !entry.startsWith('config:'))
       .every(entry => entry.startsWith('upload:'))).toBe(true);
 
-    const served = await responseText('assets/app.js');
-    expect(served.response.status).toBe(200);
-    expect(served.text).toContain("window.theme = 'ocean'");
-    expect(served.response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(storedAssetText('assets/app.js')).toContain("window.theme = 'ocean'");
   });
 
-  it('accepts a multipart ZIP through the management route', async () => {
+  it('fails closed before accepting a multipart ZIP through the management route', async () => {
     const form = new FormData();
     form.append('file', customUiZip('multipart'));
     const response = await managementApp.handle(new Request(
@@ -440,46 +452,50 @@ describe('Custom UI durable activation', () => {
       { method: 'POST', body: form },
     ));
 
-    expect(response.status).toBe(200);
-    const payload = await response.json() as Record<string, unknown>;
-    expect(payload.file_count).toBe(3);
-    expect(payload).not.toHaveProperty('filename');
-    expect(currentAssetsId()).toBe(String(payload.assets_id));
-  });
-
-  it('rejects an empty entry HTML before any Storage or config staging', async () => {
-    const form = new FormData();
-    form.append('file', emptyEntrypointZip());
-    const response = await managementApp.handle(new Request(
-      'https://auth.example.test/v1/sign-in-experience/custom-ui-assets',
-      { method: 'POST', body: form },
-    ));
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: 'empty_index_html' });
+    expect(response.status).toBe(501);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'capability_unavailable',
+        details: {
+          capability: 'custom_ui_assets',
+          reason_code: 'custom_ui_isolated_origin_required',
+        },
+      },
+    });
     expect(storageAdapter.createStorageBucket).toHaveBeenCalledTimes(0);
     expect(storageAdapter.uploadFile).toHaveBeenCalledTimes(0);
     expect(tenantConfigRepository.compareAndSwapTenantConfig).toHaveBeenCalledTimes(0);
   });
 
-  it('serves the activated root HTML and nested assets through hosted/public routes', async () => {
+  it('keeps an existing manifest inert on hosted and public routes', async () => {
     await uploadCustomUiArchive(customUiZip('hosted'));
+    storageAdapter.downloadFile.mockClear();
+
+    const statusResponse = await managementApp.handle(new Request(
+      'https://auth.example.test/v1/sign-in-experience/custom-ui-assets',
+    ));
+    expect(statusResponse.status).toBe(200);
+    expect(await statusResponse.json()).toMatchObject({
+      status: 'blocked_unsafe_origin',
+      configured: true,
+      enabled: false,
+      lifecycle_state: 'active',
+    });
 
     const rootResponse = await customUiApp.handle(new Request('https://auth.example.test/'));
     expect(rootResponse.status).toBe(200);
-    expect(await rootResponse.text()).toContain('<h1>hosted</h1>');
+    expect(await rootResponse.text()).not.toContain('<h1>hosted</h1>');
 
-    const redirectResponse = await customUiApp.handle(new Request(
+    const legacyAssetResponse = await customUiApp.handle(new Request(
       'https://auth.example.test/custom-ui/assets/app.js',
       { redirect: 'manual' },
     ));
-    expect(redirectResponse.status).toBe(307);
-    expect(redirectResponse.headers.get('location')).toBe(
+    expect(legacyAssetResponse.status).toBe(404);
+    const publicAssetResponse = await customUiApp.handle(new Request(
       'https://auth.example.test/v1/public/custom-ui/assets/app.js',
-    );
-    const assetResponse = await customUiApp.handle(new Request(redirectResponse.headers.get('location')!));
-    expect(assetResponse.status).toBe(200);
-    expect(await assetResponse.text()).toContain("window.theme = 'hosted'");
+    ));
+    expect(publicAssetResponse.status).toBe(404);
+    expect(storageAdapter.downloadFile).toHaveBeenCalledTimes(0);
   });
 
   it('keeps the prior version active when staging fails and hides internal errors', async () => {
@@ -498,9 +514,7 @@ describe('Custom UI durable activation', () => {
     }
 
     expect(currentAssetsId()).toBe(stableAssetsId);
-    const served = await responseText('index.html');
-    expect(served.response.status).toBe(200);
-    expect(served.text).toContain('stable');
+    expect(storedAssetText('index.html')).toContain('stable');
     expect([...storedObjects.keys()].every(key => key.includes(stableAssetsId))).toBe(true);
   });
 
@@ -588,7 +602,6 @@ describe('Custom UI durable activation', () => {
     await expect(upload).rejects.toMatchObject({ status: 409, code: 'custom_ui_changed_retry' });
     expect(activeConfig()).toBeNull();
     expect(storedObjects.size).toBe(0);
-    expect((await customUiAssetResponse('index.html')).status).toBe(404);
   });
 
   it('removes objects that become visible only after stale cleanup read-back', async () => {
@@ -660,7 +673,7 @@ describe('Custom UI durable activation', () => {
     await expect(deletion).rejects.toMatchObject({ status: 409, code: 'custom_ui_changed_retry' });
     expect(currentAssetsId()).toBe(replacement.assets_id);
     expect([...storedObjects.keys()].every(key => key.includes(replacement.assets_id))).toBe(true);
-    expect((await responseText('index.html')).text).toContain('upload-wins-replacement');
+    expect(storedAssetText('index.html')).toContain('upload-wins-replacement');
   });
 
   it('persists a CAS loser as an orphan batch and retries it on the next mutation', async () => {
@@ -692,8 +705,7 @@ describe('Custom UI durable activation', () => {
 
     expect(second.cleanup_pending).toBe(true);
     expect((currentManifest().cleanup_pending_object_keys as unknown[]).length).toBe(3);
-    const served = await responseText('index.html');
-    expect(served.text).toContain('second');
+    expect(storedAssetText('index.html')).toContain('second');
 
     rejectObjectDeletion = false;
     const third = await uploadCustomUiArchive(customUiZip('third'));
@@ -718,19 +730,15 @@ describe('Custom UI durable activation', () => {
     expect(currentAssetsId()).not.toBe('');
   });
 
-  it('rejects tampered storage bytes instead of serving them', async () => {
+  it('does not read or serve stored bytes from the public route', async () => {
     await uploadCustomUiArchive(customUiZip('verified'));
     const indexKey = currentObjectKeys().find(key => key.endsWith('/index.html'))!;
     storedObjects.set(indexKey, strToU8('<h1>tampered</h1>'));
+    storageAdapter.downloadFile.mockClear();
 
-    await expect(customUiAssetResponse('index.html')).rejects.toMatchObject({
-      status: 502,
-      code: 'custom_ui_asset_integrity_failed',
-    });
-  });
-
-  it('rejects traversal before any Storage read', async () => {
-    const response = await customUiAssetResponse('%2e%2e%2findex.html');
+    const response = await customUiApp.handle(new Request(
+      'https://auth.example.test/v1/public/custom-ui/index.html',
+    ));
     expect(response.status).toBe(404);
     expect(storageAdapter.downloadFile).toHaveBeenCalledTimes(0);
   });
@@ -751,20 +759,14 @@ describe('Custom UI durable activation', () => {
 
   it('returns an explicit accepted state and persists the event when upload audit delivery fails', async () => {
     rejectedAuditEventTypes.add('sign_in_experience.custom_ui_uploaded');
-    const form = new FormData();
-    form.append('file', customUiZip('audit-pending'));
-    const response = await managementApp.handle(new Request(
-      'https://auth.example.test/v1/sign-in-experience/custom-ui-assets',
-      { method: 'POST', body: form },
-    ));
+    const response = await uploadCustomUiArchive(customUiZip('audit-pending'));
 
-    expect(response.status).toBe(202);
-    expect(await response.json()).toMatchObject({ status: 'activated', audit_pending: true });
+    expect(response).toMatchObject({ status: 'activated', audit_pending: true });
     expect(currentManifest().audit_pending_event).toMatchObject({
       event_type: 'sign_in_experience.custom_ui_uploaded',
       delivery_state: 'ready',
     });
-    expect((await responseText('index.html')).text).toContain('audit-pending');
+    expect(storedAssetText('index.html')).toContain('audit-pending');
 
     storageAdapter.uploadFile.mockClear();
     await expect(uploadCustomUiArchive(customUiZip('blocked-by-audit'))).rejects.toMatchObject({
@@ -985,7 +987,100 @@ describe('Custom UI durable deletion', () => {
     expect(deleted).toEqual({ status: 'deleted', deleted_file_count: 3 });
     expect(activeConfig()).toBeNull();
     expect(objectKeys.every(key => !storedObjects.has(key))).toBe(true);
-    expect((await customUiAssetResponse('index.html')).status).toBe(404);
+  });
+
+  it('normalizes a disabled active manifest as blocked and keeps it deletable', async () => {
+    await uploadCustomUiArchive(customUiZip('disabled-active'));
+    activeConfig()!.enabled = false;
+
+    const statusResponse = await managementApp.handle(new Request(
+      'https://auth.example.test/v1/sign-in-experience/custom-ui-assets',
+    ));
+    expect(await statusResponse.json()).toMatchObject({
+      status: 'blocked_unsafe_origin',
+      enabled: false,
+      lifecycle_state: 'active',
+    });
+
+    const deletionResponse = await managementApp.handle(new Request(
+      'https://auth.example.test/v1/sign-in-experience/custom-ui-assets',
+      { method: 'DELETE' },
+    ));
+    expect(deletionResponse.status).toBe(200);
+    expect(await deletionResponse.json()).toEqual({ status: 'deleted', deleted_file_count: 3 });
+    expect(activeConfig()).toBeNull();
+    expect(storedObjects.size).toBe(0);
+  });
+
+  it('keeps a rejected upload audit valid before retrying disabled active deletion', async () => {
+    rejectedAuditEventTypes.add('sign_in_experience.custom_ui_uploaded');
+    await uploadCustomUiArchive(customUiZip('disabled-rejected-audit'));
+    activeConfig()!.enabled = false;
+
+    await expect(deleteCustomUiAssets()).rejects.toMatchObject({
+      status: 503,
+      code: 'custom_ui_audit_pending',
+    });
+    expect(invalidActiveManifestWriteCount()).toBe(0);
+    expect(currentManifest()).toMatchObject({
+      lifecycle_state: 'active',
+      audit_pending_event: {
+        event_type: 'sign_in_experience.custom_ui_uploaded',
+        delivery_state: 'ready',
+      },
+    });
+    const pendingStatus = await managementApp.handle(new Request(
+      'https://auth.example.test/v1/sign-in-experience/custom-ui-assets',
+    ));
+    expect(pendingStatus.status).toBe(200);
+    expect(await pendingStatus.json()).toMatchObject({
+      status: 'blocked_unsafe_origin',
+      audit_pending: true,
+    });
+
+    rejectedAuditEventTypes.clear();
+    await expect(deleteCustomUiAssets()).resolves.toEqual({
+      status: 'deleted',
+      deleted_file_count: 3,
+    });
+    expect(invalidActiveManifestWriteCount()).toBe(0);
+    expect(activeConfig()).toBeNull();
+  });
+
+  it('keeps an unknown upload audit valid until disabled active deletion can retry', async () => {
+    unknownAuditEventTypes.add('sign_in_experience.custom_ui_uploaded');
+    await uploadCustomUiArchive(customUiZip('disabled-unknown-audit'));
+    activeConfig()!.enabled = false;
+
+    await expect(deleteCustomUiAssets()).rejects.toMatchObject({
+      status: 503,
+      code: 'custom_ui_audit_pending',
+    });
+    expect(invalidActiveManifestWriteCount()).toBe(0);
+    expect(currentManifest()).toMatchObject({
+      lifecycle_state: 'active',
+      audit_pending_event: {
+        event_type: 'sign_in_experience.custom_ui_uploaded',
+        delivery_state: 'delivery_unknown',
+      },
+    });
+    const pendingStatus = await managementApp.handle(new Request(
+      'https://auth.example.test/v1/sign-in-experience/custom-ui-assets',
+    ));
+    expect(pendingStatus.status).toBe(200);
+    expect(await pendingStatus.json()).toMatchObject({
+      status: 'blocked_unsafe_origin',
+      audit_pending: true,
+    });
+
+    activeConfig()!.updatedAt = new Date(0);
+    unknownAuditEventTypes.clear();
+    await expect(deleteCustomUiAssets()).resolves.toEqual({
+      status: 'deleted',
+      deleted_file_count: 3,
+    });
+    expect(invalidActiveManifestWriteCount()).toBe(0);
+    expect(activeConfig()).toBeNull();
   });
 
   it('keeps a disabled cleanup manifest after object deletion fails and succeeds on retry', async () => {
@@ -997,7 +1092,6 @@ describe('Custom UI durable deletion', () => {
       code: 'custom_ui_cleanup_pending',
     });
     expect(activeConfig()?.enabled).toBe(false);
-    expect((await customUiAssetResponse('index.html')).status).toBe(404);
 
     rejectObjectDeletion = false;
     await expect(deleteCustomUiAssets()).resolves.toEqual({ status: 'deleted', deleted_file_count: 3 });

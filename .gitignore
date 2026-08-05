@@ -33,4 +33,6 @@ output/
 # Tenant-specific hosted login page overrides are deployed out-of-band.
 custom-ui/
 packages/auth-server/custom-ui/
+!packages/admin-console/src/routes/sign-in-experience/custom-ui/
+!packages/admin-console/src/routes/sign-in-experience/custom-ui/+page.svelte
 CODEBUDDY.md

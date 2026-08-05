@@ -7,12 +7,12 @@ const authServerDir = resolve(root, 'packages/auth-server');
 const entrypoint = resolve(authServerDir, 'src/supacloud-function.ts');
 const outdir = resolve(authServerDir, 'dist/supacloud-function');
 
-function resolveRuntimeSafeEntry(packageName: string, entrypointName: string, baseDir = authServerDir) {
+function resolveRuntimeSafeEntry(packageName: string, entrypointName: string) {
   try {
-    return Bun.resolveSync(`${packageName}/${entrypointName}`, baseDir);
+    return Bun.resolveSync(`${packageName}/${entrypointName}`, authServerDir);
   } catch (error) {
     throw new Error(
-      `无法解析 ${packageName}/${entrypointName}（基准目录：${baseDir}）：${error instanceof Error ? error.message : String(error)}`,
+      `无法解析 ${packageName}/${entrypointName}（基准目录：${authServerDir}）：${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -33,10 +33,6 @@ const build = await Bun.build({
         });
         builder.onResolve({ filter: /^fflate$/ }, () => {
           return { path: resolveRuntimeSafeEntry('fflate', 'browser') };
-        });
-        builder.onResolve({ filter: /^debug$/ }, (args) => {
-          // debug 的 Node 入口会生成 import.meta.require；浏览器入口只使用标准 console。
-          return { path: resolveRuntimeSafeEntry('debug', 'src/browser.js', args.resolveDir) };
         });
       },
     },

@@ -10,6 +10,88 @@
   } from '$lib/api/client.js';
   import { t } from '$lib/i18n.js';
 
+  const quickstarts = [
+    {
+      id: 'supabase-js',
+      titleKey: 'getStarted.quickstart.supabaseJs',
+      code: [
+        "import { createClient } from '@supabase/supabase-js';",
+        '',
+        'const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);',
+        "await supabase.auth.signInWithOAuth({ provider: 'github' });",
+      ].join('\n'),
+    },
+    {
+      id: 'sveltekit',
+      titleKey: 'getStarted.quickstart.svelteKit',
+      code: [
+        '<script>',
+        "  import { onMount } from 'svelte';",
+        "  import { createClient } from '@supabase/supabase-js';",
+        "  import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_PUBLISHABLE_KEY } from '$env/static/public';",
+        '',
+        '  let session = null;',
+        '  onMount(async () => {',
+        '    const supabase = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_PUBLISHABLE_KEY);',
+        '    const { data } = await supabase.auth.getSession();',
+        '    session = data.session;',
+        '  });',
+        '<\/script>',
+        '',
+        '<p>{session ? "Signed in" : "Signed out"}</p>',
+      ].join('\n'),
+    },
+    {
+      id: 'react',
+      titleKey: 'getStarted.quickstart.react',
+      code: [
+        "import { useEffect, useState } from 'react';",
+        "import { createClient } from '@supabase/supabase-js';",
+        '',
+        'const supabase = createClient(',
+        '  import.meta.env.VITE_SUPABASE_URL,',
+        '  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,',
+        ');',
+        '',
+        'export function AuthState() {',
+        '  const [session, setSession] = useState(null);',
+        '  useEffect(() => {',
+        '    const { data: { subscription } } = supabase.auth.onAuthStateChange(',
+        '      (_event, nextSession) => setSession(nextSession),',
+        '    );',
+        '    return () => subscription.unsubscribe();',
+        '  }, []);',
+        '  return <p>{session ? "Signed in" : "Signed out"}</p>;',
+        '}',
+      ].join('\n'),
+    },
+    {
+      id: 'nextjs',
+      titleKey: 'getStarted.quickstart.nextJs',
+      code: [
+        "'use client';",
+        "import { createClient } from '@supabase/supabase-js';",
+        '',
+        'const supabase = createClient(',
+        '  process.env.NEXT_PUBLIC_SUPABASE_URL!,',
+        '  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,',
+        ');',
+      ].join('\n'),
+    },
+    {
+      id: 'server-api',
+      titleKey: 'getStarted.quickstart.serverApi',
+      code: [
+        "import { createClient } from '@supabase/supabase-js';",
+        '',
+        'const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: false } });',
+        'const { data, error } = await supabase.auth.getUser(accessToken);',
+        'if (error) throw error;',
+        'const authenticatedUser = data.user;',
+      ].join('\n'),
+    },
+  ];
+
   let loading = $state(true);
   let error = $state(null);
   let onboardingSteps = $state([]);
@@ -65,9 +147,30 @@
       </a>
     {/each}
   </div>
+{/if}
 
-  <div class="mt-6 rounded-xl border border-brand-200 bg-brand-50/60 p-5">
+<div class="mt-6 rounded-xl border border-brand-200 bg-brand-50/60 p-5">
     <h3 class="font-semibold text-brand-900">{t('getStarted.supabaseTitle')}</h3>
     <p class="mt-2 text-sm leading-6 text-brand-800">{t('getStarted.supabaseDescription')}</p>
-  </div>
-{/if}
+</div>
+
+<section class="mt-8">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h3 class="text-xl font-semibold text-surface-900">{t('getStarted.quickstartTitle')}</h3>
+        <p class="mt-1 text-sm leading-6 text-surface-500">{t('getStarted.quickstartDescription')}</p>
+      </div>
+      <a href="/api/swagger" target="_blank" rel="noreferrer" class="text-sm font-semibold text-brand-700 hover:text-brand-900">{t('getStarted.openApi')}</a>
+    </div>
+    <div class="mt-5 grid gap-4 xl:grid-cols-2">
+      {#each quickstarts as quickstart (quickstart.id)}
+        <article class="console-card overflow-hidden">
+          <h4 class="border-b border-surface-100 px-5 py-3 font-semibold text-surface-900">{t(quickstart.titleKey)}</h4>
+          <pre class="overflow-x-auto bg-surface-950 p-5 text-xs leading-6 text-surface-100"><code>{quickstart.code}</code></pre>
+        </article>
+      {/each}
+    </div>
+    <p class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+      {t('getStarted.quickstartBoundary')}
+    </p>
+</section>

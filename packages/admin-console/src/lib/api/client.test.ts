@@ -101,6 +101,25 @@ describe("admin business API authentication recovery", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  test("uses the dedicated Custom UI lifecycle endpoints", async () => {
+    const requests = [];
+    setAdminAuthenticatedFetch(mock(async (input, init) => {
+      requests.push({ url: String(input), init });
+      return Response.json({ status: "active" });
+    }));
+
+    await adminClient.getCustomUiStatus();
+    await adminClient.deleteCustomUiAssets();
+
+    expect(requests.map(({ url, init }) => [
+      new URL(url, "http://console.local").pathname,
+      init?.method || "GET",
+    ])).toEqual([
+      ["/api/v1/sign-in-experience/custom-ui-assets", "GET"],
+      ["/api/v1/sign-in-experience/custom-ui-assets", "DELETE"],
+    ]);
+  });
+
   test("keeps paged control-plane reads behind the /api/v1 BFF", async () => {
     const requestedUrls = [];
     const fetcher = mock(async (input) => {

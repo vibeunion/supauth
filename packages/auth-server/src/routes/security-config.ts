@@ -1,8 +1,10 @@
 // Security configuration routes (P0-19) with OpenAPI annotations
 
 import { Elysia } from 'elysia';
+import { currentAdminRequestContext } from '../auth/request-context.js';
 import * as secRepo from '../repositories/security-config.js';
 import * as auditRepo from '../repositories/audit.js';
+import { validatedSecurityConfigUpdate } from './security-config-input.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -18,10 +20,15 @@ export const securityConfigRoutes = new Elysia({ prefix: '/v1/security-config' }
   })
 
   .put('/', async ({ body }) => {
-    const data = body as Record<string, unknown>;
-    const updated = await secRepo.updateSecurityConfig(data as any);
-    await audit('security_config.update', 'security_config', updated.id, data);
-    return updated;
+    const principal = currentAdminRequestContext()?.principal;
+    const update = validatedSecurityConfigUpdate(body, {
+      currentAdminEmail: principal?.email,
+      authorizationSource: principal?.authorization_source,
+      runtimeEnvironment: process.env.NODE_ENV || 'development',
+    });
+    const updatedConfig = await secRepo.updateSecurityConfig(update);
+    await audit('security_config.update', 'security_config', updatedConfig.id, update);
+    return updatedConfig;
   }, {
     detail: { summary: 'Update security configuration', tags: ['Security'] },
   })

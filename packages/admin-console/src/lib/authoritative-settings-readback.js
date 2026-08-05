@@ -143,6 +143,13 @@ function trimmedString(candidate) {
   return typeof candidate === "string" ? candidate.trim() : candidate;
 }
 
+function nullableTrimmedString(candidate, fieldPath) {
+  if (candidate !== null && typeof candidate !== "string") {
+    throw new AuthoritativeSettingsReadBackError([fieldPath]);
+  }
+  return blankStringAsNull(trimmedString(candidate));
+}
+
 function compatibleField(record, fieldNames, mismatchPath) {
   if (!isRecord(record)) return undefined;
   const presentFields = fieldNames.filter((fieldName) =>
@@ -224,6 +231,26 @@ export function signInMethodsSettingsAuthority(snapshot) {
   };
 }
 
+export function brandingSettingsAuthority(signInExperience) {
+  const branding = field(signInExperience, "branding");
+  return {
+    branding: {
+      page_title: nullableTrimmedString(
+        field(branding, "page_title"),
+        "branding.page_title",
+      ),
+      primary_color: nullableTrimmedString(
+        field(branding, "primary_color"),
+        "branding.primary_color",
+      ),
+      background_url: nullableTrimmedString(
+        field(branding, "background_url"),
+        "branding.background_url",
+      ),
+    },
+  };
+}
+
 export function passwordPolicySettingsAuthority(snapshot) {
   const authConfig = field(snapshot, "authConfig");
   return {
@@ -296,6 +323,11 @@ function generalRuntimeSecurityAuthority(securityConfig) {
       securityConfig,
       ["max_login_attempts", "maxLoginAttempts"],
       "security.max_login_attempts",
+    ),
+    lockout_duration_sec: compatibleField(
+      securityConfig,
+      ["lockout_duration_sec", "lockoutDurationSec"],
+      "security.lockout_duration_sec",
     ),
   };
 }

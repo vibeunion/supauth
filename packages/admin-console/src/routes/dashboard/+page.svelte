@@ -5,33 +5,70 @@
     getDiscovery,
     getProject,
     getCompatibilityReport,
+    getCapabilities,
   } from "$lib/api/client.js";
+  import CapabilityStatus from "$lib/components/CapabilityStatus.svelte";
+  import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
+
+  const identityCapabilityNames = [
+    "supacloud_identity_analytics_v1",
+    "gotrue_oauth_client_ownership",
+    "gotrue_admin_user_sessions",
+    "gotrue_admin_identity_unlink",
+    "gotrue_admin_oauth_grants",
+    "gotrue_client_credentials",
+    "gotrue_id_token_custom_claims",
+    "supacloud_webhook_metrics_v1",
+  ];
 
   let status = $state(null);
   let discovery = $state(null);
   let project = $state(null);
   let compatReport = $state(null);
+  let capabilities = $state({});
   let loading = $state(true);
   let error = $state(null);
+  let capabilitiesLoading = $state(true);
+  let capabilitiesError = $state(null);
 
-  onMount(async () => {
+  async function loadDashboard() {
+    loading = true;
+    error = null;
     try {
-      const [statusRes, discoveryRes, projectRes, compatRes] =
-        await Promise.all([
-          getOAuthServerStatus(),
-          getDiscovery(),
-          getProject(),
-          getCompatibilityReport(),
-        ]);
+      const [statusRes, discoveryRes, projectRes, compatRes] = await Promise.all([
+        getOAuthServerStatus(),
+        getDiscovery(),
+        getProject(),
+        getCompatibilityReport(),
+      ]);
       status = statusRes;
       discovery = discoveryRes;
       project = projectRes;
       compatReport = compatRes;
-    } catch (e) {
-      error = e.message;
+    } catch (requestError) {
+      error = requestError.message;
+    } finally {
+      loading = false;
     }
-    loading = false;
+  }
+
+  async function loadCapabilities() {
+    capabilitiesLoading = true;
+    capabilitiesError = null;
+    try {
+      const capabilityResponse = await getCapabilities();
+      capabilities = capabilityResponse?.capabilities || {};
+    } catch (requestError) {
+      capabilitiesError = requestError;
+    } finally {
+      capabilitiesLoading = false;
+    }
+  }
+
+  onMount(() => {
+    void loadDashboard();
+    void loadCapabilities();
   });
 </script>
 
@@ -133,6 +170,31 @@
       </p>
     </div>
   {/if}
+
+  <section class="mb-8 rounded-xl border border-surface-200 bg-surface-50 p-4 sm:p-6">
+    <h3 class="text-lg font-semibold text-surface-800">
+      {t("dashboard.identityCapabilities")}
+    </h3>
+    <p class="mt-1 text-sm leading-6 text-surface-500">
+      {t("dashboard.identityCapabilitiesDescription")}
+    </p>
+    <div class="mt-5">
+      <RequestState
+        loading={capabilitiesLoading}
+        error={capabilitiesError}
+        onRetry={loadCapabilities}
+      >
+        <div class="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {#each identityCapabilityNames as capabilityName (capabilityName)}
+            <CapabilityStatus
+              name={capabilityName}
+              capability={capabilities[capabilityName]}
+            />
+          {/each}
+        </div>
+      </RequestState>
+    </div>
+  </section>
 
   <!-- Supported features -->
   {#if discovery}

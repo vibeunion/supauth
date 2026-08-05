@@ -555,6 +555,16 @@ export function updateSignInExperience(data) {
   });
 }
 
+export function getCustomUiStatus() {
+  return request("/v1/sign-in-experience/custom-ui-assets");
+}
+
+export function deleteCustomUiAssets() {
+  return request("/v1/sign-in-experience/custom-ui-assets", {
+    method: "DELETE",
+  });
+}
+
 export function getAuthConfig() {
   return request("/v1/auth-config");
 }

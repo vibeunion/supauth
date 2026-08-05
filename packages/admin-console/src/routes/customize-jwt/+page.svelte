@@ -13,6 +13,10 @@
     getProject,
     verifyCustomAccessTokenHook,
   } from "$lib/api/client.js";
+  import {
+    authHookStatusIsActive,
+    parseAuthHookStatus,
+  } from "$lib/auth-hook-status.js";
   import { t } from "$lib/i18n.js";
   import {
     SUPAOAUTH_FIELD_TYPES,
@@ -20,6 +24,18 @@
   } from "$lib/jwt-preview.js";
 
   const hookPath = "/v1/auth-hooks/custom-access-token";
+  const hookStateClasses = {
+    active: "rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700",
+    inactive: "rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700",
+    loading: "rounded-full bg-surface-100 px-3 py-1 text-xs font-semibold text-surface-600",
+    unavailable: "rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700",
+  };
+  const hookStateLabelKeys = {
+    active: "Active",
+    inactive: "Not effective",
+    loading: "Loading...",
+    unavailable: "state.unavailable",
+  };
   const previewClaimValues = {
     iss: "https://project.supabase.co/auth/v1",
     aud: "authenticated",
@@ -55,17 +71,29 @@
   }
 
   let extensionDraft = $state(extensionExample());
-  let loading = $state(true);
-  let error = $state(null);
   let compatibilityReport = $state(null);
+  let compatibilityLoading = $state(true);
+  let compatibilityError = $state(null);
+  let projectLoading = $state(true);
+  let projectError = $state(null);
   let hookStatus = $state(null);
+  let hookLoading = $state(true);
+  let hookError = $state(null);
   let verifying = $state(false);
   let verificationMessage = $state("");
+  let verificationError = $state("");
   let validation = $derived.by(() => validateExtensionDraft(extensionDraft));
   let validationMessages = $derived.by(() =>
     validation.errors.map(validationMessage),
   );
   let claimPreview = $derived.by(() => buildClaimPreview(validation.value));
+  let hookState = $derived.by(() => {
+    if (hookLoading) return "loading";
+    if (hookError) return "unavailable";
+    return hookStatus?.registered && hookStatus?.verified
+      ? "active"
+      : "inactive";
+  });
 
   function validationMessage(validationError) {
     const params = { ...validationError.params };
@@ -81,17 +109,25 @@
     };
   }
 
-  onMount(async () => {
+  async function loadCompatibility() {
+    compatibilityLoading = true;
+    compatibilityError = null;
     try {
-      const [compatibility, status, project] = await Promise.all([
-        getCompatibilityReport(),
-        getCustomAccessTokenHookStatus(),
-        getProject(),
-      ]);
+      compatibilityReport = await getCompatibilityReport();
+    } catch (requestError) {
+      compatibilityError = requestError.message;
+    } finally {
+      compatibilityLoading = false;
+    }
+  }
+
+  async function loadProjectContext() {
+    projectLoading = true;
+    projectError = null;
+    try {
+      const project = await getProject();
       const projectRef = project?.ref || project?.project_ref || project?.id;
       if (!projectRef) throw new Error(t("common.notAvailable"));
-      compatibilityReport = compatibility;
-      hookStatus = status;
       extensionDraft = extensionExample(projectRef, {
         roles: ["tenant_admin"],
         permissions: ["users.read"],
@@ -99,24 +135,59 @@
         current_org_role: "member",
       });
     } catch (requestError) {
-      error = requestError.message;
+      projectError = requestError.message;
+    } finally {
+      projectLoading = false;
     }
-    loading = false;
+  }
+
+  async function loadHookStatus() {
+    hookLoading = true;
+    hookError = null;
+    hookStatus = null;
+    try {
+      const authoritativeStatus = parseAuthHookStatus(
+        await getCustomAccessTokenHookStatus(),
+      );
+      if (!authoritativeStatus) throw new Error(t("jwt.hookStatusInvalid"));
+      hookStatus = authoritativeStatus;
+    } catch (requestError) {
+      hookError = requestError.message;
+    } finally {
+      hookLoading = false;
+    }
+  }
+
+  onMount(() => {
+    void loadCompatibility();
+    void loadProjectContext();
+    void loadHookStatus();
   });
 
   async function verifyHook() {
     verifying = true;
-    error = null;
+    hookError = null;
     verificationMessage = "";
+    verificationError = "";
     try {
       const verification = await verifyCustomAccessTokenHook();
+      const authoritativeStatus = parseAuthHookStatus(
+        await getCustomAccessTokenHookStatus(),
+      );
+      if (!authoritativeStatus) throw new Error(t("jwt.hookStatusInvalid"));
+      hookStatus = authoritativeStatus;
+      if (!authHookStatusIsActive(authoritativeStatus)) {
+        verificationError = t("jwt.hookVerificationNotConfirmed");
+        return;
+      }
       verificationMessage =
         verification.message || t("JWT hook verification passed");
-      hookStatus = await getCustomAccessTokenHookStatus();
     } catch (requestError) {
-      error = requestError.message;
+      hookStatus = null;
+      hookError = requestError.message;
+    } finally {
+      verifying = false;
     }
-    verifying = false;
   }
 </script>
 
@@ -131,6 +202,13 @@
 </div>
 
 <div class="space-y-6">
+  <section class="rounded-xl border border-amber-200 bg-amber-50 p-5" role="note">
+    <h3 class="font-semibold text-amber-950">{t("jwt.readOnlyTitle")}</h3>
+    <p class="mt-2 text-sm leading-6 text-amber-900">
+      {t("jwt.readOnlyDescription")}
+    </p>
+  </section>
+
   <section class="rounded-xl border border-blue-200 bg-blue-50 p-5">
     <h3 class="font-semibold text-blue-950">
       {t("jwt.supabaseContractTitle")}
@@ -170,6 +248,22 @@
         {t("jwt.editorDescription")}
       </p>
     </div>
+    {#if projectLoading}
+      <p class="mb-4 text-sm text-surface-400">{t("common.loading")}</p>
+    {:else if projectError}
+      <div
+        class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+        role="alert"
+      >
+        <p>{projectError}</p>
+        <button
+          type="button"
+          onclick={loadProjectContext}
+          class="mt-3 rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-800 hover:bg-red-100"
+          >{t("Refresh")}</button
+        >
+      </div>
+    {/if}
     <textarea
       bind:value={extensionDraft}
       aria-label={t("jwt.editorAria")}
@@ -256,15 +350,24 @@
           {t("jwt.hookDescription")}
         </p>
       </div>
-      <span
-        class={hookStatus?.registered && hookStatus?.verified
-          ? "rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"
-          : "rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700"}
-        >{hookStatus?.registered && hookStatus?.verified
-          ? t("Active")
-          : t("Not effective")}</span
+      <span class={hookStateClasses[hookState]}
+        >{t(hookStateLabelKeys[hookState])}</span
       >
     </div>
+    {#if hookError}
+      <div
+        class="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+        role="alert"
+      >
+        <p>{hookError}</p>
+        <button
+          type="button"
+          onclick={loadHookStatus}
+          class="mt-3 rounded-lg border border-red-300 px-3 py-1.5 font-medium text-red-800 hover:bg-red-100"
+          >{t("Refresh")}</button
+        >
+      </div>
+    {/if}
     <div class="mt-4 rounded-lg bg-surface-950 p-4 text-sm text-white">
       <p><span class="text-surface-400">POST</span> <code>{hookPath}</code></p>
       <p class="mt-2">
@@ -279,7 +382,7 @@
     </div>
     <p class="mt-3 text-xs leading-5 text-surface-500">{t("jwt.secretHint")}</p>
     <button
-      disabled={verifying}
+      disabled={hookLoading || verifying}
       onclick={verifyHook}
       class="mt-4 rounded-lg border border-brand-300 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
       >{verifying ? t("Loading...") : t("Verify runtime hook")}</button
@@ -287,19 +390,28 @@
     {#if verificationMessage}<p class="mt-3 text-sm text-emerald-700">
         {verificationMessage}
       </p>{/if}
+    {#if verificationError}<p class="mt-3 text-sm text-red-700" role="alert">
+        {verificationError}
+      </p>{/if}
   </section>
 
   <section class="console-card p-6">
     <h3 class="text-lg font-semibold text-surface-900">
       {t("jwt.compatibilityTitle")}
     </h3>
-    {#if loading}
+    {#if compatibilityLoading}
       <p class="mt-3 text-surface-400">{t("common.loading")}</p>
-    {:else if error}
+    {:else if compatibilityError}
       <div
         class="mt-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
       >
-        {error}
+        <p>{compatibilityError}</p>
+        <button
+          type="button"
+          onclick={loadCompatibility}
+          class="mt-3 rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
+          >{t("Refresh")}</button
+        >
       </div>
     {:else}
       <div class="mt-4 space-y-2">

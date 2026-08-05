@@ -5,6 +5,7 @@ import {
   activeCustomUiManifestFromConfig,
   CUSTOM_UI_LIMITS,
   CustomUiAssetError,
+  customUiStatusFromConfig,
   manifestFileForPath,
   normalizeCustomUiAssetPath,
   parseCustomUiArchive,
@@ -456,6 +457,52 @@ describe('Custom UI manifest and request paths', () => {
         (_, index) => `overflow-${index}`,
       ),
     })).toBeNull();
+  });
+
+  it('exposes a safe lifecycle status without storage object keys', () => {
+    const status = customUiStatusFromConfig({ enabled: true, value: manifest });
+
+    expect(status).toMatchObject({
+      status: 'blocked_unsafe_origin',
+      configured: true,
+      enabled: false,
+      assets_id: manifest.assets_id,
+      file_count: files.length,
+      cleanup_pending: false,
+      audit_pending: false,
+    });
+    expect(status?.files[0]).toEqual({
+      path: files[0].path,
+      sha256: files[0].sha256,
+      size: files[0].size,
+      content_type: files[0].content_type,
+    });
+    expect(JSON.stringify(status)).not.toContain('object_key');
+  });
+
+  it('distinguishes disabled, blocked, cleanup-pending, and invalid Custom UI state', () => {
+    expect(customUiStatusFromConfig(null)).toMatchObject({
+      status: 'disabled',
+      configured: false,
+      enabled: false,
+    });
+    expect(customUiStatusFromConfig({ enabled: false, value: manifest })).toMatchObject({
+      status: 'blocked_unsafe_origin',
+      configured: true,
+      enabled: false,
+      lifecycle_state: 'active',
+      cleanup_pending: false,
+    });
+    expect(customUiStatusFromConfig({
+      enabled: false,
+      value: { ...manifest, lifecycle_state: 'cleanup_pending' },
+    })).toMatchObject({
+      status: 'cleanup_pending',
+      configured: true,
+      enabled: false,
+      cleanup_pending: true,
+    });
+    expect(customUiStatusFromConfig({ enabled: true, value: { ...manifest, content_sha256: 'invalid' } })).toBeNull();
   });
 
   it('validates durable audit events and lifecycle transitions', () => {

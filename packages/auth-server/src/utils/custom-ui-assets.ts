@@ -158,6 +158,27 @@ export interface CustomUiManifest {
   audit_pending_event: CustomUiAuditPendingEvent | null;
 }
 
+export interface CustomUiStatusFile {
+  path: string;
+  sha256: string;
+  size: number;
+  content_type: string;
+}
+
+export interface CustomUiStatus {
+  status: 'disabled' | 'blocked_unsafe_origin' | 'cleanup_pending';
+  configured: boolean;
+  enabled: boolean;
+  lifecycle_state: CustomUiManifest['lifecycle_state'] | null;
+  assets_id: string | null;
+  content_sha256: string | null;
+  uploaded_at: string | null;
+  file_count: number;
+  files: CustomUiStatusFile[];
+  cleanup_pending: boolean;
+  audit_pending: boolean;
+}
+
 export interface CustomUiCleanupBatch {
   assets_id: string;
   created_at: string;
@@ -703,6 +724,54 @@ export function activeCustomUiManifestFromConfig(record: unknown): CustomUiManif
   if (config.enabled !== true) return null;
   const manifest = parseCustomUiManifest(config.value);
   return manifest?.lifecycle_state === 'active' ? manifest : null;
+}
+
+export function customUiStatusFromConfig(record: unknown): CustomUiStatus | null {
+  if (record === null) return disabledCustomUiStatus();
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+  const config = record as Record<string, unknown>;
+  if (typeof config.enabled !== 'boolean') return null;
+  const manifest = parseCustomUiManifest(config.value);
+  if (!manifest) return null;
+  const blockedByUnsafeOrigin = manifest.lifecycle_state === 'active';
+  return {
+    status: blockedByUnsafeOrigin ? 'blocked_unsafe_origin' : 'cleanup_pending',
+    configured: true,
+    enabled: false,
+    lifecycle_state: manifest.lifecycle_state,
+    assets_id: manifest.assets_id,
+    content_sha256: manifest.content_sha256,
+    uploaded_at: manifest.uploaded_at,
+    file_count: manifest.files.length,
+    files: manifest.files.map(statusFile),
+    cleanup_pending: !blockedByUnsafeOrigin || manifest.cleanup_pending_object_keys.length > 0,
+    audit_pending: manifest.audit_pending_event !== null,
+  };
+}
+
+function disabledCustomUiStatus(): CustomUiStatus {
+  return {
+    status: 'disabled',
+    configured: false,
+    enabled: false,
+    lifecycle_state: null,
+    assets_id: null,
+    content_sha256: null,
+    uploaded_at: null,
+    file_count: 0,
+    files: [],
+    cleanup_pending: false,
+    audit_pending: false,
+  };
+}
+
+function statusFile(file: CustomUiManifestFile): CustomUiStatusFile {
+  return {
+    path: file.path,
+    sha256: file.sha256,
+    size: file.size,
+    content_type: file.content_type,
+  };
 }
 
 export async function readVerifiedStorageAsset(response: Response, file: CustomUiManifestFile) {

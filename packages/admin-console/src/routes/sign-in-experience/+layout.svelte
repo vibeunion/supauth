@@ -9,6 +9,7 @@
     { path: '/sign-in-experience/collect-user-profile', labelKey: 'signIn.tab.profile' },
     { path: '/sign-in-experience/account-center', labelKey: 'signIn.tab.accountCenter' },
     { path: '/sign-in-experience/content', labelKey: 'signIn.tab.content' },
+    { path: '/sign-in-experience/custom-ui', labelKey: 'signIn.tab.customUi' },
   ];
 </script>
 

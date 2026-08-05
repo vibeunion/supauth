@@ -129,13 +129,47 @@ describe('SupaCloud app artifact verifier', () => {
     );
   });
 
-  it('rejects direct and aliased import.meta loaders', () => {
+  it('accepts Edge Runtime-supported import.meta.require builtins', () => {
     for (const loaderSource of [
-      'var __require = import.meta.require; var tty = __require("tty");',
-      'var processModule = import.meta.require("process");',
-      'const runtimeMeta = import.meta; runtimeMeta.require("fs");',
-      'const { require: runtimeRequire } = import.meta; runtimeRequire("fs");',
-      'const runtimeMeta = (import.meta); runtimeMeta.require("fs");',
+      'var tty = import.meta.require("tty");',
+      'var __require = import.meta.require; var tty = __require("tty"); var util = __require("util");',
+    ]) {
+      const { root } = createFixture();
+      writeFileSync(join(root, 'function/supacloud-function.js'), loaderSource);
+
+      const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+      expect(result.ok).toBe(true);
+      expect(result.errors).toEqual([]);
+    }
+  });
+
+  it('rejects import.meta.require calls outside the tenant allowlist', () => {
+    for (const [loaderSource, expectedError] of [
+      [
+        'var __require = import.meta.require; var http2 = __require("http2");',
+        'Function bundle loads an Edge Runtime-disallowed builtin via import.meta.require: http2',
+      ],
+      [
+        'var processModule = import.meta.require("process");',
+        'Function bundle loads an Edge Runtime-disallowed builtin via import.meta.require: process',
+      ],
+      [
+        'const __require = import.meta.require; const fileSystem = __require("fs");',
+        'Function bundle loads an Edge Runtime-disallowed builtin via import.meta.require: fs',
+      ],
+      [
+        'const http2 = import.meta.require("node:http2");',
+        'Function bundle loads an Edge Runtime-disallowed builtin via import.meta.require: node:http2',
+      ],
+      [
+        'const bunRuntime = import.meta.require("node:bun");',
+        'Function bundle loads an Edge Runtime-disallowed builtin via import.meta.require: node:bun',
+      ],
+      [
+        'const __require = import.meta.require; const name = "tty"; __require(name);',
+        'Function bundle contains computed import.meta.require calls that the artifact verifier cannot prove safe',
+      ],
     ]) {
       const { root } = createFixture();
       writeFileSync(join(root, 'function/supacloud-function.js'), loaderSource);
@@ -143,9 +177,7 @@ describe('SupaCloud app artifact verifier', () => {
       const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
 
       expect(result.ok).toBe(false);
-      expect(result.errors).toContain(
-        'Function bundle contains import.meta loader access rejected by the multi-tenant Edge Runtime',
-      );
+      expect(result.errors).toContain(expectedError);
     }
   });
 
@@ -160,6 +192,25 @@ describe('SupaCloud app artifact verifier', () => {
 
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
+  });
+
+  it('rejects indirect import.meta loader aliases that cannot be proven safe', () => {
+    for (const loaderSource of [
+      'const runtimeMeta = import.meta; runtimeMeta.require("fs");',
+      'const { require: runtimeRequire } = import.meta; runtimeRequire("fs");',
+      'const runtimeMeta = (import.meta); runtimeMeta.require("fs");',
+      'const fileSystem = (import.meta).require("fs");',
+    ]) {
+      const { root } = createFixture();
+      writeFileSync(join(root, 'function/supacloud-function.js'), loaderSource);
+
+      const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(
+        'Function bundle contains import.meta loader access rejected by the multi-tenant Edge Runtime',
+      );
+    }
   });
 
   it('does not treat import.meta.require text in strings or comments as a loader', () => {

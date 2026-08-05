@@ -2,6 +2,7 @@
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import DetailTabs from "$lib/components/DetailTabs.svelte";
+  import CapabilityStatus from "$lib/components/CapabilityStatus.svelte";
   import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
   import { collectionItems, tabFromRoute } from "$lib/resource-page.js";
@@ -9,6 +10,7 @@
     getUser,
     getUserPermissions,
     getUserRoles,
+    getCapabilities,
     listApplications,
     listUserGrants,
     listUserLogs,
@@ -29,6 +31,11 @@
     { value: "grants", labelKey: "detail.grants" },
   ];
   const tabValues = tabs.map((tab) => tab.value);
+  const userCapabilityNames = [
+    "gotrue_admin_user_sessions",
+    "gotrue_admin_identity_unlink",
+    "gotrue_admin_oauth_grants",
+  ];
 
   let user = $state(null);
   let roles = $state([]);
@@ -38,6 +45,9 @@
   let logs = $state([]);
   let organizations = $state([]);
   let grants = $state([]);
+  let capabilities = $state({});
+  let capabilitiesLoading = $state(false);
+  let capabilitiesError = $state(null);
   let loading = $state(true);
   let error = $state(null);
   let saving = $state(false);
@@ -117,6 +127,31 @@
     );
   }
 
+  async function loadUserCapabilities(loadContext) {
+    capabilitiesLoading = true;
+    capabilitiesError = null;
+    capabilities = {};
+    try {
+      const capabilityResponse = await getCapabilities();
+      if (isCurrentLoad(loadContext)) {
+        capabilities = capabilityResponse?.capabilities || {};
+      }
+    } catch (requestError) {
+      if (isCurrentLoad(loadContext)) capabilitiesError = requestError;
+    } finally {
+      if (isCurrentLoad(loadContext)) capabilitiesLoading = false;
+    }
+  }
+
+  function retryUserCapabilities() {
+    return loadUserCapabilities({
+      generation: loadGeneration,
+      userId,
+      tab: activeTab,
+      applicationId: "",
+    });
+  }
+
   async function loadUser() {
     const loadContext = {
       generation: loadGeneration + 1,
@@ -135,7 +170,9 @@
       const userResponse = await getUser(loadContext.userId);
       if (!isCurrentLoad(loadContext)) return;
       user = userResponse;
-      if (loadContext.tab === "roles") {
+      if (loadContext.tab === "settings") {
+        void loadUserCapabilities(loadContext);
+      } else if (loadContext.tab === "roles") {
         const [applicationResponse, roleResponse, permissionResponse] =
           await Promise.all([
             listApplications(),
@@ -283,6 +320,54 @@
         <p class="mt-3 text-xs text-surface-500">
           {t("mfa.aalCapabilityHint")}
         </p>
+      </section>
+      <section class="console-card p-6">
+        <h3 class="text-lg font-semibold text-surface-900">
+          {t("users.linkedIdentities")}
+        </h3>
+        <p class="mt-1 text-xs leading-5 text-surface-500">
+          {t("users.linkedIdentitiesDescription")}
+        </p>
+        <div class="mt-4 space-y-2">
+          {#each user?.identities || [] as identity (identity.id || identity.identity_id || identity.provider)}
+            <div class="rounded-lg border border-surface-200 px-3 py-2">
+              <p class="text-sm font-medium text-surface-900">
+                {identity.provider || t("common.notAvailable")}
+              </p>
+              <p class="mt-1 break-all font-mono text-xs text-surface-500">
+                {identity.identity_id || identity.id || t("common.notAvailable")}
+              </p>
+            </div>
+          {:else}
+            <p class="rounded-lg bg-surface-50 p-4 text-sm text-surface-500">
+              {t("users.noLinkedIdentities")}
+            </p>
+          {/each}
+        </div>
+      </section>
+      <section class="lg:col-span-2">
+        <h3 class="text-lg font-semibold text-surface-900">
+          {t("users.adminSecurityCapabilities")}
+        </h3>
+        <p class="mt-1 text-sm leading-6 text-surface-500">
+          {t("users.adminSecurityCapabilitiesDescription")}
+        </p>
+        <div class="mt-4">
+          <RequestState
+            loading={capabilitiesLoading}
+            error={capabilitiesError}
+            onRetry={retryUserCapabilities}
+          >
+            <div class="grid gap-4 lg:grid-cols-2">
+              {#each userCapabilityNames as capabilityName (capabilityName)}
+                <CapabilityStatus
+                  name={capabilityName}
+                  capability={capabilities[capabilityName]}
+                />
+              {/each}
+            </div>
+          </RequestState>
+        </div>
       </section>
     </div>
   {:else if activeTab === "roles"}
