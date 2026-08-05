@@ -4,6 +4,7 @@
   import DetailTabs from "$lib/components/DetailTabs.svelte";
   import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
+  import { blocklistHookReasonKey } from "./blocklist-hook-reason.js";
   import {
     blocklistSettingsAuthority,
     canonicalTrimmedStringSet,
@@ -385,12 +386,10 @@
     {t("nav.section.authentication")}
   </p>
   <h2 class="mt-2 text-3xl font-bold text-surface-950">
-    {t("Security Policy")}
+    {t("security.title")}
   </h2>
   <p class="mt-2 text-sm text-surface-500">
-    {t(
-      "Only policies that map to the active GoTrue runtime are configurable here.",
-    )}
+    {t("security.description")}
   </p>
 </div>
 <DetailTabs {tabs} {activeTab} basePath="/security" />
@@ -415,19 +414,17 @@
   {#if activeTab === "password"}
     <section class="console-card p-6">
       <h3 class="text-lg font-semibold text-surface-900">
-        {t("Password Policy")}
+        {t("security.passwordTitle")}
       </h3>
       <p class="mt-1 text-sm text-surface-500">
-        {t(
-          "The saved character classes are read back from GoTrue password_required_characters.",
-        )}
+        {t("security.passwordDescription")}
       </p>
       <div class="mt-4 grid gap-4 md:grid-cols-2">
         <div>
           <label
             for="password-min-length"
             class="mb-1 block text-sm font-medium text-surface-700"
-            >{t("Minimum Length")}</label
+            >{t("security.passwordMinLength")}</label
           ><input
             id="password-min-length"
             type="number"
@@ -441,16 +438,16 @@
           <label
             for="password-character-policy"
             class="mb-1 block text-sm font-medium text-surface-700"
-            >{t("Required characters")}</label
+            >{t("security.passwordRequiredCharacters")}</label
           ><select
             id="password-character-policy"
             bind:value={passwordForm.character_policy}
             class="w-full"
-            ><option value="none">{t("No character requirement")}</option
+            ><option value="none">{t("security.passwordCharactersNone")}</option
             ><option value="standard"
-              >{t("Lowercase, uppercase, and number")}</option
+              >{t("security.passwordCharactersStandard")}</option
             ><option value="strong"
-              >{t("Lowercase, uppercase, number, and symbol")}</option
+              >{t("security.passwordCharactersStrong")}</option
             ></select
           >
         </div>
@@ -464,18 +461,20 @@
     </section>
   {:else if activeTab === "captcha"}
     <section class="console-card p-6">
-      <h3 class="text-lg font-semibold text-surface-900">CAPTCHA</h3>
+      <h3 class="text-lg font-semibold text-surface-900">
+        {t("security.captchaTitle")}
+      </h3>
       <div class="mt-4 grid gap-4 md:grid-cols-2">
         <div>
           <label
             for="captcha-provider"
             class="mb-1 block text-sm font-medium text-surface-700"
-            >{t("Provider")}</label
+            >{t("security.captchaProvider")}</label
           ><select
             id="captcha-provider"
             bind:value={captchaForm.provider}
             class="w-full"
-            ><option value="none">{t("Disabled")}</option><option
+            ><option value="none">{t("security.captchaDisabled")}</option><option
               value="hcaptcha">hCaptcha</option
             ><option value="turnstile">Cloudflare Turnstile</option></select
           >
@@ -484,7 +483,7 @@
           <label
             for="captcha-secret"
             class="mb-1 block text-sm font-medium text-surface-700"
-            >{t("Secret")}</label
+            >{t("security.captchaSecret")}</label
           ><input
             id="captcha-secret"
             type="password"
@@ -494,8 +493,8 @@
           />
           <p class="mt-1 text-xs text-surface-500">
             {captchaForm.secret_configured
-              ? t("Secret configured")
-              : t("Secret not configured")}
+              ? t("security.captchaSecretConfigured")
+              : t("security.captchaSecretNotConfigured")}
           </p>
         </div>
       </div>
@@ -517,12 +516,10 @@
       <div class="flex items-start justify-between gap-4">
         <div>
           <h3 class="text-lg font-semibold text-surface-900">
-            {t("detail.blocklist")}
+            {t("security.blocklistTitle")}
           </h3>
           <p class="mt-1 text-sm text-surface-500">
-            {t(
-              "Enforcement uses the registered GoTrue before-user-created hook and authoritative server-side invitation checks.",
-            )}
+            {t("security.blocklistDescription")}
           </p>
         </div>
         <span
@@ -530,15 +527,14 @@
             ? "rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"
             : "rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700"}
           >{blocklistForm.hook_registered && blocklistForm.hook_verified
-            ? t("Active")
-            : t("Not effective")}</span
+            ? t("security.blocklistActive")
+            : t("security.blocklistNotEffective")}</span
         >
       </div>
       {#if blocklistForm.hook_reason_code}
         <p class="mt-3 text-xs text-amber-700">
-          {t("Runtime verification reason")}: <code
-            >{blocklistForm.hook_reason_code}</code
-          >
+          {t("security.blocklistRuntimeReason")}:
+          {t(blocklistHookReasonKey(blocklistForm.hook_reason_code))}
         </p>
       {/if}
       <div class="mt-4 grid gap-4 md:grid-cols-2">
@@ -546,7 +542,7 @@
           <label
             for="allowed-domains"
             class="mb-1 block text-sm font-medium text-surface-700"
-            >{t("Allowed email domains")}</label
+            >{t("security.blocklistAllowedEmailDomains")}</label
           ><input
             id="allowed-domains"
             bind:value={blocklistForm.allowed_email_domains}
@@ -558,7 +554,7 @@
           <label
             for="blocked-domains"
             class="mb-1 block text-sm font-medium text-surface-700"
-            >{t("Blocked email domains")}</label
+            >{t("security.blocklistBlockedEmailDomains")}</label
           ><input
             id="blocked-domains"
             bind:value={blocklistForm.blocked_email_domains}
@@ -570,7 +566,7 @@
           <label
             for="blocked-providers"
             class="mb-1 block text-sm font-medium text-surface-700"
-            >{t("Blocked OAuth providers")}</label
+            >{t("security.blocklistBlockedOauthProviders")}</label
           ><input
             id="blocked-providers"
             bind:value={blocklistForm.blocked_oauth_providers}
@@ -582,7 +578,7 @@
           <label
             for="allowed-providers"
             class="mb-1 block text-sm font-medium text-surface-700"
-            >{t("Allowed OAuth providers")}</label
+            >{t("security.blocklistAllowedOauthProviders")}</label
           ><input
             id="allowed-providers"
             bind:value={blocklistForm.allowed_oauth_providers}
@@ -594,7 +590,7 @@
       <label
         class="mt-4 flex items-center justify-between rounded-lg border border-surface-200 p-4"
         ><span class="font-medium text-surface-900"
-          >{t("Invite-only sign-up")}</span
+          >{t("security.blocklistInviteOnly")}</span
         ><input
           type="checkbox"
           bind:checked={blocklistForm.invite_only}
