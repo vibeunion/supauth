@@ -258,6 +258,89 @@ describe("Users and Organizations high-impact mutations", () => {
     );
   });
 
+  test("validates the explicit organization slug before beginning a mutation", async () => {
+    const organizations = await routeSource("organizations/+page.svelte");
+    const body = functionBody(organizations, "createNewOrganization");
+    const failureBody = functionBody(
+      organizations,
+      "reportOrganizationMutationFailure",
+    );
+    const validationOffset = body.indexOf("organizationSlugIssue(draft.slug)");
+    const beginOffset = body.indexOf("beginOrganizationMutation(");
+    const requestOffset = body.indexOf("createOrganization(draft)");
+
+    expect(validationOffset).toBeGreaterThanOrEqual(0);
+    expect(validationOffset).toBeLessThan(beginOffset);
+    expect(beginOffset).toBeLessThan(requestOffset);
+    expect(organizations).toContain(
+      'let newOrganization = $state({ name: "", slug: "", description: "" })',
+    );
+    expect(organizations).toContain(
+      'newOrganization = { name: "", slug: "", description: "" }',
+    );
+    expect(failureBody).toContain('requestError?.code === "validation_error"');
+    expect(failureBody).toContain('t("organizations.createValidationError")');
+  });
+
+  test("provides a constrained and accessible organization slug field", async () => {
+    const organizations = await routeSource("organizations/+page.svelte");
+    const slugFieldStart = organizations.indexOf('id="org-slug"');
+    const slugFieldEnd = organizations.indexOf("/>", slugFieldStart);
+    const slugField = organizations.slice(slugFieldStart, slugFieldEnd);
+
+    expect(slugFieldStart).toBeGreaterThanOrEqual(0);
+    expect(slugField).toContain("required");
+    expect(slugField).toContain('minlength="2"');
+    expect(slugField).toContain('maxlength="120"');
+    expect(slugField).toContain('pattern="[a-z0-9]+(?:-[a-z0-9]+)*"');
+    expect(slugField).toContain('aria-describedby="org-slug-help org-slug-error"');
+    expect(organizations).toContain('for="org-slug"');
+    expect(organizations).toContain('id="org-slug-help"');
+    expect(organizations).toContain('id="org-slug-error"');
+  });
+
+  test("separates search and create actions and hides the empty state behind the form", async () => {
+    const organizations = await routeSource("organizations/+page.svelte");
+    const requestStateStart = organizations.indexOf("<RequestState");
+    const requestStateEnd = organizations.indexOf(
+      "</RequestState>",
+      requestStateStart,
+    );
+    const requestState = organizations.slice(requestStateStart, requestStateEnd);
+    const searchButton = buttonElementContaining(
+      organizations,
+      't("organizations.search")',
+    );
+    const createButton = buttonElementContaining(
+      organizations,
+      "createNewOrganization",
+    );
+    const cancelButton = buttonElementContaining(
+      organizations,
+      "showCreate = false",
+    );
+
+    expect(searchButton).toContain("bg-brand-600");
+    expect(createButton).toContain("bg-brand-600");
+    expect(cancelButton).toContain("border-surface-300");
+    expect(organizations).toContain('t("organizations.subtitle")');
+    expect(organizations).toContain(
+      "empty={organizations.length === 0 && !showCreate}",
+    );
+    const populatedGuard = requestState.indexOf(
+      "{#if organizations.length > 0}",
+    );
+    const organizationGrid = requestState.indexOf(
+      'class="grid gap-4 lg:grid-cols-2"',
+    );
+    const resultFooter = requestState.indexOf('t("organizations.resultCount"');
+    const populatedGuardEnd = requestState.lastIndexOf("{/if}");
+    expect(populatedGuard).toBeGreaterThanOrEqual(0);
+    expect(organizationGrid).toBeGreaterThan(populatedGuard);
+    expect(resultFooter).toBeGreaterThan(organizationGrid);
+    expect(populatedGuardEnd).toBeGreaterThan(resultFooter);
+  });
+
   test("requires observable identities and state transitions before clearing locks", async () => {
     const users = await routeSource("users/+page.svelte");
     const organizations = await routeSource("organizations/+page.svelte");
