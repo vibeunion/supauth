@@ -2,6 +2,10 @@
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import AuditLogDetail from "$lib/components/AuditLogDetail.svelte";
+  import {
+    auditExportStatusLabelKey,
+    auditIntegrityStatusLabelKey,
+  } from "$lib/audit-status.js";
   import { t } from "$lib/i18n.js";
   import {
     downloadAuditExport,
@@ -36,10 +40,8 @@
   let exporting = $state(false);
   let downloading = $state(false);
 
-  function shortId(value) {
-    if (!value) return "-";
-    const text = String(value);
-    return text.length > 12 ? `${text.slice(0, 8)}...` : text;
+  function resourceId(entry) {
+    return String(entry.resource_id || entry.resourceId || "-");
   }
 
   function entryId(entry) {
@@ -210,7 +212,7 @@
       disabled={exporting}
       onclick={createExport}
       class="rounded-lg border border-surface-300 px-3 py-1.5 text-sm font-medium text-surface-700 disabled:opacity-50"
-      >{exporting ? t("Loading...") : t("Export")}</button
+      >{exporting ? t("Loading...") : t("audit.export")}</button
     >
     <button
       onclick={load}
@@ -229,7 +231,7 @@
 <div class="mb-4 grid gap-3 md:grid-cols-2">
   <section class="console-card p-4">
     <p class="text-xs font-semibold uppercase tracking-wide text-surface-500">
-      {t("Audit integrity")}
+      {t("audit.integrity")}
     </p>
     {#if integrityError}
       <p class="mt-2 text-sm text-red-700">
@@ -237,9 +239,7 @@
       </p>
     {:else if integrity}
       <p class="mt-2 text-sm font-semibold text-surface-900">
-        {integrity.consistent === true && integrity.status === "verified"
-          ? t("Verified")
-          : integrity.status || t("Review required")}
+        {t(auditIntegrityStatusLabelKey(integrity))}
       </p>
       <p class="mt-1 font-mono text-xs text-surface-500">
         {checkpointSummary(integrity.checkpoint)}
@@ -255,10 +255,12 @@
   </section>
   <section class="console-card p-4">
     <p class="text-xs font-semibold uppercase tracking-wide text-surface-500">
-      {t("Latest export")}
+      {t("audit.latestExport")}
     </p>
     <p class="mt-2 text-sm font-semibold text-surface-900">
-      {exportJob?.status || t("common.notAvailable")}
+      {exportJob?.status
+        ? t(auditExportStatusLabelKey(exportJob.status))
+        : t("common.notAvailable")}
     </p>
     <p class="mt-1 font-mono text-xs text-surface-500">
       {exportId(exportJob) || "-"}
@@ -287,35 +289,39 @@
   <input
     bind:value={filter.event_type}
     class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm"
-    placeholder={t("Filter: event type")}
+    placeholder={t("audit.filter.eventType")}
   />
   <input
     bind:value={filter.resource_type}
     class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm"
-    placeholder={t("Filter: resource type")}
+    placeholder={t("audit.filter.resourceType")}
   />
   <input
     bind:value={filter.resource_id}
     class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm"
-    placeholder={t("Filter: resource ID")}
+    placeholder={t("audit.filter.resourceId")}
   />
   <input
     bind:value={filter.actor_id}
     class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm"
-    placeholder={t("Filter: actor ID")}
+    placeholder={t("audit.filter.actorId")}
   />
-  <input
-    bind:value={filter.from}
-    type="datetime-local"
-    class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm"
-    aria-label={t("From time")}
-  />
-  <input
-    bind:value={filter.to}
-    type="datetime-local"
-    class="px-3 py-1.5 border border-surface-300 rounded-lg text-sm"
-    aria-label={t("To time")}
-  />
+  <label class="rounded-lg border border-surface-300 bg-white px-3 py-1.5">
+    <span class="block text-[10px] font-medium text-surface-500">{t("From time")}</span>
+    <input
+      bind:value={filter.from}
+      type="datetime-local"
+      class="mt-0.5 w-full min-w-0 border-0 bg-transparent p-0 text-sm focus:outline-none"
+    />
+  </label>
+  <label class="rounded-lg border border-surface-300 bg-white px-3 py-1.5">
+    <span class="block text-[10px] font-medium text-surface-500">{t("To time")}</span>
+    <input
+      bind:value={filter.to}
+      type="datetime-local"
+      class="mt-0.5 w-full min-w-0 border-0 bg-transparent p-0 text-sm focus:outline-none"
+    />
+  </label>
 </div>
 <div class="flex gap-2 mb-4">
   <button
@@ -343,8 +349,8 @@
     <span>{t("audit.eventCount", { count: total })}</span>
     <span>{t("audit.pageNumber", { page: cursorHistory.length + 1 })}</span>
   </div>
-  <div class="bg-white rounded-xl border border-surface-200 overflow-hidden">
-    <table class="w-full text-sm">
+  <div class="overflow-x-auto rounded-xl border border-surface-200 bg-white">
+    <table class="min-w-[60rem] w-full text-sm">
       <thead class="bg-surface-50 border-b border-surface-200">
         <tr>
           <th class="text-left px-4 py-3 font-medium text-surface-600"
@@ -362,7 +368,7 @@
           <th class="text-left px-4 py-3 font-medium text-surface-600"
             >{t("ID")}</th
           >
-          <th class="text-right px-4 py-3 font-medium text-surface-600"
+          <th class="min-w-[11rem] whitespace-nowrap text-right px-4 py-3 font-medium text-surface-600"
             >{t("audit.action")}</th
           >
         </tr>
@@ -385,20 +391,20 @@
             <td class="px-4 py-3 text-surface-600 text-xs"
               >{entry.resource_type || entry.resourceType || "-"}</td
             >
-            <td class="px-4 py-3 font-mono text-xs text-surface-500"
-              >{shortId(entry.resource_id || entry.resourceId)}</td
-            >
-            <td class="px-4 py-3 text-right">
+            <td class="max-w-[13rem] px-4 py-3 font-mono text-xs text-surface-500">
+              <span class="block truncate" title={resourceId(entry)}>{resourceId(entry)}</span>
+            </td>
+            <td class="min-w-[11rem] whitespace-nowrap px-4 py-3 text-right">
               <a
                 href={resolve(
                   `/audit-logs/${encodeURIComponent(entryId(entry))}`,
                 )}
-                class="mr-2 rounded-lg border border-surface-300 px-2.5 py-1 text-xs font-semibold text-surface-600 hover:bg-surface-50"
+                class="mr-2 inline-flex whitespace-nowrap rounded-lg border border-surface-300 px-2.5 py-1 text-xs font-semibold text-surface-600 hover:bg-surface-50"
                 >{t("audit.openDetail")}</a
               >
               <button
                 onclick={() => openDetail(entry)}
-                class="rounded-lg border border-surface-300 px-2.5 py-1 text-xs font-semibold text-surface-600 hover:bg-surface-50"
+                class="inline-flex whitespace-nowrap rounded-lg border border-surface-300 px-2.5 py-1 text-xs font-semibold text-surface-600 hover:bg-surface-50"
                 >{t("View")}</button
               >
             </td>

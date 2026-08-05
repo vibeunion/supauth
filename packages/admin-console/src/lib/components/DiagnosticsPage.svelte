@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n.js';
+  import { adminAuthModeLabelKey, securityWarningLabelKey } from '$lib/tenant-settings.js';
   import { getProject, getSecurityStatus, reconcileProject } from '$lib/api/client.js';
 
   let project = $state(null);
@@ -80,14 +81,16 @@
       <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Security Gate')}</h3>
       {#if security}
         <div class="grid grid-cols-2 gap-3 text-sm">
-          <p class="text-surface-600">{t('Admin auth:')} <span class="font-mono text-surface-900">{security.admin_auth_mode}</span></p>
+          <p class="text-surface-600">{t('Admin auth:')} <span class="font-medium text-surface-900">{t(adminAuthModeLabelKey(security.admin_auth_mode))}</span></p>
           <p class="text-surface-600">{t('Token auth:')} <span class="font-mono text-surface-900">{security.token_auth_allowed ? t('allowed') : t('disabled')}</span></p>
           <p class="text-surface-600">{t('Rate limit:')} <span class="font-mono text-surface-900">{security.rate_limit_rpm}/min</span></p>
           <p class="text-surface-600">{t('Brute force protection:')} <span class="font-mono text-surface-900">{security.brute_force_protection ? t('on') : t('off')}</span></p>
         </div>
-        {#if security.warnings?.length}
-          <div class="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
-            {security.warnings.join(' · ')}
+        {#if security.warning_codes?.length}
+          <div class="mt-4 space-y-1 bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+            {#each security.warning_codes as warningCode (warningCode)}
+              <p>{t(securityWarningLabelKey(warningCode))}</p>
+            {/each}
           </div>
         {/if}
       {:else}

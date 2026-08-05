@@ -1206,6 +1206,21 @@ export class SupaCloudAdapter {
     );
   }
 
+  async getAuthHooks() {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/hooks`,
+      'gotrue_auth_hooks_v1',
+    );
+  }
+
+  async updateAuthHooks(authHooks: Record<string, unknown>) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/hooks`,
+      'gotrue_auth_hooks_v1',
+      { method: 'PATCH', body: JSON.stringify(authHooks) },
+    );
+  }
+
   async verifyAuthHook(hookName: string) {
     return this.requestCapability(
       `/v1/projects/${this.projectRef}/auth/hooks/${pathSegment(hookName)}/verify`,

@@ -589,6 +589,17 @@ export function getCustomAccessTokenHookStatus() {
   return request("/v1/auth-hooks/custom-access-token/status");
 }
 
+export function getCustomAccessTokenHookConfig() {
+  return request("/v1/auth-hooks/custom-access-token/config");
+}
+
+export function updateCustomAccessTokenHookConfig(hookConfig) {
+  return request("/v1/auth-hooks/custom-access-token/config", {
+    method: "PATCH",
+    body: JSON.stringify(hookConfig),
+  });
+}
+
 export function verifyCustomAccessTokenHook() {
   return request("/v1/auth-hooks/custom-access-token/verify", {
     method: "POST",

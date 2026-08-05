@@ -333,6 +333,22 @@ describe("mutation reconciliation", () => {
       createResponse: created,
       draft,
     })).toEqual(created);
+    const platformCreated = {
+      ...created,
+      has_secret: true,
+      secret_configured: undefined,
+      signing_key_id: "v1",
+    };
+    expect(reconciledCreatedWebhook({
+      beforeWebhooks: [existing],
+      afterWebhooks: [existing, platformCreated],
+      createResponse: platformCreated,
+      draft,
+    })).toEqual({
+      ...created,
+      secret_configured: true,
+      signing_key_id: "v1",
+    });
     expect(reconciledCreatedWebhook({
       beforeWebhooks: [existing],
       afterWebhooks: [existing, created],
@@ -377,6 +393,13 @@ describe("mutation reconciliation", () => {
       {
         beforeWebhooks: [existing],
         afterWebhooks: [existing, { ...created, id: 42 }],
+      },
+      {
+        beforeWebhooks: [existing],
+        afterWebhooks: [
+          existing,
+          { ...created, has_secret: false },
+        ],
       },
       {
         beforeWebhooks: [existing],
