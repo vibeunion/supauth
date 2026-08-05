@@ -14,7 +14,7 @@ SupaOAuth 与 Logto 的一级信息架构已经基本对齐：浏览器实测两
 
 建议结论：
 
-1. **现在就加入**：身份分析、实时登录预览、Custom UI 管理入口、第三方应用/授权总览、用户会话/身份/grant 的能力状态视图、Webhook 运行指标、上下文帮助和全局搜索。
+1. **现在就加入**：身份分析、内置托管页实时预览、Custom UI 历史状态与删除入口、第三方应用/授权总览、用户会话/身份/grant 的能力状态视图、Webhook 运行指标、上下文帮助和全局搜索。
 2. **先修正产品真相**：当前“自定义 JWT”不是可持久化的任意 claim policy；Security 页的 brute-force/max attempts 仅保护旧版/开发环境 `ADMIN_TOKEN` 登录来源 IP，不保护 GoTrue SSO 或终端用户 identifier，且生产环境禁用 token login。
 3. **只有上游能力存在时加入**：Passkey、Phone/Email MFA、恢复码、组织 MFA、终端用户 identifier lockout、OTP expiry/retry、泄露密码检查、管理员 session/identity/grant mutation、真正的 `client_credentials`。
 4. **暂不加入**：Logto PAT、subject token、one-time token、token exchange、任意认证 Actions 脚本、第二套 session/credential/recovery store。
@@ -57,7 +57,7 @@ SupaOAuth 与 Logto 的一级信息架构已经基本对齐：浏览器实测两
 | 层 | Logto | SupAuth / SupaOAuth | 对产品决策的含义 |
 | --- | --- | --- | --- |
 | 管理控制台 | React Console | SvelteKit Admin Console | 可以借鉴 IA、交互和可观测性 |
-| 登录体验 | 独立 React Experience | Hosted pages + GoTrue ceremony + 可选 Custom UI | UI 可增强，认证流程归 GoTrue |
+| 登录体验 | 独立 React Experience | Hosted pages + GoTrue ceremony；任意 Custom UI 仅能在未来独立不可信 Origin 中实现 | UI 可增强，认证流程归 GoTrue |
 | 管理 API | Koa Management API | Elysia `/api/v1/*` BFF | Admin Console 继续只访问同源 BFF |
 | OAuth/OIDC | 自有 `oidc-provider` 运行时 | GoTrue/SupaCloud 运行时 | 不能在 SupAuth 增加第二 issuer/token endpoint |
 | 用户与密码 | Logto `users` 表 | GoTrue `auth.users` | SupAuth 不写第二套密码/用户权威 |
@@ -111,7 +111,7 @@ SupaOAuth 的定位不是“另一个 Logto”。它应成为 **Supabase 原生�
 | Identifier lockout | Sentinel 按目标 hash、动作、失败次数和锁定时间执行；支持管理员解锁 | Security 的 brute-force/max attempts 实际仅保护 SupaOAuth 管理登录 IP | 先修正文案；终端用户 lockout **上游门控** |
 | OTP 策略 | verification code expiry 60–3600 秒、最大失败次数 1–100 | 无对应 GoTrue 权威控制台能力 | **上游门控** |
 | 邮箱阻止策略 | disposable、subaddressing、custom allow/block；部分 Cloud/付费限定 | 域名 allow/block、OAuth Provider allow/block、invite-only，通过 GoTrue Hook 执行 | 双方侧重点不同；SupaOAuth 当前能力有价值，保留 |
-| 登录体验 | 品牌、暗色、CSS、桌面/移动实时预览、Custom UI ZIP 和 CSP | 品牌、内容、CSS；Custom UI 后端生命周期成熟，但控制台无上传/启停/回退和实时预览 | **现在应加入** |
+| 登录体验 | 品牌、暗色、CSS、桌面/移动实时预览、Custom UI ZIP 和 CSP | 品牌、内容、CSS、内置页面预览；历史 Custom UI 包只能安全读回和删除，上传与同源 serving 已移除 | 内置预览和安全清理 **现在应加入**；完整页面只在独立 Origin 后重新设计 |
 | Custom profile fields | 独立 catalog、顺序、注册与 Account Center 投影 | 已有 `profile_field` 管理和收集页面 | 补预览、字段类型/校验和 runtime read-back，不复制表 |
 | Account Center | 字段级 read/edit、Passkey、MFA、session、grant、identity、自定义 CSS/CSP | 已有 profile/email/phone、TOTP、grant、identity、自删等自助 API；session unavailable | 完善 UI 和 capability 展示；session 上游门控 |
 | Access Token claims | 用户 token 与 M2M token 分别执行自定义脚本，可读取用户/应用/组织上下文 | 固定 GoTrue Custom Access Token Hook，投影到 `app_metadata.supaoauth.projects[projectRef]` | 增加受限声明式 policy；**不复制任意脚本** |
@@ -211,16 +211,19 @@ SupaOAuth `security_config.brute_force_protection`、`max_login_attempts`、`loc
 
 验收：明确去重键、窗口边界、匿名用户、service/M2M token 是否计入；跨租户查询必须 fail-closed。
 
-#### 7.3 完成登录体验控制台
+#### 7.3 完成安全的登录体验控制台
 
 - 桌面/移动实时预览；
 - light/dark 双主题；
-- 把现有 Custom UI ZIP 后端生命周期接入 Admin Console；
-- 上传前静态检查、文件清单、大小、hash、CSP allowlist 预览；
-- staged/active/cleanup-pending/unknown-outcome 状态；
-- 删除、回退、并发冲突和审计链接。
+- 预览仅渲染内置托管模板的结构化品牌配置；
+- 对历史 Custom UI 包只展示脱敏文件清单、hash、阻断原因、审计和删除恢复状态；
+- blocked/cleanup-pending/unknown-outcome 状态必须来自权威读回；
+- 删除、并发冲突和审计链接继续 fail-closed。
 
-实现原则：复用现有 `sign-in-experience.ts` 和 `custom-ui-assets.ts`，不建设第二套上传后端；预览不能放宽生产 CSP。
+实现原则：认证/Admin 同源上的 Custom UI POST 固定 501，旧资源路由固定 404，
+不得恢复已经删除的 ZIP 解析、上传、激活或 serving 链。未来若确需完整页面，必须先
+建立独立不可信 Origin、隔离 cookie/CSP/资源合同，并从新的安全边界重新设计，不能
+复用旧上传实现。预览不能放宽生产 CSP。
 
 #### 7.4 第三方应用与授权总览
 
@@ -384,7 +387,7 @@ ID Token claims 和 M2M claims 只有 GoTrue 提供权威扩展点时才开放�
 - SupaCloud organization/RBAC/应用资源的权威 read-back；
 - GoTrue user-token 自助 grant revoke、identity linking/unlink 和 TOTP；
 - 邮箱域、OAuth Provider 和 invite-only 准入策略；
-- Custom UI 后端的私有存储、manifest、hash、并发和清理队列。
+- Custom UI 历史 manifest/hash 的严格校验、不可执行状态读回、审计与清理队列。
 
 这些能力比复制 Logto token/session 数据模型更符合 SupAuth 的长期定位。
 
@@ -428,7 +431,7 @@ ID Token claims 和 M2M claims 只有 GoTrue 提供权威扩展点时才开放�
 - 管理登录 lockout 实现：`packages/auth-server/src/auth/index.ts:202-233`
 - JWT/Hook 页面：`packages/admin-console/src/routes/customize-jwt/+page.svelte:1-325`
 - Auth Hook：`packages/auth-server/src/routes/auth-hooks.ts`
-- Custom UI 后端：`packages/auth-server/src/routes/sign-in-experience.ts`、`utils/custom-ui-assets.ts`
+- Custom UI 历史状态与清理边界：`packages/auth-server/src/routes/sign-in-experience.ts`、`utils/custom-ui-assets.ts`
 - Tenant capability tabs：`packages/admin-console/src/routes/tenant-settings/+layout.svelte:10-53`
 
 ## 13. 浏览器证据入口

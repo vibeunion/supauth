@@ -765,8 +765,6 @@ const en = {
   "Custom CSS for the hosted login page":
     "Custom CSS for the hosted login page",
   "Structured Login Content": "Structured Login Content",
-  "JSON feature items rendered by the hosted login template. Use custom-ui files for full-page custom HTML.":
-    "JSON feature items rendered by the hosted login template. Use custom-ui files for full-page custom HTML.",
   "Structured login content must be valid JSON.":
     "Structured login content must be valid JSON.",
 };
@@ -1765,8 +1763,6 @@ const zhCN = {
   "Cloud Illustration": "云服务插画",
   "Custom CSS for the hosted login page": "托管登录页的自定义 CSS",
   "Structured Login Content": "结构化登录页内容",
-  "JSON feature items rendered by the hosted login template. Use custom-ui files for full-page custom HTML.":
-    "由托管登录页模板渲染的 JSON 功能项。完整自定义 HTML 请使用 custom-ui 文件。",
   "Structured login content must be valid JSON.":
     "结构化登录页内容必须是有效 JSON。",
   "GoTrue OAuth client_id": "GoTrue OAuth client_id",

@@ -7,13 +7,13 @@
 - GoTrue/Supabase Auth 兼容：OAuth/OIDC discovery、JWKS、授权码、refresh token、session、MFA 和 `auth.users` 仍由 GoTrue 负责。
 - 产品治理层：Admin Console、hosted pages、account center、Applications、Users、Organizations、RBAC、Audit、Webhooks、Connectors、tenant config 和 compatibility tooling。
 - 权限桥接：schema v2 `app_metadata.supaoauth.projects[projectRef]` 的有界投影、RLS helper、资源/scope/application binding、安装期 RBAC 验证。
-- 可配置登录体验：`supaoauth.sign_in_experience`、application-level sign-in override、branding bucket 和 `custom-ui/` 部署目录。
+- 可配置登录体验：`supaoauth.sign_in_experience`、application-level sign-in override、branding bucket，以及内置模板支持的结构化内容和受限 CSS。
 - 审计输出：登录、授权、consent、应用、角色、权限、MFA、webhook 等事件的标准化 envelope 和 facade。
 
 ## 通过西谷租户配置实现
 
 - 系统名称、名称含义、口号、登录页介绍和按钮文案，例如“西谷智灯枢鉴系统”“一枢通行，万鉴归一”“进入枢鉴”。
-- Logo、favicon、主色、背景、功能介绍卡片、完整自定义登录页资源。
+- Logo、favicon、主色、背景、功能介绍卡片和内置模板支持的结构化登录页内容。任意 HTML/JavaScript 页面包不得接入认证/Admin 同源。
 - 西谷角色模板：任务创建者、设备操作员、SOP 编辑员、审计查看员等。
 - 西谷资源模型：产线、设备、SOP、检测任务、配方、报表、MES/customer portal API resource 和 scopes。
 - AI Agent、自动化流程、设备账号对应的 OAuth client、client secret 生命周期、application binding 和最小权限角色。

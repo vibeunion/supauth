@@ -119,12 +119,18 @@ public、`token_endpoint_auth_method=none`、精确单回调和 PKCE S256。
 
 ### 托管页面自定义
 
-托管页面自定义分为两层：
+托管页面只接受 `supaoauth.sign_in_experience` 中的轻量品牌配置，包括
+`page_title`、`primary_color`、`description`、`button_label`、`background_url`、
+`custom_css` 和 `content`。其中 `content` 是 JSONB 结构化配置，例如
+`{ "layout": "features", "items": [{ "icon": "shield", "title": "标准认证协议", "desc": "OAuth 2.0 / OIDC" }] }`，
+由内置托管模板渲染为功能介绍。
 
-1. 轻量品牌配置存 `supaoauth.sign_in_experience`，包括 `page_title`、`primary_color`、`description`、`button_label`、`background_url`、`custom_css` 和 `content`。其中 `content` 是 JSONB 结构化配置，例如 `{ "layout": "features", "items": [{ "icon": "shield", "title": "标准认证协议", "desc": "OAuth 2.0 / OIDC" }] }`，由默认托管模板渲染为功能介绍。
-2. 完整页面替换使用 `custom-ui/` 静态目录。运行时会优先读取 `custom-ui/login.html` 或 `custom-ui/index.html` 覆盖登录页，也会读取 `custom-ui/claim.html`、`custom-ui/change-password.html`、`custom-ui/account.html` 分别覆盖领取、改密、账户中心页面；`/custom-ui/*` 用于引用同目录下的图片、SVG、字体和脚本。该目录通过部署流程同步到服务器，不提交到 git。
-
-仓库已忽略 `custom-ui/` 与 `packages/auth-server/custom-ui/`。默认开源模板只保留中性布局和渲染能力，具体业务文案、视觉和完整页面资源应来自数据库配置或部署目录。
+任意 Custom UI HTML/JavaScript 上传在独立不可信 Origin 建成前固定返回
+`501 capability_unavailable`。认证/Admin 同源上的 `/custom-ui/*` 和
+`/v1/public/custom-ui/*` 固定返回 404，部署流程也不得把本地 `custom-ui/`
+目录接入 Function。历史存储包保持不可执行，只能通过管理端 GET 读取安全状态，
+或通过 DELETE 完成审计与清理。重新开放必须先建立独立 Origin、隔离 cookie、
+CSP 与资源合同，并重新通过完整安全审查。
 
 西谷“枢鉴”这类部署品牌使用租户配置落地，不写入开源默认源码。示例配置见 `config/sign-in-experience/xigu-shujian.json`，边界说明见 `docs/xigu-shujian-config.md`。可通过 `bun run tenant:apply-sign-in -- --base-url <auth-origin> --config <preset.json>` 写入目标环境；先加 `--dry-run` 检查 payload，再使用已换取的管理 session token 或 SSO access token 执行真实写入，不得把原始 `ADMIN_TOKEN` 直接作为 Bearer。
 

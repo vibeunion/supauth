@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { inflateSync } from 'fflate';
 
 export const CUSTOM_UI_LIMITS = Object.freeze({
-  maxArchiveBytes: 2 * 1024 * 1024,
   maxFileBytes: 2 * 1024 * 1024,
   maxTotalBytes: 8 * 1024 * 1024,
   maxFiles: 100,
@@ -20,15 +18,6 @@ export const CUSTOM_UI_CONFIG_KEY = 'active';
 export const CUSTOM_UI_CLEANUP_CONFIG_KEY = 'cleanup';
 
 const CUSTOM_UI_PATH_ROOT = path.resolve('/supauth-custom-ui-assets');
-const ZIP_CENTRAL_SIGNATURE = 0x02014b50;
-const ZIP_END_SIGNATURE = 0x06054b50;
-const ZIP_LOCAL_SIGNATURE = 0x04034b50;
-const ZIP_DATA_DESCRIPTOR_SIGNATURE = 0x08074b50;
-const ZIP_DATA_DESCRIPTOR_FLAG = 0x0008;
-const ZIP_UTF8_FLAG = 0x0800;
-const ZIP_ALLOWED_FLAGS = ZIP_DATA_DESCRIPTOR_FLAG | ZIP_UTF8_FLAG;
-const ZIP_ENCRYPTION_FLAGS = 0x0001 | 0x0040 | 0x2000;
-const ZIP64_SENTINEL = 0xffffffff;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const ASSETS_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AUDIT_ACTOR_ID_PATTERN = /^[A-Za-z0-9@._:+/-]{1,200}$/;
@@ -77,48 +66,6 @@ const FORBIDDEN_FILENAMES = new Set([
 const FORBIDDEN_EXTENSIONS = new Set([
   '.crt', '.db', '.jks', '.key', '.keystore', '.map', '.p12', '.pem', '.pfx', '.sqlite',
 ]);
-
-export class CustomUiAssetError extends Error {
-  constructor(public readonly code: string) {
-    super(code);
-    this.name = 'CustomUiAssetError';
-  }
-}
-
-interface ZipCentralEntry {
-  rawPath: string;
-  compression: number;
-  compressedSize: number;
-  uncompressedSize: number;
-  crc32: number;
-  dataOffset: number;
-  isDirectory: boolean;
-  outputPath?: string;
-}
-
-interface LocalHeaderExpectation {
-  offset: number;
-  flags: number;
-  compression: number;
-  rawPath: string;
-  crc32: number;
-  compressedSize: number;
-  uncompressedSize: number;
-  directoryOffset: number;
-}
-
-export interface ParsedCustomUiFile {
-  path: string;
-  bytes: Uint8Array;
-  size: number;
-  sha256: string;
-  contentType: string;
-}
-
-export interface ParsedCustomUiArchive {
-  files: ParsedCustomUiFile[];
-  contentSha256: string;
-}
 
 export interface CustomUiManifestFile {
   path: string;
@@ -240,321 +187,15 @@ function forbiddenAssetPath(assetPath: string): boolean {
     || FORBIDDEN_EXTENSIONS.has(path.posix.extname(basename));
 }
 
-function findEndRecord(bytes: Uint8Array): number {
-  const earliest = Math.max(0, bytes.length - 65_557);
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  for (let offset = bytes.length - 22; offset >= earliest; offset -= 1) {
-    if (view.getUint32(offset, true) === ZIP_END_SIGNATURE) return offset;
-  }
-  throw new CustomUiAssetError('invalid_archive');
-}
-
-function decodeZipPath(bytes: Uint8Array, flags: number): string {
-  if (!(flags & ZIP_UTF8_FLAG) && bytes.some(byte => byte > 0x7f)) {
-    throw new CustomUiAssetError('unsupported_filename_encoding');
-  }
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch {
-    throw new CustomUiAssetError('invalid_path');
-  }
-}
-
-function unixEntryType(versionMadeBy: number, externalAttributes: number): number {
-  return versionMadeBy >> 8 === 3 ? (externalAttributes >>> 16) & 0xf000 : 0;
-}
-
-function directoryEntry(versionMadeBy: number, externalAttributes: number, rawPath: string): boolean {
-  const unixType = unixEntryType(versionMadeBy, externalAttributes);
-  if (unixType && unixType !== 0x4000 && unixType !== 0x8000) {
-    throw new CustomUiAssetError('unsupported_entry_type');
-  }
-  const directory = unixType === 0x4000 || (!(versionMadeBy >> 8 === 3) && Boolean(externalAttributes & 0x10));
-  if (directory !== rawPath.endsWith('/')) throw new CustomUiAssetError('unsupported_entry_type');
-  if (!(versionMadeBy >> 8 === 3) && (externalAttributes & 0x08)) {
-    throw new CustomUiAssetError('unsupported_entry_type');
-  }
-  return directory;
-}
-
-function assertSupportedZipEntry(flags: number, compression: number, sizes: number[]) {
-  if (flags & ZIP_ENCRYPTION_FLAGS) throw new CustomUiAssetError('encrypted_archive');
-  if (flags & ~ZIP_ALLOWED_FLAGS) throw new CustomUiAssetError('unsupported_zip_flags');
-  if (compression !== 0 && compression !== 8) throw new CustomUiAssetError('unsupported_compression');
-  if (sizes.some(size => size === ZIP64_SENTINEL)) throw new CustomUiAssetError('zip64_unsupported');
-}
-
-function assertMatchingDataDescriptor(
-  view: DataView,
-  descriptorOffset: number,
-  expected: LocalHeaderExpectation,
-) {
-  const matchesAt = (valuesOffset: number) => valuesOffset + 12 <= expected.directoryOffset
-    && view.getUint32(valuesOffset, true) === expected.crc32
-    && view.getUint32(valuesOffset + 4, true) === expected.compressedSize
-    && view.getUint32(valuesOffset + 8, true) === expected.uncompressedSize;
-  const signed = descriptorOffset + 4 <= view.byteLength
-    && view.getUint32(descriptorOffset, true) === ZIP_DATA_DESCRIPTOR_SIGNATURE
-    && matchesAt(descriptorOffset + 4);
-  if (!signed && !matchesAt(descriptorOffset)) throw new CustomUiAssetError('invalid_archive');
-}
-
-function assertMatchingLocalHeader(
-  bytes: Uint8Array,
-  expected: LocalHeaderExpectation,
-) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (expected.offset + 30 > bytes.length || view.getUint32(expected.offset, true) !== ZIP_LOCAL_SIGNATURE) {
-    throw new CustomUiAssetError('invalid_archive');
-  }
-  const localFlags = view.getUint16(expected.offset + 6, true);
-  const nameLength = view.getUint16(expected.offset + 26, true);
-  const extraLength = view.getUint16(expected.offset + 28, true);
-  const nameStart = expected.offset + 30;
-  const contentStart = nameStart + nameLength + extraLength;
-  const localPath = decodeZipPath(bytes.subarray(nameStart, nameStart + nameLength), expected.flags);
-  if (
-    localPath !== expected.rawPath
-    || localFlags !== expected.flags
-    || view.getUint16(expected.offset + 8, true) !== expected.compression
-  ) {
-    throw new CustomUiAssetError('invalid_archive');
-  }
-  const localCrc32 = view.getUint32(expected.offset + 14, true);
-  const localCompressedSize = view.getUint32(expected.offset + 18, true);
-  const localUncompressedSize = view.getUint32(expected.offset + 22, true);
-  if (expected.flags & ZIP_DATA_DESCRIPTOR_FLAG) {
-    if (
-      (localCrc32 !== 0 && localCrc32 !== expected.crc32)
-      || (localCompressedSize !== 0 && localCompressedSize !== expected.compressedSize)
-      || (localUncompressedSize !== 0 && localUncompressedSize !== expected.uncompressedSize)
-    ) throw new CustomUiAssetError('invalid_archive');
-    assertMatchingDataDescriptor(view, contentStart + expected.compressedSize, expected);
-  } else if (
-    localCrc32 !== expected.crc32
-    || localCompressedSize !== expected.compressedSize
-    || localUncompressedSize !== expected.uncompressedSize
-  ) {
-    throw new CustomUiAssetError('invalid_archive');
-  }
-  if (contentStart + expected.compressedSize > expected.directoryOffset) {
-    throw new CustomUiAssetError('invalid_archive');
-  }
-  return contentStart;
-}
-
-function centralDirectoryBounds(bytes: Uint8Array, endOffset: number) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const diskNumber = view.getUint16(endOffset + 4, true);
-  const directoryDisk = view.getUint16(endOffset + 6, true);
-  const diskEntries = view.getUint16(endOffset + 8, true);
-  const entryCount = view.getUint16(endOffset + 10, true);
-  const directorySize = view.getUint32(endOffset + 12, true);
-  const directoryOffset = view.getUint32(endOffset + 16, true);
-  const commentLength = view.getUint16(endOffset + 20, true);
-  if (diskNumber || directoryDisk || diskEntries !== entryCount) throw new CustomUiAssetError('multidisk_unsupported');
-  if (entryCount === 0xffff || directoryOffset === ZIP64_SENTINEL || directorySize === ZIP64_SENTINEL) {
-    throw new CustomUiAssetError('zip64_unsupported');
-  }
-  if (directoryOffset + directorySize !== endOffset) throw new CustomUiAssetError('invalid_archive');
-  if (endOffset + 22 + commentLength !== bytes.length) throw new CustomUiAssetError('invalid_archive');
-  return { entryCount, directoryOffset };
-}
-
-function readCentralEntry(
-  bytes: Uint8Array,
-  offset: number,
-  directoryOffset: number,
-): { entry: ZipCentralEntry; nextOffset: number } {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (offset + 46 > bytes.length || view.getUint32(offset, true) !== ZIP_CENTRAL_SIGNATURE) {
-    throw new CustomUiAssetError('invalid_archive');
-  }
-  const flags = view.getUint16(offset + 8, true);
-  const compression = view.getUint16(offset + 10, true);
-  const compressedSize = view.getUint32(offset + 20, true);
-  const uncompressedSize = view.getUint32(offset + 24, true);
-  const localOffset = view.getUint32(offset + 42, true);
-  const crc32 = view.getUint32(offset + 16, true);
-  assertSupportedZipEntry(flags, compression, [compressedSize, uncompressedSize, localOffset]);
-  const nameLength = view.getUint16(offset + 28, true);
-  const extraLength = view.getUint16(offset + 30, true);
-  const commentLength = view.getUint16(offset + 32, true);
-  const nextOffset = offset + 46 + nameLength + extraLength + commentLength;
-  if (nextOffset > bytes.length) throw new CustomUiAssetError('invalid_archive');
-  const rawPath = decodeZipPath(bytes.subarray(offset + 46, offset + 46 + nameLength), flags);
-  const isDirectory = directoryEntry(
-    view.getUint16(offset + 4, true),
-    view.getUint32(offset + 38, true),
-    rawPath,
-  );
-  if (isDirectory && (compressedSize || uncompressedSize)) throw new CustomUiAssetError('unsupported_entry_type');
-  const dataOffset = assertMatchingLocalHeader(bytes, {
-    offset: localOffset,
-    flags,
-    compression,
-    rawPath,
-    crc32,
-    compressedSize,
-    uncompressedSize,
-    directoryOffset,
-  });
-  return {
-    entry: {
-      rawPath,
-      compression,
-      compressedSize,
-      uncompressedSize,
-      crc32,
-      dataOffset,
-      isDirectory,
-    },
-    nextOffset,
-  };
-}
-
-function readCentralEntries(bytes: Uint8Array): ZipCentralEntry[] {
-  const endOffset = findEndRecord(bytes);
-  const { entryCount, directoryOffset } = centralDirectoryBounds(bytes, endOffset);
-  if (entryCount > CUSTOM_UI_LIMITS.maxFiles * 2) throw new CustomUiAssetError('too_many_entries');
-  const entries: ZipCentralEntry[] = [];
-  let offset = directoryOffset;
-  for (let index = 0; index < entryCount; index += 1) {
-    const parsed = readCentralEntry(bytes, offset, directoryOffset);
-    entries.push(parsed.entry);
-    offset = parsed.nextOffset;
-  }
-  if (offset !== endOffset) throw new CustomUiAssetError('invalid_archive');
-  return entries;
-}
-
-function commonArchiveRoot(paths: string[]): string {
-  if (paths.includes('index.html')) return '';
-  const roots = new Set(paths.map(assetPath => assetPath.split('/')[0]));
-  if (roots.size !== 1 || paths.some(assetPath => !assetPath.includes('/'))) {
-    throw new CustomUiAssetError('invalid_root_structure');
-  }
-  const root = `${[...roots][0]}/`;
-  if (!paths.includes(`${root}index.html`)) throw new CustomUiAssetError('missing_index_html');
-  return root;
-}
-
-function assertAssetBoundary(assetPath: string, size: number) {
-  if (assetPath.split('/').length > CUSTOM_UI_LIMITS.maxDepth) throw new CustomUiAssetError('path_too_deep');
-  if (forbiddenAssetPath(assetPath)) throw new CustomUiAssetError('forbidden_asset');
-  if (!contentTypeForPath(assetPath)) throw new CustomUiAssetError('unsupported_asset_type');
-  if (size > CUSTOM_UI_LIMITS.maxFileBytes) throw new CustomUiAssetError('file_too_large');
-}
-
-function prepareArchiveEntries(entries: ZipCentralEntry[]): ZipCentralEntry[] {
-  const files = entries.filter(entry => !entry.isDirectory);
-  if (!files.length) throw new CustomUiAssetError('empty_archive');
-  if (files.length > CUSTOM_UI_LIMITS.maxFiles) throw new CustomUiAssetError('too_many_files');
-  const archivePaths = new Set<string>();
-  for (const entry of entries) {
-    const normalized = normalizeCustomUiAssetPath(entry.rawPath);
-    if (!normalized) throw new CustomUiAssetError('invalid_path');
-    if (archivePaths.has(normalized)) throw new CustomUiAssetError('duplicate_path');
-    archivePaths.add(normalized);
-    entry.outputPath = normalized;
-  }
-  const root = commonArchiveRoot(files.map(entry => entry.outputPath!));
-  const seen = new Set<string>();
-  let expandedBytes = 0;
-  for (const entry of files) {
-    const outputPath = root ? entry.outputPath!.slice(root.length) : entry.outputPath!;
-    if (!outputPath || seen.has(outputPath)) throw new CustomUiAssetError('duplicate_path');
-    assertAssetBoundary(outputPath, entry.uncompressedSize);
-    seen.add(outputPath);
-    entry.outputPath = outputPath;
-    expandedBytes += entry.uncompressedSize;
-  }
-  if (expandedBytes > CUSTOM_UI_LIMITS.maxTotalBytes) throw new CustomUiAssetError('expanded_archive_too_large');
-  return files;
-}
-
-function concatenateChunks(chunks: Uint8Array[], size: number): Uint8Array {
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return bytes;
-}
-
-function extractValidatedEntries(bytes: Uint8Array, entries: ZipCentralEntry[]): Map<string, Uint8Array> {
-  const extracted = new Map<string, Uint8Array>();
-  for (const entry of entries) {
-    const compressed = bytes.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
-    const content = entry.compression === 0
-      ? compressed.slice()
-      : inflateSync(compressed, { out: new Uint8Array(entry.uncompressedSize + 1) });
-    if (
-      content.length !== entry.uncompressedSize
-      || content.length > CUSTOM_UI_LIMITS.maxFileBytes
-      || (Bun.hash.crc32(content) >>> 0) !== entry.crc32
-    ) throw new CustomUiAssetError('invalid_archive');
-    extracted.set(entry.rawPath, content);
-  }
-  return extracted;
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
-function contentSha256(files: Array<Pick<ParsedCustomUiFile, 'path' | 'sha256' | 'size'>>): string {
+function contentSha256(
+  files: Array<Pick<CustomUiManifestFile, 'path' | 'sha256' | 'size'>>,
+): string {
   const hash = createHash('sha256');
   for (const file of files) hash.update(`${file.path}\0${file.sha256}\0${file.size}\n`);
   return hash.digest('hex');
 }
 
-function assertValidEntrypoint(files: ParsedCustomUiFile[]) {
-  const entrypoints = files.filter(file => file.path === 'index.html' || file.path === 'login.html');
-  for (const entrypoint of entrypoints) {
-    const entryName = entrypoint.path.slice(0, -'.html'.length);
-    if (!entrypoint.size) throw new CustomUiAssetError(`empty_${entryName}_html`);
-    try {
-      new TextDecoder('utf-8', { fatal: true }).decode(entrypoint.bytes);
-    } catch {
-      throw new CustomUiAssetError(`invalid_${entryName}_html`);
-    }
-  }
-}
-
-export async function parseCustomUiArchive(file: File): Promise<ParsedCustomUiArchive> {
-  if (file.size > CUSTOM_UI_LIMITS.maxArchiveBytes) throw new CustomUiAssetError('archive_too_large');
-  let bytes: Uint8Array;
-  try {
-    bytes = new Uint8Array(await file.arrayBuffer());
-  } catch {
-    throw new CustomUiAssetError('invalid_archive');
-  }
-  if (bytes.length > CUSTOM_UI_LIMITS.maxArchiveBytes) throw new CustomUiAssetError('archive_too_large');
-  try {
-    const entries = readCentralEntries(bytes);
-    const files = prepareArchiveEntries(entries);
-    const extracted = extractValidatedEntries(bytes, entries);
-    const parsedFiles = files.map((entry) => {
-      const content = extracted.get(entry.rawPath)!;
-      return {
-        path: entry.outputPath!,
-        bytes: content,
-        size: content.length,
-        sha256: sha256(content),
-        contentType: contentTypeForPath(entry.outputPath!)!,
-      };
-    }).sort((left, right) => left.path.localeCompare(right.path));
-    assertValidEntrypoint(parsedFiles);
-    return { files: parsedFiles, contentSha256: contentSha256(parsedFiles) };
-  } catch (error) {
-    if (error instanceof CustomUiAssetError) throw error;
-    throw new CustomUiAssetError('invalid_archive');
-  }
-}
-
-export function customUiObjectKey(assetsId: string, file: Pick<ParsedCustomUiFile, 'path' | 'sha256'>) {
+export function customUiObjectKey(assetsId: string, file: Pick<CustomUiManifestFile, 'path' | 'sha256'>) {
   return `versions/${assetsId}/${file.sha256}/${file.path}`;
 }
 
@@ -706,24 +347,10 @@ export function parseCustomUiCleanupQueue(queueValue: unknown): CustomUiCleanupQ
   return candidate as unknown as CustomUiCleanupQueue;
 }
 
-export function manifestFileForPath(manifest: CustomUiManifest, rawPath: string): CustomUiManifestFile | null {
-  const normalized = normalizeCustomUiAssetPath(rawPath);
-  if (!normalized) return null;
-  return manifest.files.find(file => file.path === normalized) || null;
-}
-
 export function customUiManifestFromConfig(record: unknown): CustomUiManifest | null {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
   const config = record as Record<string, unknown>;
   return parseCustomUiManifest(config.value);
-}
-
-export function activeCustomUiManifestFromConfig(record: unknown): CustomUiManifest | null {
-  if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
-  const config = record as Record<string, unknown>;
-  if (config.enabled !== true) return null;
-  const manifest = parseCustomUiManifest(config.value);
-  return manifest?.lifecycle_state === 'active' ? manifest : null;
 }
 
 export function customUiStatusFromConfig(record: unknown): CustomUiStatus | null {
@@ -772,26 +399,4 @@ function statusFile(file: CustomUiManifestFile): CustomUiStatusFile {
     size: file.size,
     content_type: file.content_type,
   };
-}
-
-export async function readVerifiedStorageAsset(response: Response, file: CustomUiManifestFile) {
-  if (!response.ok || !response.body) throw new CustomUiAssetError('storage_read_failed');
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let receivedBytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    receivedBytes += value.length;
-    if (receivedBytes > file.size || receivedBytes > CUSTOM_UI_LIMITS.maxFileBytes) {
-      await reader.cancel();
-      throw new CustomUiAssetError('storage_asset_too_large');
-    }
-    chunks.push(value);
-  }
-  const content = concatenateChunks(chunks, receivedBytes);
-  if (receivedBytes !== file.size || sha256(content) !== file.sha256) {
-    throw new CustomUiAssetError('storage_asset_integrity_failed');
-  }
-  return content;
 }

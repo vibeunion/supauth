@@ -23,25 +23,18 @@ import {
   type UpstreamBadRequestContext,
 } from '../utils/upstream-failure.js';
 import {
-  activeCustomUiManifestFromConfig,
   CUSTOM_UI_CLEANUP_CONFIG_KEY,
   CUSTOM_UI_CONFIG_KEY,
   CUSTOM_UI_CONFIG_TYPE,
-  CUSTOM_UI_LIMITS,
   CUSTOM_UI_STORAGE_BUCKET,
-  CustomUiAssetError,
   customUiManifestFromConfig,
-  customUiObjectKey,
   customUiStatusFromConfig,
-  parseCustomUiArchive,
   parseCustomUiCleanupQueue,
   type CustomUiAuditEventType,
   type CustomUiAuditPendingEvent,
   type CustomUiCleanupBatch,
   type CustomUiCleanupQueue,
   type CustomUiManifest,
-  type CustomUiManifestFile,
-  type ParsedCustomUiArchive,
 } from '../utils/custom-ui-assets.js';
 
 const adapter = getSupaCloudAdapter();
@@ -280,13 +273,6 @@ interface CustomUiState {
   manifest: CustomUiManifest;
 }
 
-interface PreparedCustomUiUpload {
-  assetsId: string;
-  leaseToken: string;
-  files: CustomUiManifestFile[];
-  manifest: CustomUiManifest;
-}
-
 const CLEANUP_QUEUE_CAS_ATTEMPTS = 3;
 const CLEANUP_READ_BATCH_SIZE = 20;
 const RESERVED_CLEANUP_STALE_MS = 10 * 60 * 1000;
@@ -324,66 +310,6 @@ async function customUiStatus() {
   const status = customUiStatusFromConfig(await readCustomUiConfig());
   if (status) return status;
   throw new ApiContractError(409, 'custom_ui_manifest_invalid', 'The current Custom UI manifest is invalid.');
-}
-
-function storageBucketExists(bucketListResponse: unknown): boolean {
-  if (!Array.isArray(bucketListResponse)) throw customUiUnavailable(
-    'custom_ui_storage_unavailable',
-    'Custom UI asset storage is temporarily unavailable.',
-  );
-  return bucketListResponse.some((bucket) => {
-    if (!bucket || typeof bucket !== 'object') return false;
-    const record = bucket as Record<string, unknown>;
-    return record.id === CUSTOM_UI_STORAGE_BUCKET || record.name === CUSTOM_UI_STORAGE_BUCKET;
-  });
-}
-
-function assertPrivateCustomUiBucket(bucketResponse: unknown) {
-  if (!bucketResponse || typeof bucketResponse !== 'object' || Array.isArray(bucketResponse)) {
-    throw customUiUnavailable('custom_ui_storage_unavailable', 'Custom UI asset storage is temporarily unavailable.');
-  }
-  const bucket = bucketResponse as Record<string, unknown>;
-  const bucketId = bucket.id || bucket.name;
-  const rawSizeLimit = bucket.file_size_limit;
-  const sizeLimit = typeof rawSizeLimit === 'number' || typeof rawSizeLimit === 'string'
-    ? Number(rawSizeLimit)
-    : Number.NaN;
-  if (bucketId !== CUSTOM_UI_STORAGE_BUCKET || bucket.public !== false) {
-    throw customUiUnavailable('custom_ui_storage_misconfigured', 'Custom UI asset storage must be private.');
-  }
-  if (!Number.isFinite(sizeLimit) || sizeLimit <= 0 || sizeLimit > CUSTOM_UI_LIMITS.maxFileBytes) {
-    throw customUiUnavailable('custom_ui_storage_misconfigured', 'Custom UI asset storage has an unsafe file size limit.');
-  }
-}
-
-async function ensureCustomUiBucket() {
-  try {
-    const exists = storageBucketExists(await adapter.listStorageBuckets());
-    if (!exists) {
-      try {
-        await adapter.createStorageBucket(CUSTOM_UI_STORAGE_BUCKET, {
-          public: false,
-          fileSizeLimit: CUSTOM_UI_LIMITS.maxFileBytes,
-        });
-      } catch {
-        // A concurrent upload may have created the bucket; read-back below is authoritative.
-      }
-    }
-    assertPrivateCustomUiBucket(await adapter.getStorageBucket(CUSTOM_UI_STORAGE_BUCKET));
-  } catch (error) {
-    if (error instanceof ApiContractError) throw error;
-    throw customUiUnavailable('custom_ui_storage_unavailable', 'Custom UI asset storage is temporarily unavailable.');
-  }
-}
-
-function manifestFiles(assetsId: string, parsed: ParsedCustomUiArchive): CustomUiManifestFile[] {
-  return parsed.files.map(file => ({
-    path: file.path,
-    object_key: customUiObjectKey(assetsId, file),
-    sha256: file.sha256,
-    size: file.size,
-    content_type: file.contentType,
-  }));
 }
 
 async function storageObjectIsMissing(objectKey: string): Promise<boolean> {
@@ -425,42 +351,12 @@ async function removeStorageObjects(objectKeys: string[]): Promise<boolean> {
   return removed;
 }
 
-async function uploadManifestFiles(parsed: ParsedCustomUiArchive, files: CustomUiManifestFile[]) {
-  const uploads = await Promise.allSettled(parsed.files.map((file, index) => adapter.uploadFile(
-    CUSTOM_UI_STORAGE_BUCKET,
-    files[index].object_key,
-    new Blob([Uint8Array.from(file.bytes).buffer], { type: file.contentType }),
-    file.contentType,
-  )));
-  if (uploads.some(upload => upload.status === 'rejected')) {
-    throw customUiUnavailable('custom_ui_storage_unavailable', 'Custom UI assets could not be staged.');
-  }
-}
-
 function previousObjectKeys(manifest: CustomUiManifest | null): string[] {
   if (!manifest) return [];
   return [...new Set([
     ...manifest.files.map(file => file.object_key),
     ...manifest.cleanup_pending_object_keys,
   ])];
-}
-
-function buildCustomUiManifest(
-  assetsId: string,
-  parsed: ParsedCustomUiArchive,
-  files: CustomUiManifestFile[],
-  cleanupObjectKeys: string[],
-): CustomUiManifest {
-  return {
-    schema_version: 1,
-    assets_id: assetsId,
-    content_sha256: parsed.contentSha256,
-    uploaded_at: new Date().toISOString(),
-    files,
-    cleanup_pending_object_keys: cleanupObjectKeys,
-    lifecycle_state: 'active',
-    audit_pending_event: null,
-  };
 }
 
 function pendingAuditEvent(
@@ -491,30 +387,6 @@ function manifestWithPendingAudit(
   identity: auditRepo.PersistedAdminAuditIdentity,
 ): CustomUiManifest {
   return { ...manifest, audit_pending_event: pendingAuditEvent(eventType, manifest, cleanupPending, identity) };
-}
-
-async function clearCompletedCleanup(configRecord: CustomUiConfigRecord, manifest: CustomUiManifest) {
-  if (!manifest.cleanup_pending_object_keys.length) return { configRecord, manifest, complete: true };
-  if (!await removeStorageObjects(manifest.cleanup_pending_object_keys)) {
-    return { configRecord, manifest, complete: false };
-  }
-  const pendingEvent = manifest.audit_pending_event
-    ? { ...manifest.audit_pending_event, cleanup_pending: false }
-    : null;
-  const nextManifest = { ...manifest, cleanup_pending_object_keys: [], audit_pending_event: pendingEvent };
-  try {
-    const updated = await tenantConfigRepo.compareAndSwapTenantConfig(
-      CUSTOM_UI_CONFIG_TYPE,
-      CUSTOM_UI_CONFIG_KEY,
-      configRevision(configRecord),
-      { value: { ...nextManifest }, enabled: true },
-    );
-    return updated
-      ? { configRecord: updated, manifest: nextManifest, complete: true }
-      : { configRecord, manifest, complete: false };
-  } catch {
-    return { configRecord, manifest, complete: false };
-  }
 }
 
 async function recordCustomUiAudit(event: CustomUiAuditPendingEvent, manifest: CustomUiManifest) {
@@ -739,94 +611,6 @@ async function mutateCleanupQueue(
   return false;
 }
 
-function cleanupQueueSize(queue: CustomUiCleanupQueue) {
-  return queue.batches.reduce((total, batch) => total + batch.object_keys.length, 0);
-}
-
-function cleanupObjectKeysMatch(batch: CustomUiCleanupBatch, objectKeys: string[]) {
-  return batch.object_keys.length === objectKeys.length
-    && batch.object_keys.every((objectKey, index) => objectKey === objectKeys[index]);
-}
-
-function assertCleanupQueueCapacity(queue: CustomUiCleanupQueue, objectCount: number) {
-  if (queue.batches.length >= CUSTOM_UI_LIMITS.maxCleanupBatches
-    || cleanupQueueSize(queue) + objectCount > CUSTOM_UI_LIMITS.maxCleanupKeys) {
-    throw customUiUnavailable('custom_ui_cleanup_backlog', 'Custom UI cleanup must complete before another upload.');
-  }
-}
-
-function queueWithCleanupReservation(
-  queue: CustomUiCleanupQueue,
-  assetsId: string,
-  leaseToken: string,
-  objectKeys: string[],
-) {
-  const existing = queue.batches.find(batch => batch.assets_id === assetsId);
-  if (existing) {
-    if (cleanupObjectKeysMatch(existing, objectKeys) && existing.lease_token === leaseToken) return queue;
-    throw new ApiContractError(409, 'custom_ui_cleanup_queue_invalid', 'The Custom UI cleanup reservation conflicts.');
-  }
-  assertCleanupQueueCapacity(queue, objectKeys.length);
-  const batch: CustomUiCleanupBatch = {
-    assets_id: assetsId,
-    created_at: new Date().toISOString(),
-    state: 'reserved',
-    lease_token: leaseToken,
-    object_keys: objectKeys,
-  };
-  return { ...queue, batches: [...queue.batches, batch] };
-}
-
-function queueWithUnknownUpload(
-  queue: CustomUiCleanupQueue,
-  assetsId: string,
-  leaseToken: string,
-  objectKeys: string[],
-) {
-  const batchIndex = queue.batches.findIndex(batch => batch.assets_id === assetsId);
-  const existing = queue.batches[batchIndex];
-  if (existing && (!cleanupObjectKeysMatch(existing, objectKeys) || existing.lease_token !== leaseToken)) {
-    throw new ApiContractError(409, 'custom_ui_cleanup_queue_invalid', 'The Custom UI cleanup reservation conflicts.');
-  }
-  if (!existing) assertCleanupQueueCapacity(queue, objectKeys.length);
-  const unknownBatch = uploadOutcomeUnknownBatch(existing, assetsId, leaseToken, objectKeys);
-  if (!existing) return { ...queue, batches: [...queue.batches, unknownBatch] };
-  const batches = [...queue.batches];
-  batches[batchIndex] = unknownBatch;
-  return { ...queue, batches };
-}
-
-function uploadOutcomeUnknownBatch(
-  existing: CustomUiCleanupBatch | undefined,
-  assetsId: string,
-  leaseToken: string,
-  objectKeys: string[],
-): CustomUiCleanupBatch {
-  const timestamp = new Date().toISOString();
-  return {
-    assets_id: assetsId,
-    created_at: existing?.created_at || timestamp,
-    state: 'upload_outcome_unknown',
-    lease_token: leaseToken,
-    outcome_unknown_at: timestamp,
-    object_keys: objectKeys,
-  };
-}
-
-async function retainUnknownUploadBatch(assetsId: string, leaseToken: string, objectKeys: string[]) {
-  const retained = await mutateCleanupQueue(queue => queueWithUnknownUpload(queue, assetsId, leaseToken, objectKeys));
-  if (!retained) {
-    throw customUiUnavailable('custom_ui_config_unavailable', 'Custom UI cleanup state could not be retained.');
-  }
-}
-
-async function reserveCleanupBatch(assetsId: string, leaseToken: string, objectKeys: string[]) {
-  const reserved = await mutateCleanupQueue(queue => (
-    queueWithCleanupReservation(queue, assetsId, leaseToken, objectKeys)
-  ));
-  if (!reserved) throw customUiUnavailable('custom_ui_config_unavailable', 'Custom UI cleanup state could not be reserved.');
-}
-
 async function updateCleanupBatch(
   assetsId: string,
   update: (batch: CustomUiCleanupBatch) => CustomUiCleanupBatch | null | undefined,
@@ -856,16 +640,6 @@ function claimedCleanupBatch(batch: CustomUiCleanupBatch, claimToken: string): C
   };
 }
 
-async function claimOwnedCleanupReservation(assetsId: string, leaseToken: string) {
-  const claimToken = randomUUID();
-  const claimed = await updateCleanupBatch(assetsId, batch => (
-    batch.state === 'reserved' && batch.lease_token === leaseToken
-      ? claimedCleanupBatch(batch, claimToken)
-      : undefined
-  ));
-  return claimed ? claimToken : null;
-}
-
 async function removeClaimedCleanupBatch(assetsId: string, claimToken: string) {
   return updateCleanupBatch(assetsId, batch => (
     batch.state === 'cleanup_claimed' && batch.claim_token === claimToken ? null : undefined
@@ -883,23 +657,6 @@ async function releaseCleanupClaim(assetsId: string, claimToken: string) {
       object_keys: batch.object_keys,
     };
   });
-}
-
-async function finalizeOrphanBatch(assetsId: string, leaseToken: string, objectKeys: string[]) {
-  const claimToken = await claimOwnedCleanupReservation(assetsId, leaseToken);
-  if (!claimToken) return 'not_owned' as const;
-  if (!await removeStorageObjects(objectKeys)) {
-    await releaseCleanupClaim(assetsId, claimToken);
-    return 'pending' as const;
-  }
-  return await removeClaimedCleanupBatch(assetsId, claimToken) ? 'completed' as const : 'pending' as const;
-}
-
-async function recoverUnownedOrphan(assetsId: string, leaseToken: string, objectKeys: string[]) {
-  // A definite pair-CAS loss proves these immutable keys never became active, including late Storage writes.
-  if (await removeStorageObjects(objectKeys)) return;
-  await reserveCleanupBatch(assetsId, leaseToken, objectKeys);
-  await finalizeOrphanBatch(assetsId, leaseToken, objectKeys);
 }
 
 function cleanupBatchIsOlderThan(batch: CustomUiCleanupBatch, intervalMs: number) {
@@ -954,189 +711,6 @@ async function retryCleanupQueue(activeManifest: CustomUiManifest | null) {
       await releaseCleanupClaim(batch.assets_id, claimToken);
     }
   }
-}
-
-async function stageCustomUiAssets(parsed: ParsedCustomUiArchive, assetsId: string, leaseToken: string) {
-  await ensureCustomUiBucket();
-  const files = manifestFiles(assetsId, parsed);
-  const objectKeys = files.map(file => file.object_key);
-  await reserveCleanupBatch(assetsId, leaseToken, objectKeys);
-  try {
-    await uploadManifestFiles(parsed, files);
-    return files;
-  } catch {
-    // A rejected response may follow a committed Storage write; keep the keys durable through a quiet interval.
-    await retainUnknownUploadBatch(assetsId, leaseToken, objectKeys);
-    await removeStorageObjects(objectKeys);
-    await retainUnknownUploadBatch(assetsId, leaseToken, objectKeys);
-    throw customUiUnavailable('custom_ui_storage_unavailable', 'Custom UI assets could not be staged.');
-  }
-}
-
-async function uploadBaseState(): Promise<CustomUiState | null> {
-  let previousConfig = await readCustomUiConfig();
-  let previousManifest = customUiManifestFromConfig(previousConfig);
-  if (previousConfig && !previousManifest) {
-    throw new ApiContractError(409, 'custom_ui_manifest_invalid', 'The current Custom UI manifest is invalid.');
-  }
-  if (!previousConfig || !previousManifest) return null;
-  const flushed = await requirePendingAuditDelivery(previousConfig, previousManifest);
-  previousConfig = flushed.configRecord;
-  previousManifest = flushed.manifest;
-  if (!previousConfig.enabled || previousManifest.lifecycle_state !== 'active') {
-    throw customUiUnavailable('custom_ui_cleanup_pending', 'Custom UI deletion must finish before another upload.');
-  }
-  return { configRecord: previousConfig, manifest: previousManifest };
-}
-
-function assertUploadCleanupCapacity(manifest: CustomUiManifest | null, incomingFileCount: number) {
-  if (previousObjectKeys(manifest).length + incomingFileCount > CUSTOM_UI_LIMITS.maxCleanupKeys) {
-    throw customUiUnavailable('custom_ui_cleanup_backlog', 'Custom UI cleanup must complete before another upload.');
-  }
-}
-
-async function prepareCustomUiUpload(
-  parsed: ParsedCustomUiArchive,
-  previousManifest: CustomUiManifest | null,
-  identity: auditRepo.PersistedAdminAuditIdentity,
-): Promise<PreparedCustomUiUpload> {
-  const cleanupObjectKeys = previousObjectKeys(previousManifest);
-  const assetsId = randomUUID();
-  const leaseToken = randomUUID();
-  const files = await stageCustomUiAssets(parsed, assetsId, leaseToken);
-  const baseManifest = buildCustomUiManifest(assetsId, parsed, files, cleanupObjectKeys);
-  return {
-    assetsId,
-    leaseToken,
-    files,
-    manifest: manifestWithPendingAudit(
-      baseManifest,
-      'sign_in_experience.custom_ui_uploaded',
-      cleanupObjectKeys.length > 0,
-      identity,
-    ),
-  };
-}
-
-function queueAfterUploadCommit(queue: CustomUiCleanupQueue, prepared: PreparedCustomUiUpload) {
-  const reservation = queue.batches.find(batch => batch.assets_id === prepared.assetsId);
-  if (reservation?.state !== 'reserved' || reservation.lease_token !== prepared.leaseToken) return null;
-  const expectedKeys = prepared.files.map(file => file.object_key);
-  if (!cleanupObjectKeysMatch(reservation, expectedKeys)) return null;
-  return { ...queue, batches: queue.batches.filter(batch => batch.assets_id !== prepared.assetsId) };
-}
-
-function uploadManifestContentMatches(current: CustomUiManifest, prepared: CustomUiManifest) {
-  if (current.assets_id !== prepared.assets_id
-    || current.content_sha256 !== prepared.content_sha256
-    || current.uploaded_at !== prepared.uploaded_at
-    || current.files.length !== prepared.files.length) return false;
-  return current.files.every((file, index) => {
-    const expected = prepared.files[index];
-    return file.path === expected.path
-      && file.object_key === expected.object_key
-      && file.sha256 === expected.sha256
-      && file.size === expected.size
-      && file.content_type === expected.content_type;
-  });
-}
-
-function committedUploadState(configRecord: CustomUiConfigRecord, prepared: PreparedCustomUiUpload) {
-  const manifest = activeCustomUiManifestFromConfig(configRecord);
-  return manifest && uploadManifestContentMatches(manifest, prepared.manifest)
-    ? { configRecord, manifest }
-    : null;
-}
-
-async function committedUploadReadBack(prepared: PreparedCustomUiUpload) {
-  const currentConfig = await readCustomUiConfig();
-  return currentConfig ? committedUploadState(currentConfig, prepared) : null;
-}
-
-function configStillMatches(current: CustomUiConfigRecord | null, expected: CustomUiConfigRecord | null) {
-  if (!current || !expected) return current === expected;
-  return current.id === expected.id
-    && current.updatedAt.getTime() === expected.updatedAt.getTime()
-    && current.enabled === expected.enabled;
-}
-
-async function commitPreparedUpload(
-  previousConfig: CustomUiConfigRecord | null,
-  prepared: PreparedCustomUiUpload,
-) {
-  for (let attempt = 0; attempt < CLEANUP_QUEUE_CAS_ATTEMPTS; attempt += 1) {
-    const cleanupConfig = await readCustomUiConfig(CUSTOM_UI_CLEANUP_CONFIG_KEY);
-    const committedQueue = queueAfterUploadCommit(cleanupQueueFromConfig(cleanupConfig), prepared);
-    if (!cleanupConfig || !committedQueue) return null;
-    try {
-      const committed = await tenantConfigRepo.compareAndSwapTenantConfigPair({
-        configType: CUSTOM_UI_CONFIG_TYPE,
-        first: {
-          key: CUSTOM_UI_CLEANUP_CONFIG_KEY,
-          expected: configRevision(cleanupConfig),
-          write: { value: { ...committedQueue }, enabled: true },
-        },
-        second: {
-          key: CUSTOM_UI_CONFIG_KEY,
-          expected: configRevision(previousConfig),
-          write: { value: { ...prepared.manifest }, enabled: true },
-        },
-      });
-      if (committed) {
-        const committedState = committedUploadState(committed.second, prepared);
-        if (!committedState) {
-          throw customUiUnavailable('custom_ui_manifest_invalid', 'The committed Custom UI manifest is invalid.');
-        }
-        return committedState;
-      }
-      if (!configStillMatches(await readCustomUiConfig(), previousConfig)) return null;
-    } catch {
-      const committedReadBack = await committedUploadReadBack(prepared);
-      if (committedReadBack) return committedReadBack;
-      throw customUiUnavailable('custom_ui_config_unavailable', 'Custom UI configuration could not be activated.');
-    }
-  }
-  return null;
-}
-
-async function activatePreparedUpload(
-  previousConfig: CustomUiConfigRecord | null,
-  prepared: PreparedCustomUiUpload,
-) {
-  const objectKeys = prepared.files.map(file => file.object_key);
-  const activated = await commitPreparedUpload(previousConfig, prepared);
-  if (activated) return activated;
-  const cleanup = await finalizeOrphanBatch(prepared.assetsId, prepared.leaseToken, objectKeys);
-  if (cleanup === 'not_owned') {
-    await recoverUnownedOrphan(prepared.assetsId, prepared.leaseToken, objectKeys);
-  }
-  throw new ApiContractError(409, 'custom_ui_changed_retry', 'Custom UI assets changed concurrently; retry the upload.');
-}
-
-async function completeCustomUiUpload(activated: CustomUiState) {
-  const cleanup = await clearCompletedCleanup(activated.configRecord, activated.manifest);
-  const audit = await flushPendingAudit(cleanup.configRecord, cleanup.manifest);
-  return {
-    status: 'activated',
-    assets_id: activated.manifest.assets_id,
-    file_count: activated.manifest.files.length,
-    content_sha256: activated.manifest.content_sha256,
-    cleanup_pending: !cleanup.complete,
-    maintenance_pending: false,
-    audit_pending: audit.pending,
-  };
-}
-
-export async function uploadCustomUiArchive(file: File) {
-  const auditIdentity = auditRepo.currentAdminAuditIdentity();
-  const parsed = await parseCustomUiArchive(file);
-  const previousState = await uploadBaseState();
-  const previousManifest = previousState?.manifest || null;
-  await retryCleanupQueue(previousManifest);
-  assertUploadCleanupCapacity(previousManifest, parsed.files.length);
-  const prepared = await prepareCustomUiUpload(parsed, previousManifest, auditIdentity);
-  const activated = await activatePreparedUpload(previousState?.configRecord || null, prepared);
-  return completeCustomUiUpload(activated);
 }
 
 async function writeCustomUiManifest(
