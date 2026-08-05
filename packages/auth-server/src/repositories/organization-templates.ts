@@ -1,6 +1,6 @@
 // Organization template repository (P0-18) — backed by SupaCloud Postgres
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { organizationTemplates } from '../db/schema.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
@@ -99,7 +99,16 @@ export async function updateTemplate(id: string, data: {
 /** Delete a template */
 export async function deleteTemplate(id: string) {
   const db = getDb();
-  await db.delete(organizationTemplates).where(eq(organizationTemplates.id, id));
+  const [deleted] = await db.delete(organizationTemplates)
+    .where(and(
+      eq(organizationTemplates.id, id),
+      eq(organizationTemplates.isDefault, false),
+    ))
+    .returning({ id: organizationTemplates.id });
+  if (deleted) return 'deleted' as const;
+
+  const template = await getTemplate(id);
+  return template?.isDefault ? 'protected' as const : 'not_found' as const;
 }
 
 /**

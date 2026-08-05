@@ -4,6 +4,7 @@ import { Elysia } from 'elysia';
 import * as templateRepo from '../repositories/organization-templates.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
+import { organizationTemplateCreateInput, organizationTemplateUpdateInput } from './org-template-input.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -38,13 +39,13 @@ export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })
   })
 
   .post('/', async ({ body }) => {
-    const data = body as { name: string; description?: string; template_roles?: Array<{ name: string; permissions: string[] }>; template_scopes?: Array<{ name: string; description?: string }>; is_default?: boolean };
+    const templateInput = organizationTemplateCreateInput(body);
     const template = await templateRepo.createTemplate({
-      name: data.name,
-      description: data.description,
-      templateRoles: data.template_roles,
-      templateScopes: data.template_scopes,
-      isDefault: data.is_default,
+      name: templateInput.name,
+      description: templateInput.description,
+      templateRoles: templateInput.template_roles,
+      templateScopes: templateInput.template_scopes,
+      isDefault: templateInput.is_default,
     });
     await audit('org_template.create', 'org_template', template.id, { name: template.name });
     await fireWebhook('org_template.created', { template_id: template.id, name: template.name });
@@ -54,13 +55,13 @@ export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })
   })
 
   .put('/:templateId', async ({ params, body }) => {
-    const data = body as { name?: string; description?: string; template_roles?: Array<{ name: string; permissions: string[] }>; template_scopes?: Array<{ name: string; description?: string }>; is_default?: boolean };
+    const templateInput = organizationTemplateUpdateInput(body);
     const updated = await templateRepo.updateTemplate(params.templateId, {
-      name: data.name,
-      description: data.description,
-      templateRoles: data.template_roles,
-      templateScopes: data.template_scopes,
-      isDefault: data.is_default,
+      name: templateInput.name,
+      description: templateInput.description,
+      templateRoles: templateInput.template_roles,
+      templateScopes: templateInput.template_scopes,
+      isDefault: templateInput.is_default,
     });
     await audit('org_template.update', 'org_template', params.templateId);
     return updated;
@@ -68,8 +69,19 @@ export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })
     detail: { summary: 'Update organization template', tags: ['Organizations', 'Org Templates'] },
   })
 
-  .delete('/:templateId', async ({ params }) => {
-    await templateRepo.deleteTemplate(params.templateId);
+  .delete('/:templateId', async ({ params, set }) => {
+    const deletion = await templateRepo.deleteTemplate(params.templateId);
+    if (deletion === 'protected') {
+      set.status = 409;
+      return {
+        message: 'The default organization template cannot be deleted.',
+        code: 'default_organization_template_protected',
+      };
+    }
+    if (deletion === 'not_found') {
+      set.status = 404;
+      return { message: 'Organization template not found.', code: 'not_found' };
+    }
     await audit('org_template.delete', 'org_template', params.templateId);
   }, {
     detail: { summary: 'Delete organization template', tags: ['Organizations', 'Org Templates'] },
