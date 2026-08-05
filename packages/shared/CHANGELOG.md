@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/zuohuadong/supauth/compare/shared-v0.5.0...shared-v0.6.0) (2026-08-05)
+
+
+### Features
+
+* **auth:** harden SupAuth control plane and console ([3b1b1db](https://github.com/zuohuadong/supauth/commit/3b1b1dbb015ea8a7424605c62df22907b5813b56))
+
 ## [0.5.0](https://github.com/zuohuadong/supauth/compare/shared-v0.4.0...shared-v0.5.0) (2026-07-30)
 
 

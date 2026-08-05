@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/zuohuadong/supauth/compare/admin-console-v0.5.1...admin-console-v0.6.0) (2026-08-05)
+
+
+### Features
+
+* **auth:** harden SupAuth control plane and console ([3b1b1db](https://github.com/zuohuadong/supauth/commit/3b1b1dbb015ea8a7424605c62df22907b5813b56))
+
+
+### Bug Fixes
+
+* **auth:** remove dormant Custom UI pipeline ([9c38c97](https://github.com/zuohuadong/supauth/commit/9c38c97520898b02d7434f26b244e71b6c855106))
+
 ## [0.5.1](https://github.com/zuohuadong/supauth/compare/admin-console-v0.5.0...admin-console-v0.5.1) (2026-08-02)
 
 

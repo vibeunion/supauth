@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/zuohuadong/supauth/compare/authorization-conformance-v0.2.1...authorization-conformance-v0.3.0) (2026-08-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **authorization:** replace snapshot and package-owned role adapter contracts with application-owned current effective grants and an executed conformance harness.
+
+### Features
+
+* **authorization:** consume application effective grants ([8e4a32e](https://github.com/zuohuadong/supauth/commit/8e4a32e80736f0cb94b43d22ef00d962ae8f1efd))
+
+
+### Bug Fixes
+
+* **authorization:** emit SupaCloud-safe migration SQL ([deabf9f](https://github.com/zuohuadong/supauth/commit/deabf9f751d78eeb71928f15f23fe6871af90df4))
+* **authorization:** separate projection preflight from migrations ([40965da](https://github.com/zuohuadong/supauth/commit/40965da9cfd20855ce9fc3d7b3a65065947ddab8))
+
 ## [0.2.1](https://github.com/zuohuadong/supauth/compare/authorization-conformance-v0.2.0...authorization-conformance-v0.2.1) (2026-08-04)
 
 
