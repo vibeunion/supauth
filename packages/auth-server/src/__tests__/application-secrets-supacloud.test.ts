@@ -51,8 +51,20 @@ describe('application secret lifecycle', () => {
             client_type: 'confidential',
             redirect_uris: ['https://app.example.test/callback'],
             grant_types: ['authorization_code'],
+            client_secret: 'must-not-leak-from-list',
           }],
           total: 1,
+        }));
+      }
+
+      if (new URL(url).pathname.endsWith('/auth/oauth-clients/client-one')) {
+        return Promise.resolve(Response.json({
+          client_id: 'client-one',
+          client_name: 'Client One',
+          client_type: 'confidential',
+          redirect_uris: ['https://app.example.test/callback'],
+          grant_types: ['authorization_code'],
+          client_secret: 'must-not-leak-from-detail',
         }));
       }
 
@@ -109,7 +121,40 @@ describe('application secret lifecycle', () => {
     expect(payload.items[0]).toMatchObject({
       client_id: 'client-one',
       client_name: 'Client One',
+      secret_configured: true,
     });
+    expect(payload.items[0]).not.toHaveProperty('client_secret');
+  });
+
+  it('removes an unexpected secret from OAuth client detail reads', async () => {
+    const { applicationRoutes } = await import('../routes/applications.js');
+    const app = new Elysia().use(applicationRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/applications/client-one'));
+    const payload = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ client_id: 'client-one', secret_configured: true });
+    expect(payload).not.toHaveProperty('client_secret');
+  });
+
+  it('removes an unexpected secret from OAuth client update responses', async () => {
+    const { applicationRoutes } = await import('../routes/applications.js');
+    const app = new Elysia().use(applicationRoutes);
+
+    const response = await withAdminRequestContext(
+      { requestId: 'application-update-request', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/applications/client-one', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_name: 'Updated Client' }),
+      })),
+    );
+    const payload = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ client_id: 'client-one', secret_configured: true });
+    expect(payload).not.toHaveProperty('client_secret');
   });
 
   it('uses oauthAuthorizationProjectRef for OAuth client management when configured', async () => {

@@ -134,6 +134,80 @@ describe('Storage module — structure', () => {
   });
 });
 
+describe('Branding image validation', () => {
+  it('uses the verified media type and content hash in asset metadata', async () => {
+    const { brandingAssetMetadata } = await import('../storage/index.js');
+    const firstPng = new Blob([
+      Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]),
+    ]);
+    const secondPng = new Blob([
+      Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x02]),
+    ]);
+
+    const firstMetadata = await brandingAssetMetadata(firstPng, 'image/png');
+    const repeatedMetadata = await brandingAssetMetadata(firstPng, 'image/png');
+    const secondMetadata = await brandingAssetMetadata(secondPng, 'image/png');
+
+    expect(firstMetadata).toMatchObject({ contentType: 'image/png', extension: 'png' });
+    expect(firstMetadata.hash).toBe(repeatedMetadata.hash);
+    expect(secondMetadata.hash).not.toBe(firstMetadata.hash);
+  });
+
+  it('maps JPEG and icon signatures to their real extensions', async () => {
+    const { brandingAssetMetadata } = await import('../storage/index.js');
+    const jpeg = new Blob([Uint8Array.from([0xff, 0xd8, 0xff, 0x01])]);
+    const icon = new Blob([Uint8Array.from([0x00, 0x00, 0x01, 0x00, 0x01])]);
+
+    await expect(brandingAssetMetadata(jpeg, 'image/jpeg'))
+      .resolves.toMatchObject({ extension: 'jpg' });
+    await expect(brandingAssetMetadata(icon, 'image/vnd.microsoft.icon'))
+      .resolves.toMatchObject({ extension: 'ico' });
+  });
+
+  it('rejects a declared type whose file signature does not match', async () => {
+    const { brandingAssetMetadata } = await import('../storage/index.js');
+    const fakePng = new Blob(['<script>alert(1)</script>']);
+
+    await expect(brandingAssetMetadata(fakePng, 'image/png'))
+      .rejects.toMatchObject({ status: 400, code: 'branding_image_signature_mismatch' });
+  });
+
+  it('rejects executable SVG branding content', async () => {
+    const { brandingAssetMetadata } = await import('../storage/index.js');
+    const activeSvgPayloads = [
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><a href="jav&#x61;script:alert(1)"><path d="M0 0"/></a></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(https://evil.example/style.css)</style></svg>',
+      '<?xml version="1.0"?><?xml-stylesheet href="https://evil.example/style.css"?><svg xmlns="http://www.w3.org/2000/svg"/>',
+    ];
+
+    for (const payload of activeSvgPayloads) {
+      await expect(brandingAssetMetadata(new Blob([payload]), 'image/svg+xml'))
+        .rejects.toMatchObject({ status: 400, code: 'branding_image_signature_mismatch' });
+    }
+  });
+
+  it('accepts static SVG with local paint references', async () => {
+    const { brandingAssetMetadata } = await import('../storage/index.js');
+    const staticSvg = new Blob([
+      '<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="brand"><stop stop-color="#fff"/></linearGradient></defs><path fill="url(#brand)" d="M0 0h1v1z"/></svg>',
+    ]);
+
+    await expect(brandingAssetMetadata(staticSvg, 'image/svg+xml'))
+      .resolves.toMatchObject({ contentType: 'image/svg+xml', extension: 'svg' });
+  });
+
+  it('rejects empty and oversized branding images', async () => {
+    const { brandingAssetMetadata } = await import('../storage/index.js');
+    const oversized = new Blob([new Uint8Array(5 * 1024 * 1024 + 1)]);
+
+    await expect(brandingAssetMetadata(new Blob([]), 'image/png'))
+      .rejects.toMatchObject({ code: 'empty_branding_image' });
+    await expect(brandingAssetMetadata(oversized, 'image/png'))
+      .rejects.toMatchObject({ code: 'branding_image_too_large' });
+  });
+});
+
 describe('Storage constants — validation helpers', () => {
   // We test the logic that would be used by the storage routes.
   // Since the functions are module-private, we replicate the validation

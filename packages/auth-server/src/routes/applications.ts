@@ -9,6 +9,7 @@ import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import * as appControlRepo from '../repositories/application-control.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 import { ApiContractError, capabilityUnavailable, cursorResponse, pagedResponse } from '../utils/api-contract.js';
+import { withoutSecrets } from '../utils/secrets.js';
 
 const adapter = getSupaCloudAdapter();
 const GOTRUE_OAUTH_GRANT_TYPES = ['authorization_code', 'refresh_token'] as const;
@@ -106,7 +107,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
   .get('/', async ({ query }) => {
     const res = await oauthClientAdapter().listOAuthClients();
     await audit('application.list', 'application', 'all');
-    return pagedResponse(res, { page: query.page, limit: query.limit });
+    return withoutSecrets(pagedResponse(res, { page: query.page, limit: query.limit }));
   }, {
     detail: { summary: 'List OAuth applications', tags: ['Applications'] },
   })
@@ -127,7 +128,9 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     },
   })
 
-  .get('/:appId', async ({ params }) => oauthClientAdapter().getOAuthClient(params.appId), {
+  .get('/:appId', async ({ params }) => withoutSecrets(
+    await oauthClientAdapter().getOAuthClient(params.appId),
+  ), {
     detail: { summary: 'Get application by ID', tags: ['Applications'] },
   })
 
@@ -137,7 +140,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     const updated = await oauthClientAdapter().updateOAuthClient(params.appId, input);
     await audit('application.update', 'application', params.appId);
     await fireWebhook('application.updated', { client_id: params.appId });
-    return updated;
+    return withoutSecrets(updated);
   }, {
     detail: {
       summary: 'Update application',

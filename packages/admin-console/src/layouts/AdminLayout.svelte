@@ -143,7 +143,7 @@
               class={[
                 'group flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-medium transition-colors duration-150',
                 isActive
-                  ? 'font-semibold text-brand-600'
+                  ? 'bg-brand-50 font-semibold text-brand-700 shadow-sm ring-1 ring-brand-100'
                   : 'text-surface-600 hover:text-surface-900',
               ].join(' ')}
             >
@@ -151,7 +151,7 @@
                 aria-hidden="true"
                 class={[
                   'text-[16px] transition-colors duration-150',
-                  isActive ? 'text-brand-600' : 'text-surface-400 group-hover:text-surface-600',
+                  isActive ? 'text-brand-700' : 'text-surface-400 group-hover:text-surface-600',
                 ].join(' ')}
               >
                 {navigationEntry.icon}
