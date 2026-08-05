@@ -99,6 +99,57 @@ const en = {
   "security.gotrueRuntimeTitle": "GoTrue account and token settings",
   "security.gotrueRuntimeDescription":
     "These settings are read back from the active GoTrue runtime and affect Supabase Auth behavior.",
+  "security.title": "Security policy",
+  "security.description":
+    "Only policies that map to the active GoTrue runtime are configurable here.",
+  "security.passwordTitle": "Password policy",
+  "security.passwordDescription":
+    "The saved character classes are read back from GoTrue password_required_characters.",
+  "security.passwordMinLength": "Minimum length",
+  "security.passwordRequiredCharacters": "Required characters",
+  "security.passwordCharactersNone": "No character requirement",
+  "security.passwordCharactersStandard": "Lowercase, uppercase, and number",
+  "security.passwordCharactersStrong":
+    "Lowercase, uppercase, number, and symbol",
+  "security.captchaTitle": "CAPTCHA",
+  "security.captchaProvider": "Provider",
+  "security.captchaDisabled": "Disabled",
+  "security.captchaSecret": "Secret",
+  "security.captchaSecretConfigured": "Secret configured",
+  "security.captchaSecretNotConfigured": "Secret not configured",
+  "security.blocklistTitle": "Blocklist",
+  "security.blocklistDescription":
+    "Enforcement uses the registered GoTrue before-user-created hook and authoritative server-side invitation checks.",
+  "security.blocklistActive": "Active",
+  "security.blocklistNotEffective": "Not effective",
+  "security.blocklistRuntimeReason": "Runtime verification",
+  "security.blocklistAllowedEmailDomains": "Allowed email domains",
+  "security.blocklistBlockedEmailDomains": "Blocked email domains",
+  "security.blocklistBlockedOauthProviders": "Blocked OAuth providers",
+  "security.blocklistAllowedOauthProviders": "Allowed OAuth providers",
+  "security.blocklistInviteOnly": "Invite-only sign-up",
+  "security.blocklistReasonAuthorityUnavailable":
+    "The GoTrue authority project is unavailable. Restore the project before enabling this policy.",
+  "security.blocklistReasonProcessUnavailable":
+    "The GoTrue process is unavailable. Start or repair the managed GoTrue service, then verify this policy again.",
+  "security.blocklistReasonNotEnabled":
+    "The GoTrue before-user-created hook is not enabled.",
+  "security.blocklistReasonUriMissing":
+    "The GoTrue before-user-created hook URL is missing.",
+  "security.blocklistReasonTargetMismatch":
+    "The GoTrue before-user-created hook targets a different project or endpoint.",
+  "security.blocklistReasonSecretMissing":
+    "The GoTrue before-user-created hook signing secret is missing.",
+  "security.blocklistReasonSecretInvalid":
+    "The GoTrue before-user-created hook signing secret is invalid.",
+  "security.blocklistReasonProbeUnreachable":
+    "The registered GoTrue before-user-created hook could not be reached.",
+  "security.blocklistReasonProbeRejected":
+    "The registered GoTrue before-user-created hook rejected runtime verification.",
+  "security.blocklistReasonProbeResponseInvalid":
+    "The registered GoTrue before-user-created hook returned an invalid verification response.",
+  "security.blocklistReasonUnavailable":
+    "The GoTrue before-user-created hook is not verified. Check the managed runtime configuration and try again.",
   "security.adminLoginTitle": "Development admin-token login protection",
   "security.adminLoginDescription":
     "These controls apply only to the legacy /v1/auth/login ADMIN_TOKEN path by source IP. They do not protect GoTrue SSO, and token login is disabled in production.",
@@ -956,6 +1007,56 @@ const zhCN = {
   "security.gotrueRuntimeTitle": "GoTrue 账户与令牌设置",
   "security.gotrueRuntimeDescription":
     "这些设置会从当前 GoTrue runtime 权威读回，并影响 Supabase Auth 行为。",
+  "security.title": "安全策略",
+  "security.description":
+    "这里只能配置已映射到当前 GoTrue 运行时的策略。",
+  "security.passwordTitle": "密码策略",
+  "security.passwordDescription":
+    "保存后的字符类别会从 GoTrue password_required_characters 权威读回。",
+  "security.passwordMinLength": "最小长度",
+  "security.passwordRequiredCharacters": "必需字符",
+  "security.passwordCharactersNone": "不限制字符类别",
+  "security.passwordCharactersStandard": "小写字母、大写字母和数字",
+  "security.passwordCharactersStrong": "小写字母、大写字母、数字和符号",
+  "security.captchaTitle": "CAPTCHA",
+  "security.captchaProvider": "提供商",
+  "security.captchaDisabled": "已禁用",
+  "security.captchaSecret": "密钥",
+  "security.captchaSecretConfigured": "已配置密钥",
+  "security.captchaSecretNotConfigured": "未配置密钥",
+  "security.blocklistTitle": "阻止列表",
+  "security.blocklistDescription":
+    "策略由已注册的 GoTrue before-user-created Hook 和服务端权威邀请校验共同执行。",
+  "security.blocklistActive": "已生效",
+  "security.blocklistNotEffective": "未生效",
+  "security.blocklistRuntimeReason": "运行时验证",
+  "security.blocklistAllowedEmailDomains": "允许的邮箱域名",
+  "security.blocklistBlockedEmailDomains": "阻止的邮箱域名",
+  "security.blocklistBlockedOauthProviders": "阻止的 OAuth 提供商",
+  "security.blocklistAllowedOauthProviders": "允许的 OAuth 提供商",
+  "security.blocklistInviteOnly": "仅限受邀用户注册",
+  "security.blocklistReasonAuthorityUnavailable":
+    "GoTrue 权威项目不可用。请先恢复该项目，再启用此策略。",
+  "security.blocklistReasonProcessUnavailable":
+    "GoTrue 进程不可用。请启动或修复托管 GoTrue 服务，然后重新验证此策略。",
+  "security.blocklistReasonNotEnabled":
+    "GoTrue before-user-created Hook 尚未启用。",
+  "security.blocklistReasonUriMissing":
+    "GoTrue before-user-created Hook 缺少目标 URL。",
+  "security.blocklistReasonTargetMismatch":
+    "GoTrue before-user-created Hook 指向了其他项目或端点。",
+  "security.blocklistReasonSecretMissing":
+    "GoTrue before-user-created Hook 缺少签名密钥。",
+  "security.blocklistReasonSecretInvalid":
+    "GoTrue before-user-created Hook 的签名密钥无效。",
+  "security.blocklistReasonProbeUnreachable":
+    "无法访问已注册的 GoTrue before-user-created Hook。",
+  "security.blocklistReasonProbeRejected":
+    "已注册的 GoTrue before-user-created Hook 拒绝了运行时验证。",
+  "security.blocklistReasonProbeResponseInvalid":
+    "已注册的 GoTrue before-user-created Hook 返回了无效的验证响应。",
+  "security.blocklistReasonUnavailable":
+    "GoTrue before-user-created Hook 尚未通过验证。请检查托管运行时配置后重试。",
   "security.adminLoginTitle": "开发环境管理员令牌登录保护",
   "security.adminLoginDescription":
     "这些设置仅按来源 IP 保护旧版 /v1/auth/login ADMIN_TOKEN 路径，不保护 GoTrue SSO；生产环境已禁用令牌登录。",
