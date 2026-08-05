@@ -116,6 +116,15 @@ function normalizeSupaCloudApiError(
   error: SupaCloudApiError,
   correlationId: string,
 ): NormalizedApiError {
+  if (isStructuredValidationError(error)) {
+    return errorBody({
+      status: error.status,
+      code: 'validation_error',
+      message: 'Request validation failed',
+      correlationId,
+      details: { path: error.path },
+    });
+  }
   const unavailable = error.status >= 500;
   return errorBody({
     status: error.status === 501 || error.status === 404
@@ -128,6 +137,32 @@ function normalizeSupaCloudApiError(
     correlationId,
     details: { path: error.path },
   });
+}
+
+function parsedErrorRecord(body: string): Record<string, unknown> | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch (parseError) {
+    if (parseError instanceof SyntaxError) return null;
+    throw parseError;
+  }
+  return payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+}
+
+function isStructuredValidationError(error: SupaCloudApiError): boolean {
+  if (error.status !== 400 && error.status !== 422) return false;
+  const payload = parsedErrorRecord(error.body);
+  if (!payload) return false;
+  const nestedError = payload.error && typeof payload.error === 'object'
+    && !Array.isArray(payload.error)
+    ? payload.error as Record<string, unknown>
+    : null;
+  return [payload.code, nestedError?.code].some(
+    code => typeof code === 'string' && code.toLowerCase() === 'validation_error',
+  );
 }
 
 function errorBody(contract: ApiErrorContract): NormalizedApiError {

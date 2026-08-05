@@ -423,8 +423,18 @@ const en = {
   "Magic Link": "Magic Link",
   "Phone OTP": "Phone OTP",
   "organizations.title": "Organizations",
+  "organizations.subtitle":
+    "Manage organization profiles, identifiers, members, and application access.",
   "organizations.new": "New Organization",
   "organizations.name": "Name",
+  "organizations.slug": "Organization slug",
+  "organizations.slugHelp":
+    "Use 2–120 lowercase letters or digits, separated by single hyphens.",
+  "organizations.slugError.required": "Organization slug is required.",
+  "organizations.slugError.length":
+    "Organization slug must contain 2–120 characters.",
+  "organizations.slugError.format":
+    "Use lowercase letters or digits separated by single hyphens.",
   "organizations.description": "Description",
   "organizations.optionalDescription": "Optional description",
   "organizations.create": "Create",
@@ -432,6 +442,9 @@ const en = {
   "organizations.noDataHint":
     "Create an organization to manage members, JIT provisioning, and app access.",
   "organizations.searchPlaceholder": "Search organizations by name or ID",
+  "organizations.search": "Search",
+  "organizations.createValidationError":
+    "Please check the organization name or slug and try again.",
   "organizations.resultCount": "{count} organizations",
   "organizations.controls": "Controls",
   "organizations.delete": "Delete",
@@ -1167,8 +1180,16 @@ const zhCN = {
   "Magic Link": "魔法链接",
   "Phone OTP": "手机验证码",
   "organizations.title": "组织",
+  "organizations.subtitle": "管理组织资料、组织标识、成员和应用访问。",
   "organizations.new": "新建组织",
   "organizations.name": "名称",
+  "organizations.slug": "组织标识",
+  "organizations.slugHelp":
+    "请输入 2–120 位小写字母或数字，可用单个中划线分隔。",
+  "organizations.slugError.required": "组织标识为必填项。",
+  "organizations.slugError.length": "组织标识长度必须为 2–120 个字符。",
+  "organizations.slugError.format":
+    "组织标识只能使用小写字母或数字，并用单个中划线分隔。",
   "organizations.description": "描述",
   "organizations.optionalDescription": "可选描述",
   "organizations.create": "创建组织",
@@ -1176,6 +1197,8 @@ const zhCN = {
   "organizations.noDataHint":
     "创建组织后即可管理成员、JIT 自动开通和应用访问。",
   "organizations.searchPlaceholder": "按名称或 ID 搜索组织",
+  "organizations.search": "搜索",
+  "organizations.createValidationError": "请检查组织名称或组织标识后重试。",
   "organizations.resultCount": "共 {count} 个组织",
   "organizations.controls": "管理",
   "organizations.delete": "删除",
