@@ -76,24 +76,16 @@
   onMount(loadMfaStatus);
 </script>
 
-<div class="mb-6 flex items-start justify-between gap-4">
+<div class="mb-6">
   <div>
     <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-600">
       {t("mfa.eyebrow")}
     </p>
     <h2 class="mt-2 text-3xl font-bold text-surface-950">{t("mfa.title")}</h2>
     <p class="mt-2 max-w-2xl text-sm leading-6 text-surface-500">
-      {t(
-        "GoTrue owns TOTP enrollment, challenge, verification, factor removal, AAL claims, and session issuance.",
-      )}
+      {t("mfa.description")}
     </p>
   </div>
-  <button
-    onclick={saveFactorLimit}
-    disabled={loading || saving}
-    class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-    >{saving ? t("Saving...") : t("Save")}</button
-  >
 </div>
 {#if saved}<div
     class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-700"
@@ -108,7 +100,7 @@
         <p
           class="text-xs font-semibold uppercase tracking-wide text-surface-500"
         >
-          {t("MFA method")}
+          {t("mfa.method")}
         </p>
         <p class="mt-2 text-2xl font-bold text-surface-950">TOTP</p>
       </section>
@@ -152,6 +144,12 @@
         class="w-full max-w-xs"
       />
       <p class="mt-2 text-sm text-surface-500">{t("mfa.factorLimitHint")}</p>
+      <button
+        onclick={saveFactorLimit}
+        disabled={loading || saving}
+        class="mt-4 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+        >{saving ? t("Saving...") : t("Save")}</button
+      >
     </section>
     <section class="rounded-xl border border-blue-200 bg-blue-50 p-5">
       <h3 class="font-semibold text-blue-950">
@@ -162,7 +160,7 @@
       </p>
     </section>
     <a
-      href={resolve("/users")}
+      href={`${resolve("/users")}?from=mfa`}
       class="inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-900"
       >{t("mfa.manageUserFactors")} →</a
     >

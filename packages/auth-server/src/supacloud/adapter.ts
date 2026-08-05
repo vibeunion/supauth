@@ -1258,11 +1258,14 @@ export class SupaCloudAdapter {
   }
 
   async getStorageBucket(bucketId: string) {
-    const url = `${this.storageUrl}/storage/v1/bucket/${bucketId}`;
+    const path = `/storage/v1/bucket/${bucketId}`;
+    const url = `${this.storageUrl}${path}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${this.masterToken}` },
     });
-    if (!res.ok) throw new Error(`Storage get bucket: ${res.status}`);
+    if (!res.ok) {
+      throw new SupaCloudApiError(res.status, await res.text(), path);
+    }
     return res.json();
   }
 

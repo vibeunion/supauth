@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { t } from "$lib/i18n.js";
   import { resolve } from "$app/paths";
+  import OneTimeSecret from "$lib/components/OneTimeSecret.svelte";
   import { GOTRUE_OAUTH_GRANT_TYPES } from "$lib/oauth-grant-types.js";
   import {
     createDurableMutationLockStore,
@@ -22,8 +23,8 @@
   } from "$lib/api/client.js";
 
   const CONFIDENTIAL_AUTH_METHODS = [
-    { value: "client_secret_basic", label: "client_secret_basic" },
-    { value: "client_secret_post", label: "client_secret_post" },
+    "client_secret_basic",
+    "client_secret_post",
   ];
   const APPLICATION_LOCK_OWNER = "applications";
   const applicationMutationLockStore = createDurableMutationLockStore({
@@ -148,6 +149,16 @@
     if (type === "public") return t("Public client");
     if (type === "confidential") return t("Confidential client");
     return type || t("Confidential client");
+  }
+
+  function authMethodLabel(method) {
+    const protocol = method || "client_secret_basic";
+    const translationKey = `application.authMethod.${protocol}`;
+    const translated = t(translationKey);
+    const label = translated === translationKey
+      ? t("application.authMethod.unknown")
+      : translated;
+    return `${label} (${protocol})`;
   }
 
   function handleTypeChange(event) {
@@ -291,7 +302,7 @@
         return;
       }
       const createdId = applicationIdentity(created);
-      if (createResponse?.client_secret && createdId) {
+      if (draft.client_type === "confidential" && createResponse?.client_secret && createdId) {
         revealedSecrets[createdId] = createResponse.client_secret;
       } else if (createError) {
         error = t(
@@ -324,6 +335,7 @@
   }
 
   async function handleRotateSecret(appId) {
+    if (applications.find((application) => applicationIdentity(application) === appId)?.client_type === "public") return;
     const currentState = secretRotationState(appId);
     if (
       currentState.pending ||
@@ -552,8 +564,8 @@
             bind:value={newApp.token_endpoint_auth_method}
             class="px-3 py-2 border border-surface-300 rounded-lg text-sm"
           >
-            {#each CONFIDENTIAL_AUTH_METHODS as method (method.value)}
-              <option value={method.value}>{method.label}</option>
+            {#each CONFIDENTIAL_AUTH_METHODS as method (method)}
+              <option value={method}>{authMethodLabel(method)}</option>
             {/each}
           </select>
           <p class="mt-2 text-xs text-surface-500">
@@ -625,15 +637,17 @@
               )}
               class="text-sm text-brand-600 hover:text-brand-800">{t("View")}</a
             >
-            <button
-              onclick={() => handleRotateSecret(app.client_id)}
-              disabled={secretRotationState(app.client_id).pending ||
-                applicationRowBlocked(app.client_id)}
-              class="text-sm text-brand-600 hover:text-brand-800 disabled:cursor-not-allowed disabled:text-surface-400"
-              >{secretRotationState(app.client_id).pending
-                ? t("Loading...")
-                : t("Rotate Secret")}</button
-            >
+            {#if app.client_type !== "public"}
+              <button
+                onclick={() => handleRotateSecret(app.client_id)}
+                disabled={secretRotationState(app.client_id).pending ||
+                  applicationRowBlocked(app.client_id)}
+                class="text-sm text-brand-600 hover:text-brand-800 disabled:cursor-not-allowed disabled:text-surface-400"
+                >{secretRotationState(app.client_id).pending
+                  ? t("Loading...")
+                  : t("application.secret.rotate")}</button
+              >
+            {/if}
             <button
               onclick={() => handleDelete(app.client_id)}
               disabled={secretRotationState(app.client_id).pending ||
@@ -644,16 +658,7 @@
           </div>
         </div>
         {#if revealedSecrets[app.client_id]}
-          <div
-            class="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3"
-          >
-            <p class="text-xs text-yellow-700 font-medium mb-1">
-              {t("Client Secret (shown only once)")}
-            </p>
-            <code class="text-sm font-mono text-yellow-900 break-all"
-              >{revealedSecrets[app.client_id]}</code
-            >
-          </div>
+          <OneTimeSecret secret={revealedSecrets[app.client_id]} />
         {/if}
         {#if secretRotationState(app.client_id).outcomeUnknown}
           <div
@@ -697,7 +702,7 @@
           <p class="text-sm text-surface-600">
             {t("Auth Method:")}
             <span class="font-medium"
-              >{app.token_endpoint_auth_method || "client_secret_basic"}</span
+              >{authMethodLabel(app.token_endpoint_auth_method)}</span
             >
           </p>
           {#if app.redirect_uris?.length}

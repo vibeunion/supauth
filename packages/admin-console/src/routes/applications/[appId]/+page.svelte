@@ -5,6 +5,7 @@
   import { page } from "$app/state";
   import DetailTabs from "$lib/components/DetailTabs.svelte";
   import RequestState from "$lib/components/RequestState.svelte";
+  import OneTimeSecret from "$lib/components/OneTimeSecret.svelte";
   import { AdminApiError } from "$lib/admin-api.js";
   import { t } from "$lib/i18n.js";
   import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
@@ -62,6 +63,9 @@
   });
 
   let application = $state(null);
+  let displayedAuthMethods = $derived(
+    application?.client_type === "public" ? ["none"] : confidentialAuthMethods,
+  );
   let roles = $state([]);
   let logs = $state([]);
   let organizations = $state([]);
@@ -819,16 +823,6 @@
 />
 
 <RequestState {loading} error={error || tabError} onRetry={loadApplication}>
-  {#if revealedSecret}<div
-      class="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4"
-    >
-      <p class="text-xs font-semibold text-amber-800">
-        {t("Client Secret (shown only once)")}
-      </p>
-      <code class="mt-2 block break-all text-sm text-amber-950"
-        >{revealedSecret}</code
-      >
-    </div>{/if}
   {#if activeTab === "settings"}
     <div class="space-y-5">
       <section class="console-card p-6">
@@ -851,14 +845,14 @@
             <label
               for="app-auth"
               class="mb-1 block text-sm font-medium text-surface-700"
-              >{t("Token Endpoint Auth Method")}</label
+              >{t("application.authMethod")}</label
             ><select
               id="app-auth"
               disabled={application.client_type === "public"}
               bind:value={applicationForm.token_endpoint_auth_method}
               class="w-full"
-              >{#each confidentialAuthMethods as authMethod (authMethod)}<option
-                  value={authMethod}>{authMethod}</option
+              >{#each displayedAuthMethods as authMethod (authMethod)}<option
+                  value={authMethod}>{t(`application.authMethod.${authMethod}`)} ({authMethod})</option
                 >{/each}</select
             >
           </div>
@@ -875,7 +869,7 @@
           </div>
           <div>
             <span class="mb-1 block text-sm font-medium text-surface-700"
-              >{t("Grant Types")}</span
+              >{t("application.grantTypes")}</span
             >
             <div class="space-y-2 rounded-lg border border-surface-200 p-3">
               {#each GOTRUE_OAUTH_GRANT_TYPES as grantType (grantType)}
@@ -885,7 +879,8 @@
                     value={grantType}
                     bind:group={applicationForm.grant_types}
                   />
-                  <code>{grantType}</code>
+                  <span>{t(`application.grantType.${grantType}`)}</span>
+                  <code class="text-xs text-surface-500">{grantType}</code>
                 </label>
               {/each}
             </div>
@@ -906,21 +901,26 @@
         <div class="flex items-start justify-between gap-3">
           <div>
             <h3 class="font-semibold text-surface-900">
-              {t("Client Secret")}
+              {t("application.secret.title")}
             </h3>
             <p class="mt-1 text-sm text-surface-500">
-              {t(
-                "GoTrue exposes one current client secret and supports atomic rotation. SupaOAuth does not create a second secret store.",
-              )}
+              {application.client_type === "public"
+                ? t("application.secret.publicClient")
+                : t("application.secret.confidentialClient")}
             </p>
           </div>
-          <button
-            disabled={saving || !mutationStorageReady || rotationOutcomeUnknown}
-            onclick={rotateSecret}
-            class="text-sm font-semibold text-brand-700 disabled:opacity-50"
-            >{t("Rotate Secret")}</button
-          >
+          {#if application.client_type !== "public"}
+            <button
+              disabled={saving || !mutationStorageReady || rotationOutcomeUnknown}
+              onclick={rotateSecret}
+              class="text-sm font-semibold text-brand-700 disabled:opacity-50"
+              >{t("application.secret.rotate")}</button
+            >
+          {/if}
         </div>
+        {#if revealedSecret}
+          <OneTimeSecret secret={revealedSecret} />
+        {/if}
         {#if rotationOutcomeUnknown}
           <div
             class="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"

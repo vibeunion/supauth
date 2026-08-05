@@ -1,6 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
+  import { page } from "$app/state";
   import { t } from "$lib/i18n.js";
   import {
     collectionItems,
@@ -77,6 +78,7 @@
   let applicationsLoaded = $state(false);
   let applicationLoadError = $state(null);
   let selectedApplicationId = $state("");
+  let fromMfa = $derived(page.url.searchParams.get("from") === "mfa");
   let rolesPermissionsGeneration = 0;
   const userListRequests = createLatestRequestTracker();
   const userMutationTracker = createKeyedSingleFlightTracker();
@@ -766,6 +768,15 @@
   }
 </script>
 
+{#if fromMfa}
+  <a
+    href={resolve("/mfa")}
+    class="mb-4 inline-flex items-center text-sm font-semibold text-brand-700 hover:text-brand-900"
+  >
+    ← {t("users.backToMfa")}
+  </a>
+{/if}
+
 <div class="flex items-center justify-between gap-4 mb-6">
   <div>
     <h2 class="text-2xl font-bold text-surface-900">{t("Users")}</h2>
@@ -799,7 +810,7 @@
         (!mutationStorageReady || userResourceBusy("new"))}
       onclick={() => (showCreate = !showCreate)}
       class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
-      >{showCreate ? t("Cancel") : `+ ${t("New User")}`}</button
+      >{showCreate ? t("Cancel") : `+ ${t("users.new")}`}</button
     >
   </div>
 </div>
@@ -855,7 +866,7 @@
 
 {#if showCreate}
   <section class="console-card mb-6 p-6">
-    <h3 class="text-lg font-semibold text-surface-900">{t("New User")}</h3>
+    <h3 class="text-lg font-semibold text-surface-900">{t("users.new")}</h3>
     <div class="mt-4 grid gap-4 md:grid-cols-2">
       <div>
         <label
@@ -1042,18 +1053,18 @@
     </table>
   </div>
   <div class="mt-4 flex items-center justify-between text-sm text-surface-500">
-    <span>{t("Page")} {currentPage}</span>
+    <span>{t("pagination.page", { page: currentPage })}</span>
     <div class="flex gap-2">
       <button
         disabled={loading || currentPage <= 1}
         onclick={() => changePage(currentPage - 1)}
         class="rounded-lg border border-surface-300 px-3 py-1.5 disabled:opacity-40"
-        >{t("Previous")}</button
+        >{t("pagination.previous")}</button
       ><button
         disabled={loading || currentPage * pageSize >= totalUsers}
         onclick={() => changePage(currentPage + 1)}
         class="rounded-lg border border-surface-300 px-3 py-1.5 disabled:opacity-40"
-        >{t("Next")}</button
+        >{t("pagination.next")}</button
       >
     </div>
   </div>

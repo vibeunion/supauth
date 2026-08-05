@@ -8,19 +8,9 @@
     getCapabilities,
   } from "$lib/api/client.js";
   import CapabilityStatus from "$lib/components/CapabilityStatus.svelte";
+  import { groupCapabilityEntries } from "$lib/capability-view.js";
   import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
-
-  const identityCapabilityNames = [
-    "supacloud_identity_analytics_v1",
-    "gotrue_oauth_client_ownership",
-    "gotrue_admin_user_sessions",
-    "gotrue_admin_identity_unlink",
-    "gotrue_admin_oauth_grants",
-    "gotrue_client_credentials",
-    "gotrue_id_token_custom_claims",
-    "supacloud_webhook_metrics_v1",
-  ];
 
   let status = $state(null);
   let discovery = $state(null);
@@ -31,6 +21,9 @@
   let error = $state(null);
   let capabilitiesLoading = $state(true);
   let capabilitiesError = $state(null);
+  let groupedCapabilities = $derived(groupCapabilityEntries(capabilities));
+  let currentCapabilityEntries = $derived(groupedCapabilities.current);
+  let waitingCapabilityEntries = $derived(groupedCapabilities.waiting);
 
   async function loadDashboard() {
     loading = true;
@@ -184,13 +177,38 @@
         error={capabilitiesError}
         onRetry={loadCapabilities}
       >
-        <div class="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {#each identityCapabilityNames as capabilityName (capabilityName)}
-            <CapabilityStatus
-              name={capabilityName}
-              capability={capabilities[capabilityName]}
-            />
-          {/each}
+        <div class="space-y-6">
+          <div>
+            <h4 class="text-sm font-semibold text-surface-800">
+              {t("dashboard.currentCapabilities")}
+            </h4>
+            <div class="mt-3 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              {#each currentCapabilityEntries as [capabilityName, capability] (capabilityName)}
+                <CapabilityStatus name={capabilityName} {capability} />
+              {:else}
+                <p class="text-sm text-surface-500">
+                  {t("dashboard.noCurrentCapabilities")}
+                </p>
+              {/each}
+            </div>
+          </div>
+          {#if waitingCapabilityEntries.length}
+            <details class="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+              <summary class="cursor-pointer text-sm font-semibold text-amber-900">
+                {t("dashboard.waitingCapabilities", {
+                  count: waitingCapabilityEntries.length,
+                })}
+              </summary>
+              <p class="mt-2 text-sm leading-6 text-amber-800">
+                {t("dashboard.waitingCapabilitiesDescription")}
+              </p>
+              <div class="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                {#each waitingCapabilityEntries as [capabilityName, capability] (capabilityName)}
+                  <CapabilityStatus name={capabilityName} {capability} />
+                {/each}
+              </div>
+            </details>
+          {/if}
         </div>
       </RequestState>
     </div>

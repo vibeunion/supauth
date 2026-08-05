@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
-import { SupaCloudAdapter } from '../supacloud/adapter.js';
+import { SupaCloudAdapter, SupaCloudApiError } from '../supacloud/adapter.js';
 import { loadConfig } from '../config/index.js';
 
 // P0-13/P0-25/P0-26: Contract tests for SupaCloud adapter
@@ -69,6 +69,24 @@ describe('SupaCloudAdapter contract', () => {
     const adapter = new SupaCloudAdapter();
     const url = adapter.getPublicUrl('branding', 'logo.png');
     expect(url).toContain('/storage/v1/object/public/branding/logo.png');
+  });
+
+  it('preserves Storage bucket lookup status in the adapter error contract', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async () => new Response('bucket unavailable', { status: 503 })) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      const lookupFailure = await adapter.getStorageBucket('branding').catch(error => error);
+      expect(lookupFailure).toBeInstanceOf(SupaCloudApiError);
+      expect(lookupFailure).toMatchObject({
+        status: 503,
+        body: 'bucket unavailable',
+        path: '/storage/v1/bucket/branding',
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('encodes private Storage object paths for upload, download, and deletion', async () => {
