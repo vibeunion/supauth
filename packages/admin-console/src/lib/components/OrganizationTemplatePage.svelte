@@ -27,6 +27,7 @@
   const DEFAULT_TEMPLATE_NAME = "Default Organization";
   const DEFAULT_TEMPLATE_DESCRIPTION =
     "Standard organization with owner/admin/member roles";
+  const ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH = 255;
 
   function organizationTemplateItems(response) {
     if (
@@ -64,7 +65,9 @@
       typeof role.name === "string" &&
       role.name.trim().length > 0 &&
       Array.isArray(role.permissions) &&
-      role.permissions.every((permission) => typeof permission === "string"));
+      role.permissions.every((permission) =>
+        typeof permission === "string" && permission.trim().length > 0
+      ));
   }
 
   function validTemplateScope(scope) {
@@ -109,6 +112,7 @@
     const templateRoles = JSON.parse(form.template_roles || "[]");
     const templateScopes = JSON.parse(form.template_scopes || "[]");
     if (!name ||
+      name.length > ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH ||
       !Array.isArray(templateRoles) ||
       !templateRoles.every(validTemplateRole) ||
       !Array.isArray(templateScopes) ||
@@ -209,6 +213,7 @@
         id="template-name"
         bind:value={form.name}
         required
+        maxlength={ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH}
         class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm"
       />
     </div>

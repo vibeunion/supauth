@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { Elysia } from 'elysia';
 import { observabilityMiddleware } from '../middleware/index.js';
+import { ApiContractError } from '../utils/api-contract.js';
+import {
+  organizationTemplateCreateInput,
+  organizationTemplateUpdateInput,
+} from '../routes/org-template-input.js';
 
 const deleteTemplate = mock(async (): Promise<'deleted' | 'protected' | 'not_found'> => 'deleted');
 const createTemplate = mock(async () => ({ id: 'template-new', name: 'New template' }));
@@ -58,7 +63,12 @@ describe('organization template deletion safety', () => {
     ['POST', { template_roles: [], template_scopes: [] }],
     ['POST', { name: 'Unknown field', template_roles: [], unexpected: true }],
     ['POST', { name: 'Invalid default', is_default: 'yes' }],
+    ['POST', { name: 'x'.repeat(256) }],
+    ['POST', { name: 'Blank permission', template_roles: [{ name: 'reader', permissions: [''] }] }],
     ['PUT', { template_roles: [{ name: 'reader', permissions: [42] }] }],
+    ['PUT', { name: 'x'.repeat(256) }],
+    ['PUT', { template_roles: [{ name: 'reader', permissions: ['   '] }] }],
+    ['PUT', {}],
     ['PUT', { template_scopes: [{ name: '', description: 'Empty name' }] }],
     ['PUT', { name: '' }],
     ['PUT', { description: null }],
@@ -74,6 +84,28 @@ describe('organization template deletion safety', () => {
     expect(updateTemplate).not.toHaveBeenCalled();
     expect(logAudit).not.toHaveBeenCalled();
     expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['create', organizationTemplateCreateInput, { name: 'x'.repeat(256) }],
+    ['create', organizationTemplateCreateInput, {
+      name: 'Blank permission',
+      template_roles: [{ name: 'reader', permissions: [' '] }],
+    }],
+    ['update', organizationTemplateUpdateInput, { name: 'x'.repeat(256) }],
+    ['update', organizationTemplateUpdateInput, {
+      template_roles: [{ name: 'reader', permissions: ['\t'] }],
+    }],
+    ['update', organizationTemplateUpdateInput, {}],
+  ] as const)('rejects invalid %s input in the pure contract parser', (_operation, parseInput, body) => {
+    expect(() => parseInput(body)).toThrow(ApiContractError);
+  });
+
+  it('accepts organization template names at the 255-character boundary', () => {
+    const maximumLengthName = 'x'.repeat(255);
+
+    expect(organizationTemplateCreateInput({ name: maximumLengthName }).name).toBe(maximumLengthName);
+    expect(organizationTemplateUpdateInput({ name: maximumLengthName }).name).toBe(maximumLengthName);
   });
 
   it('forwards validated create and update payloads', async () => {

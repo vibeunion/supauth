@@ -61,4 +61,19 @@ describe("Roles and organization templates UX", () => {
     expect(organizationTemplatesPage).toContain("!templateScopes.every(validTemplateScope)");
     expect(organizationTemplatesPage).toContain('t("orgTemplates.invalidInput")');
   });
+
+  test("rejects overlong names and blank permissions before template creation", () => {
+    expect(organizationTemplatesPage).toContain(
+      "const ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH = 255;",
+    );
+    expect(organizationTemplatesPage).toContain(
+      "maxlength={ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH}",
+    );
+    expect(organizationTemplatesPage).toContain(
+      "name.length > ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH",
+    );
+    expect(organizationTemplatesPage).toContain(
+      'typeof permission === "string" && permission.trim().length > 0',
+    );
+  });
 });

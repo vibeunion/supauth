@@ -29,6 +29,7 @@ const ORGANIZATION_TEMPLATE_FIELDS = new Set([
   'template_scopes',
   'is_default',
 ]);
+const ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH = 255;
 
 function invalidOrganizationTemplate(field: string) {
   return new ApiContractError(
@@ -50,13 +51,17 @@ function nonEmptyString(candidate: unknown): candidate is string {
   return typeof candidate === 'string' && candidate.trim().length > 0;
 }
 
+function validOrganizationTemplateName(candidate: unknown): candidate is string {
+  return nonEmptyString(candidate) && candidate.length <= ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH;
+}
+
 function validTemplateRole(candidate: unknown): candidate is OrganizationTemplateRoleInput {
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
   const role = candidate as Record<string, unknown>;
   return Object.keys(role).every(field => field === 'name' || field === 'permissions')
     && nonEmptyString(role.name)
     && Array.isArray(role.permissions)
-    && role.permissions.every(permission => typeof permission === 'string');
+    && role.permissions.every(nonEmptyString);
 }
 
 function validTemplateScope(candidate: unknown): candidate is OrganizationTemplateScopeInput {
@@ -70,7 +75,7 @@ function validTemplateScope(candidate: unknown): candidate is OrganizationTempla
 function assertOrganizationTemplateFields(input: Record<string, unknown>) {
   const unknownField = Object.keys(input).find(field => !ORGANIZATION_TEMPLATE_FIELDS.has(field));
   if (unknownField) throw invalidOrganizationTemplate(unknownField);
-  if (Object.hasOwn(input, 'name') && !nonEmptyString(input.name)) {
+  if (Object.hasOwn(input, 'name') && !validOrganizationTemplateName(input.name)) {
     throw invalidOrganizationTemplate('name');
   }
   if (Object.hasOwn(input, 'description') && typeof input.description !== 'string') {
@@ -96,6 +101,7 @@ export function organizationTemplateUpdateInput(body: unknown): OrganizationTemp
   const input = organizationTemplateRecord(body);
   assertOrganizationTemplateFields(input);
   assertOrganizationTemplateCollections(input);
+  if (Object.keys(input).length === 0) throw invalidOrganizationTemplate('body');
   return input as OrganizationTemplateUpdateInput;
 }
 
