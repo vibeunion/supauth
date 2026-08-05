@@ -45,56 +45,83 @@ function permissionLiteral(permissionName: string): string {
   return `'${permissionName}'`;
 }
 
-function projectionContractSql(schemaName: string): string {
-  return `DO $$
-DECLARE
-  projection_oid OID := pg_catalog.to_regclass('${schemaName}.effective_permission_grants');
-BEGIN
-  IF projection_oid IS NULL THEN
-    RAISE EXCEPTION '${schemaName}.effective_permission_grants projection view is required';
-  END IF;
-  IF (SELECT relation.relkind FROM pg_catalog.pg_class AS relation WHERE relation.oid = projection_oid) IS DISTINCT FROM 'v' THEN
-    RAISE EXCEPTION '${schemaName}.effective_permission_grants must be an ordinary view';
-  END IF;
-  IF ARRAY(
+function projectionExistenceViolationQueries(projectionLabel: string): string {
+  return `SELECT 'projection_missing'::TEXT AS rule,
+  '${projectionLabel} projection view is required'::TEXT AS message
+FROM projection
+WHERE relation_oid IS NULL
+UNION ALL
+SELECT 'projection_kind', '${projectionLabel} must be an ordinary view'
+FROM projection
+WHERE relation_oid IS NOT NULL
+  AND (SELECT relation.relkind FROM pg_catalog.pg_class AS relation WHERE relation.oid = relation_oid)
+    IS DISTINCT FROM 'v'`;
+}
+
+function projectionColumnViolationQuery(projectionLabel: string): string {
+  return `SELECT 'projection_columns', '${projectionLabel} columns do not match the required contract'
+FROM projection
+WHERE relation_oid IS NOT NULL
+  AND ARRAY(
     SELECT attribute.attname::TEXT
     FROM pg_catalog.pg_attribute AS attribute
-    WHERE attribute.attrelid = projection_oid
+    WHERE attribute.attrelid = relation_oid
       AND attribute.attnum > 0
       AND NOT attribute.attisdropped
     ORDER BY attribute.attnum
   ) IS DISTINCT FROM ARRAY[
     'principal_kind', 'principal_issuer', 'principal_subject', 'application_id',
     'domain_type', 'domain_id', 'permission_name'
-  ]::TEXT[] THEN
-    RAISE EXCEPTION '${schemaName}.effective_permission_grants columns do not match the required contract';
-  END IF;
-  IF EXISTS (
+  ]::TEXT[]`;
+}
+
+function projectionColumnTypeViolationQuery(projectionLabel: string): string {
+  return `SELECT 'projection_column_types', '${projectionLabel} columns must all use TEXT'
+FROM projection
+WHERE relation_oid IS NOT NULL
+  AND EXISTS (
     SELECT 1
     FROM pg_catalog.pg_attribute AS attribute
-    WHERE attribute.attrelid = projection_oid
+    WHERE attribute.attrelid = relation_oid
       AND attribute.attnum > 0
       AND NOT attribute.attisdropped
       AND attribute.atttypid <> 'pg_catalog.text'::pg_catalog.regtype
-  ) THEN
-    RAISE EXCEPTION '${schemaName}.effective_permission_grants columns must all use TEXT';
-  END IF;
-  IF pg_catalog.has_table_privilege('anon', projection_oid, 'SELECT')
-    OR pg_catalog.has_table_privilege('authenticated', projection_oid, 'SELECT') THEN
-    RAISE EXCEPTION '${schemaName}.effective_permission_grants must not be directly readable by API roles';
-  END IF;
-END $$;`;
+  )`;
 }
 
-function legacyHelperRevocationSql(schemaName: string, schemaRef: string): string {
-  return `DO $$
-BEGIN
-  IF pg_catalog.to_regprocedure('${schemaName}.authorization_allowed_scope_ids(text,text,text)') IS NOT NULL THEN
-    REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) FROM PUBLIC;
-    REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) FROM anon;
-    REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) FROM authenticated;
-  END IF;
-END $$;`;
+function projectionPrivilegeViolationQuery(projectionLabel: string): string {
+  return `SELECT 'projection_privileges', '${projectionLabel} must not be directly readable by API roles'
+FROM projection
+WHERE relation_oid IS NOT NULL
+  AND (
+    pg_catalog.has_table_privilege('anon', relation_oid, 'SELECT')
+    OR pg_catalog.has_table_privilege('authenticated', relation_oid, 'SELECT')
+  )`;
+}
+
+function projectionViolationQueries(projectionLabel: string): string {
+  return [
+    projectionExistenceViolationQueries(projectionLabel),
+    projectionColumnViolationQuery(projectionLabel),
+    projectionColumnTypeViolationQuery(projectionLabel),
+    projectionPrivilegeViolationQuery(projectionLabel),
+  ].join('\nUNION ALL\n');
+}
+
+export function generateAuthorizationProjectionPreflightSql(
+  options: Pick<AuthorizationSchemaOptions, 'schema'>,
+): string {
+  const schemaRef = identifier('schema', options.schema);
+  const projectionName = literal('projection', `${schemaRef}."effective_permission_grants"`);
+  const projectionLabel = `${options.schema}.effective_permission_grants`;
+  return `WITH projection AS (
+  SELECT pg_catalog.to_regclass(${projectionName}) AS relation_oid
+), violations(rule, message) AS (
+${projectionViolationQueries(projectionLabel)}
+)
+SELECT rule, message
+FROM violations
+ORDER BY rule;`;
 }
 
 function allowedScopeFunctionSql(schemaRef: string, applicationId: string): string {
@@ -162,8 +189,6 @@ export function generateAuthorizationSchemaSql(options: AuthorizationSchemaOptio
   const schemaRef = identifier('schema', options.schema);
   const statements = [
     `CREATE SCHEMA IF NOT EXISTS ${schemaRef};`,
-    projectionContractSql(options.schema),
-    legacyHelperRevocationSql(options.schema, schemaRef),
     allowedScopeFunctionSql(schemaRef, options.applicationId),
     `REVOKE ALL ON SCHEMA ${schemaRef} FROM PUBLIC;`,
     `GRANT USAGE ON SCHEMA ${schemaRef} TO authenticated;`,

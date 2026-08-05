@@ -41,6 +41,7 @@ PostgreSQL helpers read the application's ordinary effective-grant view once per
 
 - One authorization schema belongs to one fixed application ID.
 - The application supplies an ordinary `effective_permission_grants(principal_kind, principal_issuer, principal_subject, application_id, domain_type, domain_id, permission_name)` view. Every column is `TEXT`; every row is a current exact allow grant.
+- `generateAuthorizationProjectionPreflightSql` returns one `rule`/`message` row per projection contract violation and zero rows on success. Clients execute it separately and require zero rows before submitting installation SQL; it is never appended to a migration whose query results are ignored.
 - The view resolves profile/account state, membership activity and ambiguity, roles, direct grants, inheritance, wildcard expansion, and explicit-deny precedence. Missing, inactive, revoked, denied, or ambiguous facts do not project rows.
 - The package creates no permission catalog, role mapping, membership, or assignment table. The projection must not be directly readable by `PUBLIC`, `anon`, or `authenticated`.
 - Generated helpers are `STABLE SECURITY DEFINER SET search_path=''`; the schema revokes `PUBLIC`, grants `USAGE` to `authenticated`, and grants helper execution only to `authenticated` without table access.
@@ -50,7 +51,7 @@ PostgreSQL helpers read the application's ordinary effective-grant view once per
 - User principals always use root `sub`. Service principals require signed `kind: "service"` and a non-blank signed subject; they never fall back to root `sub`.
 - The target domain column remains UUID or text without a cast, and an uncorrelated `IN (SELECT ...)` allows a hashed scope subplan.
 - Source tables need indexes that support the application's effective-grant projection plus each protected table's domain column.
-- Structural SQL checks accept only the generator's canonical shape and are not a general parser or authorization proof. Releases require real negative database observations. Large tables (250,000 or more rows) and principals with more than 1,000 scopes also require authenticated `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` where each helper has `Actual Loops = 1` inside the hashed subplan referenced by its ancestor filter.
+- Projection preflight, installation, RLS, and legacy cleanup are separate static SQL artifacts without top-level procedural `DO` blocks. Structural SQL checks accept only the generator's canonical shape and are not a general parser or authorization proof. Releases require an observed empty preflight result plus real negative database observations. Large tables (250,000 or more rows) and principals with more than 1,000 scopes also require authenticated `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` where each helper has `Actual Loops = 1` inside the hashed subplan referenced by its ancestor filter.
 
 The PostgreSQL preset depends on Supabase/PostgREST `auth.jwt()` and the `anon` / `authenticated` roles. A bare PostgreSQL deployment needs a separately reviewed identity adapter and is not represented by this preset.
 
@@ -58,7 +59,7 @@ Native SupaCloud applications do not need SupAuth or a runtime package that adds
 
 ## Adoption
 
-Application adoption is a separate application PR: create the effective-grant view over application-owned facts, install a dedicated fixed-application authorization schema through a new immutable migration, replace generated policies in the same transaction, integrate the current-state resolver, run conformance, and capture authenticated plans. The conformance revocation scenario must observe allow, perform a real fixture revocation, then observe denial on the next request. The packages never modify or connect to application databases by themselves.
+Application adoption is a separate application PR: create the authorization schema and effective-grant view over application-owned facts in one immutable migration; execute the read-only projection preflight separately and require zero rows; then install the fixed-application helper, replace generated policies, and place any legacy cleanup last in a second immutable migration. Integrate the current-state resolver, run conformance, and capture authenticated plans. The conformance revocation scenario must observe allow, perform a real fixture revocation, then observe denial on the next request. The packages never modify or connect to application databases by themselves.
 
 ## npm Distribution And Release Boundary
 
