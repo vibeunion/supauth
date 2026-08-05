@@ -307,14 +307,14 @@
   }
 
   function acknowledgeUnknownFactoryCreate() {
-    if (!confirm(t("I have reconciled the authoritative connector list."))) return;
+    if (!confirm(t("I have reconciled the current connector list."))) return;
     if (!confirm(t("Allow another connector factory create?"))) return;
     clearFactoryCreateLock();
   }
 
   function factoryCreationFailure(requestError) {
     if (requestError?.code === "connector_creation_outcome_unknown") {
-      return t("Connector creation outcome is unknown. Verify the authoritative connector list before trying again.");
+      return t("Connector creation outcome is unknown. Verify the current connector list before trying again.");
     }
     if (requestError?.statusCode === 400) {
       return t("Connector settings are invalid. Check the required fields and try again.");
@@ -417,7 +417,7 @@
             draft,
           });
       if (!created || !applyConnectorList(readBack)) {
-        error = t("Connector creation could not be reconciled. Verify the authoritative connector list before creating again.");
+        error = t("Connector creation could not be reconciled. Verify the current connector list before creating again.");
         return;
       }
       if (!clearFactoryCreateLock()) {
@@ -429,7 +429,7 @@
     } catch (requestError) {
       if (!factoryCreateOperations.isCurrent(operation)) return;
       error = creationMayHaveCommitted
-        ? t("Connector creation outcome is unknown. Verify the authoritative connector list before trying again.")
+        ? t("Connector creation outcome is unknown. Verify the current connector list before trying again.")
         : factoryCreationFailure(requestError);
       if (!creationMayHaveCommitted) clearFactoryCreateLock();
     } finally {
@@ -462,7 +462,7 @@
 {#if factoryCreateOutcomeUnknown}
   <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900" role="alert">
     <p>
-      {t("A previous connector creation has an unknown outcome. Reconcile the authoritative connector list before creating again.")}
+      {t("A previous connector creation has an unknown outcome. Reconcile the current connector list before creating again.")}
     </p>
     <button onclick={acknowledgeUnknownFactoryCreate} class="mt-3 font-semibold underline">
       {t("I verified the list; allow another create")}

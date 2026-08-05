@@ -156,7 +156,7 @@ describe("remaining admin UI request coordination", () => {
     expect(pageSource).toContain("Do not rotate again");
   });
 
-  test("guards connector factory creation with single-flight and authoritative read-back", async () => {
+  test("guards connector factory creation with single-flight and current-list read-back", async () => {
     const pageSource = await Bun.file(
       new URL("../routes/connectors/+page.svelte", import.meta.url),
     ).text();

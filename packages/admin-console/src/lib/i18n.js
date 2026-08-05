@@ -2136,21 +2136,21 @@ const zhCN = {
     "连接器运行时配置检查失败，请核对提供商配置后重试。",
   "Exactly one connector field is required: {fields}":
     "以下连接器字段必须且只能填写一项：{fields}",
-  "Connector creation outcome is unknown. Verify the authoritative connector list before trying again.":
-    "连接器创建结果未知，请先核对权威连接器列表再重试。",
+  "Connector creation outcome is unknown. Verify the current connector list before trying again.":
+    "连接器创建结果未知，请先核对当前连接器列表再重试。",
   "Connector settings are invalid. Check the required fields and try again.":
     "连接器配置无效，请核对必填字段后重试。",
   "Connector creation failed. Verify the authentication runtime capability and try again.":
     "连接器创建失败，请核对认证运行时能力后重试。",
-  "I have reconciled the authoritative connector list.":
-    "我已核对权威连接器列表。",
+  "I have reconciled the current connector list.":
+    "我已核对当前连接器列表。",
   "Allow another connector factory create?": "允许再次通过工厂创建连接器？",
-  "Connector creation could not be reconciled. Verify the authoritative connector list before creating again.":
-    "无法对账确认连接器创建结果，请先核对权威连接器列表再创建。",
+  "Connector creation could not be reconciled. Verify the current connector list before creating again.":
+    "无法对账确认连接器创建结果，请先核对当前连接器列表再创建。",
   "Connector creation was verified but the reconciliation lock could not be cleared.":
     "连接器创建已确认，但无法清除对账锁；请先处理浏览器存储后再操作。",
-  "A previous connector creation has an unknown outcome. Reconcile the authoritative connector list before creating again.":
-    "上一次连接器创建结果未知，请先核对权威连接器列表再创建。",
+  "A previous connector creation has an unknown outcome. Reconcile the current connector list before creating again.":
+    "上一次连接器创建结果未知，请先核对当前连接器列表再创建。",
   "Connector status update was rejected. Refresh and review the connector settings.":
     "连接器状态更新被拒绝，请刷新并检查连接器配置。",
   "Connector status update failed. Verify the authentication runtime and try again.":

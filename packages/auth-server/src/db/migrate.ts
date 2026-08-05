@@ -909,6 +909,13 @@ SET config_schema = '{"required":["name"],"one_of":[["metadata_url","metadata_xm
 WHERE factory_id = 'saml-enterprise';
 `;
 
+export const MIGRATION_V15_SQL = `
+UPDATE supaoauth.connectors
+SET runtime_kind = 'builtin_oauth'
+WHERE provider_id IN ('oidc-enterprise', 'saml-enterprise')
+  AND runtime_kind IN ('custom_oidc', 'saml');
+`;
+
 export const HOSTED_MIGRATIONS = [
   { name: 'supauth-overlay-schema-v1', sql: MIGRATION_SQL },
   { name: 'supauth-overlay-hardening-v4', sql: MIGRATION_V4_SQL },
@@ -922,6 +929,7 @@ export const HOSTED_MIGRATIONS = [
   { name: 'supauth-overlay-account-claim-state-v12', sql: MIGRATION_V12_SQL },
   { name: 'supauth-overlay-rls-permission-projection-v13', sql: MIGRATION_V13_SQL },
   { name: 'supauth-overlay-connector-runtime-kind-v14', sql: MIGRATION_V14_SQL },
+  { name: 'supauth-overlay-connector-runtime-kind-repair-v15', sql: MIGRATION_V15_SQL },
 ] as const;
 
 export async function runMigration(databaseUrl?: string) {
