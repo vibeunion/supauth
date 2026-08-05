@@ -72,6 +72,21 @@ const projectionRules = [
   },
 ];
 
+export function buildJwtExtensionExample(projectRef = "", projection = {}) {
+  return JSON.stringify(
+    {
+      app_metadata: {
+        supaoauth: {
+          schema_version: SUPAOAUTH_APP_METADATA_SCHEMA_VERSION,
+          projects: projectRef ? { [projectRef]: projection } : {},
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
 function validationError(code, params = {}) {
   return { code, params };
 }

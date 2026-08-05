@@ -9,8 +9,10 @@
   } from "@supauth/shared";
   import {
     getCompatibilityReport,
+    getCustomAccessTokenHookConfig,
     getCustomAccessTokenHookStatus,
     getProject,
+    updateCustomAccessTokenHookConfig,
     verifyCustomAccessTokenHook,
   } from "$lib/api/client.js";
   import {
@@ -18,12 +20,14 @@
     parseAuthHookStatus,
   } from "$lib/auth-hook-status.js";
   import { t } from "$lib/i18n.js";
+  import { compatibilityCheckLabel } from "$lib/compatibility-check-label.js";
   import {
     SUPAOAUTH_FIELD_TYPES,
+    buildJwtExtensionExample,
     validateExtensionDraft,
   } from "$lib/jwt-preview.js";
 
-  const hookPath = "/v1/auth-hooks/custom-access-token";
+  const hookPath = "/api/v1/auth-hooks/custom-access-token";
   const hookStateClasses = {
     active: "rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700",
     inactive: "rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700",
@@ -31,9 +35,9 @@
     unavailable: "rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700",
   };
   const hookStateLabelKeys = {
-    active: "Active",
-    inactive: "Not effective",
-    loading: "Loading...",
+    active: "jwt.hookState.active",
+    inactive: "jwt.hookState.inactive",
+    loading: "jwt.hookState.loading",
     unavailable: "state.unavailable",
   };
   const previewClaimValues = {
@@ -55,22 +59,7 @@
       previewClaimValues[claimName] ?? `<${claimName}>`,
     ]),
   );
-  function extensionExample(projectRef, projection = {}) {
-    return JSON.stringify(
-    {
-      app_metadata: {
-        supaoauth: {
-          schema_version: 2,
-          projects: projectRef ? { [projectRef]: projection } : {},
-        },
-      },
-    },
-    null,
-    2,
-    );
-  }
-
-  let extensionDraft = $state(extensionExample());
+  let extensionDraft = $state(buildJwtExtensionExample());
   let compatibilityReport = $state(null);
   let compatibilityLoading = $state(true);
   let compatibilityError = $state(null);
@@ -79,6 +68,16 @@
   let hookStatus = $state(null);
   let hookLoading = $state(true);
   let hookError = $state(null);
+  let hookConfig = $state({
+    enabled: false,
+    uri: "",
+    secret: "",
+    secret_configured: false,
+  });
+  let hookConfigLoading = $state(true);
+  let hookConfigSaving = $state(false);
+  let hookConfigError = $state("");
+  let hookConfigMessage = $state("");
   let verifying = $state(false);
   let verificationMessage = $state("");
   let verificationError = $state("");
@@ -114,8 +113,8 @@
     compatibilityError = null;
     try {
       compatibilityReport = await getCompatibilityReport();
-    } catch (requestError) {
-      compatibilityError = requestError.message;
+    } catch {
+      compatibilityError = t("jwt.compatibilityLoadFailed");
     } finally {
       compatibilityLoading = false;
     }
@@ -128,7 +127,7 @@
       const project = await getProject();
       const projectRef = project?.ref || project?.project_ref || project?.id;
       if (!projectRef) throw new Error(t("common.notAvailable"));
-      extensionDraft = extensionExample(projectRef, {
+      extensionDraft = buildJwtExtensionExample(projectRef, {
         roles: ["tenant_admin"],
         permissions: ["users.read"],
         current_org_id: "org_demo",
@@ -151,10 +150,44 @@
       );
       if (!authoritativeStatus) throw new Error(t("jwt.hookStatusInvalid"));
       hookStatus = authoritativeStatus;
-    } catch (requestError) {
-      hookError = requestError.message;
+    } catch {
+      hookError = t("jwt.hookStatusLoadFailed");
     } finally {
       hookLoading = false;
+    }
+  }
+
+  async function loadHookConfig() {
+    hookConfigLoading = true;
+    hookConfigError = "";
+    try {
+      const authoritativeConfig = await getCustomAccessTokenHookConfig();
+      hookConfig = { ...authoritativeConfig, secret: "" };
+    } catch {
+      hookConfigError = t("jwt.hookConfigLoadFailed");
+    } finally {
+      hookConfigLoading = false;
+    }
+  }
+
+  async function saveHookConfig() {
+    hookConfigSaving = true;
+    hookConfigError = "";
+    hookConfigMessage = "";
+    try {
+      const savedConfig = await updateCustomAccessTokenHookConfig({
+        enabled: hookConfig.enabled,
+        uri: hookConfig.uri.trim(),
+        ...(hookConfig.secret.trim() ? { secret: hookConfig.secret.trim() } : {}),
+      });
+      hookConfig = { ...savedConfig, secret: "" };
+      hookConfigMessage = t("jwt.hookConfigSaved");
+      await loadHookStatus();
+    } catch {
+      hookConfigError = t("jwt.hookConfigSaveFailed");
+      hookConfig = { ...hookConfig, secret: "" };
+    } finally {
+      hookConfigSaving = false;
     }
   }
 
@@ -162,6 +195,7 @@
     void loadCompatibility();
     void loadProjectContext();
     void loadHookStatus();
+    void loadHookConfig();
   });
 
   async function verifyHook() {
@@ -170,7 +204,7 @@
     verificationMessage = "";
     verificationError = "";
     try {
-      const verification = await verifyCustomAccessTokenHook();
+      await verifyCustomAccessTokenHook();
       const authoritativeStatus = parseAuthHookStatus(
         await getCustomAccessTokenHookStatus(),
       );
@@ -180,11 +214,10 @@
         verificationError = t("jwt.hookVerificationNotConfirmed");
         return;
       }
-      verificationMessage =
-        verification.message || t("JWT hook verification passed");
-    } catch (requestError) {
+      verificationMessage = t("jwt.hookVerificationPassed");
+    } catch {
       hookStatus = null;
-      hookError = requestError.message;
+      hookError = t("jwt.hookVerificationFailed");
     } finally {
       verifying = false;
     }
@@ -369,7 +402,7 @@
       </div>
     {/if}
     <div class="mt-4 rounded-lg bg-surface-950 p-4 text-sm text-white">
-      <p><span class="text-surface-400">POST</span> <code>{hookPath}</code></p>
+      <p><span class="text-surface-400">POST</span> <code>{hookConfig.uri || hookPath}</code></p>
       <p class="mt-2">
         <span class="text-surface-400">Protocol</span>
         <code>Standard Webhooks v1</code>
@@ -381,11 +414,66 @@
       </p>
     </div>
     <p class="mt-3 text-xs leading-5 text-surface-500">{t("jwt.secretHint")}</p>
+    <div class="mt-4 rounded-xl border border-surface-200 bg-surface-50 p-4">
+      <h4 class="font-semibold text-surface-900">{t("jwt.hookConfigTitle")}</h4>
+      <p class="mt-1 text-xs leading-5 text-surface-500">
+        {t("jwt.hookConfigDescription")}
+      </p>
+      {#if hookConfigLoading}
+        <p class="mt-3 text-sm text-surface-500">{t("common.loading")}</p>
+      {:else}
+        <fieldset class="mt-4 space-y-4" disabled={hookConfigSaving}>
+          <label class="flex items-center gap-2 text-sm font-medium text-surface-700">
+            <input type="checkbox" bind:checked={hookConfig.enabled} />
+            {t("jwt.hookEnabled")}
+          </label>
+          <label class="block text-sm font-medium text-surface-700">
+            {t("jwt.hookUri")}
+            <input
+              type="url"
+              bind:value={hookConfig.uri}
+              class="mt-1 w-full"
+              placeholder="https://auth.example.com/api/v1/auth-hooks/custom-access-token"
+            />
+          </label>
+          <label class="block text-sm font-medium text-surface-700">
+            {t("jwt.hookSecretReplacement")}
+            <input
+              type="password"
+              bind:value={hookConfig.secret}
+              autocomplete="new-password"
+              class="mt-1 w-full font-mono"
+              placeholder="v1,whsec_..."
+            />
+          </label>
+          <p class="text-xs text-surface-500">
+            {hookConfig.secret_configured
+              ? t("jwt.hookSecretConfigured")
+              : t("jwt.hookSecretMissing")}
+          </p>
+          <button
+            type="button"
+            onclick={saveHookConfig}
+            disabled={(hookConfig.enabled && !hookConfig.uri.trim()) ||
+              (hookConfig.enabled &&
+                !hookConfig.secret_configured &&
+                !hookConfig.secret.trim())}
+            class="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+          >{hookConfigSaving ? t("common.loading") : t("jwt.hookConfigSave")}</button>
+        </fieldset>
+      {/if}
+      {#if hookConfigError}
+        <p class="mt-3 text-sm text-red-700" role="alert">{hookConfigError}</p>
+      {/if}
+      {#if hookConfigMessage}
+        <p class="mt-3 text-sm text-emerald-700">{hookConfigMessage}</p>
+      {/if}
+    </div>
     <button
       disabled={hookLoading || verifying}
       onclick={verifyHook}
       class="mt-4 rounded-lg border border-brand-300 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
-      >{verifying ? t("Loading...") : t("Verify runtime hook")}</button
+      >{verifying ? t("common.loading") : t("jwt.verifyRuntimeHook")}</button
     >
     {#if verificationMessage}<p class="mt-3 text-sm text-emerald-700">
         {verificationMessage}
@@ -427,7 +515,7 @@
                     : 'bg-amber-500'}"
               ></span>
               <span class="text-sm text-surface-700"
-                >{compatibilityCheck.message}</span
+                >{compatibilityCheckLabel(compatibilityCheck, t)}</span
               >
             </div>
           {/if}

@@ -33,7 +33,7 @@
     <section class="grid gap-4 lg:grid-cols-3">
       <div class="console-card p-5"><p class="text-sm text-surface-500">{t('Status')}</p><p class="mt-2 text-lg font-semibold text-surface-900">{oauthStatus?.enabled ? t('Enabled') : t('Disabled')}</p></div>
       <div class="console-card p-5"><p class="text-sm text-surface-500">{t('Signing Algorithm')}</p><p class="mt-2 text-lg font-semibold text-surface-900">{oauthStatus?.signing_alg || t('common.notAvailable')}</p></div>
-      <div class="console-card p-5"><p class="text-sm text-surface-500">{t('tenant.signingKeys')}</p><p class="mt-2 text-lg font-semibold text-surface-900">{jwks?.keys?.length ?? 0}</p></div>
+      <div class="console-card p-5"><p class="text-sm text-surface-500">{t('tenant.signingKeys')}</p><p class="mt-2 text-lg font-semibold text-surface-900">{t('tenant.signingKeyCount', { count: jwks?.keys?.length ?? 0 })}</p></div>
     </section>
 
     <section class="console-card p-6">
