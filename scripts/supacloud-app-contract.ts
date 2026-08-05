@@ -1,5 +1,7 @@
 import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
 
+export const SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE = '/custom-ui/*';
+
 /**
  * Persistent control-plane domains owned by the SupaCloud Management API.
  *
@@ -236,6 +238,7 @@ export function createSupacloudAppManifest(input: {
           { path: '/api/*', strip_prefix: '/api' },
           { path: '/v1/*' },
           { path: '/v1/public/*' },
+          { path: SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE },
           { path: '/oauth/*' },
           { path: '/login' },
           { path: '/login.html' },

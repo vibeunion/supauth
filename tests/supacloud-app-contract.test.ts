@@ -101,6 +101,7 @@ describe('SupAuth SupaCloud app contract', () => {
       '/admin/*',
     ]);
     expect(manifest.functions[0].routes).toContainEqual({ path: '/admin' });
+    expect(manifest.functions[0].routes).toContainEqual({ path: '/custom-ui/*' });
   });
 
   it('builds a project-generic console behind the same-origin BFF', () => {

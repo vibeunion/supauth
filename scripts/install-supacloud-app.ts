@@ -15,6 +15,7 @@ import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 import { verifyRbacAgainstDatabase } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 import { verifyAdminSsoAllowlist } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';
 import { parseAdminSsoRequireAal2 } from '../packages/auth-server/src/auth/admin-sso-aal2-policy.js';
+import { SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE } from './supacloud-app-contract.js';
 import type { RbacDbVerification } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 import type { AdminSsoAllowlistVerification } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';
 
@@ -663,7 +664,7 @@ const hostedLogoutRoutePaths = ['/logout', '/logout.html'];
 const adminRootRoutePaths = ['/admin'];
 // The hosted route is at SupaCloud's 20-path limit; keep this separate so legacy
 // Custom UI paths reach the Function's fixed, non-cacheable 404.
-const customUiFallbackRoutePaths = ['/custom-ui/*'];
+const customUiFallbackRoutePaths = [SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE];
 const apiRoutePaths = ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*', '/'];
 
 async function upsertGatewayRoute(input: {

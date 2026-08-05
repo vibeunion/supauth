@@ -13,7 +13,7 @@ import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
-type ProbeExpectation = 'exact-200' | 'exact-308' | 'route-exists' | 'runtime-preserved';
+type ProbeExpectation = 'exact-200' | 'exact-308' | 'exact-404-no-store' | 'route-exists' | 'runtime-preserved';
 
 interface ProbeSpec {
   name: string;
@@ -80,6 +80,7 @@ function isExpectedStatus(status: number, expectation: ProbeExpectation, allowed
   if (allowedStatuses) return allowedStatuses.includes(status);
   if (expectation === 'exact-200') return status === 200;
   if (expectation === 'exact-308') return status === 308;
+  if (expectation === 'exact-404-no-store') return status === 404;
   if (expectation === 'route-exists') return status >= 200 && status < 500 && status !== 404;
   return status >= 200 && status < 500;
 }
@@ -88,8 +89,13 @@ function describeExpectation(expectation: ProbeExpectation, allowedStatuses?: nu
   if (allowedStatuses) return `expected HTTP status in [${allowedStatuses.join(', ')}]`;
   if (expectation === 'exact-200') return 'expected HTTP 200';
   if (expectation === 'exact-308') return 'expected HTTP 308';
+  if (expectation === 'exact-404-no-store') return 'expected HTTP 404 with Cache-Control no-store';
   if (expectation === 'route-exists') return 'expected a non-404, non-5xx route response';
   return 'expected preserved Supabase runtime route to avoid upstream 5xx';
+}
+
+function hasIndependentNoStoreDirective(cacheControl: string) {
+  return cacheControl.split(',').some(directive => directive.trim().toLowerCase() === 'no-store');
 }
 
 function isHostedGoTrueAuthorizeLocation(location: string, baseUrl: string) {
@@ -157,7 +163,16 @@ async function probe(fetchImpl: FetchLike, spec: ProbeSpec): Promise<ProbeResult
     const actualContentType = response.headers.get('content-type') || '';
     const actualMediaType = actualContentType.split(';', 1)[0].trim().toLowerCase();
     const contentTypeMatches = !expectedMediaType || actualMediaType === expectedMediaType.toLowerCase();
-    const ok = statusMatches && contentTypeMatches;
+    const actualCacheControl = response.headers.get('cache-control') || '';
+    const cacheControlMatches = expectation !== 'exact-404-no-store'
+      || hasIndependentNoStoreDirective(actualCacheControl);
+    const ok = statusMatches && contentTypeMatches && cacheControlMatches;
+    let mismatchDetail = '';
+    if (statusMatches && !contentTypeMatches) {
+      mismatchDetail = ` Content-Type ${actualContentType || '<empty>'}; expected ${expectedMediaType}`;
+    } else if (statusMatches && !cacheControlMatches) {
+      mismatchDetail = ` Cache-Control ${actualCacheControl || '<empty>'}`;
+    }
     return {
       name,
       url,
@@ -166,7 +181,7 @@ async function probe(fetchImpl: FetchLike, spec: ProbeSpec): Promise<ProbeResult
       status: response.status,
       error: ok
         ? undefined
-        : `${describeExpectation(expectation, allowedStatuses)}, got HTTP ${response.status}${statusMatches && !contentTypeMatches ? ` Content-Type ${actualContentType || '<empty>'}; expected ${expectedMediaType}` : ''}`,
+        : `${describeExpectation(expectation, allowedStatuses)}, got HTTP ${response.status}${mismatchDetail}`,
     };
   } catch (error) {
     return {
@@ -319,6 +334,8 @@ export async function verifySupacloudInstalledApp(input: {
     { name: 'supauth_capabilities', url: joinUrl(baseUrl, '/api/v1/capabilities'), expectation: 'route-exists', allowedStatuses: [200, 401, 403] },
     { name: 'supauth_management_api', url: joinUrl(baseUrl, '/v1/auth-config'), expectation: 'route-exists' },
     { name: 'public_sign_in_experience', url: joinUrl(baseUrl, '/v1/public/sign-in-experience/resolve'), expectation: 'route-exists' },
+    { name: 'custom_ui_legacy_inert', url: joinUrl(baseUrl, '/custom-ui/legacy/index.html'), expectation: 'exact-404-no-store' },
+    { name: 'public_custom_ui_legacy_inert', url: joinUrl(baseUrl, '/v1/public/custom-ui/legacy/index.html'), expectation: 'exact-404-no-store' },
     { name: 'admin_console_static_asset', url: joinUrl(baseUrl, '/admin/_app/version.json'), expectation: 'exact-200', expectedMediaType: 'application/json' },
     { name: 'hosted_login_path', url: joinUrl(baseUrl, '/login'), expectation: 'exact-200' },
     { name: 'hosted_login_page', url: joinUrl(baseUrl, '/login.html'), expectation: 'exact-200' },
