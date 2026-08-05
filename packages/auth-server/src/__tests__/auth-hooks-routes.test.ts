@@ -21,6 +21,15 @@ const verifyAuthHookMessage = mock(async (): Promise<HookMessageVerification> =>
 }));
 const getTenantConfig = mock(async () => null);
 const logAudit = mock(async () => ({}));
+const getAuthHooks = mock(async () => ({
+  custom_access_token_hook: {
+    enabled: true,
+    uri: 'https://auth.example.test/api/v1/auth-hooks/custom-access-token',
+    secrets_configured: true,
+    secrets: '********',
+  },
+}));
+const updateAuthHooks = mock(async () => ({ accepted: true }));
 
 class MockSupaCloudApiError extends Error {
   constructor(public status: number) {
@@ -40,6 +49,8 @@ mock.module('../supacloud/adapter.js', () => ({
     verifyAuthHookMessage,
     reconcileOrganizationJitMemberships,
     verifySignupInvitation: mock(async () => ({ valid: true })),
+    getAuthHooks,
+    updateAuthHooks,
     getAuthHookStatus: mock(async () => ({})),
     verifyAuthHook: mock(async () => ({})),
   }),
@@ -52,7 +63,13 @@ mock.module('../repositories/security-config.js', () => ({
 
 const projectRef = 'project-one';
 process.env.PROJECT_REF = projectRef;
-const { authHookRoutes, authHookAdminRoutes } = await import('../routes/auth-hooks.js');
+process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
+process.env.SUPAUTH_API_URL = 'https://api.example.test';
+const {
+  authHookRoutes,
+  authHookAdminRoutes,
+  customAccessTokenHookUpdate,
+} = await import('../routes/auth-hooks.js');
 const { getConfig } = await import('../config/index.js');
 const { adminAuthGuard } = await import('../auth/index.js');
 const app = new Elysia().use(authHookRoutes);
@@ -104,6 +121,8 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
     });
     getTenantConfig.mockClear();
     logAudit.mockClear();
+    getAuthHooks.mockClear();
+    updateAuthHooks.mockClear();
   });
 
   it('reconciles the signed GoTrue subject and preserves required Supabase claims', async () => {
@@ -263,6 +282,7 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
     expect(customAccessToken.status).toBe(200);
     for (const path of [
       '/v1/auth-hooks/registration-guide',
+      '/v1/auth-hooks/custom-access-token/config',
       '/v1/auth-hooks/custom-access-token/status',
       '/v1/auth-hooks/before-user-created/status',
     ]) {
@@ -274,6 +294,108 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
       { method: 'POST' },
     ));
     expect(removedMfaHook.status).toBe(404);
+  });
+
+  it('reads and updates the authoritative hook config without returning a secret', async () => {
+    const adminApp = new Elysia().use(authHookAdminRoutes);
+    const readResponse = await adminApp.handle(new Request(
+      'http://localhost/v1/auth-hooks/custom-access-token/config',
+    ));
+    const updateResponse = await adminApp.handle(new Request(
+      'http://localhost/v1/auth-hooks/custom-access-token/config',
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          enabled: true,
+          uri: 'https://auth.example.test/api/v1/auth-hooks/custom-access-token',
+          secret: `v1,whsec_${encodedSecret}`,
+        }),
+      },
+    ));
+
+    expect(readResponse.status).toBe(200);
+    expect(await readResponse.json()).toEqual({
+      enabled: true,
+      uri: 'https://auth.example.test/api/v1/auth-hooks/custom-access-token',
+      secret_configured: true,
+    });
+    expect(updateResponse.status).toBe(200);
+    expect(await updateResponse.json()).toEqual({
+      enabled: true,
+      uri: 'https://auth.example.test/api/v1/auth-hooks/custom-access-token',
+      secret_configured: true,
+    });
+    expect(getAuthHooks).toHaveBeenCalledTimes(3);
+    expect(updateAuthHooks).toHaveBeenCalledWith({
+      custom_access_token_hook: {
+        enabled: true,
+        uri: 'https://auth.example.test/api/v1/auth-hooks/custom-access-token',
+        secrets: `v1,whsec_${encodedSecret}`,
+      },
+    });
+  });
+
+  it('rejects the configured API host when it differs from the public hook origin', async () => {
+    const adminApp = new Elysia().use(authHookAdminRoutes);
+    const response = await adminApp.handle(new Request(
+      'http://localhost/v1/auth-hooks/custom-access-token/config',
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          enabled: true,
+          uri: 'https://api.example.test/api/v1/auth-hooks/custom-access-token',
+        }),
+      },
+    ));
+
+    expect(response.status).toBe(400);
+    expect(updateAuthHooks).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsafe hook URLs, masked secrets, and extra fields at the boundary', () => {
+    const hookUri = 'https://auth.example.test/api/v1/auth-hooks/custom-access-token';
+    const authoritativeBaseUrl = 'https://auth.example.test';
+    for (const invalidConfig of [
+      { enabled: true, uri: 'http://auth.example.test/api/v1/auth-hooks/custom-access-token' },
+      { enabled: true, uri: 'https://other.example.test/api/v1/auth-hooks/custom-access-token' },
+      { enabled: true, uri: 'https://auth.example.test/v1/auth-hooks/custom-access-token' },
+      { enabled: true, uri: `${hookUri}?probe=true` },
+      { enabled: true, uri: `${hookUri}#probe` },
+      { enabled: true, uri: 'https://user:secret@auth.example.test/api/v1/auth-hooks/custom-access-token' },
+      { enabled: true, uri: hookUri, secret: '********' },
+      { enabled: true, uri: hookUri, secret: 42 },
+      { enabled: true, uri: hookUri, project_ref: 'other' },
+      { enabled: true, uri: hookUri },
+      { enabled: true, uri: hookUri, secret: 'v1,whsec_AA==' },
+      { enabled: true, uri: hookUri, secret: `v1,whsec_${Buffer.alloc(23, 1).toString('base64')}` },
+      { enabled: true, uri: hookUri, secret: `v1,whsec_${Buffer.alloc(65, 1).toString('base64')}` },
+      { enabled: true, uri: hookUri, secret: `v1,whsec_${Buffer.alloc(24, 1).toString('base64').slice(0, -1)}` },
+    ]) expect(() => customAccessTokenHookUpdate(invalidConfig, false, authoritativeBaseUrl)).toThrow();
+    expect(customAccessTokenHookUpdate({ enabled: false, uri: '' }, false, authoritativeBaseUrl)).toEqual({
+      custom_access_token_hook: { enabled: false, uri: '' },
+    });
+    expect(customAccessTokenHookUpdate({
+      enabled: true,
+      uri: hookUri,
+    }, true, authoritativeBaseUrl)).toEqual({
+      custom_access_token_hook: {
+        enabled: true,
+        uri: hookUri,
+      },
+    });
+    for (const keyLength of [24, 64]) {
+      const secret = `v1,whsec_${Buffer.alloc(keyLength, 1).toString('base64')}`;
+      expect(customAccessTokenHookUpdate({
+        enabled: true,
+        uri: hookUri,
+        secret,
+      }, false, authoritativeBaseUrl))
+        .toEqual({
+          custom_access_token_hook: { enabled: true, uri: hookUri, secrets: secret },
+        });
+    }
   });
 
   it('answers a signed capability probe without running business side effects', async () => {

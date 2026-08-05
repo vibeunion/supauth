@@ -43,6 +43,10 @@ export const securityConfigRoutes = new Elysia({ prefix: '/v1/security-config' }
       rate_limit_rpm: config?.rateLimitRpm || 300,
       brute_force_protection: config?.bruteForceProtection ?? true,
       enforce_https: config?.enforceHttps ?? true,
+      warning_codes: [
+        ...(tokenAuthAllowed ? ['admin_token_enabled'] : []),
+        ...(!config ? ['security_config_missing'] : []),
+      ],
       warnings: [
         ...(tokenAuthAllowed ? ['ADMIN_TOKEN auth is enabled — disable in production by setting admin_auth_mode=sso'] : []),
         ...(!config ? ['Security config not initialized — run migration'] : []),

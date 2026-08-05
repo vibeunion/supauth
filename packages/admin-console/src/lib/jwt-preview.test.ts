@@ -10,7 +10,7 @@ import {
   SUPAOAUTH_ROLE_PROJECTION_LIMIT,
 } from '@supauth/shared';
 import { t } from './i18n.js';
-import { validateExtensionDraft } from './jwt-preview.js';
+import { buildJwtExtensionExample, validateExtensionDraft } from './jwt-preview.js';
 
 const projectRef = 'project-one';
 
@@ -30,6 +30,23 @@ function validationCodes(rawDraft) {
 }
 
 describe('Customize JWT preview validation', () => {
+  it('builds a standards-compliant JSON example for the active project', () => {
+    const example = buildJwtExtensionExample(projectRef, {
+      roles: ['tenant_admin'],
+    });
+    expect(example).not.toMatch(/[“”]/);
+    expect(JSON.parse(example)).toEqual({
+      app_metadata: {
+        supaoauth: {
+          schema_version: 2,
+          projects: {
+            [projectRef]: { roles: ['tenant_admin'] },
+          },
+        },
+      },
+    });
+  });
+
   it('accepts a bounded runtime projection', () => {
     const validation = validateExtensionDraft(draftForProject({
       roles: ['tenant_admin'],

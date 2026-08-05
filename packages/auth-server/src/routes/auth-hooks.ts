@@ -27,6 +27,9 @@ import { ApiContractError } from '../utils/api-contract.js';
 const adapter = getSupaCloudAdapter();
 const MAX_ORGANIZATION_CLAIMS = 50;
 const HOOK_PROBE_FIELD = 'supaoauth_hook_probe';
+const CUSTOM_ACCESS_TOKEN_HOOK = 'custom_access_token_hook';
+const CUSTOM_ACCESS_TOKEN_HOOK_PATH = '/api/v1/auth-hooks/custom-access-token';
+const AUTH_HOOK_CONFIG_FIELDS = new Set(['enabled', 'uri', 'secret']);
 
 async function getSignupPolicy(): Promise<SignupPolicy> {
   const config = await tenantConfigRepo.getTenantConfig('auth_hook', 'signup_policy');
@@ -262,6 +265,30 @@ export const authHookAdminRoutes = new Elysia({ prefix: '/v1/auth-hooks' })
       tags: ['Auth Hooks'],
     },
   })
+  .get('/custom-access-token/config', async () => {
+    return customAccessTokenHookConfig(await adapter.getAuthHooks());
+  }, {
+    detail: {
+      summary: 'Get GoTrue custom access-token hook configuration',
+      tags: ['Auth Hooks'],
+    },
+  })
+  .patch('/custom-access-token/config', async ({ body }) => {
+    const currentConfig = customAccessTokenHookConfig(await adapter.getAuthHooks());
+    const config = getConfig();
+    const authHooks = customAccessTokenHookUpdate(
+      body,
+      currentConfig.secret_configured,
+      config.publicBaseUrl,
+    );
+    await adapter.updateAuthHooks(authHooks);
+    return customAccessTokenHookConfig(await adapter.getAuthHooks());
+  }, {
+    detail: {
+      summary: 'Update GoTrue custom access-token hook configuration',
+      tags: ['Auth Hooks'],
+    },
+  })
   .post('/custom-access-token/verify', async () => {
     return adapter.verifyAuthHook('custom-access-token');
   }, {
@@ -293,6 +320,154 @@ async function authHookStatus(hookName: GoTrueHttpHookName) {
     throw new ApiContractError(502, 'invalid_upstream_response', 'GoTrue hook status has an invalid shape');
   }
   return status;
+}
+
+function customAccessTokenHookConfig(authHooks: unknown) {
+  const hook = authHookRecord(authHooks);
+  if (
+    typeof hook.enabled !== 'boolean'
+    || (hook.uri !== undefined && typeof hook.uri !== 'string')
+    || typeof hook.secrets_configured !== 'boolean'
+  ) {
+    throw invalidAuthHookReadback('Custom access-token hook fields have invalid types');
+  }
+  return {
+    enabled: hook.enabled,
+    uri: hook.uri || '',
+    secret_configured: hook.secrets_configured,
+  };
+}
+
+function authHookRecord(authHooks: unknown): Record<string, unknown> {
+  if (!authHooks || typeof authHooks !== 'object' || Array.isArray(authHooks)) {
+    throw invalidAuthHookReadback('GoTrue auth-hook configuration has an invalid shape');
+  }
+  const hook = (authHooks as Record<string, unknown>)[CUSTOM_ACCESS_TOKEN_HOOK];
+  if (!hook || typeof hook !== 'object' || Array.isArray(hook)) {
+    throw invalidAuthHookReadback('Custom access-token hook configuration is unavailable');
+  }
+  return hook as Record<string, unknown>;
+}
+
+export function customAccessTokenHookUpdate(
+  input: unknown,
+  existingSecretConfigured: boolean,
+  authoritativeBaseUrl: string,
+) {
+  const config = authHookUpdateRecord(input);
+  const enabled = config.enabled;
+  const uri = typeof config.uri === 'string' ? config.uri.trim() : '';
+  const secret = authHookSecret(config);
+  validateAuthHookUpdate({
+    enabled,
+    uri,
+    secret,
+    existingSecretConfigured,
+    authoritativeBaseUrl,
+  });
+  return {
+    [CUSTOM_ACCESS_TOKEN_HOOK]: {
+      enabled,
+      uri,
+      ...(secret ? { secrets: secret } : {}),
+    },
+  };
+}
+
+type AuthHookUpdateValidation = {
+  enabled: unknown;
+  uri: string;
+  secret: string;
+  existingSecretConfigured: boolean;
+  authoritativeBaseUrl: string;
+};
+
+function validateAuthHookUpdate(update: AuthHookUpdateValidation) {
+  const {
+    enabled,
+    uri,
+    secret,
+    existingSecretConfigured,
+    authoritativeBaseUrl,
+  } = update;
+  if (typeof enabled !== 'boolean' || (uri ? !validAuthHookUri(uri, authoritativeBaseUrl) : enabled)) {
+    throw invalidAuthHookConfig('Auth Hook URL or enabled state is invalid');
+  }
+  if (secret && !validStandardWebhookSecret(secret)) {
+    throw invalidAuthHookConfig('Auth Hook secret must use canonical v1,whsec_ base64 format');
+  }
+  if (enabled && !secret && !existingSecretConfigured) {
+    throw invalidAuthHookConfig('Auth Hook cannot be enabled without a signing secret');
+  }
+}
+
+function authHookSecret(config: Record<string, unknown>) {
+  if (config.secret !== undefined && typeof config.secret !== 'string') {
+    throw invalidAuthHookConfig('Auth Hook secret must be a string');
+  }
+  return typeof config.secret === 'string' ? config.secret.trim() : '';
+}
+
+function authHookUpdateRecord(input: unknown): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw invalidAuthHookConfig('Auth Hook configuration must be an object');
+  }
+  const config = input as Record<string, unknown>;
+  if (Object.keys(config).some((field) => !AUTH_HOOK_CONFIG_FIELDS.has(field))) {
+    throw invalidAuthHookConfig('Auth Hook configuration contains unsupported fields');
+  }
+  return config;
+}
+
+function validAuthHookUri(candidate: unknown, authoritativeBaseUrl: string): candidate is string {
+  if (typeof candidate !== 'string') return false;
+  try {
+    const hookUri = new URL(candidate);
+    return hookUri.protocol === 'https:'
+      && Boolean(hookUri.hostname)
+      && !hookUri.username
+      && !hookUri.password
+      && !hookUri.search
+      && !hookUri.hash
+      && hookUri.pathname === CUSTOM_ACCESS_TOKEN_HOOK_PATH
+      && authHookOrigin(authoritativeBaseUrl) === hookUri.origin;
+  } catch (urlError) {
+    if (urlError instanceof TypeError) return false;
+    throw urlError;
+  }
+}
+
+function authHookOrigin(baseUrl: string) {
+  if (!baseUrl) return null;
+  try {
+    return new URL(baseUrl).origin;
+  } catch (urlError) {
+    if (urlError instanceof TypeError) return null;
+    throw urlError;
+  }
+}
+
+function validStandardWebhookSecret(secret: string) {
+  if (!secret.startsWith('v1,whsec_')) return false;
+  const encodedKey = secret.slice('v1,whsec_'.length);
+  if (
+    encodedKey.length < 32
+    || encodedKey.length > 88
+    || encodedKey.length % 4 !== 0
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(encodedKey)
+  ) return false;
+  const signingKey = Buffer.from(encodedKey, 'base64');
+  return signingKey.length >= 24
+    && signingKey.length <= 64
+    && signingKey.toString('base64') === encodedKey;
+}
+
+function invalidAuthHookConfig(message: string) {
+  return new ApiContractError(400, 'invalid_auth_hook_config', message);
+}
+
+function invalidAuthHookReadback(message: string) {
+  return new ApiContractError(502, 'invalid_upstream_response', message);
 }
 
 function hookErrorCode(result: unknown): string | null {

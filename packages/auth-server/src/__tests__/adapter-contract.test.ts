@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
-import { SupaCloudAdapter } from '../supacloud/adapter.js';
+import { SupaCloudAdapter, SupaCloudApiError } from '../supacloud/adapter.js';
 import { loadConfig } from '../config/index.js';
 
 // P0-13/P0-25/P0-26: Contract tests for SupaCloud adapter
@@ -55,7 +55,7 @@ describe('SupaCloudAdapter contract', () => {
       'listWebhookDeliveries', 'getWebhookDelivery', 'replayWebhookDelivery',
       'listTenantMembers', 'updateTenantMember', 'removeTenantMember',
       'listTenantInvitations', 'createTenantInvitation', 'verifySignupInvitation',
-      'getAuthHookStatus', 'verifyAuthHook', 'verifyAuthHookMessage',
+      'getAuthHooks', 'updateAuthHooks', 'getAuthHookStatus', 'verifyAuthHook', 'verifyAuthHookMessage',
       'listStorageBuckets', 'getStorageBucket', 'createStorageBucket',
       'deleteStorageBucket', 'uploadFile', 'deleteFile', 'downloadFile', 'createSignedUrl', 'getPublicUrl',
       'verifyGatewayRoutes', 'getProjectRef', 'getTargetInfo',
@@ -69,6 +69,68 @@ describe('SupaCloudAdapter contract', () => {
     const adapter = new SupaCloudAdapter();
     const url = adapter.getPublicUrl('branding', 'logo.png');
     expect(url).toContain('/storage/v1/object/public/branding/logo.png');
+  });
+
+  it('preserves Storage bucket lookup status in the adapter error contract', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async () => new Response('bucket unavailable', { status: 503 })) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      const lookupFailure = await adapter.getStorageBucket('branding').catch(error => error);
+      expect(lookupFailure).toBeInstanceOf(SupaCloudApiError);
+      expect(lookupFailure).toMatchObject({
+        status: 503,
+        body: 'bucket unavailable',
+        path: '/storage/v1/bucket/branding',
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('uses the canonical project auth-hook configuration contract', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ method: string; path: string; body?: string }> = [];
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        method: init?.method || 'GET',
+        path: new URL(url).pathname,
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+      return Promise.resolve(Response.json({
+        custom_access_token_hook: {
+          enabled: true,
+          uri: 'https://auth.example.test/api/v1/auth-hooks/custom-access-token',
+          secrets_configured: true,
+        },
+      }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.getAuthHooks();
+      await adapter.updateAuthHooks({
+        custom_access_token_hook: {
+          enabled: false,
+          uri: 'https://auth.example.test/api/v1/auth-hooks/custom-access-token',
+        },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(calls.map(({ method, path }) => [method, path])).toEqual([
+      ['GET', '/v1/projects/test-ref/auth/hooks'],
+      ['PATCH', '/v1/projects/test-ref/auth/hooks'],
+    ]);
+    expect(JSON.parse(calls[1]?.body || '{}')).toEqual({
+      custom_access_token_hook: {
+        enabled: false,
+        uri: 'https://auth.example.test/api/v1/auth-hooks/custom-access-token',
+      },
+    });
   });
 
   it('encodes private Storage object paths for upload, download, and deletion', async () => {

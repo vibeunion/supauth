@@ -27,6 +27,10 @@
     testWebhook,
     replayWebhookDelivery,
   } from "$lib/api/client.js";
+  import {
+    normalizedWebhookSelection,
+    webhookEventChoices,
+  } from "$lib/webhook-form.js";
 
   let webhooks = $state([]);
   let availableEvents = $state([]);
@@ -34,12 +38,15 @@
   let loading = $state(true);
   let error = $state(null);
   let showCreate = $state(false);
-  let newWebhook = $state({ url: "", events: "", enabled: true });
+  let newWebhook = $state({ url: "", events: [], enabled: true });
   let diagnostics = $state({});
   let webhookMutationLocks = $state({});
   let mutationStorageReady = $state(false);
   let mutationStorageError = $state(null);
   let creating = $state(false);
+  let selectableEvents = $derived(
+    webhookEventChoices(availableEventCatalog, availableEvents),
+  );
   const diagnosticRequests = createLatestRequestTracker();
   const webhookOperations = createKeyedSingleFlightTracker();
   const webhookListRequests = createLatestRequestTracker();
@@ -111,8 +118,8 @@
   }
 
   function acknowledgeWebhookMutation(action, resourceId) {
-    if (!confirm(t("I have reconciled the authoritative webhook state."))) return;
-    if (!confirm(t("Allow this high-impact webhook action to run again?"))) return;
+    if (!confirm(t("webhooks.confirmReviewedState"))) return;
+    if (!confirm(t("webhooks.confirmRetry"))) return;
     clearWebhookMutationLock(action, resourceId);
   }
 
@@ -289,6 +296,7 @@
     if (
       wh.has_secret === true ||
       wh.hasSecret === true ||
+      wh.secret_configured === true ||
       wh.signing_key_id ||
       wh.signingKeyId
     )
@@ -418,12 +426,17 @@
     error = null;
     let creationMayHaveCommitted = false;
     try {
+      const selectedEvents = normalizedWebhookSelection(
+        newWebhook.events,
+        selectableEvents.map((event) => event.type),
+      );
+      if (!selectedEvents) {
+        error = t("webhooks.selectEventRequired");
+        return;
+      }
       const draft = {
-        url: newWebhook.url,
-        events: newWebhook.events
-          .split(",")
-          .map((eventName) => eventName.trim())
-          .filter(Boolean),
+        url: newWebhook.url.trim(),
+        events: selectedEvents,
         enabled: newWebhook.enabled,
       };
       const beforeReadBack = await readWebhookList();
@@ -462,29 +475,25 @@
         : null;
       if (!created || !applyWebhookList(readBack)) {
         recordWebhookMutationUnknown("create", "new");
-        error = t(
-          "Webhook creation could not be reconciled. Verify the authoritative list before creating again.",
-        );
+        error = null;
         return;
       }
       if (!clearWebhookMutationLock("create", "new")) {
         error = t(
-          "Webhook creation was verified but the reconciliation lock could not be cleared. Reconcile storage before trying again.",
+          "webhooks.creationLockClearFailed",
         );
         return;
       }
       showCreate = false;
-      newWebhook = { url: "", events: "", enabled: true };
-    } catch (requestError) {
+      newWebhook = { url: "", events: [], enabled: true };
+    } catch {
       if (!webhookCreateOperations.isCurrent(operation)) return;
       if (creationMayHaveCommitted) {
         recordWebhookMutationUnknown("create", "new");
-        error = t(
-          "Webhook creation outcome is unknown. Reconcile the authoritative list before trying again.",
-        );
+        error = null;
       } else {
         clearWebhookMutationLock("create", "new");
-        error = requestError.message;
+        error = t("webhooks.createFailed");
       }
     } finally {
       if (webhookCreateOperations.finish(operation)) creating = false;
@@ -870,12 +879,14 @@
 
 <div class="flex items-center justify-between mb-6">
   <h2 class="text-2xl font-bold text-surface-900">{t("Webhooks")}</h2>
-  <button
-    onclick={() => (showCreate = !showCreate)}
-    class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-  >
-    {showCreate ? t("Cancel") : `+ ${t("New Webhook")}`}
-  </button>
+  {#if !showCreate}
+    <button
+      onclick={() => (showCreate = true)}
+      class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
+    >
+      + {t("New Webhook")}
+    </button>
+  {/if}
 </div>
 
 {#if error}
@@ -899,14 +910,12 @@
     role="alert"
   >
     <p>
-      {t(
-        "A previous webhook creation has an unknown outcome. Reconcile the authoritative list before creating again.",
-      )}
+      {t("webhooks.creationNeedsReview")}
     </p>
     <button
       onclick={() => acknowledgeWebhookMutation("create", "new")}
       class="mt-3 font-semibold text-amber-950 underline"
-      >{t("I verified the list; allow another create")}</button
+      >{t("webhooks.creationAllowRetry")}</button
     >
   </div>
 {/if}
@@ -931,50 +940,54 @@
         />
       </div>
       <div>
-        <label
-          for="new-webhook-events"
-          class="block text-sm font-medium text-surface-700 mb-1"
-          >{t("Events (comma-separated)")}</label
-        >
-        <input
-          id="new-webhook-events"
-          bind:value={newWebhook.events}
-          class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm"
-          placeholder="user.created, application.created"
-        />
-        {#if availableEventCatalog.length}
-          <div class="flex flex-wrap gap-1.5 mt-2">
-            {#each availableEventCatalog as event (event.type)}
-              <span
-                class="inline-flex items-center gap-1 rounded bg-surface-100 px-2 py-1 font-mono text-xs text-surface-700"
-              >
-                {event.type}
-                <span
-                  class="rounded px-1 py-0.5 text-[10px] {event.guarantee ===
-                  'transactional'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-amber-100 text-amber-700'}"
-                  >{event.guarantee}</span
-                >
+        <p class="block text-sm font-medium text-surface-700 mb-2">
+          {t("webhooks.events")}
+        </p>
+        <div class="grid gap-2 md:grid-cols-2">
+          {#each selectableEvents as event (event.type)}
+            <label
+              class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 {newWebhook.events.includes(event.type)
+                ? 'border-brand-300 bg-brand-50'
+                : 'border-surface-200 bg-white'}"
+            >
+              <input
+                type="checkbox"
+                value={event.type}
+                bind:group={newWebhook.events}
+                class="mt-0.5"
+              />
+              <span class="min-w-0">
+                <code class="text-xs font-semibold text-surface-800">{event.type}</code>
+                <span class="mt-0.5 block text-xs text-surface-500">
+                  {t(`webhooks.event.${event.type}`)}
+                </span>
               </span>
-            {/each}
-          </div>
-        {:else if availableEvents.length}
-          <p class="text-xs text-surface-400 mt-1">
-            {t("Available:")}
-            {availableEvents.join(", ")}
-          </p>
-        {/if}
+            </label>
+          {/each}
+        </div>
       </div>
-      <button
-        disabled={creating ||
-          !mutationStorageReady ||
-          webhookMutationLocked("create", "new") ||
-          !newWebhook.url.trim()}
-        onclick={handleCreate}
-        class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >{creating ? t("Loading...") : t("Create")}</button
-      >
+      <aside class="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+        <p class="font-semibold">{t("webhooks.signingTitle")}</p>
+        <p class="mt-1 leading-6">{t("webhooks.signingDescription")}</p>
+        <p class="mt-2 font-mono text-xs">webhook-id · webhook-timestamp · webhook-signature</p>
+      </aside>
+      <div class="flex items-center gap-3 border-t border-surface-200 pt-4">
+        <button
+          disabled={creating ||
+            !mutationStorageReady ||
+            webhookMutationLocked("create", "new") ||
+            !newWebhook.url.trim() ||
+            newWebhook.events.length === 0}
+          onclick={handleCreate}
+          class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >{creating ? t("Loading...") : t("Create")}</button
+        >
+        <button
+          type="button"
+          onclick={() => (showCreate = false)}
+          class="rounded-lg border border-surface-300 px-4 py-2 text-sm font-medium text-surface-700 hover:bg-surface-50"
+        >{t("Cancel")}</button>
+      </div>
     </fieldset>
   </div>
 {/if}
@@ -1061,6 +1074,11 @@
               >
                 <p class="font-medium text-surface-700">{t("Signing")}</p>
                 <p>{signingState(wh)}</p>
+                {#if wh.signing_key_id || wh.signingKeyId}
+                  <p class="mt-1 font-mono text-[11px] text-surface-500">
+                    {wh.signing_key_id || wh.signingKeyId}
+                  </p>
+                {/if}
               </div>
             </div>
             <p class="mt-2 text-xs text-surface-500">

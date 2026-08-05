@@ -173,8 +173,10 @@ export function createDurableMutationLockStore({
 }
 
 function webhookRecord(candidate, expectedId) {
+  if (!plainRecord(candidate)) return null;
+  const secretConfigured = webhookSecretConfigured(candidate);
+  const signingKeyId = webhookSigningKeyId(candidate);
   if (
-    !plainRecord(candidate) ||
     typeof expectedId !== "string" ||
     expectedId.length === 0 ||
     candidate.id !== expectedId ||
@@ -182,7 +184,8 @@ function webhookRecord(candidate, expectedId) {
     candidate.url.length === 0 ||
     !Array.isArray(candidate.events) ||
     !candidate.events.every((eventName) => typeof eventName === "string") ||
-    typeof candidate.secret_configured !== "boolean" ||
+    secretConfigured === null ||
+    signingKeyId === null ||
     typeof candidate.enabled !== "boolean" ||
     typeof candidate.created_at !== "string" ||
     typeof candidate.updated_at !== "string"
@@ -193,11 +196,31 @@ function webhookRecord(candidate, expectedId) {
     id: candidate.id,
     url: candidate.url,
     events: [...candidate.events],
-    secret_configured: candidate.secret_configured,
+    secret_configured: secretConfigured,
     enabled: candidate.enabled,
     created_at: candidate.created_at,
     updated_at: candidate.updated_at,
+    ...(signingKeyId ? { signing_key_id: signingKeyId } : {}),
   };
+}
+
+function webhookSecretConfigured(webhook) {
+  const facadeState = webhook.secret_configured;
+  const platformState = webhook.has_secret;
+  if (facadeState !== undefined && typeof facadeState !== "boolean") return null;
+  if (platformState !== undefined && typeof platformState !== "boolean") return null;
+  if (facadeState !== undefined && platformState !== undefined && facadeState !== platformState) {
+    return null;
+  }
+  return facadeState ?? platformState ?? null;
+}
+
+function webhookSigningKeyId(webhook) {
+  const signingKeyId = webhook.signing_key_id ?? webhook.signingKeyId;
+  if (signingKeyId === undefined) return undefined;
+  return typeof signingKeyId === "string" && signingKeyId.trim()
+    ? signingKeyId
+    : null;
 }
 
 function uniqueWebhookCollection(webhooks) {

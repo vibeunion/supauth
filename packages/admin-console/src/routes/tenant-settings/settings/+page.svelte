@@ -3,6 +3,7 @@
   import { resolve } from '$app/paths';
   import { getAuthConfigRuntimeConsistency, getProject, getSecurityStatus } from '$lib/api/client.js';
   import { t } from '$lib/i18n.js';
+  import { adminAuthModeLabelKey } from '$lib/tenant-settings.js';
 
   let loading = $state(true);
   let error = $state(null);
@@ -42,7 +43,7 @@
     </section>
     <section class="console-card p-5">
       <p class="text-sm text-surface-500">{t('tenant.adminAuth')}</p>
-      <p class="mt-2 text-lg font-semibold text-surface-900">{securityStatus?.admin_auth_mode || t('common.notAvailable')}</p>
+      <p class="mt-2 text-lg font-semibold text-surface-900">{securityStatus?.admin_auth_mode ? t(adminAuthModeLabelKey(securityStatus.admin_auth_mode)) : t('common.notAvailable')}</p>
       <p class="mt-2 text-xs text-surface-500">{t('tenant.rateLimit')}: {securityStatus?.rate_limit_rpm ?? t('common.notAvailable')}</p>
     </section>
     <section class="console-card p-5">

@@ -3,8 +3,10 @@
 // P0-12: avatars store storage key, not signed URL, in user metadata.
 
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
+import * as sieRepo from '../repositories/sign-in-experience.js';
+import { ApiContractError } from '../utils/api-contract.js';
 
 const ALLOWED_BUCKETS = ['avatars', 'branding'] as const;
 const ALLOWED_MIME_TYPES = [
@@ -13,6 +15,145 @@ const ALLOWED_MIME_TYPES = [
 ] as const;
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+type BrandingAssetType = 'logo' | 'favicon' | 'apple_touch_icon';
+type ManagedBrandingAssetType = Exclude<BrandingAssetType, 'apple_touch_icon'>;
+
+const BRANDING_IMAGE_TYPES = {
+  'image/png': { extension: 'png', signature: pngSignature },
+  'image/jpeg': { extension: 'jpg', signature: jpegSignature },
+  'image/gif': { extension: 'gif', signature: gifSignature },
+  'image/webp': { extension: 'webp', signature: webpSignature },
+  'image/svg+xml': { extension: 'svg', signature: svgSignature },
+  'image/x-icon': { extension: 'ico', signature: iconSignature },
+  'image/vnd.microsoft.icon': { extension: 'ico', signature: iconSignature },
+} as const;
+
+function startsWithBytes(bytes: Uint8Array, expected: number[]) {
+  return expected.every((byte, index) => bytes[index] === byte);
+}
+
+function pngSignature(bytes: Uint8Array) {
+  return startsWithBytes(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+}
+
+function jpegSignature(bytes: Uint8Array) {
+  return startsWithBytes(bytes, [0xff, 0xd8, 0xff]);
+}
+
+function gifSignature(bytes: Uint8Array) {
+  const header = new TextDecoder().decode(bytes.slice(0, 6));
+  return header === 'GIF87a' || header === 'GIF89a';
+}
+
+function webpSignature(bytes: Uint8Array) {
+  const riff = new TextDecoder().decode(bytes.slice(0, 4));
+  const webp = new TextDecoder().decode(bytes.slice(8, 12));
+  return riff === 'RIFF' && webp === 'WEBP';
+}
+
+const ACTIVE_SVG_ELEMENT = /<\s*(?:[a-z][\w.-]*:)?(?:script|style|foreignObject|iframe|object|embed|image|use|a|animate(?:Motion|Transform)?|set|mpath)\b/i;
+
+function containsActiveSvgContent(svgDocument: string) {
+  const localPaintUrlsRemoved = svgDocument.replace(
+    /url\(\s*#[a-z_][\w:.-]*\s*\)/gi,
+    '',
+  );
+  return ACTIVE_SVG_ELEMENT.test(svgDocument)
+    || /\son[a-z]+\s*=/i.test(svgDocument)
+    || /(?:href|xlink:href)\s*=/i.test(svgDocument)
+    || /<\?|<!\s*(?:doctype|entity)\b/i.test(svgDocument)
+    || /(?:javascript|vbscript|data)\s*:/i.test(svgDocument)
+    || /(?:@import|expression\s*\(|url\s*\()/i.test(localPaintUrlsRemoved);
+}
+
+function svgSignature(bytes: Uint8Array) {
+  const source = new TextDecoder('utf-8', { fatal: true })
+    .decode(bytes)
+    .replace(/^\uFEFF/, '')
+    .trimStart();
+  const svgDocument = source.replace(/^<\?xml\s+[^?]*\?>\s*/i, '').trimStart();
+  return /^<svg(?:\s|>)/i.test(svgDocument) && !containsActiveSvgContent(svgDocument);
+}
+
+function iconSignature(bytes: Uint8Array) {
+  return startsWithBytes(bytes, [0x00, 0x00, 0x01, 0x00]);
+}
+
+function brandingContentType(rawContentType: string) {
+  return rawContentType.split(';', 1)[0]?.trim().toLowerCase() || '';
+}
+
+async function contentHash(file: Blob) {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest).slice(0, 12))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export async function brandingAssetMetadata(file: Blob, rawContentType: string) {
+  const contentType = brandingContentType(rawContentType);
+  const imageType = BRANDING_IMAGE_TYPES[contentType as keyof typeof BRANDING_IMAGE_TYPES];
+  if (!imageType) throw new ApiContractError(400, 'invalid_branding_image_type', 'Unsupported branding image type');
+  if (file.size === 0) throw new ApiContractError(400, 'empty_branding_image', 'Branding image is empty');
+  if (file.size > MAX_FILE_SIZE) throw new ApiContractError(400, 'branding_image_too_large', 'Branding image exceeds 5MB');
+  const signatureBytes = new Uint8Array(await (
+    contentType === 'image/svg+xml' ? file : file.slice(0, 1024)
+  ).arrayBuffer());
+  if (!imageType.signature(signatureBytes)) {
+    throw new ApiContractError(400, 'branding_image_signature_mismatch', 'Branding image content does not match its media type');
+  }
+  return { contentType, extension: imageType.extension, hash: await contentHash(file) };
+}
+
+function brandingAssetType(candidate: string): BrandingAssetType {
+  if (candidate === 'logo' || candidate === 'favicon' || candidate === 'apple_touch_icon') return candidate;
+  throw new ApiContractError(400, 'invalid_branding_asset_type', 'assetType must be logo, favicon, or apple_touch_icon');
+}
+
+function managedBrandingAssetType(assetType: BrandingAssetType): assetType is ManagedBrandingAssetType {
+  return assetType === 'logo' || assetType === 'favicon';
+}
+
+function brandingAssetUrlInput(assetType: ManagedBrandingAssetType, publicUrl: string) {
+  return assetType === 'logo'
+    ? { branding: { logo_url: publicUrl } }
+    : { branding: { favicon_url: publicUrl } };
+}
+
+function brandingAssetUrl(snapshot: Awaited<ReturnType<typeof sieRepo.getSignInExperience>>, assetType: ManagedBrandingAssetType) {
+  return assetType === 'logo' ? snapshot?.branding.logo_url : snapshot?.branding.favicon_url;
+}
+
+async function persistBrandingAssetUrl(assetType: ManagedBrandingAssetType, publicUrl: string) {
+  await sieRepo.updateSignInExperience(brandingAssetUrlInput(assetType, publicUrl));
+  const readBack = await sieRepo.getSignInExperience();
+  if (brandingAssetUrl(readBack, assetType) !== publicUrl) {
+    throw new ApiContractError(503, 'branding_asset_readback_failed', 'Branding image update could not be verified');
+  }
+}
+
+async function requireSignInExperience() {
+  if (await sieRepo.getSignInExperience()) return;
+  throw new ApiContractError(409, 'sign_in_experience_not_configured', 'Sign-in experience is not configured');
+}
+
+async function storeBrandingFile(
+  assetType: BrandingAssetType,
+  file: Blob,
+  image: Awaited<ReturnType<typeof brandingAssetMetadata>>,
+) {
+  const adapter = getSupaCloudAdapter();
+  const filePath = `${assetType}/${image.hash}.${image.extension}`;
+  try {
+    await adapter.getStorageBucket('branding');
+  } catch (error) {
+    if (!isSupaCloudApiError(error, [404])) throw error;
+    await adapter.createStorageBucket('branding', { public: true, fileSizeLimit: MAX_FILE_SIZE });
+  }
+  await adapter.uploadFile('branding', filePath, file, image.contentType);
+  return adapter.getPublicUrl('branding', filePath);
+}
 
 function validateBucket(bucketId: string): boolean {
   return (ALLOWED_BUCKETS as readonly string[]).includes(bucketId);
@@ -26,6 +167,9 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
   // adapter 对非法 bucket/对象路径/expiry 抛 TypeError；这些是请求输入问题，
   // 必须映射为 400 而不是全局 500，其他错误继续交给全局错误处理。
   .onError(({ error }) => {
+    if (error instanceof ApiContractError) {
+      return Response.json({ code: error.code, message: error.message }, { status: error.status });
+    }
     if (error instanceof TypeError) {
       return new Response('Invalid storage path or parameters', { status: 400 });
     }
@@ -198,47 +342,14 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
   })
 
   // ─── Branding upload (convenience endpoint) ──────────────────────
-  .post('/branding/:assetType', async ({ params, body, headers }) => {
-    const { assetType } = params;
-    const contentType = (headers['content-type'] as string) || 'application/octet-stream';
-
-    if (!['logo', 'favicon', 'apple_touch_icon'].includes(assetType)) {
-      return new Response('assetType must be logo, favicon, or apple_touch_icon', { status: 400 });
-    }
-
-    if (!validateMimeType(contentType)) {
-      return new Response('Invalid image type', { status: 400 });
-    }
-
-    const file = body as Blob;
-    if (file.size > MAX_FILE_SIZE) {
-      return new Response('File too large', { status: 400 });
-    }
-
-    const adapter = getSupaCloudAdapter();
-    const ext = contentType.includes('svg') ? 'svg' : contentType.includes('png') ? 'png' : contentType.includes('gif') ? 'gif' : 'webp';
-    const filePath = `${assetType}.${ext}`;
-
-    try {
-      await adapter.getStorageBucket('branding');
-    } catch {
-      await adapter.createStorageBucket('branding', { public: true, fileSizeLimit: MAX_FILE_SIZE });
-    }
-
-    await adapter.uploadFile('branding', filePath, file, contentType);
-    const publicUrl = adapter.getPublicUrl('branding', filePath);
-
-    // Update sign-in experience with the public URL (branding bucket is public)
-    const { getDb } = await import('../db/index.js');
-    const { signInExperience } = await import('../db/schema.js');
-    const { eq } = await import('drizzle-orm');
-    const db = getDb();
-    const rows = await db.select().from(signInExperience).limit(1);
-    if (rows[0]) {
-      const update: Record<string, unknown> = { updatedAt: new Date() };
-      if (assetType === 'logo') update.logoUrl = publicUrl;
-      if (assetType === 'favicon') update.faviconUrl = publicUrl;
-      await db.update(signInExperience).set(update).where(eq(signInExperience.id, rows[0].id));
+  .post('/branding/:assetType', async ({ params, request, headers }) => {
+    const assetType = brandingAssetType(params.assetType);
+    const file = await request.blob();
+    const image = await brandingAssetMetadata(file, headers['content-type'] || '');
+    if (managedBrandingAssetType(assetType)) await requireSignInExperience();
+    const publicUrl = await storeBrandingFile(assetType, file, image);
+    if (managedBrandingAssetType(assetType)) {
+      await persistBrandingAssetUrl(assetType, publicUrl);
     }
 
     await auditRepo.logAudit({
@@ -248,5 +359,5 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
       actorType: 'admin',
     });
 
-    return { url: publicUrl, assetType };
+    return { url: publicUrl, assetType, content_type: image.contentType };
   });

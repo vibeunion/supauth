@@ -112,6 +112,7 @@
       name: "admin",
       titleKey: "roles.templateAdmin",
       descKey: "roles.templateAdminDesc",
+      riskLevel: "high",
       permissions: PERMISSION_CATALOG.map((permission) => permission.name),
     },
     {
@@ -119,6 +120,7 @@
       name: "auditor",
       titleKey: "roles.templateAuditor",
       descKey: "roles.templateAuditorDesc",
+      riskLevel: "low",
       permissions: [
         "users.read",
         "applications.read",
@@ -134,6 +136,7 @@
       name: "operator",
       titleKey: "roles.templateOperator",
       descKey: "roles.templateOperatorDesc",
+      riskLevel: "medium",
       permissions: [
         "resource.read",
         "resource.write",
@@ -147,6 +150,7 @@
       name: "service_account",
       titleKey: "roles.templateServiceAccount",
       descKey: "roles.templateServiceAccountDesc",
+      riskLevel: "low",
       permissions: ["resource.read", "resource.write", "api_resources.read"],
     },
   ];
@@ -203,13 +207,17 @@
 
   function roleRisk(role) {
     const score = riskScore(role);
-    if (score >= 8)
+    return riskBadge(score >= 8 ? "high" : score >= 3 ? "medium" : "low");
+  }
+
+  function riskBadge(level) {
+    if (level === "high")
       return {
         level: "high",
         label: t("roles.riskHigh"),
         tone: "bg-red-50 text-red-700 border-red-200",
       };
-    if (score >= 3)
+    if (level === "medium")
       return {
         level: "medium",
         label: t("roles.riskMedium"),
@@ -690,10 +698,7 @@
   }
 
   function commitRoleAssignments(loadContext, assignmentResponse) {
-    assignments =
-      assignmentResponse.items ||
-      assignmentResponse.data ||
-      (Array.isArray(assignmentResponse) ? assignmentResponse : []);
+    assignments = collectionPage(assignmentResponse).items;
     assignmentsOwnerRoleId = loadContext.resourceId;
   }
 
@@ -709,7 +714,7 @@
       commitRoleAssignments(loadContext, assignmentResponse);
     } catch (requestError) {
       if (isCurrentAssignmentLoad(loadContext)) {
-        assignmentError = requestError.message;
+        assignmentError = requestError;
       }
     } finally {
       if (isCurrentAssignmentLoad(loadContext)) assignmentsLoading = false;
@@ -1399,12 +1404,25 @@
     <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       {#each roleTemplates as template (template.id)}
         {@const exists = Boolean(roleByName(template.name))}
-        <div class="rounded-xl border border-surface-200 p-4">
-          <div class="flex items-start justify-between gap-3">
+        {@const templateRisk = riskBadge(template.riskLevel)}
+        <div class="flex flex-col rounded-xl border border-surface-200 p-4 pb-5">
+          <div class="flex flex-1 items-start justify-between gap-3">
             <div>
-              <p class="font-semibold text-surface-950">
-                {t(template.titleKey)}
-              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <p class="font-semibold text-surface-950">
+                  {t(template.titleKey)}
+                </p>
+                {#if exists}
+                  <span
+                    class="rounded-full bg-surface-100 px-2 py-0.5 text-[11px] font-semibold text-surface-600"
+                    >{t("roles.templateStatusCreated")}</span
+                  >
+                {/if}
+                <span
+                  class="rounded-full border px-2 py-0.5 text-[11px] font-semibold {templateRisk.tone}"
+                  >{templateRisk.label}</span
+                >
+              </div>
               <p class="mt-1 text-xs leading-5 text-surface-500">
                 {t(template.descKey)}
               </p>
@@ -1417,12 +1435,12 @@
           <button
             onclick={() => handleCreateTemplate(template)}
             disabled={saving}
-            class="mt-4 w-full rounded-lg border border-brand-200 px-3 py-1.5 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-wait disabled:opacity-50"
+            class="mt-4 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-wait disabled:opacity-50"
           >
-            {exists
-              ? t("roles.viewTemplateRole")
-              : saving
-                ? t("Saving...")
+            {saving
+              ? t("Saving...")
+              : exists
+                ? t("roles.viewTemplateRole")
                 : t("roles.createFromTemplate")}
           </button>
         </div>
@@ -1490,10 +1508,10 @@
     </div>
   {:else}
     <div class="grid gap-5 xl:grid-cols-[360px_1fr]">
-      <aside class="space-y-3">
-        <div
-          class="rounded-2xl border border-surface-200 bg-white p-4 shadow-sm"
-        >
+      <aside
+        class="overflow-hidden rounded-2xl border border-surface-200 bg-white shadow-sm"
+      >
+        <div class="border-b border-surface-200 p-4">
           <label
             for="role-search"
             class="mb-2 block text-xs font-semibold uppercase tracking-wide text-surface-400"
@@ -1507,7 +1525,7 @@
           />
         </div>
 
-        <div class="max-h-[68vh] space-y-2 overflow-auto pr-1">
+        <div class="max-h-[68vh] space-y-2 overflow-auto p-3">
           {#each filteredRoles as role (role.id)}
             {@const risk = roleRisk(role)}
             <button
@@ -1906,7 +1924,7 @@
                 {/if}
                 <fieldset
                   disabled={saving}
-                  class="mt-4 grid gap-3 border-0 p-0 lg:grid-cols-[160px_1fr_1fr_1fr_auto] lg:items-end"
+                  class="mt-4 grid gap-4 border-0 p-0 md:grid-cols-2"
                 >
                 <div>
                   <label
@@ -1958,8 +1976,8 @@
                     bind:value={assignmentForm.targetId}
                     class="w-full rounded-xl border border-surface-300 px-3 py-2 text-sm"
                     placeholder={assignmentForm.targetType === "user"
-                      ? "user uuid"
-                      : "application id"}
+                      ? t("roles.userIdPlaceholder")
+                      : t("roles.applicationIdPlaceholder")}
                   />
                   {#if assignmentForm.targetType === "user"}
                     <form
@@ -2035,7 +2053,7 @@
                     id="assignment-org-id"
                     bind:value={assignmentForm.organizationId}
                     class="w-full rounded-xl border border-surface-300 px-3 py-2 text-sm"
-                    placeholder="organization uuid"
+                    placeholder={t("roles.organizationIdPlaceholder")}
                   />
                   <form
                     onsubmit={applyOrganizationTargetSearch}
@@ -2098,14 +2116,16 @@
                     {/if}
                   </div>
                 </div>
-                <button
-                  onclick={() => handleAssignRole(selectedRole)}
-                  disabled={!assignmentForm.targetId.trim() ||
-                    saving ||
-                    !selectedRoleOwnsAssignments(selectedRole)}
-                  class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
-                  >{t("roles.assignRole")}</button
-                >
+                <div class="flex items-center justify-end md:col-span-2">
+                  <button
+                    onclick={() => handleAssignRole(selectedRole)}
+                    disabled={!assignmentForm.targetId.trim() ||
+                      saving ||
+                      !selectedRoleOwnsAssignments(selectedRole)}
+                    class="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >{t("roles.assignRole")}</button
+                  >
+                </div>
                 </fieldset>
               </RequestState>
 
@@ -2122,14 +2142,6 @@
                   {assignmentMessage}
                 </div>
               {/if}
-              {#if assignmentError}
-                <div
-                  class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-                >
-                  {assignmentError}
-                </div>
-              {/if}
-
               <div class="mt-5 flex items-center justify-between gap-3">
                 <h5 class="text-sm font-semibold text-surface-900">
                   {t("roles.currentAssignments")}
@@ -2142,19 +2154,16 @@
                 >
               </div>
 
-              {#if assignmentsLoading}
-                <p class="mt-3 text-sm text-surface-400">
-                  {t("roles.loadingAssignments")}
-                </p>
-              {:else if selectedRoleAssignments.length === 0}
-                <div
-                  class="mt-3 rounded-xl border border-dashed border-surface-300 bg-surface-50 p-4 text-sm text-surface-500"
+              <div class="mt-3">
+                <RequestState
+                  loading={assignmentsLoading}
+                  error={assignmentError}
+                  empty={selectedRoleAssignments.length === 0}
+                  emptyTitle="roles.noAssignments"
+                  onRetry={() => reloadRoleAssignments(selectedRole.id)}
                 >
-                  {t("roles.noAssignments")}
-                </div>
-              {:else}
                 <div
-                  class="mt-3 overflow-hidden rounded-xl border border-surface-200"
+                  class="overflow-hidden rounded-xl border border-surface-200"
                 >
                   <table class="w-full text-sm">
                     <thead
@@ -2221,7 +2230,8 @@
                     </tbody>
                   </table>
                 </div>
-              {/if}
+                </RequestState>
+              </div>
             </div>
 
             <div
@@ -2247,7 +2257,7 @@
                     id="assignment-id"
                     bind:value={assignmentForm.assignmentId}
                     class="w-full rounded-xl border border-surface-300 px-3 py-2 text-sm"
-                    placeholder="role assignment id"
+                    placeholder={t("roles.assignmentIdPlaceholder")}
                   />
                 </div>
                 <button

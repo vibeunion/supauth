@@ -7,6 +7,18 @@
   } from '$lib/authoritative-settings-readback.js';
   import { t } from '$lib/i18n.js';
 
+  const MAX_BRANDING_FILE_SIZE = 5 * 1024 * 1024;
+  const BRANDING_FILE_TYPES = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml',
+    'image/x-icon',
+    'image/vnd.microsoft.icon',
+  ]);
+  const BRANDING_FILE_ACCEPT = [...BRANDING_FILE_TYPES].join(',');
+
   let loading = $state(true);
   let saving = $state(false);
   let uploading = $state(null);
@@ -59,6 +71,17 @@
     return { command, authority: brandingSettingsAuthority(command) };
   }
 
+  function brandingFileError(selectedFile) {
+    if (!BRANDING_FILE_TYPES.has(selectedFile.type)) {
+      return t('signIn.brandingUnsupportedFile');
+    }
+    if (selectedFile.size === 0) return t('signIn.brandingEmptyFile');
+    if (selectedFile.size > MAX_BRANDING_FILE_SIZE) {
+      return t('signIn.brandingFileTooLarge');
+    }
+    return null;
+  }
+
   async function saveBranding() {
     saving = true;
     saved = false;
@@ -84,6 +107,12 @@
   async function uploadBrandingFile(assetType, uploadEvent) {
     const selectedFile = uploadEvent.currentTarget.files?.[0];
     if (!selectedFile) return;
+    const validationError = brandingFileError(selectedFile);
+    if (validationError) {
+      error = validationError;
+      uploadEvent.currentTarget.value = '';
+      return;
+    }
     uploading = assetType;
     error = null;
     try {
@@ -91,8 +120,10 @@
       syncBranding(await getSignInExperience());
     } catch (requestError) {
       error = requestError.message;
+    } finally {
+      uploading = null;
+      uploadEvent.currentTarget.value = '';
     }
-    uploading = null;
   }
 
   onMount(loadBranding);
@@ -188,18 +219,20 @@
         <div>
           <p class="mb-2 text-sm font-medium text-surface-700">{t('Logo')}</p>
           {#if branding.logo_url}<img src={branding.logo_url} alt={t('Logo')} class="mb-3 h-16 max-w-full rounded border border-surface-200 object-contain">{/if}
-          <label class="inline-flex cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+          <label for="branding-logo-upload" class="inline-flex cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
             {uploading === 'logo' ? t('Uploading...') : t('Upload Logo')}
-            <input type="file" accept="image/*" class="hidden" disabled={uploading !== null} onchange={(uploadEvent) => uploadBrandingFile('logo', uploadEvent)}>
+            <input id="branding-logo-upload" type="file" accept={BRANDING_FILE_ACCEPT} class="sr-only" disabled={uploading !== null} onchange={(uploadEvent) => uploadBrandingFile('logo', uploadEvent)}>
           </label>
+          <p class="mt-2 text-xs leading-5 text-surface-500">{t('signIn.logoUploadHint')}</p>
         </div>
         <div>
           <p class="mb-2 text-sm font-medium text-surface-700">{t('Favicon')}</p>
           {#if branding.favicon_url}<img src={branding.favicon_url} alt={t('Favicon')} class="mb-3 h-10 w-10 rounded border border-surface-200 object-contain">{/if}
-          <label class="inline-flex cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+          <label for="branding-favicon-upload" class="inline-flex cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
             {uploading === 'favicon' ? t('Uploading...') : t('Upload Favicon')}
-            <input type="file" accept="image/*" class="hidden" disabled={uploading !== null} onchange={(uploadEvent) => uploadBrandingFile('favicon', uploadEvent)}>
+            <input id="branding-favicon-upload" type="file" accept={BRANDING_FILE_ACCEPT} class="sr-only" disabled={uploading !== null} onchange={(uploadEvent) => uploadBrandingFile('favicon', uploadEvent)}>
           </label>
+          <p class="mt-2 text-xs leading-5 text-surface-500">{t('signIn.faviconUploadHint')}</p>
         </div>
       </div>
     </section>

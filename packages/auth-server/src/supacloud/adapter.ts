@@ -1206,6 +1206,21 @@ export class SupaCloudAdapter {
     );
   }
 
+  async getAuthHooks() {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/hooks`,
+      'gotrue_auth_hooks_v1',
+    );
+  }
+
+  async updateAuthHooks(authHooks: Record<string, unknown>) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/hooks`,
+      'gotrue_auth_hooks_v1',
+      { method: 'PATCH', body: JSON.stringify(authHooks) },
+    );
+  }
+
   async verifyAuthHook(hookName: string) {
     return this.requestCapability(
       `/v1/projects/${this.projectRef}/auth/hooks/${pathSegment(hookName)}/verify`,
@@ -1258,11 +1273,14 @@ export class SupaCloudAdapter {
   }
 
   async getStorageBucket(bucketId: string) {
-    const url = `${this.storageUrl}/storage/v1/bucket/${bucketId}`;
+    const path = `/storage/v1/bucket/${bucketId}`;
+    const url = `${this.storageUrl}${path}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${this.masterToken}` },
     });
-    if (!res.ok) throw new Error(`Storage get bucket: ${res.status}`);
+    if (!res.ok) {
+      throw new SupaCloudApiError(res.status, await res.text(), path);
+    }
     return res.json();
   }
 
