@@ -110,7 +110,39 @@ describe('Sign-in experience repository — module structure', () => {
       { id: 'email', provider_id: 'email', name: 'Email', category: 'credential', enabled: true },
     ]);
 
-    expect(connectors).toEqual([{ id: 'github', name: 'GitHub Login', type: 'social' }]);
+    expect(connectors).toEqual([{
+      id: 'github',
+      name: 'GitHub Login',
+      type: 'social',
+      runtime_kind: 'builtin_oauth',
+    }]);
+  });
+
+  it('preserves enterprise connector runtime kind for public OIDC/SAML routing', async () => {
+    const { resolvePublicConnectors } = await import('../routes/sign-in-experience.js');
+    const connectors = resolvePublicConnectors([], [
+      {
+        id: 'custom:workos',
+        provider_id: 'custom:workos',
+        name: 'WorkOS',
+        category: 'enterprise_sso',
+        runtime_kind: 'custom_oidc',
+        enabled: true,
+      },
+      {
+        id: 'saml-provider-id',
+        provider_id: 'saml-provider-id',
+        name: 'Acme SAML',
+        category: 'enterprise_sso',
+        runtime_kind: 'saml',
+        enabled: true,
+      },
+    ]);
+
+    expect(connectors).toEqual([
+      { id: 'custom:workos', name: 'WorkOS', type: 'enterprise_sso', runtime_kind: 'custom_oidc' },
+      { id: 'saml-provider-id', name: 'Acme SAML', type: 'enterprise_sso', runtime_kind: 'saml' },
+    ]);
   });
 
   it('builds GoTrue API URLs with the /auth/v1 prefix exactly once', async () => {

@@ -12,9 +12,11 @@
   import {
     listEnterpriseSSOConfigs,
     createEnterpriseSSOConfig,
+    listConnectors,
   } from "$lib/api/client.js";
 
   let configs = $state([]);
+  let enterpriseConnectors = $state([]);
   let loading = $state(true);
   let error = $state(null);
   let showCreate = $state(false);
@@ -37,14 +39,44 @@
   let createOutcomeUnknown = $derived(
     mutationLockStore.isLocked(mutationLocks, createLock),
   );
-  let form = $state({
-    connector_id: "",
-    domains: "",
-    sso_protocol: "oidc",
-    jit_provisioning: true,
-    org_membership_mapping: "{}",
-    role_mapping: "{}",
-  });
+  let form = $state(newEnterpriseSsoForm());
+
+  function newEnterpriseSsoForm() {
+    return {
+      connector_id: "",
+      domains: "",
+      sso_protocol: "oidc",
+      jit_provisioning: true,
+      org_membership_mapping: "{}",
+      role_mapping: "{}",
+    };
+  }
+
+  function connectorRecordId(connector) {
+    return connector.connector_record_id || connector._meta?.id || "";
+  }
+
+  function connectorProtocol(connector) {
+    return connector.runtime_kind === "saml" ? "saml" : "oidc";
+  }
+
+  function completeEnterpriseConnectors(response) {
+    return completeCollectionItems(response).filter(
+      (connector) =>
+        connector.enabled === true &&
+        (connector.category || connector.type) === "enterprise_sso" &&
+        ["custom_oidc", "saml"].includes(connector.runtime_kind) &&
+        connectorRecordId(connector),
+    );
+  }
+
+  function selectConnector(connectorRecordIdValue) {
+    form.connector_id = connectorRecordIdValue;
+    const connector = enterpriseConnectors.find(
+      (candidate) => connectorRecordId(candidate) === connectorRecordIdValue,
+    );
+    form.sso_protocol = connector ? connectorProtocol(connector) : "oidc";
+  }
 
   function configIdentity(config) {
     return typeof config?.id === "string" ? config.id : "";
@@ -85,6 +117,18 @@
     );
   }
 
+  function mappingRecord(serializedMapping, fieldLabel) {
+    try {
+      const mapping = JSON.parse(serializedMapping || "{}");
+      if (mapping && typeof mapping === "object" && !Array.isArray(mapping)) {
+        return mapping;
+      }
+    } catch {
+      // 统一由下方本地化错误说明处理，避免显示浏览器原始 JSON 异常。
+    }
+    throw new Error(t("{field} must be a valid JSON object.", { field: fieldLabel }));
+  }
+
   function createDraft() {
     return {
       connector_id: form.connector_id,
@@ -94,9 +138,33 @@
         .filter(Boolean),
       sso_protocol: form.sso_protocol,
       jit_provisioning: form.jit_provisioning,
-      org_membership_mapping: JSON.parse(form.org_membership_mapping || "{}"),
-      role_mapping: JSON.parse(form.role_mapping || "{}"),
+      org_membership_mapping: mappingRecord(
+        form.org_membership_mapping,
+        t("Org Mapping JSON"),
+      ),
+      role_mapping: mappingRecord(
+        form.role_mapping,
+        t("Role Mapping JSON"),
+      ),
     };
+  }
+
+  function startCreate() {
+    error = null;
+    showCreate = true;
+  }
+
+  function cancelCreate() {
+    form = newEnterpriseSsoForm();
+    error = null;
+    showCreate = false;
+  }
+
+  function enterpriseSsoCreationFailure(requestError) {
+    if (requestError?.statusCode === 400) {
+      return t("Enterprise SSO settings are invalid. Check the connector and mappings, then try again.");
+    }
+    return t("Enterprise SSO creation failed. Verify the connector runtime and try again.");
   }
 
   function completeConfigList(response) {
@@ -126,7 +194,11 @@
     loading = true;
     error = null;
     try {
-      const readBack = await readConfigList();
+      const [readBack, connectorResponse] = await Promise.all([
+        readConfigList(),
+        listConnectors(),
+      ]);
+      enterpriseConnectors = completeEnterpriseConnectors(connectorResponse);
       if (applyConfigList(readBack)) loading = false;
     } catch (requestError) {
       error = requestError.message;
@@ -174,6 +246,7 @@
         return;
       }
       if (!clearCreateLock()) return;
+      form = newEnterpriseSsoForm();
       showCreate = false;
     } catch (requestError) {
       if (!createOperations.isCurrent(operation)) return;
@@ -183,7 +256,7 @@
         );
       } else {
         clearCreateLock();
-        error = requestError.message;
+        error = enterpriseSsoCreationFailure(requestError);
       }
     } finally {
       if (createOperations.finish(operation)) creating = false;
@@ -206,16 +279,22 @@
 
 <div class="flex items-center justify-between mb-6">
   <h2 class="text-2xl font-bold text-surface-900">{t("Enterprise SSO")}</h2>
-  <button
-    onclick={() => (showCreate = !showCreate)}
-    class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
-  >
-    {showCreate ? t("Cancel") : `+ ${t("New SSO")}`}
-  </button>
+  {#if !showCreate}
+    <button
+      onclick={startCreate}
+      class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+    >
+      + {t("New SSO")}
+    </button>
+  {/if}
 </div>
 
 {#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">
+  <div
+    class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4"
+    role="alert"
+    aria-live="assertive"
+  >
     {error}
   </div>
 {/if}
@@ -256,13 +335,26 @@
       <label
         for="connector-id"
         class="block text-sm font-medium text-surface-700 mb-1"
-        >{t("Connector ID")}</label
+        >{t("Enterprise Connector")}</label
       >
-      <input
+      <select
         id="connector-id"
-        bind:value={form.connector_id}
-        class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm font-mono"
-      />
+        value={form.connector_id}
+        onchange={(event) => selectConnector(event.currentTarget.value)}
+        class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm"
+      >
+        <option value="">{t("Select an enabled enterprise connector...")}</option>
+        {#each enterpriseConnectors as connector (connectorRecordId(connector))}
+          <option value={connectorRecordId(connector)}>
+            {connector.name || connector.id} · {connectorProtocol(connector).toUpperCase()}
+          </option>
+        {/each}
+      </select>
+      {#if enterpriseConnectors.length === 0}
+        <p class="mt-2 text-sm text-amber-700">
+          {t("Create and enable an enterprise connector before adding SSO domain routing.")}
+        </p>
+      {/if}
     </div>
     <div>
       <label
@@ -286,8 +378,9 @@
         >
         <select
           id="protocol"
-          bind:value={form.sso_protocol}
-          class="w-full px-3 py-2 border border-surface-300 rounded-lg text-sm"
+          value={form.sso_protocol}
+          disabled
+          class="w-full px-3 py-2 border border-surface-300 rounded-lg bg-surface-50 text-sm"
         >
           <option value="oidc">OIDC</option>
           <option value="saml">SAML</option>
@@ -322,15 +415,27 @@
         class="w-full h-20 px-3 py-2 border border-surface-300 rounded-lg text-sm font-mono"
       ></textarea>
     </div>
-    <button
-      disabled={creating ||
-        !mutationStorageReady ||
-        createOutcomeUnknown ||
-        !form.connector_id.trim()}
-      onclick={handleCreate}
-      class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-      >{creating ? t("Loading...") : t("Create")}</button
-    >
+    <p class="text-sm text-surface-500">
+      {t("Organization and role mappings are saved only; the runtime JIT flow does not apply them yet.")}
+    </p>
+    <div class="flex items-center gap-3">
+      <button
+        disabled={creating ||
+          !mutationStorageReady ||
+          createOutcomeUnknown ||
+          !form.connector_id.trim()}
+        onclick={handleCreate}
+        class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+        >{creating ? t("Loading...") : t("Create")}</button
+      >
+      <button
+        type="button"
+        onclick={cancelCreate}
+        class="rounded-lg border border-surface-300 bg-white px-4 py-2 text-sm font-medium text-surface-700 hover:bg-surface-50"
+      >
+        {t("Cancel")}
+      </button>
+    </div>
   </fieldset>
 {/if}
 

@@ -170,6 +170,7 @@ interface ConnectorConfigInfo {
   name?: string;
   category?: string;
   enabled?: boolean;
+  runtime_kind?: string;
 }
 
 const CREDENTIAL_PROVIDER_IDS = new Set(['email', 'phone', 'password']);
@@ -179,6 +180,7 @@ function sanitizeConnector(provider: ProviderInfo, config?: ConnectorConfigInfo)
     id: String(provider.id),
     name: config?.name || provider.name || provider.id,
     type: config?.category || provider.type || 'social',
+    runtime_kind: config?.runtime_kind || 'builtin_oauth',
   };
 }
 
@@ -192,15 +194,23 @@ export function resolvePublicConnectors(
       .map(config => [String(config.provider_id || config.id), config]),
   );
 
-  return providers
+  const upstreamConnectors = providers
     .filter(provider => {
       if (!provider.id || CREDENTIAL_PROVIDER_IDS.has(provider.id)) return false;
       return provider.enabled === true && enabledByProviderId.has(provider.id);
     })
     .map(provider => sanitizeConnector(provider, enabledByProviderId.get(provider.id)));
+  const upstreamIds = new Set(upstreamConnectors.map(connector => connector.id));
+  const enterpriseConnectors = connectorConfigs
+    .filter(connector => connector.enabled === true
+      && connector.category === 'enterprise_sso'
+      && ['custom_oidc', 'saml'].includes(connector.runtime_kind || '')
+      && !upstreamIds.has(String(connector.provider_id || connector.id)))
+    .map(connector => sanitizeConnector({ id: String(connector.provider_id || connector.id) }, connector));
+  return [...upstreamConnectors, ...enterpriseConnectors];
 }
 
-async function getEnabledConnectors(): Promise<Array<{ id: string; name: string; type: string }>> {
+async function getEnabledConnectors(): Promise<Array<{ id: string; name: string; type: string; runtime_kind: string }>> {
   try {
     const [providers, connectorConfigs] = await Promise.all([
       adapter.listProviders() as Promise<ProviderInfo[]>,
@@ -255,11 +265,13 @@ export async function getAuthConfigRuntimeConsistency(fetchImpl: typeof fetch = 
 
 async function getEnabledConnector(connectorId: string) {
   try {
-    const [provider, connectorConfig] = await Promise.all([
-      adapter.getProvider(connectorId) as Promise<ProviderInfo | null>,
-      connectorRepo.getConnectorConfig(connectorId),
-    ]);
-    if (!provider || !connectorConfig) return null;
+    const connectorConfig = await connectorRepo.getConnectorConfig(connectorId);
+    if (!connectorConfig || connectorConfig.enabled !== true) return null;
+    if (['custom_oidc', 'saml'].includes(connectorConfig.runtime_kind)) {
+      return sanitizeConnector({ id: connectorId }, connectorConfig);
+    }
+    const provider = await adapter.getProvider(connectorId) as ProviderInfo | null;
+    if (!provider) return null;
     return resolvePublicConnectors([provider], [connectorConfig])[0] || null;
   } catch {
     return null;
@@ -964,23 +976,29 @@ export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors
     const authorizationId = typeof q.authorization_id === 'string' ? q.authorization_id : '';
     const state = typeof q.state === 'string' ? q.state : '';
 
-    // Build GoTrue OAuth authorize URL for this provider
-    const goTrueUrl = new URL('/auth/v1/authorize', config.oauthRuntimeUrl);
-    goTrueUrl.searchParams.set('provider', params.connectorId);
+    const isSaml = connector.runtime_kind === 'saml';
+    let redirectTarget = redirectUri || config.publicBaseUrl;
     if (authorizationId) {
       const authorizationReturnUrl = new URL('/oauth/authorize', config.publicBaseUrl);
       authorizationReturnUrl.searchParams.set('authorization_id', authorizationId);
-      goTrueUrl.searchParams.set('redirect_to', authorizationReturnUrl.toString());
-    } else if (redirectUri) {
-      goTrueUrl.searchParams.set('redirect_to', redirectUri);
+      redirectTarget = authorizationReturnUrl.toString();
     }
+    if (isSaml) {
+      const authorizationUrl = await adapter.startSamlProviderAuthorization(params.connectorId, redirectTarget);
+      set.status = 302;
+      set.headers['location'] = authorizationUrl;
+      return { redirect: authorizationUrl };
+    }
+
+    const goTrueUrl = new URL(buildGoTrueApiUrl(config.oauthRuntimeUrl, '/authorize'));
+    goTrueUrl.searchParams.set('provider', params.connectorId);
+    goTrueUrl.searchParams.set('redirect_to', redirectTarget);
     if (state) goTrueUrl.searchParams.set('state', state);
 
-    // Forward any OAuth params from the original authorize request
     const forwardedParams = ['client_id', 'redirect_uri', 'response_type', 'scope', 'code_challenge', 'code_challenge_method', 'nonce', 'resource'];
-    for (const p of forwardedParams) {
-      const val = q[p];
-      if (typeof val === 'string') goTrueUrl.searchParams.set(p, val);
+    for (const parameterName of forwardedParams) {
+      const parameterValue = q[parameterName];
+      if (typeof parameterValue === 'string') goTrueUrl.searchParams.set(parameterName, parameterValue);
     }
 
     set.status = 302;
