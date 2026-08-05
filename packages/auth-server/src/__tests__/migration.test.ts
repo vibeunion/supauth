@@ -15,6 +15,7 @@ import {
   MIGRATION_V11_SQL,
   MIGRATION_V12_SQL,
   MIGRATION_V13_SQL,
+  MIGRATION_V14_SQL,
 } from '../db/migrate.js';
 
 const __dirname2 = dirname(fileURLToPath(import.meta.url));
@@ -105,9 +106,20 @@ describe('Hosted migration chain', () => {
       { name: 'supauth-overlay-application-permissions-v11', sql: MIGRATION_V11_SQL },
       { name: 'supauth-overlay-account-claim-state-v12', sql: MIGRATION_V12_SQL },
       { name: 'supauth-overlay-rls-permission-projection-v13', sql: MIGRATION_V13_SQL },
+      { name: 'supauth-overlay-connector-runtime-kind-v14', sql: MIGRATION_V14_SQL },
     ]);
     expect(migrateSrc).toContain('for (const migration of HOSTED_MIGRATIONS)');
     expect(migrateSrc).toContain('await sql.unsafe(migration.sql)');
+  });
+
+  it('adds an immutable connector runtime-kind backfill and typed enterprise factory seeds', () => {
+    expect(MIGRATION_V14_SQL).toContain('ADD COLUMN IF NOT EXISTS runtime_kind');
+    expect(MIGRATION_V14_SQL).toContain("provider_id = 'oidc-enterprise' THEN 'custom_oidc'");
+    expect(MIGRATION_V14_SQL).toContain("provider_id = 'saml-enterprise' THEN 'saml'");
+    expect(MIGRATION_V14_SQL).toContain("CHECK (runtime_kind IN ('builtin_oauth', 'custom_oidc', 'saml'))");
+    expect(MIGRATION_V14_SQL).toContain('"identifier","name","client_id","client_secret","issuer"');
+    expect(MIGRATION_V14_SQL).toContain('"required":["name"]');
+    expect(MIGRATION_V14_SQL).toContain('"one_of":[["metadata_url","metadata_xml"]]');
   });
 
   it('adds forward-only account claim proof and state columns without changing prior migrations', () => {

@@ -181,6 +181,8 @@ export interface AdapterTargetInfo {
   storageProjectScoped: boolean;
 }
 
+export type ConnectorRuntimeKind = 'builtin_oauth' | 'custom_oidc' | 'saml';
+
 export interface ManagedWebhookEvent {
   id: string;
   type: string;
@@ -305,6 +307,60 @@ function queryString(params: Record<string, unknown>) {
   }
   const text = query.toString();
   return text ? `?${text}` : '';
+}
+
+function runtimeAuthorizationRequest(
+  providerId: string,
+  runtimeKind: ConnectorRuntimeKind,
+  redirectTo?: string,
+): { path: string; init: RequestInit } {
+  if (runtimeKind === 'saml') {
+    return {
+      path: '/auth/v1/sso',
+      init: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          provider_id: providerId,
+          ...(redirectTo ? { redirect_to: redirectTo } : {}),
+          skip_http_redirect: true,
+        }),
+      },
+    };
+  }
+  const query = new URLSearchParams({ provider: providerId, skip_http_redirect: 'true' });
+  if (redirectTo) query.set('redirect_to', redirectTo);
+  return { path: `/auth/v1/authorize?${query}`, init: { method: 'GET' } };
+}
+
+function runtimeApiUrl(baseUrl: string, requestPath: string) {
+  const runtimeUrl = new URL(baseUrl);
+  const parsedRequest = new URL(requestPath, 'http://runtime.invalid');
+  const basePath = runtimeUrl.pathname.replace(/\/+$/, '');
+  const normalizedPath = parsedRequest.pathname;
+  const appendedPath = basePath.endsWith('/auth/v1') && normalizedPath.startsWith('/auth/v1/')
+    ? normalizedPath.slice('/auth/v1'.length)
+    : normalizedPath;
+  runtimeUrl.pathname = `${basePath}${appendedPath}`.replace(/\/+/g, '/');
+  runtimeUrl.search = parsedRequest.search;
+  runtimeUrl.hash = '';
+  return runtimeUrl.toString();
+}
+
+function safeRuntimeAuthorizationUrl(response: Response, payload: unknown) {
+  const payloadUrl = payload && typeof payload === 'object' && 'url' in payload
+    ? (payload as { url?: unknown }).url
+    : null;
+  const candidate = response.headers.get('location') || payloadUrl;
+  if (typeof candidate !== 'string') throw new Error('Authentication runtime did not return an authorization URL');
+
+  const authorizationUrl = new URL(candidate);
+  if (!['http:', 'https:'].includes(authorizationUrl.protocol)
+    || authorizationUrl.username
+    || authorizationUrl.password) {
+    throw new Error('Authentication runtime returned an unsafe authorization URL');
+  }
+  return authorizationUrl.toString();
 }
 
 export class SupaCloudAdapter {
@@ -583,20 +639,108 @@ export class SupaCloudAdapter {
   }
 
   async getProvider(providerId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/providers/${providerId}`);
+    return this.request(`/v1/projects/${this.projectRef}/auth/providers/${pathSegment(providerId)}`);
   }
 
   async updateProvider(providerId: string, data: Record<string, unknown>) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/providers/${providerId}`, {
+    return this.request(`/v1/projects/${this.projectRef}/auth/providers/${pathSegment(providerId)}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
 
-  async testProvider(providerId: string) {
-    return this.request(`/v1/projects/${this.projectRef}/auth/providers/${pathSegment(providerId)}/test`, {
-      method: 'POST',
+  async createCustomOidcProvider(data: Record<string, unknown>) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/custom-providers`,
+      'gotrue_custom_oidc_providers_v1',
+      { method: 'POST', body: JSON.stringify(data) },
+    );
+  }
+
+  async getCustomOidcProvider(identifier: string) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/custom-providers/${pathSegment(identifier)}`,
+      'gotrue_custom_oidc_providers_v1',
+    );
+  }
+
+  async updateCustomOidcProvider(identifier: string, data: Record<string, unknown>) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/custom-providers/${pathSegment(identifier)}`,
+      'gotrue_custom_oidc_providers_v1',
+      { method: 'PUT', body: JSON.stringify(data) },
+    );
+  }
+
+  async deleteCustomOidcProvider(identifier: string) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/custom-providers/${pathSegment(identifier)}`,
+      'gotrue_custom_oidc_providers_v1',
+      { method: 'DELETE' },
+    );
+  }
+
+  async createSamlProvider(data: Record<string, unknown>) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/sso/providers`,
+      'gotrue_saml_providers_v1',
+      { method: 'POST', body: JSON.stringify(data) },
+    );
+  }
+
+  async getSamlProvider(providerId: string) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/sso/providers/${pathSegment(providerId)}`,
+      'gotrue_saml_providers_v1',
+    );
+  }
+
+  async updateSamlProvider(providerId: string, data: Record<string, unknown>) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/sso/providers/${pathSegment(providerId)}`,
+      'gotrue_saml_providers_v1',
+      { method: 'PUT', body: JSON.stringify(data) },
+    );
+  }
+
+  async deleteSamlProvider(providerId: string) {
+    return this.requestCapability(
+      `/v1/projects/${this.projectRef}/auth/sso/providers/${pathSegment(providerId)}`,
+      'gotrue_saml_providers_v1',
+      { method: 'DELETE' },
+    );
+  }
+
+  async preflightProviderAuthorization(providerId: string, runtimeKind: ConnectorRuntimeKind) {
+    const authorizationUrl = await this.runtimeProviderAuthorizationUrl(providerId, runtimeKind);
+    return {
+      status: 'reachable',
+      check_kind: 'runtime_configuration',
+      runtime_kind: runtimeKind,
+      authorization_url: authorizationUrl,
+    };
+  }
+
+  async startSamlProviderAuthorization(providerId: string, redirectTo: string) {
+    return this.runtimeProviderAuthorizationUrl(providerId, 'saml', redirectTo);
+  }
+
+  private async runtimeProviderAuthorizationUrl(
+    providerId: string,
+    runtimeKind: ConnectorRuntimeKind,
+    redirectTo?: string,
+  ) {
+    const request = runtimeAuthorizationRequest(providerId, runtimeKind, redirectTo);
+    const response = await fetch(runtimeApiUrl(this.runtimeUrl, request.path), {
+      ...request.init,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(5000),
     });
+    if (!response.ok && (response.status < 300 || response.status >= 400)) {
+      throw new Error(`Authentication runtime preflight failed with HTTP ${response.status}`);
+    }
+    const payload = response.status >= 300 ? null : await response.json();
+    return safeRuntimeAuthorizationUrl(response, payload);
   }
 
   // ─── Users ────────────────────────────────────────────────────────

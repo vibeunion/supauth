@@ -1612,6 +1612,40 @@ const zhCN = {
   "Connection test passed": "连接测试通过",
   "Connection test failed": "连接测试失败",
   "Test failed": "测试失败",
+  "Check runtime configuration": "检查运行时配置",
+  "Checking runtime...": "正在检查运行时...",
+  "Connector runtime configuration check passed.": "连接器运行时配置检查通过。",
+  "Connector runtime check is unavailable. Ask an administrator to verify the runtime route.":
+    "连接器运行时检查不可用，请联系管理员核对运行时路由。",
+  "Connector runtime configuration check failed. Verify the provider settings and try again.":
+    "连接器运行时配置检查失败，请核对提供商配置后重试。",
+  "Exactly one connector field is required: {fields}":
+    "以下连接器字段必须且只能填写一项：{fields}",
+  "Connector creation outcome is unknown. Verify the authoritative connector list before trying again.":
+    "连接器创建结果未知，请先核对权威连接器列表再重试。",
+  "Connector settings are invalid. Check the required fields and try again.":
+    "连接器配置无效，请核对必填字段后重试。",
+  "Connector creation failed. Verify the authentication runtime capability and try again.":
+    "连接器创建失败，请核对认证运行时能力后重试。",
+  "I have reconciled the authoritative connector list.":
+    "我已核对权威连接器列表。",
+  "Allow another connector factory create?": "允许再次通过工厂创建连接器？",
+  "Connector creation could not be reconciled. Verify the authoritative connector list before creating again.":
+    "无法对账确认连接器创建结果，请先核对权威连接器列表再创建。",
+  "Connector creation was verified but the reconciliation lock could not be cleared.":
+    "连接器创建已确认，但无法清除对账锁；请先处理浏览器存储后再操作。",
+  "A previous connector creation has an unknown outcome. Reconcile the authoritative connector list before creating again.":
+    "上一次连接器创建结果未知，请先核对权威连接器列表再创建。",
+  "Connector status update was rejected. Refresh and review the connector settings.":
+    "连接器状态更新被拒绝，请刷新并检查连接器配置。",
+  "Connector status update failed. Verify the authentication runtime and try again.":
+    "连接器状态更新失败，请核对认证运行时后重试。",
+  "Connector status update could not be verified. Reconcile the authoritative state before toggling again.":
+    "无法验证连接器状态更新结果，请先核对权威状态再操作。",
+  "Connector status readback failed. The reconciliation lock remains active.":
+    "连接器状态读回失败，对账锁将继续生效。",
+  "A previous connector status update has an unknown outcome. Locked connectors will be released only after authoritative runtime and local state agree.":
+    "上一次连接器状态更新结果未知；仅在权威运行时与本地状态一致后才会解除锁定。",
   "API Resources": "API 资源",
   "New Resource": "新建资源",
   "New API Resource": "新建 API 资源",
@@ -1716,6 +1750,17 @@ const zhCN = {
   "Enterprise SSO": "企业 SSO",
   "New SSO": "新建 SSO",
   "Connector ID": "连接器 ID",
+  "Enterprise Connector": "企业连接器",
+  "Select an enabled enterprise connector...": "选择已启用的企业连接器...",
+  "Create and enable an enterprise connector before adding SSO domain routing.":
+    "请先创建并启用企业连接器，再添加 SSO 域名路由。",
+  "Organization and role mappings are saved only; the runtime JIT flow does not apply them yet.":
+    "组织和角色映射当前仅保存；运行时 JIT 流程尚未应用这些映射。",
+  "{field} must be a valid JSON object.": "{field} 必须是有效的 JSON 对象。",
+  "Enterprise SSO settings are invalid. Check the connector and mappings, then try again.":
+    "企业 SSO 配置无效，请核对连接器和映射后重试。",
+  "Enterprise SSO creation failed. Verify the connector runtime and try again.":
+    "企业 SSO 创建失败，请核对连接器运行时后重试。",
   Domains: "域名",
   Protocol: "协议",
   "JIT provisioning": "JIT 自动开通",

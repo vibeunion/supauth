@@ -26,7 +26,11 @@ describe('SupaCloudAdapter contract', () => {
       'getOAuthServerStatus', 'listOAuthClients', 'createOAuthClient',
       'getOAuthClient', 'updateOAuthClient', 'deleteOAuthClient',
       'regenerateClientSecret', 'listProviders', 'getProvider',
-      'updateProvider', 'testProvider', 'listUsers', 'createUser', 'getUser', 'deleteUser', 'updateUser',
+      'updateProvider', 'createCustomOidcProvider', 'getCustomOidcProvider',
+      'updateCustomOidcProvider', 'deleteCustomOidcProvider',
+      'createSamlProvider', 'getSamlProvider', 'updateSamlProvider', 'deleteSamlProvider',
+      'preflightProviderAuthorization', 'startSamlProviderAuthorization',
+      'listUsers', 'createUser', 'getUser', 'deleteUser', 'updateUser',
       'listUserSessions', 'revokeUserSession',
       'getUserRoleAssignments', 'resolveUserPermissions',
       'listUserOrganizations', 'listUserOAuthGrants', 'revokeUserOAuthGrant',
@@ -324,6 +328,156 @@ describe('SupaCloudAdapter contract', () => {
 
       expect(urls[0]).toContain('/auth/oauth-clients/..%2F..%2Fconfig%2Fauth');
       expect(urls[0]).not.toContain('/projects/test-ref/config/auth');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('checks OAuth and SAML runtime configuration without a fabricated management endpoint', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; method: string; body: string | null }> = [];
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        url,
+        method: init?.method || 'GET',
+        body: typeof init?.body === 'string' ? init.body : null,
+      });
+      const authorizationUrl = url.includes('/sso?')
+        ? 'https://idp.example.test/saml/login'
+        : 'https://idp.example.test/oauth/authorize';
+      return Promise.resolve(Response.json({ url: authorizationUrl }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await expect(adapter.preflightProviderAuthorization('github', 'builtin_oauth')).resolves.toMatchObject({
+        status: 'reachable',
+        check_kind: 'runtime_configuration',
+        runtime_kind: 'builtin_oauth',
+      });
+      await expect(adapter.preflightProviderAuthorization('saml-provider', 'saml')).resolves.toMatchObject({
+        status: 'reachable',
+        runtime_kind: 'saml',
+      });
+
+      expect(calls.map(call => new URL(call.url).pathname)).toEqual([
+        '/auth/v1/authorize',
+        '/auth/v1/sso',
+      ]);
+      expect(calls[0]).toMatchObject({ method: 'GET', body: null });
+      expect(calls[0]?.url).toContain('provider=github');
+      expect(calls[1]).toEqual({
+        url: 'http://runtime.test/auth/v1/sso',
+        method: 'POST',
+        body: '{"provider_id":"saml-provider","skip_http_redirect":true}',
+      });
+      expect(calls.every(call => !call.url.includes('/auth/providers/'))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('uses typed enterprise OIDC and SAML management endpoints with encoded readback IDs', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ method: string; path: string; body: string | null }> = [];
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        method: init?.method || 'GET',
+        path: new URL(url).pathname,
+        body: typeof init?.body === 'string' ? init.body : null,
+      });
+      return Promise.resolve(Response.json({ id: 'provider', identifier: 'custom:workos' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.createCustomOidcProvider({ provider_type: 'oidc', client_secret: 'once' });
+      await adapter.getCustomOidcProvider('custom:work/os');
+      await adapter.updateCustomOidcProvider('custom:work/os', { enabled: false });
+      await adapter.deleteCustomOidcProvider('custom:work/os');
+      await adapter.createSamlProvider({
+        type: 'saml',
+        metadata_url: 'https://idp.example.test/metadata',
+        disabled: false,
+      });
+      await adapter.getSamlProvider('saml/provider');
+      await adapter.updateSamlProvider('saml/provider', { disabled: true });
+      await adapter.deleteSamlProvider('saml/provider');
+
+      expect(calls).toEqual([
+        {
+          method: 'POST',
+          path: '/v1/projects/test-ref/auth/custom-providers',
+          body: '{"provider_type":"oidc","client_secret":"once"}',
+        },
+        {
+          method: 'GET',
+          path: '/v1/projects/test-ref/auth/custom-providers/custom%3Awork%2Fos',
+          body: null,
+        },
+        {
+          method: 'PUT',
+          path: '/v1/projects/test-ref/auth/custom-providers/custom%3Awork%2Fos',
+          body: '{"enabled":false}',
+        },
+        {
+          method: 'DELETE',
+          path: '/v1/projects/test-ref/auth/custom-providers/custom%3Awork%2Fos',
+          body: null,
+        },
+        {
+          method: 'POST',
+          path: '/v1/projects/test-ref/auth/sso/providers',
+          body: '{"type":"saml","metadata_url":"https://idp.example.test/metadata","disabled":false}',
+        },
+        {
+          method: 'GET',
+          path: '/v1/projects/test-ref/auth/sso/providers/saml%2Fprovider',
+          body: null,
+        },
+        {
+          method: 'PUT',
+          path: '/v1/projects/test-ref/auth/sso/providers/saml%2Fprovider',
+          body: '{"disabled":true}',
+        },
+        {
+          method: 'DELETE',
+          path: '/v1/projects/test-ref/auth/sso/providers/saml%2Fprovider',
+          body: null,
+        },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('rejects unsafe connector preflight URLs returned by the runtime', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async () => Response.json({ url: 'javascript:alert(1)' })) as unknown as typeof fetch;
+    try {
+      const adapter = new SupaCloudAdapter();
+      await expect(adapter.preflightProviderAuthorization('github', 'builtin_oauth'))
+        .rejects.toThrow('unsafe authorization URL');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('does not duplicate the auth/v1 prefix for a prefixed runtime base URL', async () => {
+    const originalFetch = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      urls.push(url);
+      return Promise.resolve(Response.json({ url: 'https://idp.example.test/authorize' }));
+    }) as unknown as typeof fetch;
+    try {
+      const adapter = new SupaCloudAdapter({ runtimeUrl: 'http://runtime.test/auth/v1' });
+      await adapter.preflightProviderAuthorization('github', 'builtin_oauth');
+      expect(new URL(urls[0] || '').pathname).toBe('/auth/v1/authorize');
+      expect(urls[0]).not.toContain('/auth/v1/auth/v1/');
     } finally {
       globalThis.fetch = originalFetch;
     }

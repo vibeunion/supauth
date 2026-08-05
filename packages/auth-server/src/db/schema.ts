@@ -137,6 +137,7 @@ export const auditLogs = supaoauth.table('audit_logs', {
 export const connectors = supaoauth.table('connectors', {
   id: uuid('id').primaryKey().defaultRandom(),
   providerId: varchar('provider_id', { length: 255 }).notNull(), // GoTrue provider ID
+  runtimeKind: varchar('runtime_kind', { length: 32 }).notNull().default('builtin_oauth'),
   name: varchar('name', { length: 255 }).notNull(),
   category: varchar('category', { length: 50 }).notNull(), // social | enterprise_sso
   enabled: boolean('enabled').default(false).notNull(),

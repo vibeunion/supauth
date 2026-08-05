@@ -156,6 +156,44 @@ describe("remaining admin UI request coordination", () => {
     expect(pageSource).toContain("Do not rotate again");
   });
 
+  test("guards connector factory creation with single-flight and authoritative read-back", async () => {
+    const pageSource = await Bun.file(
+      new URL("../routes/connectors/+page.svelte", import.meta.url),
+    ).text();
+    const creationBody = functionBody(pageSource, "saveFactoryConnector");
+
+    expect(creationBody).toContain('factoryCreateOperations.begin("create")');
+    expect(creationBody).toContain("stageFactoryCreateLock()");
+    expect(creationBody.match(/readConnectorList\(\)/g)).toHaveLength(2);
+    expect(creationBody).toContain("mutationOutcomeUnknown(requestError)");
+    expect(creationBody).toContain("reconciledFactoryConnector({");
+    expect(pageSource).toContain("factoryCreateOutcomeUnknown}");
+    expect(pageSource).toContain("creatingFactory || !mutationStorageReady");
+  });
+
+  test("guards connector toggles with keyed single-flight and durable reconciliation", async () => {
+    const pageSource = await Bun.file(
+      new URL("../routes/connectors/+page.svelte", import.meta.url),
+    ).text();
+    const toggleBody = functionBody(pageSource, "handleToggle");
+    const submitBody = functionBody(pageSource, "submitConnectorToggle");
+    const failureBody = functionBody(pageSource, "reportConnectorToggleFailure");
+    const reloadBody = functionBody(pageSource, "reconcilePersistedToggleLocks");
+
+    expect(toggleBody).toContain("connectorToggleOperations.begin(connector.id)");
+    expect(toggleBody).toContain("stageConnectorToggleLock(connector.id)");
+    expect(toggleBody).toContain("submitConnectorToggle(connector.id, expectedEnabled)");
+    expect(toggleBody).toContain("reconcileSubmittedToggle(connector.id, expectedEnabled, operation)");
+    expect(toggleBody).toContain("connectorToggleOperations.finish(operation)");
+    expect(toggleBody).toContain("reportConnectorToggleFailure(connector.id, submitted, requestError)");
+    expect(failureBody).toContain("submitted || mutationOutcomeUnknown(requestError)");
+    expect(submitBody).toContain('requestError?.code === "connector_update_outcome_unknown"');
+    expect(reloadBody).toContain("getConnector(lock.targetId)");
+    expect(reloadBody).toContain("state?.enabled === state?.provider_enabled");
+    expect(pageSource).toContain('allowedActions: ["create", "toggle"]');
+    expect(pageSource).toContain("connectorToggleLocked(connector.id)");
+  });
+
   test("wires users rows, totals, errors, and loading to the current generation", async () => {
     const pageSource = await Bun.file(
       new URL("../routes/users/+page.svelte", import.meta.url),

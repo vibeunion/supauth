@@ -4,6 +4,7 @@ import { getDb } from '../db/index.js';
 
 export interface ConnectorConfigInput {
   providerId: string;
+  runtimeKind?: string;
   name?: string;
   category?: string;
   enabled?: boolean;
@@ -13,7 +14,9 @@ export interface ConnectorConfigInput {
 export function connectorConfigToResponse(row: typeof connectors.$inferSelect) {
   return {
     id: row.providerId,
+    connector_record_id: row.id,
     provider_id: row.providerId,
+    runtime_kind: row.runtimeKind,
     name: row.name,
     category: row.category,
     enabled: row.enabled,
@@ -36,6 +39,14 @@ export async function getConnectorConfig(providerId: string) {
   return rows[0] ? connectorConfigToResponse(rows[0]) : null;
 }
 
+export async function getConnectorConfigByRecordId(connectorRecordId: string) {
+  const db = getDb();
+  const rows = await db.select().from(connectors)
+    .where(eq(connectors.id, connectorRecordId))
+    .limit(1);
+  return rows[0] ? connectorConfigToResponse(rows[0]) : null;
+}
+
 export async function listEnabledConnectorConfigs() {
   const db = getDb();
   const rows = await db.select().from(connectors)
@@ -54,6 +65,7 @@ export async function upsertConnectorConfig(input: ConnectorConfigInput) {
     updatedAt: new Date(),
   };
 
+  if (input.runtimeKind !== undefined) values.runtimeKind = input.runtimeKind;
   if (input.name !== undefined) values.name = input.name;
   if (input.category !== undefined) values.category = input.category;
   if (input.enabled !== undefined) values.enabled = input.enabled;
@@ -65,6 +77,7 @@ export async function upsertConnectorConfig(input: ConnectorConfigInput) {
       .returning()
     : await db.insert(connectors).values({
       providerId: input.providerId,
+      runtimeKind: input.runtimeKind || 'builtin_oauth',
       name: input.name || input.providerId,
       category: input.category || 'social',
       enabled: input.enabled ?? false,

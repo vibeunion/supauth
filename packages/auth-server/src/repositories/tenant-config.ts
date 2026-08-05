@@ -13,6 +13,14 @@ export async function listConnectorFactories(category?: string) {
     : query.orderBy(desc(connectorFactories.createdAt));
 }
 
+export async function getConnectorFactory(factoryId: string) {
+  const db = getDb();
+  const rows = await db.select().from(connectorFactories)
+    .where(eq(connectorFactories.factoryId, factoryId))
+    .limit(1);
+  return rows[0] || null;
+}
+
 export async function upsertConnectorFactory(factoryId: string, data: {
   name: string;
   protocol: string;
