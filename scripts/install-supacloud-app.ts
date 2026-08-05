@@ -661,6 +661,9 @@ const hostedRoutePaths = [
 
 const hostedLogoutRoutePaths = ['/logout', '/logout.html'];
 const adminRootRoutePaths = ['/admin'];
+// The hosted route is at SupaCloud's 20-path limit; keep this separate so legacy
+// Custom UI paths reach the Function's fixed, non-cacheable 404.
+const customUiFallbackRoutePaths = ['/custom-ui/*'];
 const apiRoutePaths = ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*', '/'];
 
 async function upsertGatewayRoute(input: {
@@ -735,6 +738,14 @@ async function configureGatewayRoutes(input: {
     id: 'supauth-function-hosted',
     host,
     path: hostedRoutePaths,
+    priority: 100,
+  });
+
+  await upsertGatewayRoute({
+    ...routeDefaults,
+    id: 'supauth-function-custom-ui-fallback',
+    host,
+    path: customUiFallbackRoutePaths,
     priority: 100,
   });
 
