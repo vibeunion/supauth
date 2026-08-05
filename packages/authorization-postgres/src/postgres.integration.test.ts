@@ -7,7 +7,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import postgres from 'postgres';
 import { checkAuthorizationExplain } from '../../authorization-conformance/src/index.js';
-import { generateAuthorizationSchemaSql, generateRlsPoliciesSql } from './index.js';
+import {
+  generateAuthorizationProjectionPreflightSql,
+  generateAuthorizationSchemaSql,
+  generateRlsPoliciesSql,
+} from './index.js';
 
 const DATABASE_URL = process.env.AUTHORIZATION_POSTGRES_URL || '';
 const AUTHORIZATION_SCHEMA = 'authorization_test_rbac';
@@ -107,6 +111,11 @@ async function invoiceExplainPlan(claims: Record<string, unknown>): Promise<unkn
     `);
     return rows[0]?.['QUERY PLAN'];
   });
+}
+
+async function projectionViolationRules(schema: string): Promise<string[]> {
+  const rows = await sql.unsafe<Array<{ rule: string }>>(generateAuthorizationProjectionPreflightSql({ schema }));
+  return rows.map(row => row.rule);
 }
 
 describePostgres('@supauth/authorization-postgres real RLS', () => {
@@ -212,6 +221,7 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${DATA_SCHEMA}.invoices TO authenticated;
     `);
 
+    await expect(projectionViolationRules(AUTHORIZATION_SCHEMA)).resolves.toEqual([]);
     await sql.unsafe(generateAuthorizationSchemaSql({
       schema: AUTHORIZATION_SCHEMA,
       applicationId: APPLICATION_ID,
@@ -430,22 +440,40 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
     await expect(visibleInvoiceIds(nativeClaims)).resolves.toEqual([]);
   });
 
-  test('rejects stored or directly readable permission projections', async () => {
+  test('reports every projection contract violation as a stable result row', async () => {
     const invalidSchema = 'authorization_test_invalid_projection';
+    await sql.unsafe(`DROP SCHEMA IF EXISTS ${invalidSchema} CASCADE;`);
+    await expect(projectionViolationRules(invalidSchema)).resolves.toEqual(['projection_missing']);
+
     await sql.unsafe(`
-      DROP SCHEMA IF EXISTS ${invalidSchema} CASCADE;
       CREATE SCHEMA ${invalidSchema};
       CREATE TABLE ${invalidSchema}.effective_permission_grants (
         principal_kind TEXT, principal_issuer TEXT, principal_subject TEXT,
         application_id TEXT, domain_type TEXT, domain_id TEXT, permission_name TEXT
       );
     `);
-    await expect((async () => {
-      await sql.unsafe(generateAuthorizationSchemaSql({
-        schema: invalidSchema,
-        applicationId: APPLICATION_ID,
-      }));
-    })()).rejects.toThrow('must be an ordinary view');
+    await expect(projectionViolationRules(invalidSchema)).resolves.toEqual(['projection_kind']);
+
+    await sql.unsafe(`
+      DROP SCHEMA ${invalidSchema} CASCADE;
+      CREATE SCHEMA ${invalidSchema};
+      CREATE VIEW ${invalidSchema}.effective_permission_grants AS
+      SELECT ''::TEXT AS principal_kind
+      WHERE FALSE;
+    `);
+    await expect(projectionViolationRules(invalidSchema)).resolves.toEqual(['projection_columns']);
+
+    await sql.unsafe(`
+      DROP SCHEMA ${invalidSchema} CASCADE;
+      CREATE SCHEMA ${invalidSchema};
+      CREATE VIEW ${invalidSchema}.effective_permission_grants AS
+      SELECT
+        ''::TEXT AS principal_kind, ''::TEXT AS principal_issuer, ''::TEXT AS principal_subject,
+        ''::TEXT AS application_id, ''::TEXT AS domain_type, ''::TEXT AS domain_id,
+        0::INTEGER AS permission_name
+      WHERE FALSE;
+    `);
+    await expect(projectionViolationRules(invalidSchema)).resolves.toEqual(['projection_column_types']);
 
     await sql.unsafe(`
       DROP SCHEMA ${invalidSchema} CASCADE;
@@ -458,12 +486,13 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
       WHERE FALSE;
       GRANT SELECT ON ${invalidSchema}.effective_permission_grants TO authenticated;
     `);
-    await expect((async () => {
-      await sql.unsafe(generateAuthorizationSchemaSql({
-        schema: invalidSchema,
-        applicationId: APPLICATION_ID,
-      }));
-    })()).rejects.toThrow('must not be directly readable');
+    await expect(projectionViolationRules(invalidSchema)).resolves.toEqual(['projection_privileges']);
+
+    await sql.unsafe(`
+      REVOKE SELECT ON ${invalidSchema}.effective_permission_grants FROM authenticated;
+      GRANT SELECT ON ${invalidSchema}.effective_permission_grants TO PUBLIC;
+    `);
+    await expect(projectionViolationRules(invalidSchema)).resolves.toEqual(['projection_privileges']);
     await sql.unsafe(`DROP SCHEMA ${invalidSchema} CASCADE;`);
   });
 });

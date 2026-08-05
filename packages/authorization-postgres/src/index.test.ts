@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  generateAuthorizationProjectionPreflightSql,
   generateAuthorizationSchemaSql,
   generateLegacyAuthorizationCleanupSql,
   generateRlsPoliciesSql,
@@ -12,7 +13,6 @@ describe('@supauth/authorization-postgres', () => {
     expect(sql).not.toContain('CREATE TABLE');
     expect(sql).not.toContain('"fa_authorization".permission_catalog');
     expect(sql).not.toContain('"fa_authorization".role_permissions');
-    expect(sql).toContain('fa_authorization.effective_permission_grants projection view is required');
     expect(sql).toContain('FROM "fa_authorization".effective_permission_grants AS permission_grant');
     expect(sql).toContain('STABLE\nSECURITY DEFINER\nSET search_path = \'\'');
     expect(sql).toContain('SELECT DISTINCT permission_grant.domain_id AS scope_id');
@@ -39,15 +39,28 @@ describe('@supauth/authorization-postgres', () => {
     expect(sql.match(/"auth"\."jwt"\(\)/g)).toHaveLength(1);
     expect(sql).toContain('REVOKE ALL ON SCHEMA "fa_authorization" FROM PUBLIC');
     expect(sql).toContain('GRANT USAGE ON SCHEMA "fa_authorization" TO authenticated');
-    expect(sql).toContain("pg_catalog.to_regprocedure('fa_authorization.authorization_allowed_scope_ids(text,text,text)')");
+    expect(sql).not.toMatch(/(^|;)\s*DO\b/i);
+    expect(sql).not.toContain('pg_catalog.to_regclass');
+    expect(sql).not.toContain('authorization_allowed_scope_ids(TEXT, TEXT, TEXT)');
     expect(sql).not.toContain('DROP FUNCTION IF EXISTS');
-    expect(sql).toContain('must be an ordinary view');
-    expect(sql).toContain("'principal_kind', 'principal_issuer', 'principal_subject', 'application_id'");
-    expect(sql).toContain("attribute.atttypid <> 'pg_catalog.text'::pg_catalog.regtype");
-    expect(sql).toContain("has_table_privilege('authenticated', projection_oid, 'SELECT')");
     expect(sql).toContain('REVOKE ALL ON FUNCTION "fa_authorization".authorization_allowed_scope_ids(TEXT, TEXT) FROM PUBLIC');
     expect(sql).toContain('FROM anon');
     expect(sql).toContain('TO authenticated');
+  });
+
+  it('generates a read-only projection preflight with stable machine-readable violations', () => {
+    const sql = generateAuthorizationProjectionPreflightSql({ schema: 'fa_authorization' });
+
+    expect(sql).toStartWith('WITH projection AS');
+    expect(sql).toContain('pg_catalog.to_regclass(\'"fa_authorization"."effective_permission_grants"\')');
+    expect(sql).toContain("SELECT 'projection_missing'::TEXT AS rule");
+    expect(sql).toContain("SELECT 'projection_kind'");
+    expect(sql).toContain("SELECT 'projection_columns'");
+    expect(sql).toContain("SELECT 'projection_column_types'");
+    expect(sql).toContain("SELECT 'projection_privileges'");
+    expect(sql).toContain('SELECT rule, message\nFROM violations\nORDER BY rule;');
+    expect(sql).not.toMatch(/(^|;)\s*DO\b/i);
+    expect(sql).not.toMatch(/\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|GRANT|REVOKE)\b/i);
   });
 
   it('generates one-time scope-set RLS without passing a row ID to a helper', () => {
@@ -77,6 +90,9 @@ describe('@supauth/authorization-postgres', () => {
     expect(() => generateAuthorizationSchemaSql({
       schema: 'public; drop schema public',
       applicationId: 'xigu-fa',
+    })).toThrow(TypeError);
+    expect(() => generateAuthorizationProjectionPreflightSql({
+      schema: 'public; drop schema public',
     })).toThrow(TypeError);
     expect(() => generateAuthorizationSchemaSql({
       schema: 'fa_authorization',

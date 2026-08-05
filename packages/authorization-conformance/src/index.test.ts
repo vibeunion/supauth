@@ -13,24 +13,38 @@ function deniedOutcome(scenario: AuthorizationDenialScenario): AuthorizationOutc
   return { allowed: false, status: scenario === 'adapter_unavailable' ? 503 : 403 };
 }
 
-const installSql = `
-DO $$
-DECLARE projection_oid OID := pg_catalog.to_regclass('authz.effective_permission_grants');
-BEGIN
-  IF (SELECT relkind FROM pg_catalog.pg_class WHERE oid = projection_oid) IS DISTINCT FROM 'v' THEN
-    RAISE EXCEPTION 'effective_permission_grants must be an ordinary view';
-  END IF;
-  IF ARRAY(
+const projectionPreflightSql = `WITH projection AS (
+  SELECT pg_catalog.to_regclass('authz.effective_permission_grants') AS relation_oid
+), violations(rule, message) AS (
+  SELECT 'projection_missing', 'projection view is required'
+  FROM projection
+  WHERE relation_oid IS NULL
+  UNION ALL
+  SELECT 'projection_kind', 'must be an ordinary view'
+  FROM projection
+  WHERE (SELECT relkind FROM pg_catalog.pg_class WHERE oid = relation_oid) IS DISTINCT FROM 'v'
+  UNION ALL
+  SELECT 'projection_columns', 'columns do not match the required contract'
+  FROM projection
+  WHERE ARRAY(
     SELECT attribute.attname::TEXT FROM pg_catalog.pg_attribute AS attribute
-  ) IS DISTINCT FROM ARRAY['principal_kind']::TEXT[] THEN
-    RAISE EXCEPTION 'columns do not match the required contract';
-  END IF;
-  RAISE NOTICE 'columns do not match the required contract';
-  IF has_table_privilege('authenticated', projection_oid, 'SELECT') THEN
-    RAISE EXCEPTION 'effective_permission_grants must not be directly readable';
-  END IF;
-END $$;
-CREATE FUNCTION authorization_allowed_scope_ids(
+  ) IS DISTINCT FROM ARRAY['principal_kind']::TEXT[]
+  UNION ALL
+  SELECT 'projection_column_types', 'columns must all use TEXT'
+  FROM projection
+  WHERE EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute AS attribute
+    WHERE attribute.atttypid <> 'pg_catalog.text'::pg_catalog.regtype
+  )
+  UNION ALL
+  SELECT 'projection_privileges', 'must not be directly readable'
+  FROM projection
+  WHERE has_table_privilege('anon', relation_oid, 'SELECT')
+    OR has_table_privilege('authenticated', relation_oid, 'SELECT')
+)
+SELECT rule, message FROM violations;`;
+
+const installSql = `CREATE FUNCTION authorization_allowed_scope_ids(
   requested_permission TEXT,
   requested_domain_type TEXT
 )
@@ -46,6 +60,8 @@ GRANT USAGE ON SCHEMA authz TO authenticated;
 REVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT, TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION authorization_allowed_scope_ids(TEXT, TEXT) FROM anon;
 GRANT EXECUTE ON FUNCTION authorization_allowed_scope_ids(TEXT, TEXT) TO authenticated;`;
+
+const legacyCleanupSql = 'DROP FUNCTION IF EXISTS authorization_allowed_scope_ids(TEXT, TEXT, TEXT);';
 
 const rlsSql = `CREATE POLICY invoice_update ON invoices FOR UPDATE TO authenticated
 USING (organization_id IN (
@@ -107,8 +123,14 @@ describe('@supauth/authorization-conformance', () => {
   });
 
   it('checks final-grant ownership, fixed application binding, and RLS shape', () => {
-    expect(checkAuthorizationSql({ installSql, rlsSql })).toEqual({ passed: true, violations: [] });
+    expect(checkAuthorizationSql({
+      projectionPreflightSql,
+      installSql,
+      rlsSql,
+      legacyCleanupSql,
+    })).toEqual({ passed: true, violations: [] });
     const unsafe = checkAuthorizationSql({
+      projectionPreflightSql,
       installSql: `${installSql}\nCREATE TABLE authz.role_permissions (role_key TEXT);`,
       rlsSql: `CREATE POLICY open_access ON invoices FOR SELECT TO authenticated USING (true);`,
     });
@@ -119,22 +141,39 @@ describe('@supauth/authorization-conformance', () => {
 
   it('does not accept safety keywords hidden in comments or string literals', () => {
     const report = checkAuthorizationSql({
+      projectionPreflightSql: `-- pg_catalog.to_regclass effective_permission_grants\nSELECT 'violations(rule, message) SELECT rule, message FROM violations';`,
       installSql: `-- effective_permission_grants ordinary view\nSELECT 'SECURITY DEFINER SET search_path = ''';`,
       rlsSql: `/* authorization_allowed_scope_ids('invoice:read') */\nCREATE POLICY open_access ON invoices FOR SELECT TO authenticated USING (true);`,
     });
     expect(report.passed).toBe(false);
-    expect(report.violations.map(violation => violation.rule)).toContain('effective_grant_projection');
+    expect(report.violations.map(violation => violation.rule)).toContain('catalog_resolution');
     expect(report.violations.map(violation => violation.rule)).toContain('hardened_helper');
   });
 
   it('does not accept safety keywords hidden in dollar-quoted literals', () => {
     const report = checkAuthorizationSql({
+      projectionPreflightSql: `SELECT $spoof$${projectionPreflightSql}$spoof$;`,
       installSql: `SELECT $spoof$${installSql}$spoof$;`,
       rlsSql: `SELECT $$${rlsSql}$$;`,
     });
     expect(report.passed).toBe(false);
-    expect(report.violations.map(violation => violation.rule)).toContain('effective_grant_projection');
+    expect(report.violations.map(violation => violation.rule)).toContain('catalog_resolution');
     expect(report.violations.map(violation => violation.rule)).toContain('rls_policy');
+  });
+
+  it('rejects procedural migrations and a mutating projection preflight', () => {
+    const report = checkAuthorizationSql({
+      projectionPreflightSql: `${projectionPreflightSql}\nDELETE FROM authz.effective_permission_grants;`,
+      installSql: `DO $$ BEGIN NULL; END $$;\n${installSql}`,
+      rlsSql: `${rlsSql}\nDO $$ BEGIN NULL; END $$;`,
+      legacyCleanupSql: `DO $$ BEGIN NULL; END $$;\n${legacyCleanupSql}`,
+    });
+    const rules = report.violations.map(violation => violation.rule);
+    expect(rules).toContain('projection_preflight_read_only');
+    expect(rules).toContain('projection_preflight_statement');
+    expect(rules).toContain('install_static_sql');
+    expect(rules).toContain('rls_static_sql');
+    expect(rules).toContain('legacy_cleanup_static_sql');
   });
 
   it('requires parsed JSON plans with one helper loop and a hashed subplan', () => {
