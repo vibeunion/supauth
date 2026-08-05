@@ -13,9 +13,9 @@ The npm packages do not move business memberships, assignments, roles, or audit 
 
 ## Packages
 
-- `@supauth/authorization-core` defines canonical `resource:action` permissions, request/snapshot contracts, 403 versus 503 errors, and one-resolution-per-request in-memory decisions.
-- `@supauth/authorization-postgres` generates review-only PostgreSQL/Supabase SQL for an application-owned permission catalog, role-permission mapping, adapter views, hardened scope helpers, and RLS policies.
-- `@supauth/authorization-conformance` provides pure CI checks for negative authorization cases, SQL safety, and authenticated execution plans.
+- `@supauth/authorization-core` defines canonical `resource:action` permissions, verified request context, 403 versus 503 errors, and one current effective-grant resolution per request.
+- `@supauth/authorization-postgres` generates review-only PostgreSQL/Supabase SQL that consumes an application-owned effective-grant view and produces hardened scope helpers and RLS policies.
+- `@supauth/authorization-conformance` runs the application's negative-scenario harness and checks SQL safety plus parsed authenticated execution plans.
 
 The packages are published independently on npm. Install only the layers the application uses:
 
@@ -29,37 +29,36 @@ npm install --save-dev @supauth/authorization-postgres @supauth/authorization-co
 
 Native SupaCloud applications do not install SupAuth to use these packages. `authorization-postgres` is normally a development or migration dependency; generated SQL runs in the application's PostgreSQL database, not in a package-provided service.
 
-V1 intentionally has no wildcard, explicit deny, role inheritance, ABAC, remote PDP, database connection, automatic migration, or cross-application role store.
+The public contract intentionally has no wildcard, explicit deny, role inheritance, ABAC, remote PDP, database connection, automatic migration, or cross-application role store. Applications may use those policy features internally, but they must resolve them to exact effective allow grants before crossing the adapter boundary.
 
 ## Revocation And JWT Consistency
 
-Identity claims come from the verified JWT. Business permission claims in a JWT are only an eventually consistent UI/cache hint and must not be the current authorization fact. API resolvers read current local membership and assignment state once per request. PostgreSQL helpers read the application's active adapter views once per statement. A revocation therefore denies immediately without waiting for access-token refresh.
+Identity claims come from the verified JWT. Business permission claims in a JWT are only a UI hint and must not be the current authorization fact. API resolvers read current local policy once per request and return only exact effective allow grants. The core package has no cross-request cache or stale-snapshot contract. A resolver outage or malformed grant list is 503; it must never be converted to an ordinary 403. Missing, inactive, revoked, ambiguous, cross-domain, cross-application, denied, or unknown permission state produces an empty grant set and 403.
 
-`policyVersion` and `assignmentVersion` are monotonic cache keys. Cache entries must also include principal kind, issuer, subject, application ID, domain type, and domain ID. A resolver outage, invalid response, malformed permission list, future-dated response, or stale snapshot is 503; it must never be converted to an ordinary 403. Missing, inactive, revoked, cross-domain, cross-application, or unknown permission state is 403. Each resolver sets and enforces its risk-appropriate maximum TTL; high-risk commands resolve current state without a cross-request cache.
+PostgreSQL helpers read the application's ordinary effective-grant view once per statement. Under normal READ COMMITTED operation, revocation must deny on the next request or statement without waiting for token refresh. Applications using a stronger transaction isolation level must account for that transaction's visibility rules.
 
 ## PostgreSQL And RLS Invariants
 
-- The application supplies `active_memberships` and `active_role_assignments` adapter views over its own tables. UUID or numeric keys are normalized to the documented `TEXT` adapter contract.
-- Duplicate active memberships for the same principal/application/domain fail closed.
+- One authorization schema belongs to one fixed application ID.
+- The application supplies an ordinary `effective_permission_grants(principal_kind, principal_issuer, principal_subject, application_id, domain_type, domain_id, permission_name)` view. Every column is `TEXT`; every row is a current exact allow grant.
+- The view resolves profile/account state, membership activity and ambiguity, roles, direct grants, inheritance, wildcard expansion, and explicit-deny precedence. Missing, inactive, revoked, denied, or ambiguous facts do not project rows.
+- The package creates no permission catalog, role mapping, membership, or assignment table. The projection must not be directly readable by `PUBLIC`, `anon`, or `authenticated`.
 - Generated helpers are `STABLE SECURITY DEFINER SET search_path=''`; the schema revokes `PUBLIC`, grants `USAGE` to `authenticated`, and grants helper execution only to `authenticated` without table access.
-- RLS sends permission, domain type, and application constants to `authorization_allowed_scope_ids`; a row ID is never a helper argument.
-- The RLS application constant is always the membership boundary. A native SupaCloud/GoTrue JWT may omit application claims; if signed `client_id` or `app_metadata.authorization_context.application_id` exists, it must exactly match the constant. `client_id` has presence-based precedence, so empty or JSON `null` values fail closed instead of falling back.
+- RLS sends permission and domain-type constants to `authorization_allowed_scope_ids`; the helper owns the installed application constant, and a row ID is never an argument.
+- The application ID is fixed when the authorization schema is installed and is not a helper argument. A native SupaCloud/GoTrue JWT may omit application claims; if signed `client_id` or `app_metadata.authorization_context.application_id` exists, it must exactly match the installed value. `client_id` has presence-based precedence, so empty or JSON `null` values fail closed instead of falling back.
 - Authorization reads only signed JWT `iss`, `sub`, root `client_id`, and `app_metadata.authorization_context`. It never trusts `user_metadata` or a JWT header.
+- User principals always use root `sub`. Service principals require signed `kind: "service"` and a non-blank signed subject; they never fall back to root `sub`.
 - The target domain column remains UUID or text without a cast, and an uncorrelated `IN (SELECT ...)` allows a hashed scope subplan.
-- Source tables need indexes for active principal/application/domain membership, active assignment by membership, role permissions, and each protected table's domain column.
-- Structural SQL checks strip comments and literals but are not a parser or authorization proof. Releases require real negative database observations. Large tables (250,000 or more rows) and principals with more than 1,000 scopes also require authenticated `EXPLAIN (ANALYZE, BUFFERS)` with the helper plan node at `loops=1`.
+- Source tables need indexes that support the application's effective-grant projection plus each protected table's domain column.
+- Structural SQL checks accept only the generator's canonical shape and are not a general parser or authorization proof. Releases require real negative database observations. Large tables (250,000 or more rows) and principals with more than 1,000 scopes also require authenticated `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` where each helper has `Actual Loops = 1` inside the hashed subplan referenced by its ancestor filter.
 
 The PostgreSQL preset depends on Supabase/PostgREST `auth.jwt()` and the `anon` / `authenticated` roles. A bare PostgreSQL deployment needs a separately reviewed identity adapter and is not represented by this preset.
 
 Native SupaCloud applications do not need SupAuth or a runtime package that adds JWT claims. They may install `@supauth/authorization-postgres` only as a development/migration tool to generate the standard helper and RLS policies. SupAuth/OAuth applications use the same SQL and gain the extra token application consistency check automatically.
 
-## Existing SupAuth Compatibility Compiler
-
-The existing compiler still targets the SupaCloud-authoritative schema-v2 JWT projection. Organization policies now build uncorrelated declared and allowed organization sets from `current_permission_claims()` instead of calling `has_org_permission(row.organization_id, permission)` for every row. An explicit organization projection overrides root permissions; an organization without an explicit projection preserves V11 root-permission inheritance. Hosted migration v13 grants authenticated callers direct execution of that function, revokes `PUBLIC` and `anon`, and fixes its `SECURITY DEFINER` search path to empty. It reads only the caller's own signed JWT projection, so the grant exposes no server-side RBAC tables or other users' state.
-
 ## Adoption
 
-FA adoption is a separate application PR: create its adapter views over FA-owned membership/assignment tables, install a dedicated FA authorization schema through a new immutable migration, integrate the resolver, run conformance, and capture authenticated plans. This package release does not modify FA or connect it to unrelated systems.
+Application adoption is a separate application PR: create the effective-grant view over application-owned facts, install a dedicated fixed-application authorization schema through a new immutable migration, replace generated policies in the same transaction, integrate the current-state resolver, run conformance, and capture authenticated plans. The conformance revocation scenario must observe allow, perform a real fixture revocation, then observe denial on the next request. The packages never modify or connect to application databases by themselves.
 
 ## npm Distribution And Release Boundary
 

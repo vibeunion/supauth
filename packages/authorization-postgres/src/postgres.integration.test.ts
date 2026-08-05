@@ -6,6 +6,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import postgres from 'postgres';
+import { checkAuthorizationExplain } from '../../authorization-conformance/src/index.js';
 import { generateAuthorizationSchemaSql, generateRlsPoliciesSql } from './index.js';
 
 const DATABASE_URL = process.env.AUTHORIZATION_POSTGRES_URL || '';
@@ -45,7 +46,7 @@ const nativeClaims = {
 
 async function seedAuthorizationState(): Promise<void> {
   await sql.unsafe(`
-    TRUNCATE ${SOURCE_SCHEMA}.memberships, ${SOURCE_SCHEMA}.role_assignments;
+    TRUNCATE ${SOURCE_SCHEMA}.memberships, ${SOURCE_SCHEMA}.role_assignments, ${DATA_SCHEMA}.invoices;
 
     INSERT INTO ${SOURCE_SCHEMA}.memberships (
       membership_key,
@@ -61,24 +62,50 @@ async function seedAuthorizationState(): Promise<void> {
       ('membership-cross-application', 'user', '${ISSUER}', 'user-1', 'other-application', 'organization', 'org-b', TRUE),
       ('membership-cross-issuer', 'user', 'https://other.example.test/auth/v1', 'user-1', '${APPLICATION_ID}', 'organization', 'org-c', TRUE),
       ('membership-cross-domain', 'user', '${ISSUER}', 'user-1', '${APPLICATION_ID}', 'project', 'org-b', TRUE),
-      ('membership-service', 'service', '${ISSUER}', 'service-worker', '${APPLICATION_ID}', 'organization', 'org-a', TRUE);
+      ('membership-service', 'service', '${ISSUER}', 'service-worker', '${APPLICATION_ID}', 'organization', 'org-a', TRUE),
+      ('membership-empty-service', 'service', '${ISSUER}', '', '${APPLICATION_ID}', 'organization', 'org-b', TRUE),
+      ('membership-whitespace-service', 'service', '${ISSUER}', ' ', '${APPLICATION_ID}', 'organization', 'org-c', TRUE);
 
     INSERT INTO ${SOURCE_SCHEMA}.role_assignments (membership_key, role_key, active)
-    SELECT membership_key, 'invoice-reader', TRUE
+    SELECT membership_key, 'invoice-operator', TRUE
     FROM ${SOURCE_SCHEMA}.memberships;
+
+    INSERT INTO ${DATA_SCHEMA}.invoices (id, organization_id) VALUES
+      ('invoice-a', 'org-a'),
+      ('invoice-b', 'org-b'),
+      ('invoice-c', 'org-c');
   `);
 }
 
-async function visibleInvoiceIds(claims: Record<string, unknown>): Promise<string[]> {
+async function withClaims<T>(
+  claims: Record<string, unknown>,
+  execute: (transaction: postgres.TransactionSql) => Promise<T>,
+): Promise<T> {
   return sql.begin(async transaction => {
     await transaction.unsafe('SET LOCAL ROLE authenticated');
     await transaction`SELECT set_config('request.jwt.claims', ${JSON.stringify(claims)}, TRUE)`;
+    return execute(transaction);
+  });
+}
+
+async function visibleInvoiceIds(claims: Record<string, unknown>): Promise<string[]> {
+  return withClaims(claims, async transaction => {
     const rows = await transaction<{ id: string }[]>`
       SELECT id
       FROM authorization_test_data.invoices
       ORDER BY id
     `;
     return rows.map(row => row.id);
+  });
+}
+
+async function invoiceExplainPlan(claims: Record<string, unknown>): Promise<unknown> {
+  return withClaims(claims, async transaction => {
+    const rows = await transaction.unsafe<Record<string, unknown>[]>(`
+      EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+      SELECT id FROM authorization_test_data.invoices ORDER BY id
+    `);
+    return rows[0]?.['QUERY PLAN'];
   });
 }
 
@@ -133,41 +160,62 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
         active BOOLEAN NOT NULL DEFAULT TRUE,
         PRIMARY KEY (membership_key, role_key)
       );
-      CREATE VIEW ${AUTHORIZATION_SCHEMA}.active_memberships AS
+      CREATE TABLE ${SOURCE_SCHEMA}.role_permissions (
+        role_key TEXT NOT NULL,
+        permission_name TEXT NOT NULL,
+        PRIMARY KEY (role_key, permission_name)
+      );
+      CREATE VIEW ${AUTHORIZATION_SCHEMA}.effective_permission_grants AS
+        WITH unambiguous_memberships AS (
+          SELECT membership.*
+          FROM ${SOURCE_SCHEMA}.memberships AS membership
+          WHERE membership.active
+            AND NOT EXISTS (
+              SELECT 1
+              FROM ${SOURCE_SCHEMA}.memberships AS duplicate
+              WHERE duplicate.active
+                AND duplicate.membership_key <> membership.membership_key
+                AND duplicate.principal_kind = membership.principal_kind
+                AND duplicate.principal_issuer = membership.principal_issuer
+                AND duplicate.principal_subject = membership.principal_subject
+                AND duplicate.application_id = membership.application_id
+                AND duplicate.domain_type = membership.domain_type
+                AND duplicate.domain_id = membership.domain_id
+            )
+        )
         SELECT
-          membership_key,
-          principal_kind,
-          principal_issuer,
-          principal_subject,
-          application_id,
-          domain_type,
-          domain_id
-        FROM ${SOURCE_SCHEMA}.memberships
-        WHERE active;
-      CREATE VIEW ${AUTHORIZATION_SCHEMA}.active_role_assignments AS
-        SELECT membership_key, role_key
-        FROM ${SOURCE_SCHEMA}.role_assignments
-        WHERE active;
+          membership.principal_kind,
+          membership.principal_issuer,
+          membership.principal_subject,
+          membership.application_id,
+          membership.domain_type,
+          membership.domain_id,
+          role_permission.permission_name
+        FROM unambiguous_memberships AS membership
+        JOIN ${SOURCE_SCHEMA}.role_assignments AS assignment
+          ON assignment.membership_key = membership.membership_key
+        JOIN ${SOURCE_SCHEMA}.role_permissions AS role_permission
+          ON role_permission.role_key = assignment.role_key
+        WHERE assignment.active;
+
+      INSERT INTO ${SOURCE_SCHEMA}.role_permissions (role_key, permission_name) VALUES
+        ('invoice-operator', 'invoice:read'),
+        ('invoice-operator', 'invoice:create'),
+        ('invoice-operator', 'invoice:update'),
+        ('invoice-operator', 'invoice:delete');
 
       CREATE TABLE ${DATA_SCHEMA}.invoices (
         id TEXT PRIMARY KEY,
         organization_id TEXT NOT NULL
       );
-      INSERT INTO ${DATA_SCHEMA}.invoices (id, organization_id) VALUES
-        ('invoice-a', 'org-a'),
-        ('invoice-b', 'org-b'),
-        ('invoice-c', 'org-c');
       GRANT USAGE ON SCHEMA ${DATA_SCHEMA} TO authenticated;
-      GRANT SELECT ON ${DATA_SCHEMA}.invoices TO authenticated;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ${DATA_SCHEMA}.invoices TO authenticated;
     `);
 
-    await sql.unsafe(generateAuthorizationSchemaSql({ schema: AUTHORIZATION_SCHEMA }));
-    await sql.unsafe(`
-      INSERT INTO ${AUTHORIZATION_SCHEMA}.permission_catalog (permission_name, description)
-      VALUES ('invoice:read', 'Read invoices');
-      INSERT INTO ${AUTHORIZATION_SCHEMA}.role_permissions (role_key, permission_name)
-      VALUES ('invoice-reader', 'invoice:read');
-    `);
+    await sql.unsafe(generateAuthorizationSchemaSql({
+      schema: AUTHORIZATION_SCHEMA,
+      applicationId: APPLICATION_ID,
+    }));
     await sql.unsafe(generateRlsPoliciesSql({
       schema: AUTHORIZATION_SCHEMA,
       tableSchema: DATA_SCHEMA,
@@ -175,8 +223,12 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
       domainColumn: 'organization_id',
       domainIdType: 'text',
       domainType: 'organization',
-      applicationId: APPLICATION_ID,
-      policies: [{ command: 'select', permission: 'invoice:read' }],
+      policies: [
+        { command: 'select', usingPermission: 'invoice:read' },
+        { command: 'insert', checkPermission: 'invoice:create' },
+        { command: 'update', usingPermission: 'invoice:read', checkPermission: 'invoice:update' },
+        { command: 'delete', usingPermission: 'invoice:delete' },
+      ],
     }));
   });
 
@@ -192,7 +244,7 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
 
   beforeEach(seedAuthorizationState);
 
-  test('native GoTrue token without an application claim uses the policy application boundary', async () => {
+  test('native GoTrue token without an application claim uses the authorization-schema application boundary', async () => {
     await expect(visibleInvoiceIds(nativeClaims)).resolves.toEqual(['invoice-a']);
   });
 
@@ -245,6 +297,37 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
     await expect(visibleInvoiceIds(nativeClaims)).resolves.toEqual([]);
   });
 
+  test('exposes one-time helper execution in JSON EXPLAIN', async () => {
+    expect(checkAuthorizationExplain(await invoiceExplainPlan(nativeClaims)))
+      .toEqual({ passed: true, violations: [] });
+  });
+
+  test('enforces USING and WITH CHECK across insert, update, and delete', async () => {
+    await withClaims(nativeClaims, async transaction => {
+      await transaction`
+        INSERT INTO authorization_test_data.invoices (id, organization_id)
+        VALUES ('invoice-created', 'org-a')
+      `;
+    });
+    await expect(withClaims(nativeClaims, async transaction => {
+      await transaction`
+        INSERT INTO authorization_test_data.invoices (id, organization_id)
+        VALUES ('invoice-cross-scope', 'org-b')
+      `;
+    })).rejects.toThrow('new row violates row-level security policy');
+    await expect(withClaims(nativeClaims, async transaction => {
+      await transaction`
+        UPDATE authorization_test_data.invoices
+        SET organization_id = 'org-b'
+        WHERE id = 'invoice-a'
+      `;
+    })).rejects.toThrow('new row violates row-level security policy');
+    await withClaims(nativeClaims, async transaction => {
+      await transaction`DELETE FROM authorization_test_data.invoices WHERE id = 'invoice-created'`;
+    });
+    await expect(visibleInvoiceIds(nativeClaims)).resolves.toEqual(['invoice-a']);
+  });
+
   test('user_metadata cannot override signed identity or application binding', async () => {
     await expect(visibleInvoiceIds({
       ...nativeClaims,
@@ -253,6 +336,19 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
           kind: 'service',
           subject: 'service-worker',
           application_id: 'other-application',
+        },
+      },
+    })).resolves.toEqual(['invoice-a']);
+  });
+
+  test('a user principal always binds to JWT sub even when signed app_metadata contains a subject', async () => {
+    await expect(visibleInvoiceIds({
+      ...nativeClaims,
+      app_metadata: {
+        authorization_context: {
+          kind: 'user',
+          subject: 'service-worker',
+          application_id: APPLICATION_ID,
         },
       },
     })).resolves.toEqual(['invoice-a']);
@@ -270,6 +366,41 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
         },
       },
     })).resolves.toEqual(['invoice-a']);
+  });
+
+  test('a service principal without an explicit signed subject fails closed', async () => {
+    await expect(visibleInvoiceIds({
+      iss: ISSUER,
+      sub: 'service-worker',
+      app_metadata: {
+        authorization_context: {
+          kind: 'service',
+          application_id: APPLICATION_ID,
+        },
+      },
+    })).resolves.toEqual([]);
+    await expect(visibleInvoiceIds({
+      iss: ISSUER,
+      sub: 'service-worker',
+      app_metadata: {
+        authorization_context: {
+          kind: 'service',
+          subject: '',
+          application_id: APPLICATION_ID,
+        },
+      },
+    })).resolves.toEqual([]);
+    await expect(visibleInvoiceIds({
+      iss: ISSUER,
+      sub: 'service-worker',
+      app_metadata: {
+        authorization_context: {
+          kind: 'service',
+          subject: ' ',
+          application_id: APPLICATION_ID,
+        },
+      },
+    })).resolves.toEqual([]);
   });
 
   test('duplicate active memberships for one domain fail closed', async () => {
@@ -294,8 +425,45 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
         TRUE
       );
       INSERT INTO ${SOURCE_SCHEMA}.role_assignments (membership_key, role_key, active)
-      VALUES ('membership-native-duplicate', 'invoice-reader', TRUE);
+      VALUES ('membership-native-duplicate', 'invoice-operator', TRUE);
     `);
     await expect(visibleInvoiceIds(nativeClaims)).resolves.toEqual([]);
+  });
+
+  test('rejects stored or directly readable permission projections', async () => {
+    const invalidSchema = 'authorization_test_invalid_projection';
+    await sql.unsafe(`
+      DROP SCHEMA IF EXISTS ${invalidSchema} CASCADE;
+      CREATE SCHEMA ${invalidSchema};
+      CREATE TABLE ${invalidSchema}.effective_permission_grants (
+        principal_kind TEXT, principal_issuer TEXT, principal_subject TEXT,
+        application_id TEXT, domain_type TEXT, domain_id TEXT, permission_name TEXT
+      );
+    `);
+    await expect((async () => {
+      await sql.unsafe(generateAuthorizationSchemaSql({
+        schema: invalidSchema,
+        applicationId: APPLICATION_ID,
+      }));
+    })()).rejects.toThrow('must be an ordinary view');
+
+    await sql.unsafe(`
+      DROP SCHEMA ${invalidSchema} CASCADE;
+      CREATE SCHEMA ${invalidSchema};
+      CREATE VIEW ${invalidSchema}.effective_permission_grants AS
+      SELECT
+        ''::TEXT AS principal_kind, ''::TEXT AS principal_issuer, ''::TEXT AS principal_subject,
+        ''::TEXT AS application_id, ''::TEXT AS domain_type, ''::TEXT AS domain_id,
+        ''::TEXT AS permission_name
+      WHERE FALSE;
+      GRANT SELECT ON ${invalidSchema}.effective_permission_grants TO authenticated;
+    `);
+    await expect((async () => {
+      await sql.unsafe(generateAuthorizationSchemaSql({
+        schema: invalidSchema,
+        applicationId: APPLICATION_ID,
+      }));
+    })()).rejects.toThrow('must not be directly readable');
+    await sql.unsafe(`DROP SCHEMA ${invalidSchema} CASCADE;`);
   });
 });

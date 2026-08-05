@@ -3,24 +3,25 @@ const PERMISSION_PATTERN = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
 const CONTEXT_VALUE_PATTERN = /^[^\s]{1,512}$/u;
 
 export interface AuthorizationSchemaOptions {
-  schema: string;
+  readonly schema: string;
+  readonly applicationId: string;
 }
 
 export type RlsCommand = 'select' | 'insert' | 'update' | 'delete';
 
-export interface RlsPermissionPolicy {
-  command: RlsCommand;
-  permission: string;
-}
+export type RlsPermissionPolicy =
+  | { readonly command: 'select' | 'delete'; readonly usingPermission: string }
+  | { readonly command: 'insert'; readonly checkPermission: string }
+  | { readonly command: 'update'; readonly usingPermission: string; readonly checkPermission: string };
 
-export interface RlsPolicyOptions extends AuthorizationSchemaOptions {
-  tableSchema: string;
-  table: string;
-  domainColumn: string;
-  domainIdType: 'uuid' | 'text';
-  domainType: string;
-  applicationId: string;
-  policies: readonly RlsPermissionPolicy[];
+export interface RlsPolicyOptions {
+  readonly schema: string;
+  readonly tableSchema: string;
+  readonly table: string;
+  readonly domainColumn: string;
+  readonly domainIdType: 'uuid' | 'text';
+  readonly domainType: string;
+  readonly policies: readonly RlsPermissionPolicy[];
 }
 
 function identifier(label: string, identifierValue: string): string {
@@ -38,29 +39,69 @@ function literal(label: string, literalValue: string): string {
 }
 
 function permissionLiteral(permissionName: string): string {
-  if (!PERMISSION_PATTERN.test(permissionName)) {
+  if (permissionName.length > 512 || !PERMISSION_PATTERN.test(permissionName)) {
     throw new TypeError(`Invalid permission ${JSON.stringify(permissionName)}; expected resource:action`);
   }
   return `'${permissionName}'`;
 }
 
-function adapterContractSql(schemaName: string): string {
+function projectionContractSql(schemaName: string): string {
   return `DO $$
+DECLARE
+  projection_oid OID := pg_catalog.to_regclass('${schemaName}.effective_permission_grants');
 BEGIN
-  IF to_regclass('${schemaName}.active_memberships') IS NULL THEN
-    RAISE EXCEPTION '${schemaName}.active_memberships adapter view is required';
+  IF projection_oid IS NULL THEN
+    RAISE EXCEPTION '${schemaName}.effective_permission_grants projection view is required';
   END IF;
-  IF to_regclass('${schemaName}.active_role_assignments') IS NULL THEN
-    RAISE EXCEPTION '${schemaName}.active_role_assignments adapter view is required';
+  IF (SELECT relation.relkind FROM pg_catalog.pg_class AS relation WHERE relation.oid = projection_oid) IS DISTINCT FROM 'v' THEN
+    RAISE EXCEPTION '${schemaName}.effective_permission_grants must be an ordinary view';
+  END IF;
+  IF ARRAY(
+    SELECT attribute.attname::TEXT
+    FROM pg_catalog.pg_attribute AS attribute
+    WHERE attribute.attrelid = projection_oid
+      AND attribute.attnum > 0
+      AND NOT attribute.attisdropped
+    ORDER BY attribute.attnum
+  ) IS DISTINCT FROM ARRAY[
+    'principal_kind', 'principal_issuer', 'principal_subject', 'application_id',
+    'domain_type', 'domain_id', 'permission_name'
+  ]::TEXT[] THEN
+    RAISE EXCEPTION '${schemaName}.effective_permission_grants columns do not match the required contract';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_attribute AS attribute
+    WHERE attribute.attrelid = projection_oid
+      AND attribute.attnum > 0
+      AND NOT attribute.attisdropped
+      AND attribute.atttypid <> 'pg_catalog.text'::pg_catalog.regtype
+  ) THEN
+    RAISE EXCEPTION '${schemaName}.effective_permission_grants columns must all use TEXT';
+  END IF;
+  IF pg_catalog.has_table_privilege('anon', projection_oid, 'SELECT')
+    OR pg_catalog.has_table_privilege('authenticated', projection_oid, 'SELECT') THEN
+    RAISE EXCEPTION '${schemaName}.effective_permission_grants must not be directly readable by API roles';
   END IF;
 END $$;`;
 }
 
-function allowedScopeFunctionSql(schemaRef: string): string {
+function legacyHelperRevocationSql(schemaName: string, schemaRef: string): string {
+  return `DO $$
+BEGIN
+  IF pg_catalog.to_regprocedure('${schemaName}.authorization_allowed_scope_ids(text,text,text)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) FROM anon;
+    REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) FROM authenticated;
+  END IF;
+END $$;`;
+}
+
+function allowedScopeFunctionSql(schemaRef: string, applicationId: string): string {
+  const installedApplicationId = literal('applicationId', applicationId);
   return `CREATE OR REPLACE FUNCTION ${schemaRef}.authorization_allowed_scope_ids(
   requested_permission TEXT,
-  requested_domain_type TEXT,
-  requested_application_id TEXT
+  requested_domain_type TEXT
 )
 RETURNS TABLE(scope_id TEXT)
 LANGUAGE sql
@@ -74,10 +115,11 @@ AS $$
     SELECT
       COALESCE(claims -> 'app_metadata' -> 'authorization_context' ->> 'kind', 'user') AS principal_kind,
       claims ->> 'iss' AS principal_issuer,
-      COALESCE(
-        claims -> 'app_metadata' -> 'authorization_context' ->> 'subject',
-        claims ->> 'sub'
-      ) AS principal_subject,
+      CASE
+        WHEN claims -> 'app_metadata' -> 'authorization_context' ->> 'kind' = 'service'
+          THEN claims -> 'app_metadata' -> 'authorization_context' ->> 'subject'
+        ELSE claims ->> 'sub'
+      END AS principal_subject,
       CASE
         WHEN claims ? 'client_id' THEN claims ->> 'client_id'
         WHEN (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id'
@@ -91,35 +133,26 @@ AS $$
         )
         AS has_token_application_claim
     FROM jwt_context
-  ), membership_candidates AS (
-    SELECT
-      membership.membership_key,
-      membership.domain_id,
-      COUNT(*) OVER (PARTITION BY membership.domain_id) AS membership_count
-    FROM ${schemaRef}.active_memberships AS membership
+  ), allowed_scope_ids AS (
+    SELECT DISTINCT permission_grant.domain_id AS scope_id
+    FROM ${schemaRef}.effective_permission_grants AS permission_grant
     CROSS JOIN current_principal
-    WHERE membership.principal_kind = current_principal.principal_kind
+    WHERE permission_grant.principal_kind = current_principal.principal_kind
       AND current_principal.principal_kind IN ('user', 'service')
-      AND membership.principal_issuer = current_principal.principal_issuer
-      AND membership.principal_subject = current_principal.principal_subject
-      AND membership.application_id = requested_application_id
+      AND current_principal.principal_issuer ~ '^[^[:space:]]+$'
+      AND current_principal.principal_subject ~ '^[^[:space:]]+$'
+      AND requested_permission ~ '^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$'
+      AND requested_domain_type ~ '^[^[:space:]]+$'
+      AND permission_grant.domain_id ~ '^[^[:space:]]+$'
+      AND permission_grant.principal_issuer = current_principal.principal_issuer
+      AND permission_grant.principal_subject = current_principal.principal_subject
+      AND permission_grant.application_id = ${installedApplicationId}
       AND (
         NOT current_principal.has_token_application_claim
-        OR current_principal.token_application_id = requested_application_id
+        OR current_principal.token_application_id = ${installedApplicationId}
       )
-      AND membership.domain_type = requested_domain_type
-  ), eligible_memberships AS (
-    SELECT membership_key, domain_id
-    FROM membership_candidates
-    WHERE membership_count = 1
-  ), allowed_scope_ids AS (
-    SELECT DISTINCT membership.domain_id AS scope_id
-    FROM eligible_memberships AS membership
-    JOIN ${schemaRef}.active_role_assignments AS assignment
-      ON assignment.membership_key = membership.membership_key
-    JOIN ${schemaRef}.role_permissions AS role_permission
-      ON role_permission.role_key = assignment.role_key
-    WHERE role_permission.permission_name = requested_permission
+      AND permission_grant.domain_type = requested_domain_type
+      AND permission_grant.permission_name = requested_permission
   )
   SELECT allowed_scope_ids.scope_id FROM allowed_scope_ids;
 $$;`;
@@ -129,53 +162,69 @@ export function generateAuthorizationSchemaSql(options: AuthorizationSchemaOptio
   const schemaRef = identifier('schema', options.schema);
   const statements = [
     `CREATE SCHEMA IF NOT EXISTS ${schemaRef};`,
-    `CREATE TABLE IF NOT EXISTS ${schemaRef}.permission_catalog (
-  permission_name TEXT PRIMARY KEY CHECK (permission_name ~ '^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$'),
-  description TEXT
-);`,
-    `CREATE TABLE IF NOT EXISTS ${schemaRef}.role_permissions (
-  role_key TEXT NOT NULL,
-  permission_name TEXT NOT NULL REFERENCES ${schemaRef}.permission_catalog(permission_name) ON DELETE CASCADE,
-  PRIMARY KEY (role_key, permission_name)
-);`,
-    adapterContractSql(options.schema),
-    allowedScopeFunctionSql(schemaRef),
+    projectionContractSql(options.schema),
+    legacyHelperRevocationSql(options.schema, schemaRef),
+    allowedScopeFunctionSql(schemaRef, options.applicationId),
     `REVOKE ALL ON SCHEMA ${schemaRef} FROM PUBLIC;`,
     `GRANT USAGE ON SCHEMA ${schemaRef} TO authenticated;`,
-    `REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) FROM PUBLIC;`,
-    `REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) FROM anon;`,
-    `GRANT EXECUTE ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT) TO authenticated;`,
+    `REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT) FROM PUBLIC;`,
+    `REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT) FROM anon;`,
+    `GRANT EXECUTE ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT) TO authenticated;`,
   ];
   return statements.join('\n\n');
 }
 
-function allowedScopePredicate(options: RlsPolicyOptions, policy: RlsPermissionPolicy): string {
+export function generateLegacyAuthorizationCleanupSql(options: Pick<AuthorizationSchemaOptions, 'schema'>): string {
+  const schemaRef = identifier('schema', options.schema);
+  return `DROP FUNCTION IF EXISTS ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT);`;
+}
+
+function allowedScopePredicate(options: RlsPolicyOptions, permissionName: string): string {
   const schemaRef = identifier('schema', options.schema);
   const domainColumn = identifier('domainColumn', options.domainColumn);
-  const permissionName = permissionLiteral(policy.permission);
+  const requestedPermission = permissionLiteral(permissionName);
   const domainType = literal('domainType', options.domainType);
-  const applicationId = literal('applicationId', options.applicationId);
   const scopeId = options.domainIdType === 'uuid' ? 'allowed_scope.scope_id::uuid' : 'allowed_scope.scope_id';
   return `${domainColumn} IN (
     SELECT ${scopeId}
-    FROM ${schemaRef}.authorization_allowed_scope_ids(${permissionName}, ${domainType}, ${applicationId}) AS allowed_scope
+    FROM ${schemaRef}.authorization_allowed_scope_ids(${requestedPermission}, ${domainType}) AS allowed_scope
   )`;
+}
+
+function policyClauses(options: RlsPolicyOptions, policy: RlsPermissionPolicy): string {
+  switch (policy.command) {
+    case 'select':
+    case 'delete':
+      return `\n  USING (${allowedScopePredicate(options, policy.usingPermission)})`;
+    case 'insert':
+      return `\n  WITH CHECK (${allowedScopePredicate(options, policy.checkPermission)})`;
+    case 'update':
+      return `\n  USING (${allowedScopePredicate(options, policy.usingPermission)})`
+        + `\n  WITH CHECK (${allowedScopePredicate(options, policy.checkPermission)})`;
+  }
 }
 
 function policySql(options: RlsPolicyOptions, policy: RlsPermissionPolicy): string {
   const tableRef = `${identifier('tableSchema', options.tableSchema)}.${identifier('table', options.table)}`;
   const policyName = identifier('policy name', `authorization_${policy.command}`);
-  const predicate = allowedScopePredicate(options, policy);
   const command = policy.command.toUpperCase();
-  const usingClause = command === 'INSERT' ? '' : `\n  USING (${predicate})`;
-  const checkClause = command === 'SELECT' || command === 'DELETE' ? '' : `\n  WITH CHECK (${predicate})`;
-  return `CREATE POLICY ${policyName}\nON ${tableRef}\nFOR ${command}\nTO authenticated${usingClause}${checkClause};`;
+  return `DROP POLICY IF EXISTS ${policyName} ON ${tableRef};\n\nCREATE POLICY ${policyName}\nON ${tableRef}\nFOR ${command}\nTO authenticated${policyClauses(options, policy)};`;
+}
+
+function assertRlsOptions(options: RlsPolicyOptions): void {
+  if (options.domainIdType !== 'uuid' && options.domainIdType !== 'text') {
+    throw new TypeError('domainIdType must be uuid or text');
+  }
+  if (options.policies.length === 0) throw new TypeError('At least one RLS policy is required');
+  const commands = options.policies.map(policy => policy.command);
+  if (commands.some(command => !['select', 'insert', 'update', 'delete'].includes(command))) {
+    throw new TypeError('RLS policy command is invalid');
+  }
+  if (new Set(commands).size !== commands.length) throw new TypeError('RLS policy commands must be unique');
 }
 
 export function generateRlsPoliciesSql(options: RlsPolicyOptions): string {
-  if (options.policies.length === 0) throw new TypeError('At least one RLS policy is required');
-  const commands = options.policies.map(policy => policy.command);
-  if (new Set(commands).size !== commands.length) throw new TypeError('RLS policy commands must be unique');
+  assertRlsOptions(options);
   const tableRef = `${identifier('tableSchema', options.tableSchema)}.${identifier('table', options.table)}`;
   return [
     `ALTER TABLE ${tableRef} ENABLE ROW LEVEL SECURITY;`,

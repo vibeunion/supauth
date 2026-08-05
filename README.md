@@ -44,7 +44,7 @@ See [docs/supabase-compatibility.md](docs/supabase-compatibility.md) for the ful
 
 ```text
 packages/
-  authorization-core/        # Dependency-free request snapshot and in-memory decisions
+  authorization-core/        # Dependency-free effective-grant resolution and in-memory decisions
   authorization-postgres/    # Reviewable application-owned PostgreSQL/RLS SQL generators
   authorization-conformance/ # Pure adapter, SQL, and EXPLAIN checks
   auth-server/     # Elysia/Bun Management API + BFF + SupaCloud adapter + metadata APIs
@@ -117,7 +117,7 @@ npm install @supauth/authorization-core
 npm install --save-dev @supauth/authorization-postgres @supauth/authorization-conformance
 ```
 
-The authorization packages are public on npm and form a business data-plane kit, not a second SupAuth or SupaCloud RBAC source of truth. A native SupaCloud/GoTrue application can use the kit without installing SupAuth: verified `iss` + `sub` identify the principal, the generated RLS policy supplies the static application boundary, and current memberships remain in the application's database. SupAuth/OAuth tokens use the same path with an additional signed application-claim consistency check. Ordinary users need no extra runtime service or JWT-mutating package. See [docs/application-authorization-kit.md](docs/application-authorization-kit.md).
+The authorization packages are public on npm and form a business data-plane kit, not a second SupAuth or SupaCloud RBAC source of truth. A native SupaCloud/GoTrue application can use the kit without installing SupAuth: verified `iss` + `sub` identify the principal, one authorization schema fixes the application boundary, and the application projects current exact allow grants from its own policy tables. SupAuth/OAuth tokens use the same path with an additional signed application-claim consistency check. Ordinary users need no extra runtime service or JWT-mutating package. See [docs/application-authorization-kit.md](docs/application-authorization-kit.md).
 
 Management API usage:
 
@@ -258,7 +258,7 @@ SupaOAuth 不重新实现 OIDC token 签名或 authorization code 签发。协�
 
 ```text
 packages/
-  authorization-core/        # 零依赖请求快照与内存权限判定
+  authorization-core/        # 零依赖有效授权解析与内存权限判定
   authorization-postgres/    # 可审查的业务本地 PostgreSQL/RLS SQL 生成器
   authorization-conformance/ # 纯函数 adapter、SQL 与 EXPLAIN 检查器
   auth-server/     # Elysia/Bun Management API + BFF + SupaCloud adapter + metadata APIs
@@ -329,7 +329,7 @@ npm install @supauth/authorization-core
 npm install --save-dev @supauth/authorization-postgres @supauth/authorization-conformance
 ```
 
-三个 authorization 包已经公开发布到 npm，只统一授权协议、SQL 模板和一致性检查；业务 membership、role assignment、权限事实与审计仍由各子系统本地持有，不集中到 SupAuth 或 SupaCloud。原生 SupaCloud/GoTrue 应用无需安装 SupAuth：签名 JWT 的 `iss` + `sub` 标识主体，生成的 RLS policy 提供静态应用边界；SupAuth/OAuth token 在同一路径上额外执行签名 application claim 一致性检查。普通用户不需要额外 runtime 服务或修改 JWT 的包。完整边界与发布机制见 [docs/application-authorization-kit.md](docs/application-authorization-kit.md)。
+三个 authorization 包已经公开发布到 npm，只统一授权协议、SQL 模板和一致性检查；业务 membership、role assignment、权限事实与审计仍由各子系统本地持有，不集中到 SupAuth 或 SupaCloud。原生 SupaCloud/GoTrue 应用无需安装 SupAuth：签名 JWT 的 `iss` + `sub` 标识主体，每个授权 schema 固定应用边界，应用从自己的策略表投影当前精确 allow grant；SupAuth/OAuth token 在同一路径上额外执行签名 application claim 一致性检查。普通用户不需要额外 runtime 服务或修改 JWT 的包。完整边界与发布机制见 [docs/application-authorization-kit.md](docs/application-authorization-kit.md)。
 
 Management API 用法：
 

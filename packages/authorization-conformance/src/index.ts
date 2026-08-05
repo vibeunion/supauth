@@ -1,84 +1,148 @@
-export const REQUIRED_AUTHORIZATION_SCENARIOS = [
+export const REQUIRED_AUTHORIZATION_DENIAL_SCENARIOS = [
   'no_membership',
+  'inactive_principal',
   'inactive_membership',
+  'revoked_membership',
+  'ambiguous_membership',
+  'explicit_deny_precedence',
+  'cross_issuer',
+  'cross_subject',
   'cross_domain',
   'cross_application',
   'unknown_permission',
-  'revoked_snapshot',
-  'stale_snapshot',
   'service_user_isolation',
   'adapter_unavailable',
 ] as const;
 
+export const REQUIRED_AUTHORIZATION_SCENARIOS = [
+  ...REQUIRED_AUTHORIZATION_DENIAL_SCENARIOS,
+  'revocation_visibility',
+] as const;
+
+export type AuthorizationDenialScenario = typeof REQUIRED_AUTHORIZATION_DENIAL_SCENARIOS[number];
 export type AuthorizationScenario = typeof REQUIRED_AUTHORIZATION_SCENARIOS[number];
 
-export interface AuthorizationObservation {
-  scenario: AuthorizationScenario;
-  allowed: boolean;
-  status: number;
+export interface AuthorizationOutcome {
+  readonly allowed: boolean;
+  readonly status: number;
+}
+
+export interface RevocationVisibilityOutcome {
+  readonly before: AuthorizationOutcome;
+  readonly after: AuthorizationOutcome;
+}
+
+export interface AuthorizationConformanceHarness {
+  runDenialScenario(scenario: AuthorizationDenialScenario): Promise<AuthorizationOutcome>;
+  runRevocationVisibilityScenario(): Promise<RevocationVisibilityOutcome>;
 }
 
 export interface ConformanceViolation {
-  rule: string;
-  message: string;
+  readonly rule: string;
+  readonly message: string;
 }
 
 export interface ConformanceReport {
-  passed: boolean;
-  violations: readonly ConformanceViolation[];
+  readonly passed: boolean;
+  readonly violations: readonly ConformanceViolation[];
 }
 
 export interface SqlConformanceInput {
-  installSql: string;
-  rlsSql: string;
+  readonly installSql: string;
+  readonly rlsSql: string;
 }
 
-const UNAVAILABLE_SCENARIOS = new Set<AuthorizationScenario>([
-  'stale_snapshot',
-  'adapter_unavailable',
-]);
-
-function expectedStatus(scenario: AuthorizationScenario): number {
-  return UNAVAILABLE_SCENARIOS.has(scenario) ? 503 : 403;
-}
-
-function observationViolation(observation: AuthorizationObservation): ConformanceViolation | undefined {
-  if (observation.allowed) {
-    return { rule: observation.scenario, message: `${observation.scenario} must fail closed` };
-  }
-  const requiredStatus = expectedStatus(observation.scenario);
-  if (observation.status !== requiredStatus) {
-    return {
-      rule: observation.scenario,
-      message: `${observation.scenario} must return ${requiredStatus}, received ${observation.status}`,
-    };
-  }
-}
-
-export function checkAuthorizationConformance(
-  observations: readonly AuthorizationObservation[],
-): ConformanceReport {
-  const byScenario = new Map(observations.map(observation => [observation.scenario, observation]));
-  const violations: ConformanceViolation[] = [];
-  if (byScenario.size !== observations.length) {
-    violations.push({ rule: 'duplicate_scenario', message: 'Each authorization scenario must be observed exactly once' });
-  }
-  for (const scenario of REQUIRED_AUTHORIZATION_SCENARIOS) {
-    const observation = byScenario.get(scenario);
-    if (!observation) {
-      violations.push({ rule: scenario, message: `Missing required ${scenario} observation` });
-      continue;
-    }
-    const violation = observationViolation(observation);
-    if (violation) violations.push(violation);
-  }
-  return Object.freeze({ passed: violations.length === 0, violations: Object.freeze(violations) });
-}
+const UNAVAILABLE_SCENARIOS = new Set<AuthorizationDenialScenario>(['adapter_unavailable']);
 
 interface PatternRule {
   pattern: RegExp;
   rule: string;
   message: string;
+}
+
+interface PolicyAuthorizationClauses {
+  command?: string;
+  usingClause?: string;
+  checkClause?: string;
+}
+
+type ExplainNode = Record<string, unknown>;
+
+interface ExplainEntry {
+  node: ExplainNode;
+  ancestors: readonly ExplainNode[];
+}
+
+interface SqlSegment {
+  normalized: string;
+  nextOffset: number;
+}
+
+function report(violations: readonly ConformanceViolation[]): ConformanceReport {
+  return Object.freeze({ passed: violations.length === 0, violations: Object.freeze([...violations]) });
+}
+
+function expectedStatus(scenario: AuthorizationDenialScenario): number {
+  return UNAVAILABLE_SCENARIOS.has(scenario) ? 503 : 403;
+}
+
+function outcomeViolation(
+  rule: AuthorizationScenario,
+  outcome: AuthorizationOutcome,
+  expectedAllowed: boolean,
+  requiredStatus: number,
+): ConformanceViolation | undefined {
+  if (!outcome || typeof outcome.allowed !== 'boolean' || !Number.isInteger(outcome.status)) {
+    return { rule, message: `${rule} returned an invalid outcome` };
+  }
+  if (outcome.allowed !== expectedAllowed) {
+    return { rule, message: `${rule} must ${expectedAllowed ? 'allow before revocation' : 'fail closed'}` };
+  }
+  return outcome.status === requiredStatus
+    ? undefined
+    : { rule, message: `${rule} must return ${requiredStatus}, received ${outcome.status}` };
+}
+
+async function denialScenarioViolations(
+  harness: AuthorizationConformanceHarness,
+): Promise<ConformanceViolation[]> {
+  const violations: ConformanceViolation[] = [];
+  for (const scenario of REQUIRED_AUTHORIZATION_DENIAL_SCENARIOS) {
+    try {
+      const violation = outcomeViolation(
+        scenario,
+        await harness.runDenialScenario(scenario),
+        false,
+        expectedStatus(scenario),
+      );
+      if (violation) violations.push(violation);
+    } catch {
+      violations.push({ rule: scenario, message: `${scenario} runner failed before producing an authorization outcome` });
+    }
+  }
+  return violations;
+}
+
+async function revocationVisibilityViolation(
+  harness: AuthorizationConformanceHarness,
+): Promise<ConformanceViolation | undefined> {
+  const rule = 'revocation_visibility';
+  try {
+    const transition = await harness.runRevocationVisibilityScenario();
+    return outcomeViolation(rule, transition?.before, true, 200)
+      ?? outcomeViolation(rule, transition?.after, false, 403);
+  } catch {
+    return { rule, message: `${rule} runner failed before producing an authorization transition` };
+  }
+}
+
+export async function runAuthorizationConformance(
+  harness: AuthorizationConformanceHarness,
+): Promise<ConformanceReport> {
+  const violations = await denialScenarioViolations(harness);
+  const revocationViolation = await revocationVisibilityViolation(harness);
+  if (revocationViolation) violations.push(revocationViolation);
+  return report(violations);
 }
 
 function requirePattern(text: string, requirement: PatternRule): ConformanceViolation | undefined {
@@ -93,33 +157,83 @@ function rejectPattern(text: string, rejection: PatternRule): ConformanceViolati
     : undefined;
 }
 
-function executableSql(sql: string): string {
-  const withoutLiterals = sql.replace(
-    /'(?:''|[^'])*'|\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1\$/g,
-    literal => literal.startsWith("'") ? "''" : '$$',
-  );
-  return withoutLiterals.replace(/--[^\r\n]*|\/\*[\s\S]*?\*\//g, ' ');
+function dollarQuoteAt(sql: string, offset: number): string | undefined {
+  return sql.slice(offset).match(/^\$(?:[a-z_][a-z0-9_]*)?\$/i)?.[0];
 }
 
-interface PolicyAuthorizationClauses {
-  command?: string;
-  usingClause?: string;
-  checkClause?: string;
+function quotedStringEnd(sql: string, offset: number): number {
+  let cursor = offset + 1;
+  while (cursor < sql.length) {
+    if (sql[cursor] !== "'") {
+      cursor += 1;
+      continue;
+    }
+    if (sql[cursor + 1] === "'") {
+      cursor += 2;
+      continue;
+    }
+    return cursor + 1;
+  }
+  return sql.length;
+}
+
+function commentEnd(sql: string, offset: number): number | undefined {
+  if (sql.startsWith('--', offset)) {
+    const newline = sql.indexOf('\n', offset + 2);
+    return newline < 0 ? sql.length : newline;
+  }
+  if (!sql.startsWith('/*', offset)) return undefined;
+  const closing = sql.indexOf('*/', offset + 2);
+  return closing < 0 ? sql.length : closing + 2;
+}
+
+function dollarQuotedSegment(sql: string, offset: number, prefix: string): SqlSegment | undefined {
+  const tag = dollarQuoteAt(sql, offset);
+  if (!tag) return undefined;
+  const bodyStart = offset + tag.length;
+  const bodyEnd = sql.indexOf(tag, bodyStart);
+  if (bodyEnd < 0) return { normalized: '', nextOffset: sql.length };
+  const body = sql.slice(bodyStart, bodyEnd);
+  return {
+    normalized: /\b(?:AS|DO)\s*$/i.test(prefix) ? `${tag}${executableSql(body)}${tag}` : "''",
+    nextOffset: bodyEnd + tag.length,
+  };
+}
+
+function nextSqlSegment(sql: string, offset: number, prefix: string): SqlSegment {
+  const commentClosing = commentEnd(sql, offset);
+  if (commentClosing !== undefined) return { normalized: ' ', nextOffset: commentClosing };
+  if (sql[offset] === "'") return { normalized: "''", nextOffset: quotedStringEnd(sql, offset) };
+  return dollarQuotedSegment(sql, offset, prefix)
+    ?? { normalized: sql[offset]!, nextOffset: offset + 1 };
+}
+
+function executableSql(sql: string): string {
+  let normalized = '';
+  let offset = 0;
+  while (offset < sql.length) {
+    const segment = nextSqlSegment(sql, offset, normalized);
+    normalized += segment.normalized;
+    offset = segment.nextOffset;
+  }
+  return normalized;
 }
 
 function policyAuthorizationClauses(policy: string): PolicyAuthorizationClauses {
   const usingBeforeCheck = policy.match(/\bUSING\s*\(([\s\S]*)\)\s+WITH\s+CHECK\s*\(/i)?.[1];
   const usingClause = usingBeforeCheck ?? policy.match(/\bUSING\s*\(([\s\S]*)\)\s*;$/i)?.[1];
   const checkClause = policy.match(/\bWITH\s+CHECK\s*\(([\s\S]*)\)\s*;$/i)?.[1];
-  return { command: policy.match(/\bFOR\s+(SELECT|INSERT|UPDATE|DELETE|ALL)\b/i)?.[1]?.toUpperCase(), usingClause, checkClause };
+  return {
+    command: policy.match(/\bFOR\s+(SELECT|INSERT|UPDATE|DELETE|ALL)\b/i)?.[1]?.toUpperCase(),
+    usingClause,
+    checkClause,
+  };
 }
 
 function hasRequiredPolicyClauses(policy: PolicyAuthorizationClauses): boolean {
   if (policy.command === 'SELECT' || policy.command === 'DELETE') return policy.usingClause !== undefined;
   if (policy.command === 'INSERT') return policy.checkClause !== undefined;
-  if (policy.command === 'UPDATE' || policy.command === 'ALL') {
-    return policy.usingClause !== undefined && policy.checkClause !== undefined;
-  }
+  if (policy.command === 'UPDATE') return policy.usingClause !== undefined && policy.checkClause !== undefined;
   return false;
 }
 
@@ -133,26 +247,35 @@ function policyViolations(rlsSql: string): ConformanceViolation[] {
     violations.push({ rule: 'authenticated_policy', message: 'Every authorization policy must target authenticated' });
   }
   const policyContracts = policies.map(policyAuthorizationClauses);
-  const policyClauses = policyContracts.flatMap(policy => [policy.usingClause, policy.checkClause])
+  const clauses = policyContracts.flatMap(policy => [policy.usingClause, policy.checkClause])
     .filter((clause): clause is string => clause !== undefined);
   if (policyContracts.some(policy => !hasRequiredPolicyClauses(policy))
-    || policyClauses.some(clause => !/authorization_allowed_scope_ids\(/i.test(clause))) {
+    || clauses.some(clause => !/authorization_allowed_scope_ids\(/i.test(clause))) {
     violations.push({ rule: 'policy_scope_set', message: 'Every authorization policy clause must use the allowed-scope helper' });
   }
-  if (policyClauses.some(clause => /^\s*TRUE\s*$/i.test(clause)
+  if (clauses.some(clause => /^\s*TRUE\s*$/i.test(clause)
     || /\bTRUE\b\s+OR|OR\s+\bTRUE\b|\b1\s*=\s*1\b/i.test(clause))) {
     violations.push({ rule: 'permissive_policy', message: 'Authorization policies must not contain a tautological grant' });
   }
   return violations;
 }
 
-function report(candidates: Array<ConformanceViolation | undefined>): ConformanceReport {
-  const violations = candidates.filter((violation): violation is ConformanceViolation => violation !== undefined);
-  return Object.freeze({ passed: violations.length === 0, violations: Object.freeze(violations) });
-}
-
 function installationViolations(installSql: string): Array<ConformanceViolation | undefined> {
   return [
+    requirePattern(installSql, { pattern: /effective_permission_grants/i,
+      rule: 'effective_grant_projection', message: 'Authorization SQL must consume effective_permission_grants' }),
+    requirePattern(installSql, { pattern: /pg_catalog\.to_regclass\(/i,
+      rule: 'catalog_resolution', message: 'Authorization SQL must resolve the projection through pg_catalog' }),
+    requirePattern(installSql, { pattern: /relkind[\s\S]{0,200}IS DISTINCT FROM\s*''/i,
+      rule: 'ordinary_projection', message: 'Authorization SQL must require an ordinary projection view' }),
+    requirePattern(installSql, { pattern: /ARRAY\s*\(\s*SELECT[\s\S]*attname[\s\S]*pg_attribute/i,
+      rule: 'projection_columns', message: 'Authorization SQL must validate the projection columns' }),
+    requirePattern(installSql, { pattern: /has_table_privilege\(/i,
+      rule: 'projection_privileges', message: 'Authorization SQL must reject direct API-role projection access' }),
+    requirePattern(installSql, { pattern: /permission_grant\.application_id\s*=\s*''/i,
+      rule: 'fixed_application', message: 'Authorization helper must bind a fixed application ID' }),
+    requirePattern(installSql, { pattern: /authorization_allowed_scope_ids\(\s*requested_permission TEXT,\s*requested_domain_type TEXT\s*\)/i,
+      rule: 'fixed_application_helper', message: 'Authorization helper must expose only permission and domain parameters' }),
     requirePattern(installSql, { pattern: /LANGUAGE sql\s+STABLE\s+SECURITY DEFINER\s+SET search_path = ''/i,
       rule: 'hardened_helper', message: 'Authorization helper must be STABLE SECURITY DEFINER with an empty search_path' }),
     requirePattern(installSql, { pattern: /REVOKE ALL ON SCHEMA[^;]*FROM PUBLIC;/i,
@@ -165,6 +288,10 @@ function installationViolations(installSql: string): Array<ConformanceViolation 
       rule: 'revoke_anon', message: 'Authorization helper must revoke anon' }),
     requirePattern(installSql, { pattern: /GRANT EXECUTE ON FUNCTION[^;]*authorization_allowed_scope_ids[^;]*TO authenticated;/i,
       rule: 'grant_authenticated', message: 'Authorization helper must grant authenticated' }),
+    rejectPattern(installSql, { pattern: /CREATE\s+TABLE[^;]*(?:permission_catalog|role_permissions)/i,
+      rule: 'package_owned_policy', message: 'Authorization SQL must not create package-owned permission facts' }),
+    rejectPattern(installSql, { pattern: /active_memberships|active_role_assignments|requested_application_id/i,
+      rule: 'legacy_adapter', message: 'Authorization SQL must not use the legacy role adapter or caller application parameter' }),
   ];
 }
 
@@ -172,6 +299,8 @@ function rlsViolations(rlsSql: string): Array<ConformanceViolation | undefined> 
   return [
     requirePattern(rlsSql, { pattern: /IN\s*\(\s*SELECT\s+allowed_scope\.scope_id(?:::uuid)?/i,
       rule: 'hashed_scope_set', message: 'RLS must calculate allowed scope IDs through an uncorrelated IN subplan' }),
+    rejectPattern(rlsSql, { pattern: /authorization_allowed_scope_ids\(\s*[^,()]+\s*,\s*[^,()]+\s*,/i,
+      rule: 'caller_application', message: 'RLS must not pass an application ID to the scope helper' }),
     rejectPattern(rlsSql, { pattern: /has_org_permission\(/i, rule: 'row_permission_helper',
       message: 'RLS must not call a row-scoped organization permission helper' }),
     rejectPattern(rlsSql, { pattern: /authorization_allowed_scope_ids\([^)]*"[a-z_][a-z0-9_]*"/i,
@@ -185,23 +314,54 @@ function rlsViolations(rlsSql: string): Array<ConformanceViolation | undefined> 
 export function checkAuthorizationSql(input: SqlConformanceInput): ConformanceReport {
   const installSql = executableSql(input.installSql);
   const rlsSql = executableSql(input.rlsSql);
-  return report([...installationViolations(installSql), ...rlsViolations(rlsSql)]);
+  const violations = [...installationViolations(installSql), ...rlsViolations(rlsSql)]
+    .filter((violation): violation is ConformanceViolation => violation !== undefined);
+  return report(violations);
 }
 
-export function checkAuthorizationExplain(planText: string): ConformanceReport {
-  const planLines = planText.split(/\r?\n/);
-  const helperExecutionBlocks = planLines.flatMap((line, index) => {
-    if (!/authorization_allowed_scope_ids|has_org_permission/i.test(line)) return [];
-    return [`${line} ${planLines[index + 1] ?? ''}`];
-  }).filter(block => /\bloops=\d+\b/i.test(block));
-  return report([
-    requirePattern(planText, { pattern: /InitPlan|hashed SubPlan|Hash Semi Join/i, rule: 'one_time_scope_plan',
-      message: 'EXPLAIN must show an InitPlan, hashed SubPlan, or hash semi join for allowed scopes' }),
-    helperExecutionBlocks.some(block => /\bloops=1\b/i.test(block))
-      ? undefined
-      : { rule: 'one_time_execution', message: 'The authorization helper plan node must execute once' },
-    helperExecutionBlocks.some(block => !/\bloops=1\b/i.test(block))
-      ? { rule: 'row_helper_execution', message: 'Authorization helper plan nodes must not execute per target row' }
-      : undefined,
-  ]);
+function explainEntries(explainJson: unknown): ExplainEntry[] {
+  if (!Array.isArray(explainJson) || !explainJson[0] || typeof explainJson[0] !== 'object') return [];
+  const root = (explainJson[0] as ExplainNode).Plan;
+  if (!root || typeof root !== 'object' || Array.isArray(root)) return [];
+  const entries: ExplainEntry[] = [];
+  const pending: ExplainEntry[] = [{ node: root as ExplainNode, ancestors: [] }];
+  while (pending.length > 0) {
+    const entry = pending.pop()!;
+    entries.push(entry);
+    const children = Array.isArray(entry.node.Plans) ? entry.node.Plans : [];
+    for (const child of children) {
+      if (child && typeof child === 'object' && !Array.isArray(child)) {
+        pending.push({ node: child as ExplainNode, ancestors: [entry.node, ...entry.ancestors] });
+      }
+    }
+  }
+  return entries;
+}
+
+function hashedHelperSubplan(entry: ExplainEntry): boolean {
+  const subplanNode = [entry.node, ...entry.ancestors].find(node =>
+    node['Parent Relationship'] === 'SubPlan' && typeof node['Subplan Name'] === 'string');
+  if (!subplanNode) return false;
+  const hashedSubplan = `hashed ${subplanNode['Subplan Name']}`;
+  return entry.ancestors.some(ancestor => String(ancestor.Filter || '').includes(hashedSubplan));
+}
+
+export function checkAuthorizationExplain(explainJson: unknown): ConformanceReport {
+  const entries = explainEntries(explainJson);
+  if (entries.length === 0) return report([{ rule: 'explain_json', message: 'EXPLAIN must use parsed FORMAT JSON output' }]);
+  const helperEntries = entries.filter(entry =>
+    entry.node['Function Name'] === 'authorization_allowed_scope_ids');
+  const violations: ConformanceViolation[] = [];
+  if (helperEntries.length === 0) {
+    violations.push({ rule: 'helper_execution', message: 'EXPLAIN must contain the authorization helper plan node' });
+  } else if (helperEntries.some(entry => entry.node['Actual Loops'] !== 1)) {
+    violations.push({ rule: 'one_time_execution', message: 'Authorization helper plan nodes must execute once' });
+  }
+  if (helperEntries.length > 0 && helperEntries.some(entry => !hashedHelperSubplan(entry))) {
+    violations.push({
+      rule: 'one_time_scope_plan',
+      message: 'Each authorization helper must belong to the hashed subplan referenced by its ancestor filter',
+    });
+  }
+  return report(violations);
 }
