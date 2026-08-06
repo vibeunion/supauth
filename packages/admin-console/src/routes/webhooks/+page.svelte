@@ -486,14 +486,17 @@
       }
       showCreate = false;
       newWebhook = { url: "", events: [], enabled: true };
-    } catch {
+    } catch (requestError) {
       if (!webhookCreateOperations.isCurrent(operation)) return;
       if (creationMayHaveCommitted) {
         recordWebhookMutationUnknown("create", "new");
         error = null;
       } else {
         clearWebhookMutationLock("create", "new");
-        error = t("webhooks.createFailed");
+        // Show the API error message when available so the user knows why
+        error = requestError?.message
+          ? `${t("webhooks.createFailed")} (${requestError.message})`
+          : t("webhooks.createFailed");
       }
     } finally {
       if (webhookCreateOperations.finish(operation)) creating = false;

@@ -249,8 +249,11 @@
     {#if user}
       <button
         disabled={saving}
-        onclick={toggleSuspension}
-        class="rounded-lg border border-surface-300 px-3 py-2 text-sm font-semibold text-surface-700 hover:bg-surface-50 disabled:opacity-50"
+        onclick={() => {
+          if (!isSuspended() && !confirm(t("users.suspendConfirm"))) return;
+          void toggleSuspension();
+        }}
+        class="rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
       >
         {isSuspended() ? t("users.restore") : t("Suspend")}
       </button>
@@ -482,10 +485,18 @@
                 </p>
               </div>
               <div class="text-right text-xs text-surface-500">
-                <p>{t("users.grantSource")}</p>
+                <p title={t("users.grantReadonlyHint")}>{t("users.grantSource")}</p>
                 <p class="mt-1 font-medium text-surface-700">
                   {grant.source === "gotrue" ? "GoTrue" : grant.source}
                 </p>
+                <button
+                  type="button"
+                  disabled
+                  title={t("users.revokeUnavailable")}
+                  class="mt-2 rounded-lg border border-surface-300 px-2.5 py-1 text-xs font-medium text-surface-400 disabled:cursor-not-allowed"
+                >
+                  {t("users.revokeGrant")}
+                </button>
               </div>
             </div>
             <div class="mt-4">

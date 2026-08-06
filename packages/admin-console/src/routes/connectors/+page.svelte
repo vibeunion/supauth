@@ -65,6 +65,47 @@
     "bilibili",
   ];
 
+  // Map raw connector IDs to localized brand names for display.
+  const connectorBrandMap = {
+    wechat: "connector.brand.wechat",
+    wechat_miniprogram: "connector.brand.wechat_miniprogram",
+    wechat_mp: "connector.brand.wechat_mp",
+    qq: "connector.brand.qq",
+    weibo: "connector.brand.weibo",
+    alipay: "connector.brand.alipay",
+    dingtalk: "connector.brand.dingtalk",
+    douyin: "connector.brand.douyin",
+    baidu: "connector.brand.baidu",
+    huawei: "connector.brand.huawei",
+    xiaomi: "connector.brand.xiaomi",
+    kuaishou: "connector.brand.kuaishou",
+    bilibili: "connector.brand.bilibili",
+  };
+
+  function connectorDisplayName(connectorId) {
+    const key = connectorBrandMap[connectorId];
+    return key ? t(key) : connectorId;
+  }
+
+  // Map raw factory field names to localized labels.
+  const factoryFieldLabelMap = {
+    name: "connector.field.name",
+    domains: "connector.field.domains",
+    metadata_url: "connector.field.metadata_url",
+    metadata_xml: "connector.field.metadata_xml",
+    name_id_format: "connector.field.name_id_format",
+    client_id: "connector.field.client_id",
+    client_secret: "connector.field.client_secret",
+    scopes: "connector.field.scopes",
+    redirect_uri: "connector.field.redirect_uri",
+    issuer: "connector.field.issuer",
+  };
+
+  function factoryFieldLabel(fieldName) {
+    const key = factoryFieldLabelMap[fieldName];
+    return key ? t(key) : fieldName;
+  }
+
   function connectorRecordId(connector) {
     return typeof connector?.connector_record_id === "string"
       ? connector.connector_record_id
@@ -506,7 +547,7 @@
           disabled={!factory.enabled}
           onclick={() => configureFactory(factory)}
           class="mt-3 text-xs font-semibold text-brand-700 disabled:text-surface-400"
-          >{factory.enabled ? t("Configure") : t("Unavailable")}</button
+          >{factory.enabled ? t("connector.factory.configure") : t("connector.factory.unavailable")}</button
         >
       </div>
     {/each}
@@ -538,6 +579,13 @@
         >
       </div>
       <div class="mt-4 grid gap-4 md:grid-cols-2">
+        {#if (factorySchema(selectedFactory).one_of || []).length > 0}
+          <div class="md:col-span-2">
+            <p class="text-sm font-medium text-surface-700">
+              {t("connector.metadataExclusiveHint")}
+            </p>
+          </div>
+        {/if}
         {#each factoryFields(selectedFactory) as fieldName (fieldName)}
           {@const secretField = (
             factorySchema(selectedFactory).secret_fields || []
@@ -546,7 +594,7 @@
             <label
               for={`connector-${fieldName}`}
               class="mb-1 block text-sm font-medium text-surface-700"
-              >{fieldName}</label
+              >{factoryFieldLabel(fieldName)}</label
             ><input
               id={`connector-${fieldName}`}
               type={secretField ? "password" : "text"}
@@ -557,11 +605,15 @@
             <p class="mt-1 text-xs text-surface-400">
               {secretField
                 ? t("Secret is sent once and is never returned by the API.")
-                : (factorySchema(selectedFactory).required || []).includes(
-                      fieldName,
+                : (factorySchema(selectedFactory).one_of || []).some(
+                      (group) => group.includes(fieldName),
                     )
-                  ? t("Required")
-                  : t("Optional")}
+                  ? t("connector.metadataExclusive")
+                  : (factorySchema(selectedFactory).required || []).includes(
+                        fieldName,
+                      )
+                    ? t("Required")
+                    : t("Optional")}
             </p>
           </div>
         {/each}
@@ -600,7 +652,7 @@
         >
           <div class="flex items-center justify-between mb-2">
             <span class="font-medium text-surface-900 capitalize"
-              >{connector.id}</span
+              >{connectorDisplayName(connector.id)}</span
             >
             <span
               class="text-xs px-2 py-0.5 rounded-full {connector.enabled
@@ -646,7 +698,7 @@
             : 'border-surface-200'} p-4"
         >
           <div class="flex items-center justify-between mb-2">
-            <span class="font-medium text-surface-900">{connector.id}</span>
+            <span class="font-medium text-surface-900">{connectorDisplayName(connector.id)}</span>
             <span
               class="text-xs px-2 py-0.5 rounded-full {connector.enabled
                 ? 'bg-green-100 text-green-700'
