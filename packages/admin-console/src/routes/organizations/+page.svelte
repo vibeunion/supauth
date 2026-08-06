@@ -35,6 +35,7 @@
   let error = $state(null);
   let showCreate = $state(false);
   let newOrganization = $state({ name: "", slug: "", description: "" });
+  let slugTouched = $state(false);
   let search = $state("");
   let searchDraft = $state("");
   let currentPage = $state(1);
@@ -51,6 +52,11 @@
   );
   const newOrganizationSlugIssue = $derived(
     organizationSlugIssue(newOrganization.slug.trim()),
+  );
+  // Show the slug validation error only after user interaction so the
+  // initial render does not display a persistent required-field error.
+  const visibleOrganizationSlugIssue = $derived(
+    slugTouched ? newOrganizationSlugIssue : null,
   );
   const organizationRequests = createLatestRequestTracker();
   const organizationMutationTracker = createKeyedSingleFlightTracker();
@@ -401,6 +407,7 @@
       if (!createdOrganization) return organizationMutationUnknown();
       if (!clearOrganizationMutationLock(operation.ownerContext)) return;
       newOrganization = { name: "", slug: "", description: "" };
+      slugTouched = false;
       showCreate = false;
       search = "";
       searchDraft = "";
@@ -561,15 +568,16 @@
           minlength="2"
           maxlength="120"
           pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-          aria-invalid={newOrganizationSlugIssue ? "true" : "false"}
+          oninput={() => (slugTouched = true)}
+          aria-invalid={visibleOrganizationSlugIssue ? "true" : "false"}
           aria-describedby="org-slug-help org-slug-error"
         />
         <p id="org-slug-help" class="mt-1 text-xs text-surface-500">
           {t("organizations.slugHelp")}
         </p>
-        {#if newOrganizationSlugIssue}
+        {#if visibleOrganizationSlugIssue}
           <p id="org-slug-error" class="mt-1 text-xs text-red-600" role="alert">
-            {t(`organizations.slugError.${newOrganizationSlugIssue}`)}
+            {t(`organizations.slugError.${visibleOrganizationSlugIssue}`)}
           </p>
         {/if}
       </div>
@@ -588,7 +596,10 @@
     <div class="mt-4 flex items-center justify-end gap-3 border-t border-surface-200 pt-4">
       <button
         type="button"
-        onclick={() => (showCreate = false)}
+        onclick={() => {
+          showCreate = false;
+          slugTouched = false;
+        }}
         class="rounded-lg border border-surface-300 px-4 py-2 text-sm font-medium text-surface-700 hover:bg-surface-50"
         >{t("common.cancel")}</button
       >

@@ -137,8 +137,11 @@
   <div class="grid gap-4 lg:grid-cols-2">
     {#each onboardingSteps as onboardingStep, stepIndex (onboardingStep.path)}
       <a href={resolve(onboardingStep.path)} class="console-card console-card-hover flex items-start gap-4 p-5">
-        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold {onboardingStep.complete ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-100 text-surface-500'}">
-          {onboardingStep.complete ? '✓' : stepIndex + 1}
+        <span class="relative grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold {onboardingStep.complete ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-100 text-surface-500'}">
+          {stepIndex + 1}
+          {#if onboardingStep.complete}
+            <span class="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-emerald-600 text-[10px] font-bold text-white" aria-label={t('getStarted.complete')}>✓</span>
+          {/if}
         </span>
         <span>
           <span class="block font-semibold text-surface-900">{t(onboardingStep.labelKey)}</span>
@@ -160,7 +163,10 @@
         <h3 class="text-xl font-semibold text-surface-900">{t('getStarted.quickstartTitle')}</h3>
         <p class="mt-1 text-sm leading-6 text-surface-500">{t('getStarted.quickstartDescription')}</p>
       </div>
-      <a href="/api/swagger" target="_blank" rel="noreferrer" class="text-sm font-semibold text-brand-700 hover:text-brand-900">{t('getStarted.openApi')}</a>
+      <a href="/api/swagger" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 hover:text-brand-900">
+        {t('getStarted.openApi')}
+        <span aria-hidden="true">↗</span>
+      </a>
     </div>
     <div class="mt-5 grid gap-4 xl:grid-cols-2">
       {#each quickstarts as quickstart (quickstart.id)}
