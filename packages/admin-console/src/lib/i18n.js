@@ -171,6 +171,8 @@ const en = {
   "dashboard.signing": "Signing",
   "dashboard.issuer": "Issuer",
   "dashboard.migration": "Migration",
+  "dashboard.migrationStatus.oidcEs256Migrated": "Migrated to ES256 signing",
+  "dashboard.migrationStatus.pending": "Migration pending",
   "dashboard.project": "Project",
   "dashboard.ref": "ref",
   "dashboard.oidcEndpoints": "OIDC Endpoints",
@@ -239,7 +241,7 @@ const en = {
     "GoTrue remains the owner of auth.users, sessions, refresh tokens, MFA, JWT signing, and OAuth/OIDC runtime. These console steps configure the SupaOAuth control plane through the authenticated /api/v1 facade.",
   "getStarted.quickstartTitle": "Framework quickstarts",
   "getStarted.quickstartDescription":
-    "Start with the standard Supabase client. SupAuth preserves the same password, OAuth, PKCE, session, refresh, and logout contracts.",
+    "Start with the standard Supabase client. SupaOAuth preserves the same password, OAuth, PKCE, session, refresh, and logout contracts.",
   "getStarted.openApi": "Open management OpenAPI",
   "getStarted.quickstart.supabaseJs": "Supabase JavaScript",
   "getStarted.quickstart.svelteKit": "SvelteKit",
@@ -271,6 +273,8 @@ const en = {
   "signIn.brandingUnsupportedFile": "Choose a PNG, JPG, GIF, WebP, SVG, or ICO image.",
   "signIn.brandingEmptyFile": "The selected image is empty.",
   "signIn.brandingFileTooLarge": "The selected image exceeds the 5MB limit.",
+  "signIn.brandingStorageUnavailable":
+    "Storage service is unavailable. Please ask an administrator to check the Storage deployment.",
   "signIn.logoUploadHint": "PNG, JPG, GIF, WebP, or SVG; up to 5MB. A wide transparent image is recommended.",
   "signIn.faviconUploadHint": "PNG, ICO, GIF, WebP, or SVG; up to 5MB. A square 512 × 512 image is recommended.",
   "signIn.previewContinue": "Continue",
@@ -1207,6 +1211,8 @@ const zhCN = {
   "dashboard.signing": "签名算法",
   "dashboard.issuer": "签发方",
   "dashboard.migration": "迁移状态",
+  "dashboard.migrationStatus.oidcEs256Migrated": "已迁移至 ES256 签名算法",
+  "dashboard.migrationStatus.pending": "等待迁移",
   "dashboard.project": "项目",
   "dashboard.ref": "引用",
   "dashboard.oidcEndpoints": "OIDC 端点",
@@ -1275,7 +1281,7 @@ const zhCN = {
     "GoTrue 继续负责 auth.users、会话、刷新令牌、MFA、JWT 签名和 OAuth/OIDC runtime；控制台仅通过已认证的 /api/v1 门面配置 SupaOAuth 控制面。",
   "getStarted.quickstartTitle": "框架快速开始",
   "getStarted.quickstartDescription":
-    "继续使用标准 Supabase 客户端；SupAuth 保持密码、OAuth、PKCE、会话、刷新与登出合同不变。",
+    "继续使用标准 Supabase 客户端；SupaOAuth 保持密码、OAuth、PKCE、会话、刷新与登出合同不变。",
   "getStarted.openApi": "打开管理 OpenAPI",
   "getStarted.quickstart.supabaseJs": "Supabase JavaScript",
   "getStarted.quickstart.svelteKit": "SvelteKit",
@@ -1306,6 +1312,8 @@ const zhCN = {
   "signIn.brandingUnsupportedFile": "请选择 PNG、JPG、GIF、WebP、SVG 或 ICO 图片。",
   "signIn.brandingEmptyFile": "所选图片为空文件。",
   "signIn.brandingFileTooLarge": "所选图片超过 5MB 限制。",
+  "signIn.brandingStorageUnavailable":
+    "存储服务连接失败，请联系管理员检查 Storage 部署。",
   "signIn.logoUploadHint": "支持 PNG、JPG、GIF、WebP、SVG，最大 5MB；建议使用横向透明图片。",
   "signIn.faviconUploadHint": "支持 PNG、ICO、GIF、WebP、SVG，最大 5MB；建议使用 512 × 512 方形图片。",
   "signIn.previewContinue": "继续",

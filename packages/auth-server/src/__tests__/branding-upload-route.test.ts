@@ -154,4 +154,31 @@ describe('branding upload route', () => {
     expect(getSignInExperience).not.toHaveBeenCalled();
     expect(uploadFile).not.toHaveBeenCalled();
   });
+
+  test('redirects branding asset reads to the authoritative public URL', async () => {
+    brandingSnapshot = {
+      branding: {
+        logo_url: 'https://assets.example.test/branding/logo/abc123.png',
+        favicon_url: null,
+      },
+    };
+
+    const response = await app.handle(
+      new Request('http://supauth.local/v1/storage/branding/logo.png'),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(
+      'https://assets.example.test/branding/logo/abc123.png',
+    );
+  });
+
+  test('returns a clear 404 for unconfigured branding assets instead of a 500', async () => {
+    const response = await app.handle(
+      new Request('http://supauth.local/v1/storage/branding/favicon'),
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ code: 'branding_asset_not_found' });
+  });
 });

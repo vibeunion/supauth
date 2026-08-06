@@ -55,9 +55,20 @@
     try {
       syncBranding(await getSignInExperience());
     } catch (requestError) {
-      error = requestError.message;
+      error = displayError(requestError);
     }
     loading = false;
+  }
+
+  // Storage failures (e.g. "Storage create bucket: 404") are infrastructure
+  // issues; show a localized friendly message and keep details in the console.
+  function displayError(requestError) {
+    const message = requestError?.message || '';
+    if (message.startsWith('Storage ')) {
+      console.error('[branding] storage request failed:', message);
+      return t('signIn.brandingStorageUnavailable');
+    }
+    return message;
   }
 
   function brandingMutationDraft() {
@@ -105,12 +116,16 @@
   }
 
   async function uploadBrandingFile(assetType, uploadEvent) {
-    const selectedFile = uploadEvent.currentTarget.files?.[0];
+    // Capture the input element before the first await: currentTarget is
+    // cleared after event dispatch, and late access throws
+    // "Cannot set properties of null (setting 'value')".
+    const input = uploadEvent.currentTarget;
+    const selectedFile = input?.files?.[0];
     if (!selectedFile) return;
     const validationError = brandingFileError(selectedFile);
     if (validationError) {
       error = validationError;
-      uploadEvent.currentTarget.value = '';
+      input.value = '';
       return;
     }
     uploading = assetType;
@@ -119,10 +134,10 @@
       await uploadBranding(assetType, selectedFile, selectedFile.type);
       syncBranding(await getSignInExperience());
     } catch (requestError) {
-      error = requestError.message;
+      error = displayError(requestError);
     } finally {
       uploading = null;
-      uploadEvent.currentTarget.value = '';
+      input.value = '';
     }
   }
 

@@ -21,6 +21,26 @@
   let error = $state(null);
   let capabilitiesLoading = $state(true);
   let capabilitiesError = $state(null);
+
+  // Maps low-level migration status values to i18n keys; unknown values
+  // fall back to the raw status text.
+  const MIGRATION_STATUS_KEYS = {
+    oidc_es256_migrated: "dashboard.migrationStatus.oidcEs256Migrated",
+    pending: "dashboard.migrationStatus.pending",
+  };
+
+  function migrationStatusLabel(value) {
+    if (!value) return t("common.notAvailable");
+    const key = MIGRATION_STATUS_KEYS[value];
+    return key ? t(key) : value;
+  }
+
+  // Truncates long internal project refs in the middle; the full value
+  // stays available via the title tooltip.
+  function formatProjectRef(ref) {
+    if (!ref) return t("common.notAvailable");
+    return ref.length > 24 ? `${ref.slice(0, 10)}…${ref.slice(-8)}` : ref;
+  }
   let groupedCapabilities = $derived(groupCapabilityEntries(capabilities));
   let currentCapabilityEntries = $derived(groupedCapabilities.current);
   let waitingCapabilityEntries = $derived(groupedCapabilities.waiting);
@@ -96,8 +116,7 @@
         {status?.issuer || t("common.notAvailable")}
       </p>
       <p class="text-xs text-surface-400 mt-2">
-        {t("dashboard.migration")}: {status?.migration_status ||
-          t("common.notAvailable")}
+        {t("dashboard.migration")}: {migrationStatusLabel(status?.migration_status)}
       </p>
     </div>
 
@@ -107,7 +126,8 @@
         {project?.name || t("common.notAvailable")}
       </p>
       <p class="text-xs text-surface-400 mt-2">
-        {t("dashboard.ref")}: {project?.ref || t("common.notAvailable")}
+        {t("dashboard.ref")}:
+        <code class="font-mono" title={project?.ref || ""}>{formatProjectRef(project?.ref)}</code>
       </p>
     </div>
   </div>

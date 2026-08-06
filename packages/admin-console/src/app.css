@@ -70,6 +70,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  input:not([type]),
   input[type="text"],
   input[type="email"],
   input[type="password"],
@@ -87,6 +88,7 @@
     transition: border-color 150ms ease, box-shadow 150ms ease;
   }
 
+  input:not([type]):focus,
   input[type="text"]:focus,
   input[type="email"]:focus,
   input[type="password"]:focus,

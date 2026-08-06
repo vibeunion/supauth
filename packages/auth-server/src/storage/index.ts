@@ -341,6 +341,24 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     return { storage_key: storageKey, userId, bucket: 'avatars' };
   })
 
+  // ─── Branding asset read (admin console accesses it via /api/v1) ──
+  // Older frontends load the current branding asset from
+  // /api/v1/storage/branding/<assetType>[.<ext>]. Without this GET route the
+  // request fell into the global error handler and returned 500; now it
+  // redirects to the authoritative public URL, or returns a clear 404.
+  .get('/branding/:assetType', async ({ params }) => {
+    const assetType = brandingAssetType(params.assetType.split('.')[0]);
+    if (!managedBrandingAssetType(assetType)) {
+      throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
+    }
+    const snapshot = await sieRepo.getSignInExperience();
+    const assetUrl = brandingAssetUrl(snapshot, assetType);
+    if (!assetUrl) {
+      throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
+    }
+    return new Response(null, { status: 302, headers: { Location: assetUrl } });
+  })
+
   // ─── Branding upload (convenience endpoint) ──────────────────────
   .post('/branding/:assetType', async ({ params, request, headers }) => {
     const assetType = brandingAssetType(params.assetType);
