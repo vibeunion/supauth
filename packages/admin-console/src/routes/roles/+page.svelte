@@ -1791,7 +1791,7 @@
 
             <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {#each selectedCoverage as coverage (coverage.group)}
-                <div class="rounded-xl border border-surface-200 p-3">
+                <div class="min-w-[180px] rounded-xl border border-surface-200 p-3">
                   <div class="flex items-center justify-between gap-3">
                     <span class="text-sm font-semibold text-surface-800"
                       >{t(`perm.group.${coverage.group}`)}</span

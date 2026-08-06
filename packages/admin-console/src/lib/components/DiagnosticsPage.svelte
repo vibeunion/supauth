@@ -43,6 +43,19 @@
     running = false;
   }
 
+  // Format raw database/SQL errors into user-friendly localized messages.
+  function formatDiagnosticsError(rawMessage) {
+    if (!rawMessage) return t('diagnostics.migrationError');
+    const msg = String(rawMessage);
+    if (msg.includes('Failed query:') || msg.includes('insert into') || msg.includes('supaoauth')) {
+      return t('diagnostics.migrationError');
+    }
+    if (msg.includes('unsupported_migration_sql') || msg.includes('opaque procedural SQL')) {
+      return t('diagnostics.migrationSqlBlocked');
+    }
+    return msg;
+  }
+
   onMount(load);
 </script>
 
@@ -52,7 +65,7 @@
 </div>
 
 {#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">{error}</div>
+  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">{formatDiagnosticsError(error)}</div>
 {/if}
 
 {#if loading}

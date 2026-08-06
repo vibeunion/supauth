@@ -107,6 +107,16 @@
   }
 
   function applyFilters() {
+    // Validate time range: start must not be later than end
+    if (filter.from && filter.to) {
+      const fromDate = new Date(filter.from);
+      const toDate = new Date(filter.to);
+      if (fromDate > toDate) {
+        error = { message: t("auditLogs.timeRangeInvalid") };
+        return Promise.resolve();
+      }
+    }
+    error = null;
     cursorHistory = [];
     currentCursor = null;
     return loadPage(null);

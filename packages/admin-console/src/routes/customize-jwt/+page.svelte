@@ -170,10 +170,40 @@
     }
   }
 
+  function validateHookConfig() {
+    const errors = [];
+    const trimmedUri = hookConfig.uri.trim();
+    if (hookConfig.enabled && !trimmedUri) {
+      errors.push(t("authHook.error.httpsRequired"));
+    } else if (trimmedUri && !trimmedUri.startsWith("https://")) {
+      errors.push(t("authHook.error.httpsRequired"));
+    }
+    // Only validate secret format when the user has entered a value;
+    // the field is optional — an empty secret means "keep existing".
+    const trimmedSecret = hookConfig.secret.trim();
+    if (trimmedSecret) {
+      try {
+        if (trimmedSecret.length < 32) {
+          throw new Error("too short");
+        }
+        Buffer.from(trimmedSecret, "base64");
+      } catch {
+        errors.push(t("authHook.error.secretFormat"));
+      }
+    }
+    return errors;
+  }
+
   async function saveHookConfig() {
     hookConfigSaving = true;
     hookConfigError = "";
     hookConfigMessage = "";
+    const validationErrors = validateHookConfig();
+    if (validationErrors.length > 0) {
+      hookConfigError = validationErrors.join(" ");
+      hookConfigSaving = false;
+      return;
+    }
     try {
       const savedConfig = await updateCustomAccessTokenHookConfig({
         enabled: hookConfig.enabled,
@@ -183,8 +213,11 @@
       hookConfig = { ...savedConfig, secret: "" };
       hookConfigMessage = t("jwt.hookConfigSaved");
       await loadHookStatus();
-    } catch {
-      hookConfigError = t("jwt.hookConfigSaveFailed");
+    } catch (requestError) {
+      // Show the API error message if available, otherwise a generic message
+      hookConfigError = requestError?.message
+        ? requestError.message
+        : t("authHook.error.saveFailed");
       hookConfig = { ...hookConfig, secret: "" };
     } finally {
       hookConfigSaving = false;
@@ -443,7 +476,7 @@
               bind:value={hookConfig.secret}
               autocomplete="new-password"
               class="mt-1 w-full font-mono"
-              placeholder="v1,whsec_..."
+              placeholder={t("authHook.secretPlaceholder")}
             />
           </label>
           <p class="text-xs text-surface-500">
