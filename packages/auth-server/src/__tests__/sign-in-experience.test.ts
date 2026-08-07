@@ -145,6 +145,52 @@ describe('Sign-in experience repository — module structure', () => {
     ]);
   });
 
+  it('resolves SupaCloud branding sources when Promise.allSettled is unavailable', async () => {
+    const { resolveSupaCloudSignInSourceRequests } = await import('../routes/sign-in-experience.js');
+    const allSettledDescriptor = Object.getOwnPropertyDescriptor(Promise, 'allSettled');
+    Object.defineProperty(Promise, 'allSettled', { configurable: true, value: undefined });
+
+    let sourceRequest: ReturnType<typeof resolveSupaCloudSignInSourceRequests>;
+    try {
+      sourceRequest = resolveSupaCloudSignInSourceRequests(
+        Promise.reject(new Error('project unavailable')),
+        Promise.resolve({ client_name: 'Application One' }),
+      );
+    } finally {
+      if (allSettledDescriptor) {
+        Object.defineProperty(Promise, 'allSettled', allSettledDescriptor);
+      }
+    }
+
+    expect(await sourceRequest!).toEqual({
+      project: null,
+      application: { client_name: 'Application One' },
+    });
+  });
+
+  it('isolates rejected and invalid SupaCloud branding sources', async () => {
+    const { resolveSupaCloudSignInSourceRequests } = await import('../routes/sign-in-experience.js');
+    const cases = [
+      {
+        requests: [Promise.resolve({ name: 'Tenant One' }), Promise.reject(new Error('application unavailable'))],
+        expected: { project: { name: 'Tenant One' }, application: null },
+      },
+      {
+        requests: [Promise.reject(new Error('project unavailable')), Promise.reject(new Error('application unavailable'))],
+        expected: { project: null, application: null },
+      },
+      {
+        requests: [Promise.resolve('invalid project response'), Promise.resolve(null)],
+        expected: { project: null, application: null },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const [projectRequest, applicationRequest] = testCase.requests;
+      expect(await resolveSupaCloudSignInSourceRequests(projectRequest, applicationRequest)).toEqual(testCase.expected);
+    }
+  });
+
   it('builds GoTrue API URLs with the /auth/v1 prefix exactly once', async () => {
     const { buildGoTrueApiUrl, buildRawGoTrueApiUrl } = await import('../routes/sign-in-experience.js');
 
