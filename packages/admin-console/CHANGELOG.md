@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.2](https://github.com/zuohuadong/supauth/compare/admin-console-v0.6.1...admin-console-v0.6.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* **admin:** contain dashboard card metadata ([#57](https://github.com/zuohuadong/supauth/issues/57)) ([e115d54](https://github.com/zuohuadong/supauth/commit/e115d54649e372068b88eb26d9c8125e0fbb0b57))
+* **admin:** localize connectors, fix role overlap, validate forms, mask SQL errors ([#55](https://github.com/zuohuadong/supauth/issues/55)) ([2b7c51c](https://github.com/zuohuadong/supauth/commit/2b7c51c65f236550cb18fa3567e0c8e889510e6b))
+* **admin:** repair console form inputs and branding storage handling ([#53](https://github.com/zuohuadong/supauth/issues/53)) ([d7c72e6](https://github.com/zuohuadong/supauth/commit/d7c72e651b38ad1e603564c1c00efbac8ff79a70))
+
 ## [0.6.1](https://github.com/zuohuadong/supauth/compare/admin-console-v0.6.0...admin-console-v0.6.1) (2026-08-05)
 
 

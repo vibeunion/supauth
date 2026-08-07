@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/zuohuadong/supauth/compare/auth-server-v0.7.1...auth-server-v0.7.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* **admin:** repair console form inputs and branding storage handling ([#53](https://github.com/zuohuadong/supauth/issues/53)) ([d7c72e6](https://github.com/zuohuadong/supauth/commit/d7c72e651b38ad1e603564c1c00efbac8ff79a70))
+* **auth:** avoid Promise.allSettled in hosted sign-in resolution ([#56](https://github.com/zuohuadong/supauth/issues/56)) ([97a9ff7](https://github.com/zuohuadong/supauth/commit/97a9ff7a371cab35df0524d04b938830af6d5417))
+
 ## [0.7.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.7.0...auth-server-v0.7.1) (2026-08-05)
 
 
