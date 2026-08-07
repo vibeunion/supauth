@@ -95,7 +95,7 @@
   </div>
 {:else}
   <div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-    <div class="bg-white rounded-xl border border-surface-200 p-5">
+    <div class="flex h-full flex-col rounded-xl border border-surface-200 bg-white p-5">
       <p class="text-sm text-surface-500 mb-1">{t("dashboard.oauthServer")}</p>
       <p
         class="text-xl font-bold {status?.enabled
@@ -104,28 +104,28 @@
       >
         {status?.enabled ? t("dashboard.enabled") : t("dashboard.disabled")}
       </p>
-      <p class="text-xs text-surface-400 mt-2">
+      <p class="mt-auto border-t border-surface-100 pt-3 text-xs text-surface-400">
         {t("dashboard.signing")}: {status?.signing_alg ||
           t("common.notAvailable")}
       </p>
     </div>
 
-    <div class="bg-white rounded-xl border border-surface-200 p-5">
+    <div class="flex h-full flex-col rounded-xl border border-surface-200 bg-white p-5">
       <p class="text-sm text-surface-500 mb-1">{t("dashboard.issuer")}</p>
-      <p class="text-sm font-mono text-brand-700 break-all">
+      <p class="mb-3 break-all font-mono text-sm text-brand-700">
         {status?.issuer || t("common.notAvailable")}
       </p>
-      <p class="text-xs text-surface-400 mt-2">
+      <p class="mt-auto border-t border-surface-100 pt-3 text-xs text-surface-400">
         {t("dashboard.migration")}: {migrationStatusLabel(status?.migration_status)}
       </p>
     </div>
 
-    <div class="bg-white rounded-xl border border-surface-200 p-5">
+    <div class="flex h-full flex-col rounded-xl border border-surface-200 bg-white p-5">
       <p class="text-sm text-surface-500 mb-1">{t("dashboard.project")}</p>
       <p class="text-xl font-bold text-surface-900">
         {project?.name || t("common.notAvailable")}
       </p>
-      <p class="text-xs text-surface-400 mt-2">
+      <p class="mt-auto border-t border-surface-100 pt-3 text-xs text-surface-400">
         {t("dashboard.ref")}:
         <code class="font-mono" title={project?.ref || ""}>{formatProjectRef(project?.ref)}</code>
       </p>
