@@ -106,6 +106,16 @@
     return key ? t(key) : fieldName;
   }
 
+  function factoryFieldIssue(factory, fieldName) {
+    const conflictingGroup = (factorySchema(factory).one_of || []).find(
+      (group) =>
+        group.includes(fieldName) &&
+        group.filter((candidate) => String(factoryForm[candidate] || "").trim())
+          .length > 1,
+    );
+    return conflictingGroup ? t("connector.metadataExclusiveError") : null;
+  }
+
   function connectorRecordId(connector) {
     return typeof connector?.connector_record_id === "string"
       ? connector.connector_record_id
@@ -590,6 +600,7 @@
           {@const secretField = (
             factorySchema(selectedFactory).secret_fields || []
           ).includes(fieldName)}
+          {@const fieldIssue = factoryFieldIssue(selectedFactory, fieldName)}
           <div>
             <label
               for={`connector-${fieldName}`}
@@ -601,20 +612,28 @@
               bind:value={factoryForm[fieldName]}
               autocomplete={secretField ? "new-password" : "off"}
               class="w-full"
+              aria-invalid={fieldIssue ? "true" : "false"}
+              aria-describedby={fieldIssue ? `connector-${fieldName}-error` : undefined}
             />
-            <p class="mt-1 text-xs text-surface-400">
-              {secretField
-                ? t("Secret is sent once and is never returned by the API.")
-                : (factorySchema(selectedFactory).one_of || []).some(
-                      (group) => group.includes(fieldName),
-                    )
-                  ? t("connector.metadataExclusive")
-                  : (factorySchema(selectedFactory).required || []).includes(
-                        fieldName,
+            {#if fieldIssue}
+              <p id={`connector-${fieldName}-error`} class="mt-1 text-xs text-red-600" role="alert">
+                {fieldIssue}
+              </p>
+            {:else}
+              <p class="mt-1 text-xs text-surface-400">
+                {secretField
+                  ? t("Secret is sent once and is never returned by the API.")
+                  : (factorySchema(selectedFactory).one_of || []).some(
+                        (group) => group.includes(fieldName),
                       )
-                    ? t("Required")
-                    : t("Optional")}
-            </p>
+                    ? t("connector.metadataExclusive")
+                    : (factorySchema(selectedFactory).required || []).includes(
+                          fieldName,
+                        )
+                      ? t("Required")
+                      : t("Optional")}
+              </p>
+            {/if}
           </div>
         {/each}
       </div>
@@ -697,10 +716,10 @@
             ? 'border-green-300 bg-green-50'
             : 'border-surface-200'} p-4"
         >
-          <div class="flex items-center justify-between mb-2">
-            <span class="font-medium text-surface-900">{connectorDisplayName(connector.id)}</span>
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <span class="min-w-0 truncate font-medium text-surface-900" title={connectorDisplayName(connector.id)}>{connectorDisplayName(connector.id)}</span>
             <span
-              class="text-xs px-2 py-0.5 rounded-full {connector.enabled
+              class="shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-xs {connector.enabled
                 ? 'bg-green-100 text-green-700'
                 : 'bg-surface-100 text-surface-500'}"
             >

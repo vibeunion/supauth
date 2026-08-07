@@ -111,6 +111,13 @@ function brandingAssetType(candidate: string): BrandingAssetType {
   throw new ApiContractError(400, 'invalid_branding_asset_type', 'assetType must be logo, favicon, or apple_touch_icon');
 }
 
+function brandingAssetReadType(candidate: string): BrandingAssetType {
+  const matchedType = ['apple_touch_icon', 'favicon', 'logo'].find(
+    (assetType) => candidate === assetType || candidate.startsWith(`${assetType}.`) || candidate.startsWith(`${assetType}-`),
+  );
+  return brandingAssetType(matchedType || candidate);
+}
+
 function managedBrandingAssetType(assetType: BrandingAssetType): assetType is ManagedBrandingAssetType {
   return assetType === 'logo' || assetType === 'favicon';
 }
@@ -347,7 +354,7 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
   // request fell into the global error handler and returned 500; now it
   // redirects to the authoritative public URL, or returns a clear 404.
   .get('/branding/:assetType', async ({ params }) => {
-    const assetType = brandingAssetType(params.assetType.split('.')[0]);
+    const assetType = brandingAssetReadType(params.assetType);
     if (!managedBrandingAssetType(assetType)) {
       throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
     }
