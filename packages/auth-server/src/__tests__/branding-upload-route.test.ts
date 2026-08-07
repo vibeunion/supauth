@@ -173,6 +173,24 @@ describe('branding upload route', () => {
     );
   });
 
+  test('redirects legacy versioned branding asset reads to the authoritative public URL', async () => {
+    brandingSnapshot = {
+      branding: {
+        logo_url: 'https://assets.example.test/branding/logo/abc123.png',
+        favicon_url: null,
+      },
+    };
+
+    const response = await app.handle(
+      new Request('http://supauth.local/v1/storage/branding/logo-1723000000000.png'),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(
+      'https://assets.example.test/branding/logo/abc123.png',
+    );
+  });
+
   test('returns a clear 404 for unconfigured branding assets instead of a 500', async () => {
     const response = await app.handle(
       new Request('http://supauth.local/v1/storage/branding/favicon'),
