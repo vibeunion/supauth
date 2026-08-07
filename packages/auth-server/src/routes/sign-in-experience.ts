@@ -142,19 +142,32 @@ async function fetchGoTrueJson(path: string, init: RequestInit = {}, fetchImpl: 
   throw new Error(`GoTrue ${path} request failed`);
 }
 
+function normalizeSupaCloudSignInSource(request: Promise<unknown>) {
+  return request.then(
+    (source): Record<string, unknown> | null => source && typeof source === 'object'
+      ? source as Record<string, unknown>
+      : null,
+    () => null,
+  );
+}
+
+export async function resolveSupaCloudSignInSourceRequests(
+  projectRequest: Promise<unknown>,
+  applicationRequest: Promise<unknown>,
+) {
+  const [project, application] = await Promise.all([
+    normalizeSupaCloudSignInSource(projectRequest),
+    normalizeSupaCloudSignInSource(applicationRequest),
+  ]);
+
+  return { project, application };
+}
+
 async function getSupaCloudSignInSource(applicationId?: string) {
-  const [projectResult, applicationResult] = await Promise.allSettled([
+  return resolveSupaCloudSignInSourceRequests(
     adapter.getProject(),
     applicationId ? adapter.getOAuthClient(applicationId) : Promise.resolve(null),
-  ]);
-  return {
-    project: projectResult.status === 'fulfilled' && projectResult.value && typeof projectResult.value === 'object'
-      ? projectResult.value as Record<string, unknown>
-      : null,
-    application: applicationResult.status === 'fulfilled' && applicationResult.value && typeof applicationResult.value === 'object'
-      ? applicationResult.value as Record<string, unknown>
-      : null,
-  };
+  );
 }
 
 interface ProviderInfo {
