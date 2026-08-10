@@ -1285,7 +1285,8 @@ export class SupaCloudAdapter {
   }
 
   async createStorageBucket(bucketId: string, options?: { public?: boolean; fileSizeLimit?: number }) {
-    const url = `${this.storageUrl}/storage/v1/bucket`;
+    const path = '/storage/v1/bucket';
+    const url = `${this.storageUrl}${path}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -1301,7 +1302,7 @@ export class SupaCloudAdapter {
     });
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Storage create bucket: ${res.status} ${body}`);
+      throw new SupaCloudApiError(res.status, body, path);
     }
     return res.json();
   }
@@ -1324,7 +1325,8 @@ export class SupaCloudAdapter {
    * Returns the public URL if the bucket is public, or the key path.
    */
   async uploadFile(bucketId: string, filePath: string, file: File | Blob, contentType: string): Promise<{ key: string; url?: string }> {
-    const url = `${this.storageUrl}/storage/v1/object/${storageObjectPath(bucketId, filePath)}`;
+    const path = `/storage/v1/object/${storageObjectPath(bucketId, filePath)}`;
+    const url = `${this.storageUrl}${path}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -1336,7 +1338,7 @@ export class SupaCloudAdapter {
     });
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Storage upload: ${res.status} ${body}`);
+      throw new SupaCloudApiError(res.status, body, path);
     }
     const result = await res.json() as Record<string, unknown>;
     const key = (result.Key as string) || `${bucketId}/${filePath}`;

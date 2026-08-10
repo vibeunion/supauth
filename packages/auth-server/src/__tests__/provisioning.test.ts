@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 
 const __provDir = dirname(fileURLToPath(import.meta.url));
 const provSrc = readFileSync(join(__provDir, '../repositories/provisioning.ts'), 'utf-8');
+const provisioningRouteSrc = readFileSync(join(__provDir, '../routes/provisioning.ts'), 'utf-8');
 
 describe('Provisioning repository — atomic upsert', () => {
   it('uses onConflictDoUpdate (not select-then-insert)', () => {
@@ -47,5 +48,12 @@ describe('Provisioning repository — atomic upsert', () => {
 
   it('doc comment no longer claims a non-existent ON CONFLICT', () => {
     expect(provSrc).toContain('real Postgres INSERT ... ON CONFLICT');
+  });
+});
+
+describe('Provisioning route — Storage completion truthfulness', () => {
+  it('only treats an explicit bucket conflict as an idempotent success', () => {
+    expect(provisioningRouteSrc.match(/isSupaCloudApiError\(error, \[409\]\)/g)).toHaveLength(2);
+    expect(provisioningRouteSrc).not.toContain('catch { /* already exists */ }');
   });
 });

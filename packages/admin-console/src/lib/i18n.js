@@ -275,6 +275,7 @@ const en = {
   "signIn.brandingFileTooLarge": "The selected image exceeds the 5MB limit.",
   "signIn.brandingStorageUnavailable":
     "Storage service is unavailable. Please ask an administrator to check the Storage deployment.",
+  "signIn.brandingStorageDegradedTitle": "Branding asset uploads are temporarily disabled",
   "connector.factory.enterpriseSaml": "Enterprise SAML",
   "connector.factory.enterpriseOidc": "Enterprise OIDC",
   "connector.factory.unavailable": "Unavailable",
@@ -1358,6 +1359,7 @@ const zhCN = {
   "signIn.brandingFileTooLarge": "所选图片超过 5MB 限制。",
   "signIn.brandingStorageUnavailable":
     "存储服务连接失败，请联系管理员检查 Storage 部署。",
+  "signIn.brandingStorageDegradedTitle": "品牌资源上传已暂时停用",
   "connector.factory.enterpriseSaml": "企业 SAML",
   "connector.factory.enterpriseOidc": "企业 OIDC",
   "connector.factory.unavailable": "不可用",

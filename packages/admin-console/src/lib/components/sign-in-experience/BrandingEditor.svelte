@@ -25,6 +25,7 @@
   let error = $state(null);
   let saved = $state(false);
   let reconciliationStatus = $state(null);
+  let storageUnavailable = $state(false);
   let previewViewport = $state('desktop');
   let previewTheme = $state('light');
   let branding = $state({
@@ -64,7 +65,8 @@
   // issues; show a localized friendly message and keep details in the console.
   function displayError(requestError) {
     const message = requestError?.message || '';
-    if (message.startsWith('Storage ')) {
+    if (requestError?.code === 'branding_storage_unavailable' || message.startsWith('Storage ')) {
+      storageUnavailable = true;
       console.error('[branding] storage request failed:', message);
       return t('signIn.brandingStorageUnavailable');
     }
@@ -230,22 +232,28 @@
 
     <section class="console-card p-6">
       <h3 class="mb-4 text-lg font-semibold text-surface-900">{t('Branding Assets')}</h3>
+      {#if storageUnavailable}
+        <div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" role="alert">
+          <p class="font-semibold">{t('signIn.brandingStorageDegradedTitle')}</p>
+          <p class="mt-1">{t('signIn.brandingStorageUnavailable')}</p>
+        </div>
+      {/if}
       <div class="grid gap-6 lg:grid-cols-2">
         <div>
           <p class="mb-2 text-sm font-medium text-surface-700">{t('Logo')}</p>
           {#if branding.logo_url}<img src={branding.logo_url} alt={t('Logo')} class="mb-3 h-16 max-w-full rounded border border-surface-200 object-contain">{/if}
-          <label for="branding-logo-upload" class="inline-flex cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+          <label for="branding-logo-upload" class="inline-flex rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700" class:cursor-pointer={!storageUnavailable} class:cursor-not-allowed={storageUnavailable} class:opacity-50={storageUnavailable}>
             {uploading === 'logo' ? t('Uploading...') : t('Upload Logo')}
-            <input id="branding-logo-upload" type="file" accept={BRANDING_FILE_ACCEPT} class="sr-only" disabled={uploading !== null} onchange={(uploadEvent) => uploadBrandingFile('logo', uploadEvent)}>
+            <input id="branding-logo-upload" type="file" accept={BRANDING_FILE_ACCEPT} class="sr-only" disabled={uploading !== null || storageUnavailable} onchange={(uploadEvent) => uploadBrandingFile('logo', uploadEvent)}>
           </label>
           <p class="mt-2 text-xs leading-5 text-surface-500">{t('signIn.logoUploadHint')}</p>
         </div>
         <div>
           <p class="mb-2 text-sm font-medium text-surface-700">{t('Favicon')}</p>
           {#if branding.favicon_url}<img src={branding.favicon_url} alt={t('Favicon')} class="mb-3 h-10 w-10 rounded border border-surface-200 object-contain">{/if}
-          <label for="branding-favicon-upload" class="inline-flex cursor-pointer rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+          <label for="branding-favicon-upload" class="inline-flex rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700" class:cursor-pointer={!storageUnavailable} class:cursor-not-allowed={storageUnavailable} class:opacity-50={storageUnavailable}>
             {uploading === 'favicon' ? t('Uploading...') : t('Upload Favicon')}
-            <input id="branding-favicon-upload" type="file" accept={BRANDING_FILE_ACCEPT} class="sr-only" disabled={uploading !== null} onchange={(uploadEvent) => uploadBrandingFile('favicon', uploadEvent)}>
+            <input id="branding-favicon-upload" type="file" accept={BRANDING_FILE_ACCEPT} class="sr-only" disabled={uploading !== null || storageUnavailable} onchange={(uploadEvent) => uploadBrandingFile('favicon', uploadEvent)}>
           </label>
           <p class="mt-2 text-xs leading-5 text-surface-500">{t('signIn.faviconUploadHint')}</p>
         </div>

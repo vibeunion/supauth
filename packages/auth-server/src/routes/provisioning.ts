@@ -3,7 +3,7 @@
 // P0-26: Each reconcile uses path projectRef, NOT process-level PROJECT_REF
 
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
+import { getSupaCloudAdapterForProject, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as provRepo from '../repositories/provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
 import { HOSTED_MIGRATIONS } from '../db/migrate.js';
@@ -98,8 +98,12 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       if (!targetInfo.storageProjectScoped) {
         throw new Error('Project-scoped storage URL is not configured. Set SUPACLOUD_STORAGE_URL_TEMPLATE with {projectRef} or use a default storage URL containing PROJECT_REF.');
       }
-      try { await adapter.createStorageBucket('avatars', { public: false }); } catch { /* already exists */ }
-      try { await adapter.createStorageBucket('branding', { public: true }); } catch { /* already exists */ }
+      try { await adapter.createStorageBucket('avatars', { public: false }); } catch (error) {
+        if (!isSupaCloudApiError(error, [409])) throw error;
+      }
+      try { await adapter.createStorageBucket('branding', { public: true }); } catch (error) {
+        if (!isSupaCloudApiError(error, [409])) throw error;
+      }
       await provRepo.recordStep(projectRef, { step: 'storage_buckets', status: 'completed' });
       results.push({ step: 'storage_buckets', status: 'completed' });
     } catch (e) {
