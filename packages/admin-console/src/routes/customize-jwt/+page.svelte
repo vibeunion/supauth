@@ -21,6 +21,7 @@
   } from "$lib/auth-hook-status.js";
   import { t } from "$lib/i18n.js";
   import { compatibilityCheckLabel } from "$lib/compatibility-check-label.js";
+  import { normalizeAuthHookSecret } from "$lib/auth-hook-secret.js";
   import {
     SUPAOAUTH_FIELD_TYPES,
     buildJwtExtensionExample,
@@ -180,16 +181,8 @@
     }
     // Only validate secret format when the user has entered a value;
     // the field is optional — an empty secret means "keep existing".
-    const trimmedSecret = hookConfig.secret.trim();
-    if (trimmedSecret) {
-      try {
-        if (trimmedSecret.length < 32) {
-          throw new Error("too short");
-        }
-        Buffer.from(trimmedSecret, "base64");
-      } catch {
-        errors.push(t("authHook.error.secretFormat"));
-      }
+    if (normalizeAuthHookSecret(hookConfig.secret) === null) {
+      errors.push(t("authHook.error.secretFormat"));
     }
     return errors;
   }
@@ -205,10 +198,11 @@
       return;
     }
     try {
+      const normalizedSecret = normalizeAuthHookSecret(hookConfig.secret);
       const savedConfig = await updateCustomAccessTokenHookConfig({
         enabled: hookConfig.enabled,
         uri: hookConfig.uri.trim(),
-        ...(hookConfig.secret.trim() ? { secret: hookConfig.secret.trim() } : {}),
+        ...(normalizedSecret ? { secret: normalizedSecret } : {}),
       });
       hookConfig = { ...savedConfig, secret: "" };
       hookConfigMessage = t("jwt.hookConfigSaved");
@@ -480,7 +474,9 @@
             />
           </label>
           <p class="text-xs text-surface-500">
-            {hookConfig.secret_configured
+            {hookConfig.secret.trim()
+              ? t("jwt.hookSecretPending")
+              : hookConfig.secret_configured
               ? t("jwt.hookSecretConfigured")
               : t("jwt.hookSecretMissing")}
           </p>
