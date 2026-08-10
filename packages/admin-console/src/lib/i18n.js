@@ -280,6 +280,10 @@ const en = {
   "connector.factory.enterpriseOidc": "Enterprise OIDC",
   "connector.factory.unavailable": "Unavailable",
   "connector.factory.configure": "Configure",
+  "connector.configurationRequired":
+    "Configure the connector client ID and secret before enabling it.",
+  "connector.runtimeUnavailable":
+    "The connector runtime capability is unavailable. You can retry after the service is restored.",
   "connector.factory.configDescription": "Configure the inbound identity provider with the typed factory schema.",
   "connector.field.name": "Name",
   "connector.field.domains": "Domains",
@@ -1365,6 +1369,9 @@ const zhCN = {
   "connector.factory.enterpriseOidc": "企业 OIDC",
   "connector.factory.unavailable": "不可用",
   "connector.factory.configure": "配置",
+  "connector.configurationRequired": "请先配置连接器客户端 ID 和密钥，再启用连接器。",
+  "connector.runtimeUnavailable":
+    "连接器运行时能力当前不可用；服务恢复后可直接重试。",
   "connector.factory.configDescription": "通过工厂模板配置入站身份提供者。",
   "connector.field.name": "名称",
   "connector.field.domains": "域名",

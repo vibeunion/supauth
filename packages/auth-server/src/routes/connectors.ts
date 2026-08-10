@@ -1,7 +1,11 @@
 // Connector management routes with OpenAPI annotations
 
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapter, type ConnectorRuntimeKind } from '../supacloud/adapter.js';
+import {
+  getSupaCloudAdapter,
+  isSupaCloudApiError,
+  type ConnectorRuntimeKind,
+} from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
@@ -84,6 +88,19 @@ function providerName(provider: ProviderInfo, fallbackId: string) {
 
 function providerCategory(provider: ProviderInfo) {
   return String(provider.type || 'social');
+}
+
+function nonEmptyProviderSetting(provider: ProviderInfo, field: string) {
+  return typeof provider[field] === 'string' && String(provider[field]).trim().length > 0;
+}
+
+function builtinConnectorConfigured(provider: ProviderInfo) {
+  const clientConfigured = nonEmptyProviderSetting(provider, 'client_id')
+    || nonEmptyProviderSetting(provider, 'clientId');
+  const secretConfigured = provider.secret_configured === true
+    || nonEmptyProviderSetting(provider, 'client_secret')
+    || nonEmptyProviderSetting(provider, 'clientSecret');
+  return clientConfigured && secretConfigured;
 }
 
 function providerInfo(payload: unknown, fallbackId: string): ProviderInfo {
@@ -257,6 +274,16 @@ export async function updateConnectorEnabledState(
   dependencies: ConnectorEnabledUpdateDependencies = defaultEnabledUpdateDependencies,
 ) {
   const previousRuntime = await readRuntimeState(input, dependencies);
+  if (input.runtimeKind === 'builtin_oauth'
+    && input.enabled
+    && !previousRuntime.enabled
+    && !builtinConnectorConfigured(previousRuntime.provider)) {
+    throw new ApiContractError(
+      409,
+      'connector_configuration_required',
+      'Connector credentials must be configured before enabling the connector',
+    );
+  }
   const updatedRuntime = await updateRuntimeEnabled(input, previousRuntime.enabled, dependencies);
   const expectedOverlay = updatedOverlayInput(input, updatedRuntime.provider);
   const overlay = await persistUpdatedOverlay(expectedOverlay, dependencies);
@@ -275,6 +302,7 @@ async function verifiedConnectorState(
       provider_enabled: runtime.enabled,
       enabled: runtime.enabled,
       runtime_kind: runtimeKind,
+      configuration_required: !builtinConnectorConfigured(runtime.provider),
     });
   }
   if (config.enabled !== runtime.enabled) throw updateOutcomeUnknown();
@@ -307,6 +335,7 @@ export function mergeProvidersWithConnectorConfigs(
   const mergedProviders = providers.map(provider => {
     const id = providerId(provider);
     const config = configByProviderId.get(id);
+    const runtimeKind = connectorRuntimeKind(config);
     return {
       ...provider,
       id,
@@ -314,8 +343,10 @@ export function mergeProvidersWithConnectorConfigs(
       type: config?.category || provider.type || 'social',
       provider_enabled: provider.enabled === true,
       enabled: config?.enabled === true,
+      configuration_required: runtimeKind === 'builtin_oauth'
+        && !builtinConnectorConfigured(provider),
       connector_record_id: config?.connector_record_id,
-      runtime_kind: config?.runtime_kind || 'builtin_oauth',
+      runtime_kind: runtimeKind,
     };
   });
   const upstreamProviderIds = new Set(mergedProviders.map(provider => provider.id));
@@ -448,9 +479,25 @@ async function createEnterpriseConnector(
   request: Record<string, unknown>,
   dependencies: FactoryInstantiationDependencies,
 ) {
-  const created = runtimeKind === 'custom_oidc'
-    ? await dependencies.createCustomOidc(request)
-    : await dependencies.createSaml(request);
+  let created: unknown;
+  try {
+    created = runtimeKind === 'custom_oidc'
+      ? await dependencies.createCustomOidc(request)
+      : await dependencies.createSaml(request);
+  } catch (error) {
+    const contractCode = error && typeof error === 'object' && 'code' in error
+      ? String(error.code || '')
+      : '';
+    if (isSupaCloudApiError(error, [404, 501])
+      || ['capability_unavailable', 'connector_factory_runtime_unavailable'].includes(contractCode)) {
+      throw new ApiContractError(
+        503,
+        'connector_runtime_unavailable',
+        'Connector runtime capability is unavailable',
+      );
+    }
+    throw error;
+  }
   const providerId = upstreamConnectorId(created, runtimeKind);
   if (!providerId) {
     throw new ApiContractError(

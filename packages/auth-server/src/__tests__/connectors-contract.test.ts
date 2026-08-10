@@ -9,9 +9,84 @@ import {
   samlFactoryRequest,
   updateConnectorEnabledState,
 } from '../routes/connectors.js';
+import { SupaCloudApiError } from '../supacloud/adapter.js';
 import { withoutSecrets } from '../utils/secrets.js';
 
 describe('enterprise connector contracts', () => {
+  it('requires builtin OAuth credentials before enabling a connector', async () => {
+    let updateCalls = 0;
+    const existingConfig = null;
+    await expect(updateConnectorEnabledState({
+      providerId: 'google', runtimeKind: 'builtin_oauth', enabled: true, existingConfig,
+    }, {
+      readRuntime: async () => ({ id: 'google', enabled: false }),
+      updateRuntime: async () => { updateCalls += 1; return { id: 'google', enabled: true }; },
+      saveOverlay: async () => ({ id: 'google' }),
+      readOverlay: async () => null,
+    })).rejects.toMatchObject({ status: 409, code: 'connector_configuration_required' });
+    expect(updateCalls).toBe(0);
+
+    let runtimeEnabledState = false;
+    let configuredOverlay = {
+      id: 'google', provider_id: 'google', runtime_kind: 'builtin_oauth',
+      name: 'google', category: 'social', enabled: false, config: {},
+    };
+    await expect(updateConnectorEnabledState({
+      providerId: 'google', runtimeKind: 'builtin_oauth', enabled: true, existingConfig: null,
+    }, {
+      readRuntime: async () => ({
+        id: 'google', enabled: runtimeEnabledState,
+        client_id: 'client', secret_configured: true,
+      }),
+      updateRuntime: async () => {
+        runtimeEnabledState = true;
+        return { id: 'google', enabled: true };
+      },
+      saveOverlay: async input => {
+        configuredOverlay = { ...configuredOverlay, enabled: input.enabled === true };
+        return configuredOverlay;
+      },
+      readOverlay: async () => configuredOverlay,
+    })).resolves.toMatchObject({ enabled: true, provider_enabled: true });
+  });
+
+  it('classifies a confirmed connector capability rejection as retryable without reconciliation', async () => {
+    await expect(instantiateConnectorFactory({
+      name: 'Enterprise SAML', protocol: 'saml', category: 'enterprise_sso', enabled: true,
+    }, {
+      name: 'Acme', metadata_url: 'https://idp.example.test/metadata', enabled: true,
+    }, {
+      createCustomOidc: async () => { throw new Error('unexpected OIDC create'); },
+      readCustomOidc: async () => { throw new Error('unexpected OIDC read'); },
+      deleteCustomOidc: async () => { throw new Error('unexpected OIDC delete'); },
+      createSaml: async () => {
+        throw new SupaCloudApiError(501, 'runtime unavailable', '/auth/sso/providers');
+      },
+      readSaml: async () => { throw new Error('unexpected SAML read'); },
+      deleteSaml: async () => { throw new Error('unexpected SAML delete'); },
+      saveOverlay: async () => { throw new Error('unexpected overlay write'); },
+      readOverlay: async () => null,
+    })).rejects.toMatchObject({ status: 503, code: 'connector_runtime_unavailable' });
+  });
+
+  it('preserves an ambiguous connector runtime 503 for outcome reconciliation', async () => {
+    const runtimeFailure = new SupaCloudApiError(503, 'response unavailable', '/auth/sso/providers');
+    await expect(instantiateConnectorFactory({
+      name: 'Enterprise SAML', protocol: 'saml', category: 'enterprise_sso', enabled: true,
+    }, {
+      name: 'Acme', metadata_url: 'https://idp.example.test/metadata', enabled: true,
+    }, {
+      createCustomOidc: async () => { throw new Error('unexpected OIDC create'); },
+      readCustomOidc: async () => { throw new Error('unexpected OIDC read'); },
+      deleteCustomOidc: async () => { throw new Error('unexpected OIDC delete'); },
+      createSaml: async () => { throw runtimeFailure; },
+      readSaml: async () => { throw new Error('unexpected SAML read'); },
+      deleteSaml: async () => { throw new Error('unexpected SAML delete'); },
+      saveOverlay: async () => { throw new Error('unexpected overlay write'); },
+      readOverlay: async () => null,
+    })).rejects.toBe(runtimeFailure);
+  });
+
   it('maps enterprise enabled state to each typed runtime contract', () => {
     expect(enterpriseConnectorEnabledUpdate('custom_oidc', true)).toEqual({ enabled: true });
     expect(enterpriseConnectorEnabledUpdate('custom_oidc', false)).toEqual({ enabled: false });
@@ -288,6 +363,18 @@ describe('enterprise connector contracts', () => {
       runtime_kind: 'custom_oidc',
       enabled: true,
     })]);
+  });
+
+  it('advertises configuration requirements only for incomplete builtin connectors', () => {
+    const connectors = mergeProvidersWithConnectorConfigs([
+      { id: 'google', enabled: false },
+      { id: 'github', enabled: true, client_id: 'client', secret_configured: true },
+    ], []);
+
+    expect(connectors).toEqual([
+      expect.objectContaining({ id: 'google', configuration_required: true }),
+      expect.objectContaining({ id: 'github', configuration_required: false }),
+    ]);
   });
 
   it('creates, reads back, then stores a secret-free OIDC overlay', async () => {
