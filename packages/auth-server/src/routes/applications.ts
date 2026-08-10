@@ -17,7 +17,7 @@ const grantTypesOpenApiSchema = {
   type: 'array',
   minItems: 1,
   items: { type: 'string', enum: [...GOTRUE_OAUTH_GRANT_TYPES] },
-  description: "GoTrue v2.193 supports only 'authorization_code' and 'refresh_token' OAuth client grants",
+  description: "Stock GoTrue supports only 'authorization_code' and 'refresh_token' OAuth client grants",
 };
 const editableOAuthClientProperties = {
   redirect_uris: { type: 'array', minItems: 1, maxItems: 10, items: { type: 'string' } },
@@ -71,7 +71,7 @@ function invalidGrantTypes(unsupportedGrantTypes: string[] = []) {
   return new ApiContractError(
     400,
     'unsupported_grant_type',
-    "grant_types must only contain 'authorization_code' and/or 'refresh_token' for stock GoTrue v2.193",
+    "grant_types must only contain 'authorization_code' and/or 'refresh_token' for stock GoTrue",
     { allowed_grant_types: [...GOTRUE_OAUTH_GRANT_TYPES], unsupported_grant_types: unsupportedGrantTypes },
   );
 }

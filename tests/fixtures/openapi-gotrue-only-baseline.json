@@ -1094,7 +1094,7 @@
                         "refresh_token"
                       ]
                     },
-                    "description": "GoTrue v2.193 supports only 'authorization_code' and 'refresh_token' OAuth client grants"
+                    "description": "Stock GoTrue supports only 'authorization_code' and 'refresh_token' OAuth client grants"
                   },
                   "client_name": {
                     "type": "string"
@@ -1183,7 +1183,7 @@
                         "refresh_token"
                       ]
                     },
-                    "description": "GoTrue v2.193 supports only 'authorization_code' and 'refresh_token' OAuth client grants"
+                    "description": "Stock GoTrue supports only 'authorization_code' and 'refresh_token' OAuth client grants"
                   },
                   "client_name": {
                     "type": "string"

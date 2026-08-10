@@ -11,6 +11,13 @@ const anonKey = requiredEnv('SUPABASE_ANON_KEY');
 const email = requiredEnv('SUPABASE_TEST_EMAIL');
 const password = requiredEnv('SUPABASE_TEST_PASSWORD');
 const githubEnv = requiredEnv('GITHUB_ENV');
+const currentCompatVersion = 'v2.195.0';
+const supportedCompatVersions = new Set(['v2.192.0', currentCompatVersion]);
+const expectedCompatVersion = process.env.SUPABASE_AUTH_COMPAT_VERSION?.trim() || currentCompatVersion;
+const runtimeVersion = await verifiedRuntimeVersion(runtimeUrl, expectedCompatVersion);
+const expectedScopes = runtimeVersion === currentCompatVersion
+  ? ['openid', 'email', 'profile', 'offline_access']
+  : ['openid', 'email', 'profile'];
 
 const codeVerifier = randomBase64Url(48);
 const codeChallenge = base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier))));
@@ -19,7 +26,7 @@ const authorizeUrl = new URL(`${runtimeUrl}/auth/v1/oauth/authorize`);
 authorizeUrl.searchParams.set('response_type', 'code');
 authorizeUrl.searchParams.set('client_id', clientId);
 authorizeUrl.searchParams.set('redirect_uri', redirectUri);
-authorizeUrl.searchParams.set('scope', 'openid email profile');
+authorizeUrl.searchParams.set('scope', expectedScopes.join(' '));
 authorizeUrl.searchParams.set('state', state);
 authorizeUrl.searchParams.set('code_challenge', codeChallenge);
 authorizeUrl.searchParams.set('code_challenge_method', 'S256');
@@ -113,7 +120,6 @@ const accessToken = refreshed.data.session.access_token;
 const refreshToken = refreshed.data.session.refresh_token;
 const payload = decodeJwtPayload(accessToken);
 const grantedScopes = typeof payload.scope === 'string' ? payload.scope.split(/\s+/).filter(Boolean) : [];
-const expectedScopes = ['openid', 'email', 'profile'];
 if (
   payload.client_id !== clientId
   || typeof payload.sub !== 'string'
@@ -167,4 +173,34 @@ function randomBase64Url(bytes: number): string {
 
 function base64Url(value: Uint8Array): string {
   return Buffer.from(value).toString('base64url');
+}
+
+async function verifiedRuntimeVersion(runtimeBaseUrl: string, expectedVersion: string): Promise<string> {
+  const response = await fetch(`${runtimeBaseUrl}/auth/v1/health`, {
+    headers: { accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`GoTrue health check failed with status ${response.status}`);
+  const runtimeVersion = runtimeVersionFromHealth(await response.json());
+  assertExpectedRuntimeVersion(runtimeVersion, expectedVersion);
+  return runtimeVersion;
+}
+
+function runtimeVersionFromHealth(healthPayload: unknown): string {
+  if (!healthPayload || typeof healthPayload !== 'object' || Array.isArray(healthPayload)) {
+    throw new Error('GoTrue health response has no valid version');
+  }
+  const runtimeVersion = (healthPayload as Record<string, unknown>).version;
+  if (typeof runtimeVersion !== 'string' || !/^v\d+\.\d+\.\d+$/.test(runtimeVersion)) {
+    throw new Error('GoTrue health response has no valid version');
+  }
+  return runtimeVersion;
+}
+
+function assertExpectedRuntimeVersion(runtimeVersion: string, expectedVersion: string): void {
+  if (!supportedCompatVersions.has(expectedVersion)) {
+    throw new Error(`Unsupported GoTrue compatibility matrix version: ${expectedVersion}`);
+  }
+  if (runtimeVersion !== expectedVersion) {
+    throw new Error(`Expected GoTrue ${expectedVersion} but runtime health reports ${runtimeVersion}`);
+  }
 }

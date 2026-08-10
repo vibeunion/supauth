@@ -49,6 +49,7 @@ export const SUPABASE_OAUTH_STANDARD_SCOPES = [
   'email',
   'profile',
   'phone',
+  'offline_access',
 ] as const;
 
 export type SupabaseOAuthStandardScope = typeof SUPABASE_OAUTH_STANDARD_SCOPES[number];

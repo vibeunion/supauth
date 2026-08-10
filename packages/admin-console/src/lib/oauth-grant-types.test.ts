@@ -7,7 +7,7 @@ import {
 } from "./oauth-grant-types.js";
 
 describe("GoTrue OAuth client grant controls", () => {
-  test("offers exactly the stock GoTrue v2.193 grant type allowlist", () => {
+  test("offers exactly the stock GoTrue grant type allowlist", () => {
     expect(GOTRUE_OAUTH_GRANT_TYPES).toEqual([
       "authorization_code",
       "refresh_token",

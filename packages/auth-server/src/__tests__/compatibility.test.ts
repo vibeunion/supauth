@@ -23,7 +23,7 @@ function createMockFetch(discoveryOverrides?: Record<string, unknown>) {
         userinfo_endpoint: 'http://runtime.test/auth/v1/userinfo',
         jwks_uri: 'http://runtime.test/auth/v1/.well-known/jwks.json',
         id_token_signing_alg_values_supported: ['ES256'],
-        scopes_supported: ['openid', 'profile', 'email'],
+        scopes_supported: ['openid', 'profile', 'email', 'offline_access'],
         ...discoveryOverrides,
       }), { status: 200 }));
     }
@@ -166,7 +166,7 @@ describe('Supabase Compatibility Inspector', () => {
     expect(supacloud?.status).toBe('fail');
   });
 
-  it('marks scopes pass when openid/profile/email present', async () => {
+  it('marks scopes pass when GoTrue v2.195 discovery includes offline access', async () => {
     globalThis.fetch = createMockFetch();
 
     const { runCompatibilityChecks } = await import('../compatibility/supabase.js');
@@ -184,6 +184,7 @@ describe('Supabase Compatibility Inspector', () => {
 
     const scopes = results.find(r => r.check_id === 'sc-7-scopes');
     expect(scopes?.status).toBe('warn');
+    expect(scopes?.message).toContain('offline_access');
   });
 
   it('returns rb-5 and rb-6 as pass (always pass in offline mode)', async () => {

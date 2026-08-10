@@ -1141,13 +1141,40 @@
       showSignedOutState();
     }
 
-    function accountResponseError(status) {
+    function accountBffErrorCode(payload) {
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.success !== false) return '';
+      const error = payload.error;
+      return error && typeof error === 'object' && !Array.isArray(error) && typeof error.code === 'string'
+        ? error.code
+        : '';
+    }
+
+    async function bannedAccountResponseError(status) {
+      let localCleanupFailed = false;
+      try {
+        const { error: signOutError } = await hostedAuth.signOut({ scope: 'local' });
+        localCleanupFailed = !!signOutError;
+      } catch {
+        localCleanupFailed = true;
+      } finally {
+        endAccountSession();
+      }
+      const message = localCleanupFailed
+        ? '账号已停用；本地登录状态清理失败，请清除站点数据后重新打开。'
+        : '账号已停用，当前设备已退出登录。';
+      return new AccountRequestError('user_banned', message, { sessionEnded: true, status });
+    }
+
+    async function accountResponseError(status, payload) {
       if (status === 401) {
         endAccountSession();
         return new AccountRequestError('session_expired', '登录状态已失效，请重新登录。', {
           sessionEnded: true,
           status,
         });
+      }
+      if (status === 403 && accountBffErrorCode(payload) === 'user_banned') {
+        return bannedAccountResponseError(status);
       }
       const message = status >= 500 ? '账号服务暂时不可用，请稍后重试。' : '账号请求失败，请检查后重试。';
       return new AccountRequestError('request_failed', message, { status });
@@ -1182,10 +1209,10 @@
     }
 
     async function accountResponsePayload(response) {
-      if (!response.ok) throw accountResponseError(response.status);
       const payload = await response.json().catch(() => null);
+      if (!response.ok) throw await accountResponseError(response.status, payload);
       if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.success === false) {
-        throw accountResponseError(response.status);
+        throw await accountResponseError(response.status, payload);
       }
       return payload;
     }
