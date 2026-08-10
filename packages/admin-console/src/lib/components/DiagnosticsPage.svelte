@@ -56,6 +56,15 @@
     return msg;
   }
 
+  function provisioningFailureLabel(result) {
+    if (result?.status !== 'failed') return null;
+    const errorCode = result?.details?.error_code || 'provisioning_step_failed';
+    const migration = result?.step === 'db_migration' ? result?.details?.migration : null;
+    return migration
+      ? t('diagnostics.stepFailureWithMigration', { errorCode, migration })
+      : t('diagnostics.stepFailure', { errorCode });
+  }
+
   onMount(load);
 </script>
 
@@ -83,7 +92,15 @@
           <p class="text-sm font-medium text-surface-800">{t('Fully provisioned:')} {reconcile.fully_provisioned ? t('yes') : t('no')}</p>
           <div class="mt-3 space-y-2">
             {#each reconcile.results || [] as result (`${result.step}-${result.status}`)}
-              <p class="text-xs text-surface-600"><span class="font-mono">{result.step}</span>: {result.status}</p>
+              <div class="text-xs text-surface-600">
+                <p><span class="font-mono">{result.step}</span>: {result.status}</p>
+                {#if provisioningFailureLabel(result)}
+                  <p class="mt-0.5 text-red-700">{provisioningFailureLabel(result)}</p>
+                {/if}
+                {#if result?.details?.state_persistence === 'unavailable'}
+                  <p class="mt-0.5 text-amber-700">{t('diagnostics.statePersistenceUnavailable')}</p>
+                {/if}
+              </div>
             {/each}
           </div>
         </div>
