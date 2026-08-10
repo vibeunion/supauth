@@ -11,6 +11,7 @@
   import { groupCapabilityEntries } from "$lib/capability-view.js";
   import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
+  import { resolve } from "$app/paths";
 
   let status = $state(null);
   let discovery = $state(null);
@@ -160,27 +161,16 @@
       <h3 class="text-lg font-semibold text-surface-800 mb-4">
         {t("dashboard.supabaseCompatibility")}
       </h3>
-      <div class="space-y-2">
-        {#each compatReport.checks as check (check.check_id)}
-          <div class="flex items-start gap-3 py-1">
-            <span
-              aria-hidden="true"
-              class="mt-1 h-3 w-3 shrink-0 rounded-full {check.status === 'pass'
-                ? 'bg-green-500'
-                : check.status === 'fail'
-                  ? 'bg-red-500'
-                  : 'bg-yellow-500'}"
-            ></span>
-            <span class="text-sm text-surface-700">{check.message}</span>
-          </div>
-        {/each}
-      </div>
       <p class="text-xs text-surface-400 mt-3">
         {t("dashboard.checksPassed", {
           passed: compatReport.passed,
           total: compatReport.total,
         })}
       </p>
+      <a
+        href={resolve("/customize-jwt")}
+        class="mt-3 inline-flex text-sm font-semibold text-brand-700 hover:text-brand-900"
+      >{t("dashboard.viewCompatibilityDetails")}</a>
     </div>
   {/if}
 
