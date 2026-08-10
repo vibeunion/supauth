@@ -78,13 +78,13 @@ export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult
   try {
     const disc = await getDiscovery();
     const scopesSupported = (disc.scopes_supported as string[]) || [];
-    const requiredScopes = ['openid', 'profile', 'email'];
+    const requiredScopes = ['openid', 'profile', 'email', 'offline_access'];
     const missing = requiredScopes.filter(s => !scopesSupported.includes(s));
     results.push({
       check_id: 'sc-7-scopes',
       status: missing.length === 0 ? 'pass' : 'warn',
       message: missing.length === 0
-        ? 'Discovery includes required scopes (openid, profile, email)'
+        ? 'Discovery includes required scopes (openid, profile, email, offline_access)'
         : `Missing scopes in discovery: ${missing.join(', ')}`,
     });
   } catch {

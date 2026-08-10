@@ -116,7 +116,7 @@ describe('Shared types', () => {
   });
 
   it('exports Supabase OAuth standard scopes separately from JWT claims', () => {
-    expect(SUPABASE_OAUTH_STANDARD_SCOPES).toEqual(['openid', 'email', 'profile', 'phone']);
+    expect(SUPABASE_OAUTH_STANDARD_SCOPES).toEqual(['openid', 'email', 'profile', 'phone', 'offline_access']);
     for (const scope of SUPABASE_OAUTH_STANDARD_SCOPES) {
       expect(SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS).not.toContain(scope);
     }

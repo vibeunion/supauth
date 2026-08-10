@@ -153,7 +153,7 @@ describe('Supabase runtime compatibility', () => {
     }
   });
 
-  authIt('supabase-js completes TOTP and verifies the v2.193 admin factor downgrade', async () => {
+  authIt('supabase-js completes TOTP and verifies the v2.193+ admin factor downgrade', async () => {
     const client = supabaseClient();
     const gotrueVersion = await readGotrueVersion();
     const signIn = await client.auth.signInWithPassword({ email: TEST_EMAIL, password: TEST_PASSWORD });

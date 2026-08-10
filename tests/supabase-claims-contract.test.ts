@@ -88,8 +88,9 @@ describe('Supabase claims compatibility contract', () => {
 
   it('tracks OAuth scope values separately from JWT claim names and enterprise permissions', () => {
     const oauthFixture = readFileSync('tests/integration/supabase-compat/oauth21.test.ts', 'utf8');
+    const sessionPreparation = readFileSync('scripts/prepare-supabase-auth-compat-session.ts', 'utf8');
 
-    expect(SUPABASE_OAUTH_STANDARD_SCOPES).toEqual(['openid', 'email', 'profile', 'phone']);
+    expect(SUPABASE_OAUTH_STANDARD_SCOPES).toEqual(['openid', 'email', 'profile', 'phone', 'offline_access']);
     for (const scope of SUPABASE_OAUTH_STANDARD_SCOPES) {
       expect(SUPABASE_OAUTH_ACCESS_TOKEN_CLAIMS).not.toContain(scope);
     }
@@ -99,6 +100,14 @@ describe('Supabase claims compatibility contract', () => {
     expect(SUPABASE_REQUIRED_CLAIMS).toContain('phone');
     expect(oauthFixture).toContain('expectGrantedOAuthScope(body)');
     expect(oauthFixture).toContain('SUPABASE_OAUTH_STANDARD_SCOPES');
+    expect(oauthFixture).toContain("SUPABASE_AUTH_COMPAT_VERSION");
+    expect(oauthFixture).toContain("toContain('offline_access')");
+    expect(oauthFixture).toContain("`${RUNTIME_URL}/auth/v1/health`");
+    expect(oauthFixture).toContain('assertExpectedRuntimeVersion(runtimeVersion, EXPECTED_COMPAT_VERSION)');
+    expect(sessionPreparation).toContain("`${runtimeBaseUrl}/auth/v1/health`");
+    expect(sessionPreparation).toContain('verifiedRuntimeVersion(runtimeUrl, expectedCompatVersion)');
+    expect(sessionPreparation).toContain('runtimeVersion === currentCompatVersion');
+    expect(sessionPreparation).toContain("new Set(['v2.192.0', currentCompatVersion])");
   });
 
   it('preserves the Supabase runtime role domain', () => {

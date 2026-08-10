@@ -121,6 +121,7 @@ describe('account self-service API', () => {
         id: 'user-1',
         email: 'user@example.test',
         role: 'authenticated',
+        last_sign_in_at: '2026-08-10T08:30:00.000Z',
         user_metadata: { name: 'User One' },
         app_metadata: { provider: 'email' },
       });
@@ -141,7 +142,7 @@ describe('account self-service API', () => {
         phone: undefined,
         email_confirmed_at: undefined,
         phone_confirmed_at: undefined,
-        last_sign_in_at: undefined,
+        last_sign_in_at: '2026-08-10T08:30:00.000Z',
         created_at: undefined,
         updated_at: undefined,
         user_metadata: { name: 'User One' },

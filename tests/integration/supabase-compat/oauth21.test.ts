@@ -27,6 +27,7 @@
  *   OAUTH21_REFRESH_TOKEN=<oauth-refresh-token>
  *   OAUTH21_TOKEN_AUTH_METHOD=none|client_secret_basic|client_secret_post
  *   OAUTH21_CLIENT_SECRET=<client-secret>
+ *   SUPABASE_AUTH_COMPAT_VERSION=v2.192.0|v2.195.0
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -49,6 +50,9 @@ const REFRESH_TOKEN = process.env.OAUTH21_REFRESH_TOKEN || '';
 const CLIENT_SECRET = process.env.OAUTH21_CLIENT_SECRET || '';
 const TOKEN_AUTH_METHOD = process.env.OAUTH21_TOKEN_AUTH_METHOD || 'none';
 const LIVE_TIMEOUT_MS = parseInt(process.env.OAUTH21_TEST_TIMEOUT_MS || '30000', 10);
+const CURRENT_COMPAT_VERSION = 'v2.195.0';
+const SUPPORTED_COMPAT_VERSIONS = new Set(['v2.192.0', CURRENT_COMPAT_VERSION]);
+const EXPECTED_COMPAT_VERSION = process.env.SUPABASE_AUTH_COMPAT_VERSION || CURRENT_COMPAT_VERSION;
 
 if (STRICT_COMPAT) {
   assertRequiredEnv([
@@ -103,6 +107,30 @@ interface OAuthMetadata extends JsonObject {
 }
 
 describe('Supabase OAuth 2.1 compatibility fixture', () => {
+  it('rejects a declared matrix version that differs from runtime health', () => {
+    expect(() => assertExpectedRuntimeVersion('v2.195.0', 'v2.192.0'))
+      .toThrow('Expected GoTrue v2.192.0 but runtime health reports v2.195.0');
+    expect(() => assertExpectedRuntimeVersion('v2.194.0', 'v2.194.0'))
+      .toThrow('Unsupported GoTrue compatibility matrix version: v2.194.0');
+  });
+
+  it('rejects missing or invalid runtime health versions', () => {
+    expect(() => runtimeVersionFromHealth({})).toThrow('GoTrue health response has no valid version');
+    expect(() => runtimeVersionFromHealth({ version: 'development' }))
+      .toThrow('GoTrue health response has no valid version');
+    expect(runtimeVersionFromHealth({ version: 'v2.195.0' })).toBe('v2.195.0');
+  });
+
+  it('fails the live version boundary on health errors and mismatches', async () => {
+    const unavailableHealth = (() => Promise.resolve(new Response(null, { status: 503 }))) as unknown as typeof fetch;
+    const floorHealth = (() => Promise.resolve(Response.json({ version: 'v2.192.0' }))) as unknown as typeof fetch;
+
+    await expect(verifiedRuntimeVersion(unavailableHealth))
+      .rejects.toThrow('GoTrue health check failed with status 503');
+    await expect(verifiedRuntimeVersion(floorHealth))
+      .rejects.toThrow('Expected GoTrue v2.195.0 but runtime health reports v2.192.0');
+  });
+
   it('declares the live OAuth 2.1 compatibility environment contract', () => {
     expect([
       'RUN_SUPABASE_OAUTH21_COMPAT',
@@ -113,10 +141,12 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
       'OAUTH21_REFRESH_TOKEN',
       'OAUTH21_TOKEN_AUTH_METHOD',
       'OAUTH21_CLIENT_SECRET',
+      'SUPABASE_AUTH_COMPAT_VERSION',
     ]).toContain('OAUTH21_CLIENT_ID');
   });
 
   liveIt('exposes OAuth 2.1 authorization-server metadata', async () => {
+    const runtimeVersion = await verifiedRuntimeVersion();
     const metadata = await getOAuthMetadata();
 
     expect(metadata.issuer).toBeDefined();
@@ -133,6 +163,9 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     expect(metadata.grant_types_supported || []).toContain('refresh_token');
     expect(metadata.grant_types_supported || []).not.toContain('urn:ietf:params:oauth:grant-type:token-exchange');
     expect(metadata.code_challenge_methods_supported || []).toContain('S256');
+    if (runtimeVersion === CURRENT_COMPAT_VERSION) {
+      expect(metadata.scopes_supported || []).toContain('offline_access');
+    }
   });
 
   liveIt('keeps OIDC discovery aligned with OAuth metadata', async () => {
@@ -244,6 +277,36 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
 
 async function getOAuthMetadata(): Promise<OAuthMetadata> {
   return getJson<OAuthMetadata>('/auth/v1/.well-known/oauth-authorization-server');
+}
+
+async function verifiedRuntimeVersion(fetchImpl: typeof fetch = fetch): Promise<string> {
+  const response = await fetchImpl(`${RUNTIME_URL}/auth/v1/health`, {
+    headers: { accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`GoTrue health check failed with status ${response.status}`);
+  const runtimeVersion = runtimeVersionFromHealth(await response.json());
+  assertExpectedRuntimeVersion(runtimeVersion, EXPECTED_COMPAT_VERSION);
+  return runtimeVersion;
+}
+
+function runtimeVersionFromHealth(healthPayload: unknown): string {
+  if (!healthPayload || typeof healthPayload !== 'object' || Array.isArray(healthPayload)) {
+    throw new Error('GoTrue health response has no valid version');
+  }
+  const runtimeVersion = (healthPayload as Record<string, unknown>).version;
+  if (typeof runtimeVersion !== 'string' || !/^v\d+\.\d+\.\d+$/.test(runtimeVersion)) {
+    throw new Error('GoTrue health response has no valid version');
+  }
+  return runtimeVersion;
+}
+
+function assertExpectedRuntimeVersion(runtimeVersion: string, expectedVersion: string): void {
+  if (!SUPPORTED_COMPAT_VERSIONS.has(expectedVersion)) {
+    throw new Error(`Unsupported GoTrue compatibility matrix version: ${expectedVersion}`);
+  }
+  if (runtimeVersion !== expectedVersion) {
+    throw new Error(`Expected GoTrue ${expectedVersion} but runtime health reports ${runtimeVersion}`);
+  }
 }
 
 async function getJson<T extends JsonObject>(path: string): Promise<T> {
