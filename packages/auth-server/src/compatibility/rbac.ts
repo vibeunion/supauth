@@ -14,20 +14,30 @@ export interface RBACCheckResult {
   details?: Record<string, unknown>;
 }
 
+function signingAlgorithmsSupported(discovery: Record<string, unknown>): string[] {
+  const candidates = discovery.id_token_signing_alg_values_supported;
+  if (!Array.isArray(candidates)) return [];
+  return [...new Set(candidates
+    .filter((candidate): candidate is string => typeof candidate === 'string')
+    .map(candidate => candidate.trim())
+    .filter(Boolean))];
+}
+
 export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
   const results: RBACCheckResult[] = [];
   // RB-4: Check JWT role claim is not used for business RBAC
   try {
     const disc = await getDiscovery();
     const discObj = disc as Record<string, unknown>;
-    const idTokenAlgs = discObj.id_token_signing_alg_values_supported as string[];
-    const defaultAlg = idTokenAlgs?.[0];
 
     results.push({
       check_id: 'rb-4-gotrue-jwt-role-safe',
       status: 'pass',
       message: `In gotrue mode, JWT role claim remains a Supabase runtime role ('anon'/'authenticated'/'service_role'). SupaOAuth does not write business roles into the top-level role claim.`,
-      details: { runtime_mode: 'gotrue', signing_alg: defaultAlg || 'unknown' },
+      details: {
+        runtime_mode: 'gotrue',
+        signing_algs_supported: signingAlgorithmsSupported(discObj),
+      },
     });
   } catch {
     results.push({

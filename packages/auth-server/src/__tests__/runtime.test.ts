@@ -86,6 +86,82 @@ describe('Runtime health check', () => {
     expect(health.signing_alg).toBe('RS256');
   });
 
+  it('reports the unique JWKS signing algorithm instead of the first supported algorithm', async () => {
+    globalThis.fetch = mock((_input: string | URL | Request) => {
+      const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
+      if (url.includes('/.well-known/openid-configuration')) {
+        return Promise.resolve(Response.json({
+          issuer: 'http://runtime.test/auth/v1',
+          id_token_signing_alg_values_supported: ['RS256', 'HS256', 'ES256'],
+        }));
+      }
+      if (url.includes('/.well-known/jwks.json')) {
+        return Promise.resolve(Response.json({
+          keys: [
+            { kty: 'oct', use: 'enc', alg: 'HS256' },
+            { kty: 'EC', use: 'sig', alg: 'ES256' },
+          ],
+        }));
+      }
+      return Promise.resolve(new Response('not found', { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    const { checkRuntimeHealth } = await import('../runtime/index.js');
+    const health = await checkRuntimeHealth();
+
+    expect(health.jwks).toBe(true);
+    expect(health.signing_alg).toBe('ES256');
+  });
+
+  it('does not guess a signing algorithm when JWKS contains multiple algorithms', async () => {
+    globalThis.fetch = mock((_input: string | URL | Request) => {
+      const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
+      if (url.includes('/.well-known/openid-configuration')) {
+        return Promise.resolve(Response.json({
+          issuer: 'http://runtime.test/auth/v1',
+          id_token_signing_alg_values_supported: ['ES256'],
+        }));
+      }
+      if (url.includes('/.well-known/jwks.json')) {
+        return Promise.resolve(Response.json({
+          keys: [
+            { kty: 'RSA', alg: 'RS256' },
+            { kty: 'EC', use: 'sig', alg: 'ES256' },
+          ],
+        }));
+      }
+      return Promise.resolve(new Response('not found', { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    const { checkRuntimeHealth } = await import('../runtime/index.js');
+    const health = await checkRuntimeHealth();
+
+    expect(health.jwks).toBe(true);
+    expect(health.signing_alg).toBeNull();
+  });
+
+  it('falls back to a single discovery algorithm when JWKS has no algorithm metadata', async () => {
+    globalThis.fetch = mock((_input: string | URL | Request) => {
+      const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
+      if (url.includes('/.well-known/openid-configuration')) {
+        return Promise.resolve(Response.json({
+          issuer: 'http://runtime.test/auth/v1',
+          id_token_signing_alg_values_supported: ['EdDSA'],
+        }));
+      }
+      if (url.includes('/.well-known/jwks.json')) {
+        return Promise.resolve(Response.json({ keys: [{ kty: 'OKP', use: 'sig' }] }));
+      }
+      return Promise.resolve(new Response('not found', { status: 404 }));
+    }) as unknown as typeof fetch;
+
+    const { checkRuntimeHealth } = await import('../runtime/index.js');
+    const health = await checkRuntimeHealth();
+
+    expect(health.jwks).toBe(true);
+    expect(health.signing_alg).toBe('EdDSA');
+  });
+
   it('falls back to the installed public auth gateway when runtime roots are not GoTrue discovery endpoints', async () => {
     globalThis.fetch = mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
