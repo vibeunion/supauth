@@ -210,6 +210,47 @@ describe('account self-service API', () => {
     expect(calls).toEqual(['https://auth.example.test/auth/v1/user']);
   });
 
+  test('maps only structured GoTrue user_banned codes to the fixed public failure', async () => {
+    for (const payload of [{ code: 'user_banned' }, { error_code: 'user_banned' }]) {
+      const accountFailure = await getAccountWithGoTrue('banned-token', {
+        fetchImpl: (() => Promise.resolve(Response.json(payload, { status: 403 }))) as unknown as typeof fetch,
+        runtimeBaseUrls: ['https://auth.example.test'],
+      });
+
+      expect(accountFailure).toEqual({
+        ok: false,
+        status: 403,
+        code: 'user_banned',
+        message: 'This account has been disabled.',
+      });
+    }
+  });
+
+  test('does not infer user_banned from messages, casing, nesting, or non-403 responses', async () => {
+    const responseCases = [
+      { status: 403, payload: { message: 'user_banned' } },
+      { status: 403, payload: { code: 'USER_BANNED' } },
+      { status: 403, payload: { error: { code: 'user_banned' } } },
+      { status: 401, payload: { code: 'user_banned' } },
+    ];
+
+    for (const responseCase of responseCases) {
+      const accountFailure = await getAccountWithGoTrue('user-access-token', {
+        fetchImpl: (() => Promise.resolve(Response.json(
+          responseCase.payload,
+          { status: responseCase.status },
+        ))) as unknown as typeof fetch,
+        runtimeBaseUrls: ['https://auth.example.test'],
+      });
+
+      expect(accountFailure).toMatchObject({
+        ok: false,
+        code: responseCase.status === 401 ? 'invalid_token' : 'upstream_forbidden',
+      });
+      expect(JSON.stringify(accountFailure)).not.toContain('USER_BANNED');
+    }
+  });
+
   test('classifies GoTrue account response failures without exposing upstream payloads', async () => {
     const cases = [
       { status: 400, expectedStatus: 400, code: 'account_lookup_failed' },

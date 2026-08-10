@@ -611,7 +611,7 @@ async function requestGoTrueWithUserToken(input: {
       return upstreamResponseFailure(response.status, {
         code: input.failureCode,
         message: input.fallbackMessage,
-      });
+      }, payload);
     }
   }
 

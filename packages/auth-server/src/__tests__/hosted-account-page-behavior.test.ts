@@ -126,6 +126,7 @@ interface FakeEvent {
 interface HarnessOptions {
   accountConfigPayload?: unknown;
   pageUrl?: string;
+  signOutError?: unknown;
 }
 
 class FakeDocument {
@@ -214,6 +215,7 @@ async function createHarness(
 ) {
   const document = new FakeDocument();
   const requests: Array<{ path: string; method: string }> = [];
+  const signOutScopes: unknown[] = [];
   const hostedAuth = {
     authenticatedFetch: async (url: string, init: RequestInit = {}) => {
       const path = new URL(url, 'https://auth.example.com').pathname.replace('/v1/public', '');
@@ -223,7 +225,11 @@ async function createHarness(
     getSession: async () => ({ data: { session: null }, error: null }),
     onAuthStateChange: () => ({ unsubscribe() {} }),
     setSession: async () => ({ data: { session: { access_token: 'test-access-token' } }, error: null }),
-    signOut: async () => ({ error: null }),
+    signOut: async (signOutOptions?: { scope?: unknown }) => {
+      signOutScopes.push(signOutOptions?.scope);
+      if (options.signOutError !== undefined) throw options.signOutError;
+      return { error: null };
+    },
   };
   const pageUrl = new URL(options.pageUrl || 'https://auth.example.com/account.html');
   const window = {
@@ -264,6 +270,7 @@ async function createHarness(
     validateExternalDeleteAccountUrl: pageApi.validateExternalDeleteAccountUrl,
     element: (id: string) => document.getElementById(id) as FakeElement,
     requests,
+    signOutScopes,
   };
 }
 
@@ -395,6 +402,65 @@ describe('hosted account page behavior', () => {
         expect(String((error as Error).message)).not.toContain(internalMessage);
       }
     }
+  });
+
+  test('ends only the local hosted session when the BFF reports user_banned', async () => {
+    const harness = await createHarness(async (path) => path === '/account/me'
+      ? jsonResponse({
+        success: false,
+        error: { code: 'user_banned', message: 'private upstream detail' },
+      }, 403)
+      : defaultAccountResponder(path));
+
+    await loadAccount(harness);
+
+    expect(harness.signOutScopes).toEqual(['local']);
+    expect(harness.element('account-status-note').textContent).toContain('未检测到登录状态');
+    expect(harness.element('account-message').className).toContain('error');
+    expect(harness.element('account-message').textContent).toContain('账号已停用');
+    expect(harness.element('account-message').textContent).not.toContain('private upstream detail');
+  });
+
+  test('ends the page session when local user_banned cleanup throws', async () => {
+    const cleanupError = new Error('private local cleanup detail');
+    const harness = await createHarness(async (path) => path === '/account/me'
+      ? jsonResponse({ success: false, error: { code: 'user_banned' } }, 403)
+      : defaultAccountResponder(path), { signOutError: cleanupError });
+
+    await loadAccount(harness);
+
+    expect(harness.signOutScopes).toEqual(['local']);
+    expect(harness.element('account-status-note').textContent).toContain('未检测到登录状态');
+    expect(harness.element('account-message').className).toContain('error');
+    expect(harness.element('account-message').textContent).toContain('账号已停用');
+    expect(harness.element('account-message').textContent).toContain('请清除站点数据');
+    expect(harness.element('account-message').textContent).not.toContain(cleanupError.message);
+  });
+
+  test('does not end the hosted session for an ordinary 403 response', async () => {
+    const harness = await createHarness(async (path) => path === '/account/me'
+      ? jsonResponse({
+        success: false,
+        error: { code: 'upstream_forbidden', message: 'private upstream detail' },
+      }, 403)
+      : defaultAccountResponder(path));
+
+    await loadAccount(harness);
+
+    expect(harness.signOutScopes).toEqual([]);
+    expect(harness.element('account-message').textContent).toContain('账号请求失败');
+    expect(harness.element('account-message').textContent).not.toContain('private upstream detail');
+  });
+
+  test('does not trust user_banned outside the BFF error envelope', async () => {
+    const harness = await createHarness(async (path) => path === '/account/me'
+      ? jsonResponse({ code: 'user_banned', message: 'private upstream detail' }, 403)
+      : defaultAccountResponder(path));
+
+    await loadAccount(harness);
+
+    expect(harness.signOutScopes).toEqual([]);
+    expect(harness.element('account-message').textContent).toContain('账号请求失败');
   });
 
   test('accountFetch does not disguise unexpected programming errors', async () => {

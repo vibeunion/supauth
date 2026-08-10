@@ -48,10 +48,14 @@ export function isWeakPasswordResponse(status: number, payload: unknown) {
 export function upstreamResponseFailure(
   status: number,
   badRequest: UpstreamBadRequestContext,
+  payload?: unknown,
 ): PublicUpstreamFailure {
   if (status === 400) return { ok: false, status, ...badRequest };
   if (status === 401) {
     return { ok: false, status, code: 'invalid_token', message: 'Authentication credentials are invalid or expired.' };
+  }
+  if (isUserBannedResponse(status, payload)) {
+    return { ok: false, status, code: 'user_banned', message: 'This account has been disabled.' };
   }
   if (status === 403) {
     return { ok: false, status, code: 'upstream_forbidden', message: 'Authentication runtime refused this operation.' };
@@ -71,6 +75,12 @@ export function upstreamResponseFailure(
     code: 'runtime_unavailable',
     message: 'Authentication runtime is unavailable.',
   };
+}
+
+function isUserBannedResponse(status: number, payload: unknown) {
+  return status === 403
+    && isRecord(payload)
+    && (payload.code === 'user_banned' || payload.error_code === 'user_banned');
 }
 
 function isTimeoutError(error: unknown) {
