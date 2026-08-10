@@ -153,12 +153,23 @@ async function storeBrandingFile(
   const adapter = getSupaCloudAdapter();
   const filePath = `${assetType}/${image.hash}.${image.extension}`;
   try {
-    await adapter.getStorageBucket('branding');
+    try {
+      await adapter.getStorageBucket('branding');
+    } catch (error) {
+      if (!isSupaCloudApiError(error, [404])) throw error;
+      await adapter.createStorageBucket('branding', { public: true, fileSizeLimit: MAX_FILE_SIZE });
+    }
+    await adapter.uploadFile('branding', filePath, file, image.contentType);
   } catch (error) {
-    if (!isSupaCloudApiError(error, [404])) throw error;
-    await adapter.createStorageBucket('branding', { public: true, fileSizeLimit: MAX_FILE_SIZE });
+    if (isSupaCloudApiError(error) || error instanceof TypeError) {
+      throw new ApiContractError(
+        503,
+        'branding_storage_unavailable',
+        'Branding storage is unavailable. Ask an administrator to check the Storage deployment.',
+      );
+    }
+    throw error;
   }
-  await adapter.uploadFile('branding', filePath, file, image.contentType);
   return adapter.getPublicUrl('branding', filePath);
 }
 

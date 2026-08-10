@@ -133,12 +133,24 @@ describe('branding upload route', () => {
     expect(uploadFile).toHaveBeenCalledTimes(1);
   });
 
+  test('returns a structured service-unavailable response when bucket creation is unavailable', async () => {
+    getStorageBucket.mockRejectedValueOnce(new MockSupaCloudApiError(404));
+    createStorageBucket.mockRejectedValueOnce(new MockSupaCloudApiError(404));
+
+    const response = await app.handle(brandingUploadRequest('logo'));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'branding_storage_unavailable' });
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
+
   test('propagates non-not-found bucket failures without attempting creation', async () => {
     getStorageBucket.mockRejectedValueOnce(new MockSupaCloudApiError(503));
 
     const response = await app.handle(brandingUploadRequest('logo'));
 
     expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'branding_storage_unavailable' });
     expect(createStorageBucket).not.toHaveBeenCalled();
     expect(uploadFile).not.toHaveBeenCalled();
   });

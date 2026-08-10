@@ -89,6 +89,32 @@ describe('SupaCloudAdapter contract', () => {
     }
   });
 
+  it('preserves Storage create and upload failures in the adapter error contract', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url).pathname;
+      return new Response(path.includes('/object/') ? 'upload unavailable' : 'route unavailable', {
+        status: path.includes('/object/') ? 503 : 404,
+      });
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await expect(adapter.createStorageBucket('branding')).rejects.toMatchObject({
+        status: 404,
+        body: 'route unavailable',
+        path: '/storage/v1/bucket',
+      });
+      await expect(adapter.uploadFile('branding', 'logo/image.png', new Blob(['asset']), 'image/png')).rejects.toMatchObject({
+        status: 503,
+        body: 'upload unavailable',
+        path: '/storage/v1/object/branding/logo/image.png',
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('uses the canonical project auth-hook configuration contract', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ method: string; path: string; body?: string }> = [];
