@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { resolve } from "$app/paths";
   import { t } from "$lib/i18n.js";
   import RequestState from "$lib/components/RequestState.svelte";
@@ -68,6 +68,8 @@
   let organizationSearch = $state("");
   let userTargetSearch = $state("");
   let organizationTargetSearch = $state("");
+  let userTargetResultsVisible = $state(false);
+  let organizationTargetResultsVisible = $state(false);
   let userTargetPage = $state(1);
   let organizationTargetPage = $state(1);
   let userTargetTotal = $state(0);
@@ -78,6 +80,7 @@
   let userTargetError = $state(null);
   let applicationTargetError = $state(null);
   let organizationTargetError = $state(null);
+  let roleListElement = $state(null);
   const targetRequests = createLatestRequestTracker();
   const TARGET_PAGE_LIMIT = 25;
   const targetLoadError = $derived(
@@ -175,11 +178,7 @@
 
   function roleMatches(role, term) {
     if (!term) return true;
-    const haystack = [
-      role.name,
-      role.description,
-      ...permissionsOf(role).flatMap((p) => [p.name, p.description]),
-    ]
+    const haystack = [role.name, role.description]
       .map(normalizeText)
       .join(" ");
     return haystack.includes(term);
@@ -335,17 +334,20 @@
     if (saving) return;
     assignmentForm = { ...assignmentForm, targetId: id };
     targetSearch = "";
+    userTargetResultsVisible = false;
   }
 
   function clearOrganization() {
     if (saving) return;
     assignmentForm = { ...assignmentForm, organizationId: "" };
+    organizationTargetResultsVisible = false;
   }
 
   function chooseOrganization(id) {
     if (saving) return;
     assignmentForm = { ...assignmentForm, organizationId: id };
     organizationSearch = "";
+    organizationTargetResultsVisible = false;
   }
 
   function assignmentIdOf(assignment) {
@@ -601,12 +603,14 @@
   function applyUserTargetSearch(event) {
     event.preventDefault();
     userTargetSearch = targetSearch.trim();
+    userTargetResultsVisible = true;
     void loadUserTargets(currentPageLoadContext());
   }
 
   function applyOrganizationTargetSearch(event) {
     event.preventDefault();
     organizationTargetSearch = organizationSearch.trim();
+    organizationTargetResultsVisible = true;
     void loadOrganizationTargets(currentPageLoadContext());
   }
 
@@ -778,6 +782,12 @@
       role: existingRole.name,
     });
     await loadRoleAssignments(existingRole.id);
+    await tick();
+    const roleButton = roleListElement?.querySelector(
+      `[data-role-id="${CSS.escape(existingRole.id)}"]`,
+    );
+    roleButton?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    roleButton?.focus();
   }
 
   async function createTemplatePermissions(operation, template, roleId) {
@@ -1291,6 +1301,7 @@
 
   const targetOptions = $derived.by(() => {
     if (assignmentForm.targetType === "user") {
+      if (!userTargetResultsVisible) return [];
       return users
         .map((user) => ({ id: userId(user), label: userLabel(user) }))
         .filter((option) => option.id);
@@ -1311,12 +1322,12 @@
   });
 
   const organizationOptions = $derived.by(() =>
-    organizations
+    organizationTargetResultsVisible ? organizations
       .map((organization) => ({
         id: organizationId(organization),
         label: organizationLabel(organization),
       }))
-      .filter((option) => option.id),
+      .filter((option) => option.id) : [],
   );
 
   onMount(load);
@@ -1525,10 +1536,11 @@
           />
         </div>
 
-        <div class="max-h-[68vh] space-y-2 overflow-auto p-3">
+        <div bind:this={roleListElement} class="max-h-[68vh] space-y-2 overflow-auto p-3">
           {#each filteredRoles as role (role.id)}
             {@const risk = roleRisk(role)}
             <button
+              data-role-id={role.id}
               class="w-full rounded-2xl border p-4 text-left transition {selectedRole?.id ===
               role.id
                 ? 'border-brand-300 bg-brand-50 shadow-sm'
@@ -1907,7 +1919,9 @@
                 </div>
                 <a
                   href={assignmentAuditHref(selectedRole.id)}
-                  class="rounded-lg border border-surface-300 px-3 py-1.5 text-sm font-semibold text-surface-700 hover:bg-surface-50"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="shrink-0 whitespace-nowrap rounded-lg border border-surface-300 px-3 py-1.5 text-sm font-semibold text-surface-700 hover:bg-surface-50"
                   >{t("roles.viewAudit")}</a
                 >
               </div>

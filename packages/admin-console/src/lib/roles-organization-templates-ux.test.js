@@ -60,6 +60,21 @@ describe("Roles and organization templates UX", () => {
     expect(organizationTemplatesPage).toContain("!templateRoles.every(validTemplateRole)");
     expect(organizationTemplatesPage).toContain("!templateScopes.every(validTemplateScope)");
     expect(organizationTemplatesPage).toContain('t("orgTemplates.invalidInput")');
+    expect(organizationTemplatesPage).toContain("localizedBuiltIn(role.name");
+    expect(organizationTemplatesPage).toContain("localizedScopeDescription(scope)");
+  });
+
+  test("keeps role discovery and assignment searches predictable", () => {
+    expect(rolesPage).toContain("const haystack = [role.name, role.description]");
+    expect(rolesPage).toContain("data-role-id={role.id}");
+    expect(rolesPage).toContain("roleButton?.focus()");
+    expect(rolesPage).toContain("if (!userTargetResultsVisible) return []");
+    expect(rolesPage).toContain("organizationTargetResultsVisible ? organizations");
+    expect(rolesPage).toContain("userTargetResultsVisible = false");
+    expect(rolesPage).toContain("organizationTargetResultsVisible = false");
+    expect(rolesPage).toContain('target="_blank"');
+    expect(rolesPage).toContain("whitespace-nowrap");
+    expect(rolesPage).toContain("shrink-0 whitespace-nowrap");
   });
 
   test("rejects overlong names and blank permissions before template creation", () => {

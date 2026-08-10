@@ -181,6 +181,7 @@ const en = {
   "dashboard.userInfo": "UserInfo",
   "dashboard.discovery": "Discovery",
   "dashboard.supabaseCompatibility": "Supabase Compatibility",
+  "dashboard.viewCompatibilityDetails": "View compatibility details",
   "dashboard.checksPassed": "{passed}/{total} checks passed",
   "dashboard.supportedCapabilities": "Supported Capabilities",
   "dashboard.identityCapabilities": "Identity runtime capabilities",
@@ -476,6 +477,7 @@ const en = {
   "tenant.role.developer": "Developer",
   "tenant.role.admin": "Administrator",
   "tenant.role.owner": "Owner",
+  "tenant.role.member": "Member",
   "tenant.role.unknown": "Unknown role",
   "tenant.invitationStatus.pending": "Pending",
   "tenant.invitationStatus.accepted": "Accepted",
@@ -1266,6 +1268,7 @@ const zhCN = {
   "dashboard.userInfo": "用户信息",
   "dashboard.discovery": "发现文档",
   "dashboard.supabaseCompatibility": "Supabase 兼容性",
+  "dashboard.viewCompatibilityDetails": "查看 JWT Claims 与 Auth Hook 兼容性详情",
   "dashboard.checksPassed": "{passed}/{total} 项检查通过",
   "dashboard.supportedCapabilities": "支持能力",
   "dashboard.identityCapabilities": "身份运行时能力",
@@ -1544,6 +1547,7 @@ const zhCN = {
   "tenant.role.developer": "开发者",
   "tenant.role.admin": "管理员",
   "tenant.role.owner": "所有者",
+  "tenant.role.member": "成员",
   "tenant.role.unknown": "未知角色",
   "tenant.invitationStatus.pending": "待接受",
   "tenant.invitationStatus.accepted": "已接受",
@@ -2243,6 +2247,7 @@ const zhCN = {
   "I have reconciled the current connector list.":
     "我已核对当前连接器列表。",
   "Allow another connector factory create?": "允许再次通过工厂创建连接器？",
+  "I verified the list; allow another create": "我已核对列表，允许再次创建",
   "Connector creation could not be reconciled. Verify the current connector list before creating again.":
     "无法对账确认连接器创建结果，请先核对当前连接器列表再创建。",
   "Connector creation was verified but the reconciliation lock could not be cleared.":

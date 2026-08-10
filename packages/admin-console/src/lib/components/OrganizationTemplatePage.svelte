@@ -107,6 +107,29 @@
       : template.description;
   }
 
+  const BUILT_IN_ROLE_KEYS = {
+    owner: "tenant.role.owner",
+    admin: "tenant.role.admin",
+    member: "tenant.role.member",
+  };
+  const BUILT_IN_PERMISSION_KEYS = {
+    "organization.manage": "perm.organization.manage.label",
+    "organization.members.manage": "perm.organization.members.manage.label",
+    "organization.settings.manage": "perm.organization.settings.manage.label",
+    "resource.read": "perm.resource.read.label",
+    "resource.write": "perm.resource.write.label",
+  };
+
+  function localizedBuiltIn(value, keys) {
+    const key = keys[value];
+    return key ? t(key) : value;
+  }
+
+  function localizedScopeDescription(scope) {
+    const key = BUILT_IN_PERMISSION_KEYS[scope.name];
+    return key ? t(key.replace(/\.label$/, ".desc")) : scope.description;
+  }
+
   function organizationTemplateDraft() {
     const name = form.name.trim();
     const templateRoles = JSON.parse(form.template_roles || "[]");
@@ -341,10 +364,12 @@
                   {#each roles as role}
                     <div class="rounded-lg bg-surface-50 p-3">
                       <p class="text-sm font-medium text-surface-800">
-                        {role.name}
+                        {localizedBuiltIn(role.name, BUILT_IN_ROLE_KEYS)}
                       </p>
                       <p class="mt-1 break-words text-xs text-surface-500">
-                        {role.permissions.join(", ")}
+                        {role.permissions.map((permission) =>
+                          localizedBuiltIn(permission, BUILT_IN_PERMISSION_KEYS)
+                        ).join(", ")}
                       </p>
                     </div>
                   {/each}
@@ -364,11 +389,11 @@
                   {#each scopes as scope}
                     <div class="rounded-lg bg-surface-50 p-3">
                       <p class="text-sm font-medium text-surface-800">
-                        {scope.name}
+                        {localizedBuiltIn(scope.name, BUILT_IN_PERMISSION_KEYS)}
                       </p>
                       {#if scope.description}
                         <p class="mt-1 text-xs text-surface-500">
-                          {scope.description}
+                          {localizedScopeDescription(scope)}
                         </p>
                       {/if}
                     </div>

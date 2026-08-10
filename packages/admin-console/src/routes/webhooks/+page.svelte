@@ -315,6 +315,11 @@
     return deliveryId ? replayResourceId(whId, deliveryId) : "";
   }
 
+  function replayLastLocked(whId) {
+    const resourceId = replayResourceIdForLast(whId);
+    return resourceId ? webhookMutationLocked("replay", resourceId) : false;
+  }
+
   function webhookUnknownLocks(whId) {
     const actionLocks = WEBHOOK_ROW_ACTIONS.filter((action) =>
       webhookMutationLocked(action, whId),
@@ -1147,10 +1152,7 @@
             <fieldset
               class="contents"
               disabled={!mutationStorageReady ||
-                webhookMutationLocked(
-                  "replay",
-                  replayResourceIdForLast(wh.id),
-                )}
+                replayLastLocked(wh.id)}
             >
               <button
                 onclick={() => handleReplayLast(wh.id)}
