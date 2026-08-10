@@ -166,6 +166,7 @@ describe("remaining admin UI request coordination", () => {
     expect(creationBody).toContain("stageFactoryCreateLock()");
     expect(creationBody.match(/readConnectorList\(\)/g)).toHaveLength(2);
     expect(creationBody).toContain("mutationOutcomeUnknown(requestError)");
+    expect(creationBody).toContain('requestError?.code === "connector_runtime_unavailable"');
     expect(creationBody).toContain("reconciledFactoryConnector({");
     expect(pageSource).toContain("factoryCreateOutcomeUnknown}");
     expect(pageSource).toContain("creatingFactory || !mutationStorageReady");
@@ -181,6 +182,9 @@ describe("remaining admin UI request coordination", () => {
     const reloadBody = functionBody(pageSource, "reconcilePersistedToggleLocks");
 
     expect(toggleBody).toContain("connectorToggleOperations.begin(connector.id)");
+    expect(toggleBody.indexOf("connectorConfigurationRequired(connector)")).toBeLessThan(
+      toggleBody.indexOf("connectorToggleOperations.begin(connector.id)"),
+    );
     expect(toggleBody).toContain("stageConnectorToggleLock(connector.id)");
     expect(toggleBody).toContain("submitConnectorToggle(connector.id, expectedEnabled)");
     expect(toggleBody).toContain("reconcileSubmittedToggle(connector.id, expectedEnabled, operation)");
@@ -192,6 +196,7 @@ describe("remaining admin UI request coordination", () => {
     expect(reloadBody).toContain("state?.enabled === state?.provider_enabled");
     expect(pageSource).toContain('allowedActions: ["create", "toggle"]');
     expect(pageSource).toContain("connectorToggleLocked(connector.id)");
+    expect(pageSource).toContain('t("connector.configurationRequired")');
   });
 
   test("wires users rows, totals, errors, and loading to the current generation", async () => {
