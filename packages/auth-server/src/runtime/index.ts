@@ -87,6 +87,34 @@ async function fetchFirstRuntimeJson(path: string): Promise<RuntimeFetchResult> 
   throw new Error('Runtime fetch failed');
 }
 
+function jwksSigningAlgorithm(jwks: Record<string, unknown> | null): {
+  algorithm: string | null;
+  hasAlgorithms: boolean;
+} {
+  if (!jwks || !Array.isArray(jwks.keys)) return { algorithm: null, hasAlgorithms: false };
+  const algorithms = new Set<string>();
+  for (const candidate of jwks.keys) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const key = candidate as Record<string, unknown>;
+    if (key.use !== undefined && key.use !== 'sig') continue;
+    if (typeof key.alg === 'string' && key.alg.trim()) algorithms.add(key.alg.trim());
+  }
+  return {
+    algorithm: algorithms.size === 1 ? [...algorithms][0] : null,
+    hasAlgorithms: algorithms.size > 0,
+  };
+}
+
+function uniqueDiscoverySigningAlgorithm(discovery: Record<string, unknown>): string | null {
+  const algorithms = discovery.id_token_signing_alg_values_supported;
+  return Array.isArray(algorithms)
+    && algorithms.length === 1
+    && typeof algorithms[0] === 'string'
+    && algorithms[0].trim()
+    ? algorithms[0].trim()
+    : null;
+}
+
 export async function checkRuntimeHealth(): Promise<RuntimeHealth> {
   const health: RuntimeHealth = {
     discovery: false,
@@ -102,24 +130,25 @@ export async function checkRuntimeHealth(): Promise<RuntimeHealth> {
     const { json: disc, candidate } = await fetchFirstRuntimeJson('/.well-known/openid-configuration');
     health.discovery = true;
     health.issuer = (disc.issuer as string) || null;
-    const signingAlgs = disc.id_token_signing_alg_values_supported;
-    health.signing_alg = Array.isArray(signingAlgs) && signingAlgs.length > 0
-      ? String(signingAlgs[0])
-      : null;
+    let jwks: Record<string, unknown> | null = null;
 
     try {
-      await fetchJson(runtimeUrl(candidate, '/.well-known/jwks.json'));
+      jwks = await fetchJson(runtimeUrl(candidate, '/.well-known/jwks.json'));
       health.jwks = true;
     } catch {
       if (disc.jwks_uri) {
         try {
-          await fetchJson(disc.jwks_uri as string);
+          jwks = await fetchJson(disc.jwks_uri as string);
           health.jwks = true;
         } catch {
           health.jwks = false;
         }
       }
     }
+    const jwksAlgorithm = jwksSigningAlgorithm(jwks);
+    health.signing_alg = jwksAlgorithm.hasAlgorithms
+      ? jwksAlgorithm.algorithm
+      : uniqueDiscoverySigningAlgorithm(disc);
 
     health.authorize = !!disc.authorization_endpoint;
     health.token = !!disc.token_endpoint;
