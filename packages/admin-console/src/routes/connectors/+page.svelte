@@ -180,6 +180,11 @@
     return connectorToggleOperations.isPending(connectorId);
   }
 
+  function connectorConfigurationRequired(connector) {
+    return connector?.runtime_kind === "builtin_oauth" &&
+      connector?.configuration_required === true;
+  }
+
   function stageConnectorToggleLock(connectorId) {
     return updateMutationLocks(() =>
       connectorMutationLockStore.stage(
@@ -210,6 +215,9 @@
   }
 
   function connectorToggleFailure(requestError) {
+    if (requestError?.code === "connector_configuration_required") {
+      return t("connector.configurationRequired");
+    }
     if (requestError?.statusCode === 400) {
       return t("Connector status update was rejected. Refresh and review the connector settings.");
     }
@@ -239,6 +247,10 @@
 
   async function handleToggle(connector) {
     if (!mutationStorageReady || connectorToggleLocked(connector.id)) return;
+    if (!connector.enabled && connectorConfigurationRequired(connector)) {
+      error = t("connector.configurationRequired");
+      return;
+    }
     const operation = connectorToggleOperations.begin(connector.id);
     if (!operation) return;
     if (!stageConnectorToggleLock(connector.id)) {
@@ -370,6 +382,9 @@
     if (requestError?.statusCode === 400) {
       return t("Connector settings are invalid. Check the required fields and try again.");
     }
+    if (requestError?.code === "connector_runtime_unavailable") {
+      return t("connector.runtimeUnavailable");
+    }
     return t("Connector creation failed. Verify the authentication runtime capability and try again.");
   }
 
@@ -451,6 +466,9 @@
         );
         creationMayHaveCommitted = true;
       } catch (requestError) {
+        if (requestError?.code === "connector_runtime_unavailable") {
+          throw requestError;
+        }
         if (!mutationOutcomeUnknown(requestError)) throw requestError;
         creationMayHaveCommitted = true;
         creationInterrupted = true;
@@ -687,7 +705,11 @@
               disabled={!mutationStorageReady || connectorTogglePending(connector.id) || connectorToggleLocked(connector.id)}
               class="text-xs text-brand-600 hover:text-brand-800 disabled:text-surface-400"
             >
-              {connector.enabled ? t("Disable") : t("Enable")}
+              {connector.enabled
+                ? t("Disable")
+                : connectorConfigurationRequired(connector)
+                  ? t("connector.factory.configure")
+                  : t("Enable")}
             </button>
             {#if connector.enabled}
               <button
@@ -732,7 +754,11 @@
               disabled={!mutationStorageReady || connectorTogglePending(connector.id) || connectorToggleLocked(connector.id)}
               class="text-xs text-brand-600 hover:text-brand-800 disabled:text-surface-400"
             >
-              {connector.enabled ? t("Disable") : t("Enable")}
+              {connector.enabled
+                ? t("Disable")
+                : connectorConfigurationRequired(connector)
+                  ? t("connector.factory.configure")
+                  : t("Enable")}
             </button>
             {#if connector.enabled}
               <button

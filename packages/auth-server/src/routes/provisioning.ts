@@ -12,6 +12,69 @@ async function audit(eventType: string, resourceType: string, resourceId: string
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
+type ProvisioningResult = {
+  step: string;
+  status: 'completed' | 'failed';
+  details?: Record<string, unknown>;
+};
+
+function safeFailureDetails(error: unknown, extra?: Record<string, unknown>): Record<string, unknown> {
+  if (isSupaCloudApiError(error)) {
+    return {
+      ...extra,
+      error_code: 'supacloud_api_error',
+      upstream_status: error.status,
+    };
+  }
+  if (error instanceof TypeError) {
+    return { ...extra, error_code: 'upstream_connection_failed' };
+  }
+  return { ...extra, error_code: 'provisioning_step_failed' };
+}
+
+async function recordStepSafely(
+  projectRef: string,
+  result: ProvisioningResult,
+): Promise<ProvisioningResult> {
+  try {
+    await provRepo.recordStep(projectRef, {
+      step: result.step,
+      status: result.status,
+      details: result.details,
+    });
+    return result;
+  } catch {
+    return {
+      ...result,
+      status: 'failed',
+      details: {
+        ...result.details,
+        state_persistence: 'unavailable',
+      },
+    };
+  }
+}
+
+async function runProvisioningStep(input: {
+  projectRef: string;
+  step: string;
+  operation: () => Promise<Record<string, unknown> | void>;
+  failureContext?: () => Record<string, unknown>;
+}): Promise<ProvisioningResult> {
+  let result: ProvisioningResult;
+  try {
+    const details = await input.operation();
+    result = { step: input.step, status: 'completed', ...(details ? { details } : {}) };
+  } catch (error) {
+    result = {
+      step: input.step,
+      status: 'failed',
+      details: safeFailureDetails(error, input.failureContext?.()),
+    };
+  }
+  return recordStepSafely(input.projectRef, result);
+}
+
 /** Validate that a projectRef looks like a valid SupaCloud project ref. */
 function isValidProjectRef(ref: string): boolean {
   return /^[a-z0-9]{20,}$/.test(ref);
@@ -53,32 +116,27 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       };
     }
 
-    const results: Array<{ step: string; status: string; details?: Record<string, unknown> }> = [];
+    const results: ProvisioningResult[] = [];
 
-    // Step 1: DB migration
-    try {
-      for (const migration of HOSTED_MIGRATIONS) {
-        await adapter.runDatabaseMigration(migration.name, migration.sql);
-      }
-      await provRepo.recordStep(projectRef, { step: 'db_migration', status: 'completed' });
-      results.push({ step: 'db_migration', status: 'completed', details: { mode: 'supacloud-management-api' } });
-    } catch (e) {
-      await provRepo.recordStep(projectRef, { step: 'db_migration', status: 'failed', details: { error: (e as Error).message } });
-      results.push({ step: 'db_migration', status: 'failed', details: { error: (e as Error).message } });
-    }
+    let migrationName: string = HOSTED_MIGRATIONS[0]?.name || 'unknown';
+    results.push(await runProvisioningStep({
+      projectRef,
+      step: 'db_migration',
+      failureContext: () => ({ migration: migrationName }),
+      operation: async () => {
+        for (const migration of HOSTED_MIGRATIONS) {
+          migrationName = migration.name;
+          await adapter.runDatabaseMigration(migration.name, migration.sql);
+        }
+        return { mode: 'supacloud-management-api' };
+      },
+    }));
 
-    // Step 2: GoTrue config verification (scoped to projectRef)
-    try {
+    results.push(await runProvisioningStep({ projectRef, step: 'gotrue_config', operation: async () => {
       await adapter.getAuthConfig();
-      await provRepo.recordStep(projectRef, { step: 'gotrue_config', status: 'completed' });
-      results.push({ step: 'gotrue_config', status: 'completed' });
-    } catch (e) {
-      await provRepo.recordStep(projectRef, { step: 'gotrue_config', status: 'failed', details: { error: (e as Error).message } });
-      results.push({ step: 'gotrue_config', status: 'failed', details: { error: (e as Error).message } });
-    }
+    } }));
 
-    // Step 3: SupaCloud gateway routes verification (scoped to projectRef)
-    try {
+    results.push(await runProvisioningStep({ projectRef, step: 'supacloud_gateway_routes', operation: async () => {
       if (!targetInfo.runtimeProjectScoped) {
         throw new Error('Project-scoped runtime URL is not configured. Set SUPACLOUD_RUNTIME_URL_TEMPLATE with {projectRef} or use a default OAUTH_RUNTIME_URL containing PROJECT_REF.');
       }
@@ -86,15 +144,10 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       if (!verification.ok) {
         throw new Error(`Gateway route verification failed: ${JSON.stringify(verification.probes)}`);
       }
-      await provRepo.recordStep(projectRef, { step: 'supacloud_gateway_routes', status: 'completed' });
-      results.push({ step: 'supacloud_gateway_routes', status: 'completed', details: { probes: verification.probes } });
-    } catch (e) {
-      await provRepo.recordStep(projectRef, { step: 'supacloud_gateway_routes', status: 'failed', details: { error: (e as Error).message } });
-      results.push({ step: 'supacloud_gateway_routes', status: 'failed', details: { error: (e as Error).message } });
-    }
+      return { probes: verification.probes };
+    } }));
 
-    // Step 4: Storage buckets creation (scoped to projectRef)
-    try {
+    results.push(await runProvisioningStep({ projectRef, step: 'storage_buckets', operation: async () => {
       if (!targetInfo.storageProjectScoped) {
         throw new Error('Project-scoped storage URL is not configured. Set SUPACLOUD_STORAGE_URL_TEMPLATE with {projectRef} or use a default storage URL containing PROJECT_REF.');
       }
@@ -104,16 +157,20 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       try { await adapter.createStorageBucket('branding', { public: true }); } catch (error) {
         if (!isSupaCloudApiError(error, [409])) throw error;
       }
-      await provRepo.recordStep(projectRef, { step: 'storage_buckets', status: 'completed' });
-      results.push({ step: 'storage_buckets', status: 'completed' });
-    } catch (e) {
-      await provRepo.recordStep(projectRef, { step: 'storage_buckets', status: 'failed', details: { error: (e as Error).message } });
-      results.push({ step: 'storage_buckets', status: 'failed', details: { error: (e as Error).message } });
+    } }));
+
+    try {
+      await audit('provisioning.reconcile', 'project', projectRef, { results, adapter_ref: adapterRef, target: targetInfo });
+    } catch {
+      // Audit persistence must not replace the structured provisioning result.
     }
 
-    await audit('provisioning.reconcile', 'project', projectRef, { results, adapter_ref: adapterRef, target: targetInfo });
-
-    const fullyProvisioned = await provRepo.isProjectFullyProvisioned(projectRef);
+    let fullyProvisioned = false;
+    try {
+      fullyProvisioned = await provRepo.isProjectFullyProvisioned(projectRef);
+    } catch {
+      fullyProvisioned = false;
+    }
     return { project_ref: projectRef, results, fully_provisioned: fullyProvisioned };
   }, {
     detail: {
