@@ -98,12 +98,13 @@ describe('SupaCloudAdapter contract', () => {
     }
   });
 
-  it('preserves an explicitly configured Storage URL', () => {
+  it('preserves an explicitly configured Storage URL when the runtime has a template', () => {
     process.env.OAUTH_RUNTIME_URL = 'https://runtime.example.test/auth/v1';
+    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test/auth/v1';
     process.env.SUPACLOUD_STORAGE_URL = 'https://storage.example.test/gateway';
     loadConfig();
 
-    const adapter = new SupaCloudAdapter();
+    const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
 
     expect(adapter.getTargetInfo().storageUrl).toBe('https://storage.example.test/gateway');
   });
@@ -723,6 +724,7 @@ describe('SupaCloudAdapter contract', () => {
   it('derives project-scoped runtime and storage URLs from templates', () => {
     process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test';
     process.env.SUPACLOUD_STORAGE_URL_TEMPLATE = 'https://{projectRef}.storage.example.test';
+    process.env.SUPACLOUD_STORAGE_URL = 'https://default.storage.example.test';
     loadConfig();
 
     const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
