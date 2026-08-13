@@ -378,18 +378,22 @@ export class SupaCloudAdapter {
     this.masterToken = config.supacloudMasterToken;
     // Per-instance projectRef: explicit override > env default
     this.projectRef = options?.projectRef || config.projectRef;
+    const runtimeTemplate = process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE;
 
     const runtimeTarget = resolveProjectUrl({
       explicitUrl: options?.runtimeUrl,
       baseUrl: config.oauthRuntimeUrl,
-      template: process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE,
+      template: runtimeTemplate,
       defaultProjectRef: config.projectRef,
       targetProjectRef: this.projectRef,
     });
+    const configuredStorageUrl = process.env.SUPACLOUD_STORAGE_URL;
+    const configuredStorageTemplate = process.env.SUPACLOUD_STORAGE_URL_TEMPLATE;
+    const fallbackStorageTemplate = runtimeTemplate ? storageFallbackUrl(runtimeTemplate) : undefined;
     const storageTarget = resolveProjectUrl({
       explicitUrl: options?.storageUrl,
-      baseUrl: process.env.SUPACLOUD_STORAGE_URL || config.oauthRuntimeUrl,
-      template: process.env.SUPACLOUD_STORAGE_URL_TEMPLATE || process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE,
+      baseUrl: configuredStorageUrl || storageFallbackUrl(config.oauthRuntimeUrl),
+      template: configuredStorageTemplate || fallbackStorageTemplate,
       defaultProjectRef: config.projectRef,
       targetProjectRef: this.projectRef,
     });
@@ -1443,6 +1447,10 @@ function auditDownloadResponse(response: Response): Response {
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
+}
+
+function storageFallbackUrl(runtimeUrl: string): string {
+  return trimTrailingSlash(runtimeUrl).replace(/\/auth\/v1$/, '');
 }
 
 function resolveProjectUrl(input: {
