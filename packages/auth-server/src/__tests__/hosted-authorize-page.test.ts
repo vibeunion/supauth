@@ -441,7 +441,10 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('function showSignedOutState()');
       expect(body).toContain('function resetAccountView()');
       expect(body).toContain('class="account-section-card active"');
-      expect(body).toContain('<section class="account-section-grid" aria-label="Account center sections" hidden>');
+      expect(body).toContain('<section class="account-section-grid" aria-label="账户中心功能区" hidden>');
+      expect(body).toContain('<img id="totp-qr" class="mfa-qr" alt="Authenticator 二维码" hidden>');
+      expect(body).not.toContain('Account center sections');
+      expect(body).not.toContain('Authenticator QR code');
       expect(body).toContain('<form id="profile-form" class="profile-form" hidden>');
       expect(body).toContain('<form id="email-form" class="inline-form" hidden>');
       expect(body).toContain('<form id="phone-form" class="inline-form" hidden>');
