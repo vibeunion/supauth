@@ -618,22 +618,55 @@ function functionBundleFiles(functionBundlePath: string, adminStaticDirPath: str
   return files;
 }
 
+function functionListEntry(entry: unknown) {
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    throw new Error('SupaCloud Function list response entries must be objects');
+  }
+  if (typeof (entry as { slug?: unknown }).slug !== 'string') {
+    throw new Error('SupaCloud Function list response entry slug must be a string');
+  }
+  return entry as { slug: string; version?: unknown };
+}
+
+function expectedActiveFunctionVersion(functions: unknown) {
+  if (!Array.isArray(functions)) throw new Error('SupaCloud Function list response must be an array');
+  const matchingFunctions = functions.map(functionListEntry).filter(({ slug }) => slug === 'supauth');
+  if (matchingFunctions.length > 1) {
+    throw new Error('SupaCloud Function list response contains duplicate supauth entries');
+  }
+  if (matchingFunctions.length === 0) return 'absent';
+
+  const version = matchingFunctions[0].version;
+  if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 0) {
+    throw new Error('SupaCloud Function supauth version must be a non-negative safe integer');
+  }
+  return String(version);
+}
+
 async function deployFunction(input: {
   client: SupacloudClient;
   projectRef: string;
   files: Record<string, string>;
 }) {
+  const functionsResponse = await input.client.request(`/v1/projects/${input.projectRef}/functions`);
+  let functions: unknown;
+  try {
+    functions = await functionsResponse.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error('SupaCloud Function list response must be valid JSON');
+    throw error;
+  }
+  const expectedActiveVersion = expectedActiveFunctionVersion(functions);
+
   await input.client.request(`/v1/projects/${input.projectRef}/functions/supauth/bundle`, {
     method: 'POST',
     body: JSON.stringify({
       files: input.files,
       entrypoint: 'index.ts',
       minify: false,
+      expected_active_version: expectedActiveVersion,
+      verify_jwt: false,
     }),
-  });
-  await input.client.request(`/v1/projects/${input.projectRef}/functions/supauth/config`, {
-    method: 'PATCH',
-    body: JSON.stringify({ verify_jwt: false }),
   });
 }
 
