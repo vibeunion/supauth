@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.7.0](https://github.com/zuohuadong/supauth/compare/admin-console-v0.6.2...admin-console-v0.7.0) (2026-08-13)
+
+
+### Features
+
+* **compat:** support GoTrue v2.195 runtime contracts ([139d05c](https://github.com/zuohuadong/supauth/commit/139d05c98b8d378ae47851e9d39bb01cc7bb0077))
+* **compat:** validate GoTrue v2.195 runtime contracts ([5992eef](https://github.com/zuohuadong/supauth/commit/5992eeff1aa3b39748ae2db7850bb90fdc998cad))
+
+
+### Bug Fixes
+
+* **account:** handle banned GoTrue users safely ([0002850](https://github.com/zuohuadong/supauth/commit/00028505e9efd3d450689dec2a007c6b4dd828cd))
+* **admin:** refine branding and connector feedback ([#58](https://github.com/zuohuadong/supauth/issues/58)) ([7f9aaaa](https://github.com/zuohuadong/supauth/commit/7f9aaaa467373fa8f5bba8caafd1e8436325c8f1))
+* **admin:** resolve CNB UX regressions ([eba69e5](https://github.com/zuohuadong/supauth/commit/eba69e58a18df8276912a4125551881aa4a111a7))
+* **admin:** resolve CNB UX regressions ([3662025](https://github.com/zuohuadong/supauth/commit/3662025285c23c8dbc7b806d929b123dbbd7c039))
+* **auth-hooks:** normalize signing secrets ([e324a89](https://github.com/zuohuadong/supauth/commit/e324a8978bbb70be8a66e25e2172976bf7de040c))
+* **auth-hooks:** normalize signing secrets ([d3d430c](https://github.com/zuohuadong/supauth/commit/d3d430c5d98b175d53c7133ddc1cbc1fbf8fef5f))
+* **connectors:** enforce runtime configuration ([9f71d2b](https://github.com/zuohuadong/supauth/commit/9f71d2bdccb1bddadc976150d99be0fbfe50e158))
+* **connectors:** enforce runtime configuration ([b6ae620](https://github.com/zuohuadong/supauth/commit/b6ae62094003e18d2204128d2426bfe4977f036a))
+* **provisioning:** preserve structured failures ([58c742d](https://github.com/zuohuadong/supauth/commit/58c742df2cefbd2cc825cb54079d06ab14c1ac7c))
+* **provisioning:** preserve structured failures ([03d9901](https://github.com/zuohuadong/supauth/commit/03d9901351aec1f70d42686cbf4689f6ff4a1a76))
+* **storage:** degrade branding uploads safely ([6fb46c9](https://github.com/zuohuadong/supauth/commit/6fb46c98ae5cbfcc1fa245e3a874d90d62f85ca9))
+* **storage:** degrade branding uploads safely ([8b9f4b0](https://github.com/zuohuadong/supauth/commit/8b9f4b0d84615ede969f1f1ea4107d23c7b6026f))
+
 ## [0.6.2](https://github.com/zuohuadong/supauth/compare/admin-console-v0.6.1...admin-console-v0.6.2) (2026-08-07)
 
 

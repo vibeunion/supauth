@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.8.0](https://github.com/zuohuadong/supauth/compare/auth-server-v0.7.2...auth-server-v0.8.0) (2026-08-13)
+
+
+### Features
+
+* **compat:** support GoTrue v2.195 runtime contracts ([139d05c](https://github.com/zuohuadong/supauth/commit/139d05c98b8d378ae47851e9d39bb01cc7bb0077))
+* **compat:** validate GoTrue v2.195 runtime contracts ([5992eef](https://github.com/zuohuadong/supauth/commit/5992eeff1aa3b39748ae2db7850bb90fdc998cad))
+
+
+### Bug Fixes
+
+* **account:** handle banned GoTrue users safely ([0002850](https://github.com/zuohuadong/supauth/commit/00028505e9efd3d450689dec2a007c6b4dd828cd))
+* **admin:** refine branding and connector feedback ([#58](https://github.com/zuohuadong/supauth/issues/58)) ([7f9aaaa](https://github.com/zuohuadong/supauth/commit/7f9aaaa467373fa8f5bba8caafd1e8436325c8f1))
+* **auth:** report active signing algorithm ([#66](https://github.com/zuohuadong/supauth/issues/66)) ([78b8e4a](https://github.com/zuohuadong/supauth/commit/78b8e4ae9ceb39091931dcce0d499887ca959eef))
+* **connectors:** enforce runtime configuration ([9f71d2b](https://github.com/zuohuadong/supauth/commit/9f71d2bdccb1bddadc976150d99be0fbfe50e158))
+* **connectors:** enforce runtime configuration ([b6ae620](https://github.com/zuohuadong/supauth/commit/b6ae62094003e18d2204128d2426bfe4977f036a))
+* **provisioning:** preserve structured failures ([58c742d](https://github.com/zuohuadong/supauth/commit/58c742df2cefbd2cc825cb54079d06ab14c1ac7c))
+* **provisioning:** preserve structured failures ([03d9901](https://github.com/zuohuadong/supauth/commit/03d9901351aec1f70d42686cbf4689f6ff4a1a76))
+* **storage:** degrade branding uploads safely ([6fb46c9](https://github.com/zuohuadong/supauth/commit/6fb46c98ae5cbfcc1fa245e3a874d90d62f85ca9))
+* **storage:** degrade branding uploads safely ([8b9f4b0](https://github.com/zuohuadong/supauth/commit/8b9f4b0d84615ede969f1f1ea4107d23c7b6026f))
+* **storage:** normalize runtime fallback URL ([#67](https://github.com/zuohuadong/supauth/issues/67)) ([4d37b42](https://github.com/zuohuadong/supauth/commit/4d37b425c03e3812584e2402115e831502da3c9c))
+* **storage:** preserve explicit URL priority ([#68](https://github.com/zuohuadong/supauth/issues/68)) ([245bd09](https://github.com/zuohuadong/supauth/commit/245bd090e14b71635b1d0c676e62e8715e59526b))
+
 ## [0.7.2](https://github.com/zuohuadong/supauth/compare/auth-server-v0.7.1...auth-server-v0.7.2) (2026-08-07)
 
 
