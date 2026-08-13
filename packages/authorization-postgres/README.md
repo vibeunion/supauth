@@ -28,10 +28,22 @@ For this breaking upgrade, first apply an immutable application migration that c
 
 The helper uses signed JWT identity (`iss`, `sub`) and always treats the application ID embedded in the authorization-schema installation as the membership boundary. Callers cannot select or override it. A native SupaCloud/GoTrue token does not need an application claim. If the signed token does contain OAuth `client_id` or `app_metadata.authorization_context.application_id`, that value must exactly match the installed application ID or the helper returns an empty scope set. `client_id` takes precedence whenever its key is present; an empty or JSON `null` value is present-but-invalid and cannot fall back to `app_metadata`.
 
+Applications that require an OAuth client boundary can opt in when generating the installation SQL:
+
+```ts
+generateAuthorizationSchemaSql({
+  schema: 'application_authorization',
+  applicationId: 'your-oauth-client-id',
+  requireOAuthApplicationClaim: true,
+});
+```
+
+In this strict mode, the signed JWT must contain a root `client_id` or `azp` claim. Every one of those claims that is present must be a JSON string and exactly match the installed application ID, so conflicting claims fail closed. A matching `app_metadata.authorization_context.application_id` cannot replace the required root OAuth claim. The option defaults to `false`, preserving the native-token behavior above.
+
 This makes one preset usable in both modes:
 
 - Native SupaCloud/GoTrue users rely on verified `iss` and `sub`, plus the authorization schema's static application ID.
-- SupAuth/OAuth users get the same membership boundary plus strict token-to-schema application consistency.
+- SupAuth/OAuth users can require strict root `client_id`/`azp` token-to-schema application consistency.
 
 Only claims returned by `auth.jwt()` are read. User principals always bind to the signed root `sub`; an `app_metadata` subject cannot replace a user's identity. Service principals must place both their distinct `kind: "service"` and a non-blank `subject` under signed `app_metadata.authorization_context`; a missing or whitespace-only service subject fails closed instead of falling back to `sub`. `user_metadata` and JWT headers are never authorization inputs. Supabase `service_role` bypasses RLS by default; service principals that must be policy-isolated need a non-bypass signed JWT and must not reuse the `service_role` credential.
 

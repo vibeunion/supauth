@@ -36,6 +36,7 @@ describe('@supauth/authorization-postgres', () => {
     expect(sql).not.toContain('requested_application_id');
     expect(sql).not.toContain('permission_grant.application_id = current_principal.application_id');
     expect(sql).not.toContain('user_metadata');
+    expect(sql).not.toContain("claims ? 'azp'");
     expect(sql.match(/"auth"\."jwt"\(\)/g)).toHaveLength(1);
     expect(sql).toContain('REVOKE ALL ON SCHEMA "fa_authorization" FROM PUBLIC');
     expect(sql).toContain('GRANT USAGE ON SCHEMA "fa_authorization" TO authenticated');
@@ -46,6 +47,34 @@ describe('@supauth/authorization-postgres', () => {
     expect(sql).toContain('REVOKE ALL ON FUNCTION "fa_authorization".authorization_allowed_scope_ids(TEXT, TEXT) FROM PUBLIC');
     expect(sql).toContain('FROM anon');
     expect(sql).toContain('TO authenticated');
+  });
+
+  it('generates opt-in strict OAuth application binding without metadata fallback', () => {
+    const sql = generateAuthorizationSchemaSql({
+      schema: 'fa_authorization',
+      applicationId: 'xigu-fa',
+      requireOAuthApplicationClaim: true,
+    });
+
+    expect(sql).toContain("claims ? 'client_id' AS has_client_id_claim");
+    expect(sql).toContain("jsonb_typeof(claims -> 'client_id') AS client_id_type");
+    expect(sql).toContain("claims ? 'azp' AS has_azp_claim");
+    expect(sql).toContain("jsonb_typeof(claims -> 'azp') AS azp_type");
+    expect(sql).toContain('(current_principal.has_client_id_claim OR current_principal.has_azp_claim)');
+    expect(sql).toContain("current_principal.client_id_type = 'string'");
+    expect(sql).toContain("current_principal.client_id = 'xigu-fa'");
+    expect(sql).toContain("current_principal.azp_type = 'string'");
+    expect(sql).toContain("current_principal.azp = 'xigu-fa'");
+    expect(sql).not.toContain('token_application_id');
+    expect(sql).not.toContain('has_token_application_claim');
+    expect(sql).not.toContain("authorization_context') ? 'application_id'");
+  });
+
+  it('keeps explicit compatibility mode identical to the default', () => {
+    const options = { schema: 'fa_authorization', applicationId: 'xigu-fa' } as const;
+
+    expect(generateAuthorizationSchemaSql({ ...options, requireOAuthApplicationClaim: false }))
+      .toBe(generateAuthorizationSchemaSql(options));
   });
 
   it('generates a read-only projection preflight with stable machine-readable violations', () => {
@@ -98,6 +127,11 @@ describe('@supauth/authorization-postgres', () => {
       schema: 'fa_authorization',
       applicationId: 'xigu fa',
     })).toThrow(TypeError);
+    expect(() => generateAuthorizationSchemaSql({
+      schema: 'fa_authorization',
+      applicationId: 'xigu-fa',
+      requireOAuthApplicationClaim: 'yes' as unknown as boolean,
+    })).toThrow('requireOAuthApplicationClaim must be a boolean');
     expect(() => generateRlsPoliciesSql({
       schema: 'fa_authorization',
       tableSchema: 'public',
@@ -125,6 +159,36 @@ describe('@supauth/authorization-postgres', () => {
       domainType: 'organization',
       policies: [{ command: 'truncate' as 'select', usingPermission: 'invoice:read' }],
     })).toThrow(TypeError);
+  });
+
+  it('escapes quotes in the installed application ID', () => {
+    const sql = generateAuthorizationSchemaSql({
+      schema: 'fa_authorization',
+      applicationId: "xigu'fa",
+      requireOAuthApplicationClaim: true,
+    });
+
+    expect(sql).toContain("permission_grant.application_id = 'xigu''fa'");
+    expect(sql).toContain("current_principal.client_id = 'xigu''fa'");
+    expect(sql).toContain("current_principal.azp = 'xigu''fa'");
+  });
+
+  it('preserves dollar replacement patterns in the installed application ID', () => {
+    const applicationIds = ['client-$&-id', 'client-$$-id', 'client-$`-id', "client-$'-id"];
+
+    for (const applicationId of applicationIds) {
+      const sql = generateAuthorizationSchemaSql({
+        schema: 'fa_authorization',
+        applicationId,
+        requireOAuthApplicationClaim: true,
+      });
+      const escapedApplicationId = applicationId.replace(/'/g, "''");
+
+      expect(sql).toContain(`permission_grant.application_id = '${escapedApplicationId}'`);
+      expect(sql).toContain(`current_principal.client_id = '${escapedApplicationId}'`);
+      expect(sql).toContain(`current_principal.azp = '${escapedApplicationId}'`);
+      expect(sql).not.toContain('{{installedApplicationId}}');
+    }
   });
 
   it('generates separate legacy cleanup SQL for post-policy migration', () => {

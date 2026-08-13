@@ -15,8 +15,10 @@ import {
 
 const DATABASE_URL = process.env.AUTHORIZATION_POSTGRES_URL || '';
 const AUTHORIZATION_SCHEMA = 'authorization_test_rbac';
+const STRICT_AUTHORIZATION_SCHEMA = 'authorization_test_rbac_strict';
 const SOURCE_SCHEMA = 'authorization_test_source';
 const DATA_SCHEMA = 'authorization_test_data';
+const STRICT_DATA_SCHEMA = 'authorization_test_data_strict';
 const ISSUER = 'https://tenant.example.test/auth/v1';
 const APPLICATION_ID = 'xigu-fa';
 
@@ -50,7 +52,8 @@ const nativeClaims = {
 
 async function seedAuthorizationState(): Promise<void> {
   await sql.unsafe(`
-    TRUNCATE ${SOURCE_SCHEMA}.memberships, ${SOURCE_SCHEMA}.role_assignments, ${DATA_SCHEMA}.invoices;
+    TRUNCATE ${SOURCE_SCHEMA}.memberships, ${SOURCE_SCHEMA}.role_assignments,
+      ${DATA_SCHEMA}.invoices, ${STRICT_DATA_SCHEMA}.invoices;
 
     INSERT INTO ${SOURCE_SCHEMA}.memberships (
       membership_key,
@@ -78,6 +81,10 @@ async function seedAuthorizationState(): Promise<void> {
       ('invoice-a', 'org-a'),
       ('invoice-b', 'org-b'),
       ('invoice-c', 'org-c');
+    INSERT INTO ${STRICT_DATA_SCHEMA}.invoices (id, organization_id) VALUES
+      ('invoice-a', 'org-a'),
+      ('invoice-b', 'org-b'),
+      ('invoice-c', 'org-c');
   `);
 }
 
@@ -97,6 +104,17 @@ async function visibleInvoiceIds(claims: Record<string, unknown>): Promise<strin
     const rows = await transaction<{ id: string }[]>`
       SELECT id
       FROM authorization_test_data.invoices
+      ORDER BY id
+    `;
+    return rows.map(row => row.id);
+  });
+}
+
+async function visibleStrictInvoiceIds(claims: Record<string, unknown>): Promise<string[]> {
+  return withClaims(claims, async transaction => {
+    const rows = await transaction<{ id: string }[]>`
+      SELECT id
+      FROM authorization_test_data_strict.invoices
       ORDER BY id
     `;
     return rows.map(row => row.id);
@@ -136,8 +154,10 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
       END $$;
 
       DROP SCHEMA IF EXISTS ${AUTHORIZATION_SCHEMA} CASCADE;
+      DROP SCHEMA IF EXISTS ${STRICT_AUTHORIZATION_SCHEMA} CASCADE;
       DROP SCHEMA IF EXISTS ${SOURCE_SCHEMA} CASCADE;
       DROP SCHEMA IF EXISTS ${DATA_SCHEMA} CASCADE;
+      DROP SCHEMA IF EXISTS ${STRICT_DATA_SCHEMA} CASCADE;
 
       CREATE SCHEMA IF NOT EXISTS auth;
       CREATE OR REPLACE FUNCTION auth.jwt()
@@ -150,8 +170,10 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
       $$;
 
       CREATE SCHEMA ${AUTHORIZATION_SCHEMA};
+      CREATE SCHEMA ${STRICT_AUTHORIZATION_SCHEMA};
       CREATE SCHEMA ${SOURCE_SCHEMA};
       CREATE SCHEMA ${DATA_SCHEMA};
+      CREATE SCHEMA ${STRICT_DATA_SCHEMA};
 
       CREATE TABLE ${SOURCE_SCHEMA}.memberships (
         membership_key TEXT PRIMARY KEY,
@@ -207,6 +229,9 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
           ON role_permission.role_key = assignment.role_key
         WHERE assignment.active;
 
+      CREATE VIEW ${STRICT_AUTHORIZATION_SCHEMA}.effective_permission_grants AS
+        SELECT * FROM ${AUTHORIZATION_SCHEMA}.effective_permission_grants;
+
       INSERT INTO ${SOURCE_SCHEMA}.role_permissions (role_key, permission_name) VALUES
         ('invoice-operator', 'invoice:read'),
         ('invoice-operator', 'invoice:create'),
@@ -217,11 +242,18 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
         id TEXT PRIMARY KEY,
         organization_id TEXT NOT NULL
       );
+      CREATE TABLE ${STRICT_DATA_SCHEMA}.invoices (
+        id TEXT PRIMARY KEY,
+        organization_id TEXT NOT NULL
+      );
       GRANT USAGE ON SCHEMA ${DATA_SCHEMA} TO authenticated;
+      GRANT USAGE ON SCHEMA ${STRICT_DATA_SCHEMA} TO authenticated;
       GRANT SELECT, INSERT, UPDATE, DELETE ON ${DATA_SCHEMA}.invoices TO authenticated;
+      GRANT SELECT ON ${STRICT_DATA_SCHEMA}.invoices TO authenticated;
     `);
 
     await expect(projectionViolationRules(AUTHORIZATION_SCHEMA)).resolves.toEqual([]);
+    await expect(projectionViolationRules(STRICT_AUTHORIZATION_SCHEMA)).resolves.toEqual([]);
     await sql.unsafe(generateAuthorizationSchemaSql({
       schema: AUTHORIZATION_SCHEMA,
       applicationId: APPLICATION_ID,
@@ -240,14 +272,30 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
         { command: 'delete', usingPermission: 'invoice:delete' },
       ],
     }));
+    await sql.unsafe(generateAuthorizationSchemaSql({
+      schema: STRICT_AUTHORIZATION_SCHEMA,
+      applicationId: APPLICATION_ID,
+      requireOAuthApplicationClaim: true,
+    }));
+    await sql.unsafe(generateRlsPoliciesSql({
+      schema: STRICT_AUTHORIZATION_SCHEMA,
+      tableSchema: STRICT_DATA_SCHEMA,
+      table: 'invoices',
+      domainColumn: 'organization_id',
+      domainIdType: 'text',
+      domainType: 'organization',
+      policies: [{ command: 'select', usingPermission: 'invoice:read' }],
+    }));
   });
 
   afterAll(async () => {
     if (!sql) return;
     await sql.unsafe(`
       DROP SCHEMA IF EXISTS ${AUTHORIZATION_SCHEMA} CASCADE;
+      DROP SCHEMA IF EXISTS ${STRICT_AUTHORIZATION_SCHEMA} CASCADE;
       DROP SCHEMA IF EXISTS ${SOURCE_SCHEMA} CASCADE;
       DROP SCHEMA IF EXISTS ${DATA_SCHEMA} CASCADE;
+      DROP SCHEMA IF EXISTS ${STRICT_DATA_SCHEMA} CASCADE;
     `);
     await sql.end();
   });
@@ -256,6 +304,8 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
 
   test('native GoTrue token without an application claim uses the authorization-schema application boundary', async () => {
     await expect(visibleInvoiceIds(nativeClaims)).resolves.toEqual(['invoice-a']);
+    await expect(visibleInvoiceIds({ ...nativeClaims, azp: 'other-application' }))
+      .resolves.toEqual(['invoice-a']);
   });
 
   test('matching OAuth client_id and signed app_metadata application claims are accepted', async () => {
@@ -289,6 +339,46 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
       client_id: null,
       app_metadata: { authorization_context: { application_id: APPLICATION_ID } },
     })).resolves.toEqual([]);
+  });
+
+  test('strict OAuth binding requires a matching root client_id or azp claim', async () => {
+    await expect(visibleStrictInvoiceIds(nativeClaims)).resolves.toEqual([]);
+    await expect(visibleStrictInvoiceIds({ ...nativeClaims, client_id: APPLICATION_ID }))
+      .resolves.toEqual(['invoice-a']);
+    await expect(visibleStrictInvoiceIds({ ...nativeClaims, azp: APPLICATION_ID }))
+      .resolves.toEqual(['invoice-a']);
+    await expect(visibleStrictInvoiceIds({
+      ...nativeClaims,
+      client_id: APPLICATION_ID,
+      azp: APPLICATION_ID,
+    })).resolves.toEqual(['invoice-a']);
+    await expect(visibleStrictInvoiceIds({
+      ...nativeClaims,
+      app_metadata: { authorization_context: { application_id: APPLICATION_ID } },
+    })).resolves.toEqual([]);
+  });
+
+  test('strict OAuth binding rejects mismatched, conflicting, and malformed claims', async () => {
+    const deniedClaims: Array<Record<string, unknown>> = [
+      { client_id: 'other-application' },
+      { azp: 'other-application' },
+      { client_id: APPLICATION_ID, azp: 'other-application' },
+      { client_id: 'other-application', azp: APPLICATION_ID },
+      { client_id: '' },
+      { azp: '' },
+      { client_id: null },
+      { azp: null },
+      { client_id: null, azp: APPLICATION_ID },
+      { client_id: APPLICATION_ID, azp: null },
+      { client_id: 42 },
+      { azp: { application_id: APPLICATION_ID } },
+      { client_id: [APPLICATION_ID], azp: APPLICATION_ID },
+    ];
+
+    for (const applicationClaims of deniedClaims) {
+      await expect(visibleStrictInvoiceIds({ ...nativeClaims, ...applicationClaims }))
+        .resolves.toEqual([]);
+    }
   });
 
   test('cross-issuer, cross-application, and cross-domain memberships stay denied', async () => {
