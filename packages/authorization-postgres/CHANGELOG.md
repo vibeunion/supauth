@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/zuohuadong/supauth/compare/authorization-postgres-v0.3.0...authorization-postgres-v0.4.0) (2026-08-13)
+
+
+### Features
+
+* **authorization:** add strict OAuth application binding ([#73](https://github.com/zuohuadong/supauth/issues/73)) ([c25abe0](https://github.com/zuohuadong/supauth/commit/c25abe0d7967abfeea62655a771eb8202b4f5100))
+
 ## [0.3.0](https://github.com/zuohuadong/supauth/compare/authorization-postgres-v0.2.1...authorization-postgres-v0.3.0) (2026-08-05)
 
 
