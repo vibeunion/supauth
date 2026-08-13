@@ -47,7 +47,8 @@ PostgreSQL helpers read the application's ordinary effective-grant view once per
 - Generated helpers are `STABLE SECURITY DEFINER SET search_path=''`; the schema revokes `PUBLIC`, grants `USAGE` to `authenticated`, and grants helper execution only to `authenticated` without table access.
 - RLS sends permission and domain-type constants to `authorization_allowed_scope_ids`; the helper owns the installed application constant, and a row ID is never an argument.
 - The application ID is fixed when the authorization schema is installed and is not a helper argument. A native SupaCloud/GoTrue JWT may omit application claims; if signed `client_id` or `app_metadata.authorization_context.application_id` exists, it must exactly match the installed value. `client_id` has presence-based precedence, so empty or JSON `null` values fail closed instead of falling back.
-- Authorization reads only signed JWT `iss`, `sub`, root `client_id`, and `app_metadata.authorization_context`. It never trusts `user_metadata` or a JWT header.
+- Applications can set `requireOAuthApplicationClaim: true` when generating the schema SQL. This requires at least one root `client_id` or `azp` claim; every present claim must be a JSON string matching the installed application ID. Conflicts, malformed values, and metadata-only application context fail closed. The option defaults to `false` for existing native GoTrue deployments.
+- Authorization reads only signed JWT `iss`, `sub`, root `client_id`/`azp`, and `app_metadata.authorization_context`. It never trusts `user_metadata` or a JWT header. The default mode ignores `azp`; strict OAuth binding validates it whenever present.
 - User principals always use root `sub`. Service principals require signed `kind: "service"` and a non-blank signed subject; they never fall back to root `sub`.
 - The target domain column remains UUID or text without a cast, and an uncorrelated `IN (SELECT ...)` allows a hashed scope subplan.
 - Source tables need indexes that support the application's effective-grant projection plus each protected table's domain column.
@@ -55,7 +56,7 @@ PostgreSQL helpers read the application's ordinary effective-grant view once per
 
 The PostgreSQL preset depends on Supabase/PostgREST `auth.jwt()` and the `anon` / `authenticated` roles. A bare PostgreSQL deployment needs a separately reviewed identity adapter and is not represented by this preset.
 
-Native SupaCloud applications do not need SupAuth or a runtime package that adds JWT claims. They may install `@supauth/authorization-postgres` only as a development/migration tool to generate the standard helper and RLS policies. SupAuth/OAuth applications use the same SQL and gain the extra token application consistency check automatically.
+Native SupaCloud applications do not need SupAuth or a runtime package that adds JWT claims. They may install `@supauth/authorization-postgres` only as a development/migration tool to generate the standard helper and RLS policies. SupAuth/OAuth applications can opt in to strict token application consistency by setting `requireOAuthApplicationClaim: true` when generating the installation SQL.
 
 ## Adoption
 

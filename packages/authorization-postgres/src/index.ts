@@ -5,6 +5,7 @@ const CONTEXT_VALUE_PATTERN = /^[^\s]{1,512}$/u;
 export interface AuthorizationSchemaOptions {
   readonly schema: string;
   readonly applicationId: string;
+  readonly requireOAuthApplicationClaim?: boolean;
 }
 
 export type RlsCommand = 'select' | 'insert' | 'update' | 'delete';
@@ -124,8 +125,64 @@ FROM violations
 ORDER BY rule;`;
 }
 
-function allowedScopeFunctionSql(schemaRef: string, applicationId: string): string {
+interface ApplicationContextSql {
+  readonly columns: string;
+  readonly predicate: string;
+}
+
+const COMPATIBLE_APPLICATION_CONTEXT_SQL: ApplicationContextSql = {
+  columns: `CASE
+        WHEN claims ? 'client_id' THEN claims ->> 'client_id'
+        WHEN (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id'
+          THEN claims -> 'app_metadata' -> 'authorization_context' ->> 'application_id'
+        ELSE NULL
+      END AS token_application_id,
+      claims ? 'client_id'
+        OR COALESCE(
+          (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id',
+          FALSE
+        )
+        AS has_token_application_claim`,
+  predicate: `(
+        NOT current_principal.has_token_application_claim
+        OR current_principal.token_application_id = {{installedApplicationId}}
+      )`,
+};
+
+const STRICT_OAUTH_APPLICATION_CONTEXT_SQL: ApplicationContextSql = {
+  columns: `claims ? 'client_id' AS has_client_id_claim,
+      jsonb_typeof(claims -> 'client_id') AS client_id_type,
+      claims ->> 'client_id' AS client_id,
+      claims ? 'azp' AS has_azp_claim,
+      jsonb_typeof(claims -> 'azp') AS azp_type,
+      claims ->> 'azp' AS azp`,
+  predicate: `(current_principal.has_client_id_claim OR current_principal.has_azp_claim)
+      AND (
+        NOT current_principal.has_client_id_claim
+        OR (
+          current_principal.client_id_type = 'string'
+          AND current_principal.client_id = {{installedApplicationId}}
+        )
+      )
+      AND (
+        NOT current_principal.has_azp_claim
+        OR (
+          current_principal.azp_type = 'string'
+          AND current_principal.azp = {{installedApplicationId}}
+        )
+      )`,
+};
+
+function allowedScopeFunctionSql(
+  schemaRef: string,
+  applicationId: string,
+  applicationContext: ApplicationContextSql,
+): string {
   const installedApplicationId = literal('applicationId', applicationId);
+  const applicationPredicate = applicationContext.predicate.replaceAll(
+    '{{installedApplicationId}}',
+    () => installedApplicationId,
+  );
   return `CREATE OR REPLACE FUNCTION ${schemaRef}.authorization_allowed_scope_ids(
   requested_permission TEXT,
   requested_domain_type TEXT
@@ -147,18 +204,7 @@ AS $$
           THEN claims -> 'app_metadata' -> 'authorization_context' ->> 'subject'
         ELSE claims ->> 'sub'
       END AS principal_subject,
-      CASE
-        WHEN claims ? 'client_id' THEN claims ->> 'client_id'
-        WHEN (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id'
-          THEN claims -> 'app_metadata' -> 'authorization_context' ->> 'application_id'
-        ELSE NULL
-      END AS token_application_id,
-      claims ? 'client_id'
-        OR COALESCE(
-          (claims -> 'app_metadata' -> 'authorization_context') ? 'application_id',
-          FALSE
-        )
-        AS has_token_application_claim
+      ${applicationContext.columns}
     FROM jwt_context
   ), allowed_scope_ids AS (
     SELECT DISTINCT permission_grant.domain_id AS scope_id
@@ -174,10 +220,7 @@ AS $$
       AND permission_grant.principal_issuer = current_principal.principal_issuer
       AND permission_grant.principal_subject = current_principal.principal_subject
       AND permission_grant.application_id = ${installedApplicationId}
-      AND (
-        NOT current_principal.has_token_application_claim
-        OR current_principal.token_application_id = ${installedApplicationId}
-      )
+      AND ${applicationPredicate}
       AND permission_grant.domain_type = requested_domain_type
       AND permission_grant.permission_name = requested_permission
   )
@@ -186,10 +229,22 @@ $$;`;
 }
 
 export function generateAuthorizationSchemaSql(options: AuthorizationSchemaOptions): string {
+  if (
+    options.requireOAuthApplicationClaim !== undefined
+    && typeof options.requireOAuthApplicationClaim !== 'boolean'
+  ) {
+    throw new TypeError('requireOAuthApplicationClaim must be a boolean');
+  }
   const schemaRef = identifier('schema', options.schema);
   const statements = [
     `CREATE SCHEMA IF NOT EXISTS ${schemaRef};`,
-    allowedScopeFunctionSql(schemaRef, options.applicationId),
+    allowedScopeFunctionSql(
+      schemaRef,
+      options.applicationId,
+      options.requireOAuthApplicationClaim === true
+        ? STRICT_OAUTH_APPLICATION_CONTEXT_SQL
+        : COMPATIBLE_APPLICATION_CONTEXT_SQL,
+    ),
     `REVOKE ALL ON SCHEMA ${schemaRef} FROM PUBLIC;`,
     `GRANT USAGE ON SCHEMA ${schemaRef} TO authenticated;`,
     `REVOKE ALL ON FUNCTION ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT) FROM PUBLIC;`,
