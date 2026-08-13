@@ -397,7 +397,7 @@ describe('hostedPageRoutes', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toContain('text/html');
-      expect(body).toContain('<title>SupaOAuth Account Center</title>');
+      expect(body).toContain('<title>SupaOAuth 账户中心</title>');
       expect(body).toContain('<h1 id="account-title">账户中心</h1>');
       expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
       expect(body).toContain('<script src="/hosted-auth.js"></script>');

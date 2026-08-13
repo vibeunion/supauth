@@ -125,6 +125,7 @@ interface FakeEvent {
 
 interface HarnessOptions {
   accountConfigPayload?: unknown;
+  brandingPayload?: unknown;
   pageUrl?: string;
   signOutError?: unknown;
 }
@@ -133,7 +134,7 @@ class FakeDocument {
   readonly body = new FakeElement('body', 'body');
   readonly documentElement = new FakeElement('html', 'html');
   readonly elements = new Map<string, FakeElement>();
-  title = 'SupaOAuth Account Center';
+  title = 'SupaOAuth 账户中心';
 
   constructor() {
     for (const id of accountElementIds()) this.elements.set(id, new FakeElement(id));
@@ -247,7 +248,7 @@ async function createHarness(
     if (url.endsWith('/account/config')) {
       return jsonResponse(options.accountConfigPayload ?? enabledAccountConfig());
     }
-    return jsonResponse({ success: true, branding: null });
+    return jsonResponse({ success: true, branding: options.brandingPayload ?? null });
   };
   const context = {
     Headers, Promise, Response, TypeError, URL, console, document, fetch: publicFetch,
@@ -267,6 +268,7 @@ async function createHarness(
 
   return {
     accountFetch: pageApi.accountFetch,
+    documentTitle: () => document.title,
     validateExternalDeleteAccountUrl: pageApi.validateExternalDeleteAccountUrl,
     element: (id: string) => document.getElementById(id) as FakeElement,
     requests,
@@ -333,6 +335,16 @@ const externalDeleteUrlContractCases: ExternalDeleteUrlContractCase[] = [
 describe('hosted account page behavior', () => {
   test('keeps the generated hosted account page byte-identical to its source', () => {
     expect(EMBEDDED_ACCOUNT_HTML).toBe(accountHtml);
+  });
+
+  test('keeps branded document and heading titles in Chinese', async () => {
+    const harness = await createHarness(defaultAccountResponder, {
+      brandingPayload: { page_title: '测试品牌' },
+    });
+    await Bun.sleep(0);
+
+    expect(harness.documentTitle()).toBe('测试品牌 账户中心');
+    expect(harness.element('account-title').textContent).toBe('测试品牌 账户中心');
   });
 
   for (const contractCase of externalDeleteUrlContractCases) {
