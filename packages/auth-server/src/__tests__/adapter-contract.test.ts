@@ -71,6 +71,43 @@ describe('SupaCloudAdapter contract', () => {
     expect(url).toContain('/storage/v1/object/public/branding/logo.png');
   });
 
+  it('removes the GoTrue API path when Storage falls back to the runtime URL', async () => {
+    const originalFetch = globalThis.fetch;
+    const storageRequests: string[] = [];
+    process.env.OAUTH_RUNTIME_URL = 'https://runtime.example.test/auth/v1/';
+    loadConfig();
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      storageRequests.push(url);
+      return Promise.resolve(Response.json({ id: 'branding' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.getStorageBucket('branding');
+
+      expect(adapter.getTargetInfo()).toMatchObject({
+        runtimeUrl: 'https://runtime.example.test/auth/v1',
+        storageUrl: 'https://runtime.example.test',
+      });
+      expect(storageRequests).toEqual([
+        'https://runtime.example.test/storage/v1/bucket/branding',
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('preserves an explicitly configured Storage URL', () => {
+    process.env.OAUTH_RUNTIME_URL = 'https://runtime.example.test/auth/v1';
+    process.env.SUPACLOUD_STORAGE_URL = 'https://storage.example.test/gateway';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter();
+
+    expect(adapter.getTargetInfo().storageUrl).toBe('https://storage.example.test/gateway');
+  });
+
   it('preserves Storage bucket lookup status in the adapter error contract', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mock(async () => new Response('bucket unavailable', { status: 503 })) as unknown as typeof fetch;
@@ -694,6 +731,18 @@ describe('SupaCloudAdapter contract', () => {
     expect(target.runtimeUrl).toBe('https://projecttarget1234567890.api.example.test');
     expect(target.storageUrl).toBe('https://projecttarget1234567890.storage.example.test');
     expect(target.runtimeProjectScoped).toBe(true);
+    expect(target.storageProjectScoped).toBe(true);
+  });
+
+  it('removes the GoTrue API path from the runtime template used as the Storage fallback', () => {
+    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test/auth/v1/';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
+    const target = adapter.getTargetInfo();
+
+    expect(target.runtimeUrl).toBe('https://projecttarget1234567890.api.example.test/auth/v1');
+    expect(target.storageUrl).toBe('https://projecttarget1234567890.api.example.test');
     expect(target.storageProjectScoped).toBe(true);
   });
 
