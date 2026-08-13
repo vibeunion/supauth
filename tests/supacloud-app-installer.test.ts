@@ -628,9 +628,15 @@ describe('SupaCloud app installer', () => {
           return new Response('{}', { status: 200 });
         }
 
+        if (url.pathname === '/v1/projects/project_123/functions') {
+          return Response.json([{ slug: 'supauth', version: 44 }]);
+        }
+
         if (url.pathname === '/v1/projects/project_123/functions/supauth/bundle') {
           const body = JSON.parse(String(init?.body));
           expect(body.entrypoint).toBe('index.ts');
+          expect(body.expected_active_version).toBe('44');
+          expect(body.verify_jwt).toBe(false);
           expect(Object.keys(body.files)).toEqual([
             'index.ts',
             'admin-console/build/_app/immutable/admin.css',
@@ -668,8 +674,8 @@ describe('SupaCloud app installer', () => {
     expect(calls).toContain('POST /v1/projects/project_123/functions/supauth/secrets');
     expect(calls).toContain('POST /v1/projects/project_123/secrets');
     expect(calls.slice(-3)).toEqual([
+      'GET /v1/projects/project_123/functions',
       'POST /v1/projects/project_123/functions/supauth/bundle',
-      'PATCH /v1/projects/project_123/functions/supauth/config',
       'GET /functions/v1/supauth/api/v1/health',
     ]);
     expect(calls.indexOf('POST /v1/projects/project_123/database/sql')).toBeLessThan(
@@ -690,10 +696,180 @@ describe('SupaCloud app installer', () => {
       `VERIFY_ADMIN_SSO ${requiredOptions.databaseUrl}`,
       'POST /v1/projects/project_123/functions/supauth/secrets',
       'POST /v1/projects/project_123/secrets',
+      'GET /v1/projects/project_123/functions',
       'POST /v1/projects/project_123/functions/supauth/bundle',
-      'PATCH /v1/projects/project_123/functions/supauth/config',
       'GET /functions/v1/supauth/api/v1/health',
     ]));
+  });
+
+  it('deploys a first Function release with an atomic absent-version contract', async () => {
+    const { root, artifactDir } = createFixture();
+    const calls: string[] = [];
+    let bundleBody: Record<string, unknown> | undefined;
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const pathname = new URL(String(input)).pathname;
+        calls.push(`${init?.method || 'GET'} ${pathname}`);
+        if (pathname === '/v1/projects/project_123/functions') return Response.json([]);
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
+          bundleBody = JSON.parse(String(init?.body));
+          return Response.json({ active_version: 1 });
+        }
+        throw new Error(`Unexpected request: ${pathname}`);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([
+      'GET /v1/projects/project_123/functions',
+      'POST /v1/projects/project_123/functions/supauth/bundle',
+    ]);
+    expect(bundleBody).toEqual(expect.objectContaining({
+      entrypoint: 'index.ts',
+      minify: false,
+      expected_active_version: 'absent',
+      verify_jwt: false,
+    }));
+  });
+
+  it.each([
+    ['an object', { slug: 'supauth', version: 44 }, 'must be an array'],
+    ['a null entry', [null], 'entries must be objects'],
+    ['an entry without a string slug', [{ version: 44 }], 'entry slug must be a string'],
+  ])('rejects a malformed Function list containing %s before bundle upload', async (_label, payload, expectedError) => {
+    const { root, artifactDir } = createFixture();
+    let bundleRequests = 0;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') return Response.json(payload);
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') bundleRequests += 1;
+        return Response.json({});
+      },
+    })).rejects.toThrow(expectedError);
+
+    expect(bundleRequests).toBe(0);
+  });
+
+  it('rejects invalid Function list JSON before bundle upload', async () => {
+    const { root, artifactDir } = createFixture();
+    let bundleRequests = 0;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') return new Response('{');
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') bundleRequests += 1;
+        return Response.json({});
+      },
+    })).rejects.toThrow('must be valid JSON');
+
+    expect(bundleRequests).toBe(0);
+  });
+
+  it('rejects duplicate exact supauth Function entries before bundle upload', async () => {
+    const { root, artifactDir } = createFixture();
+    let bundleRequests = 0;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') {
+          return Response.json([
+            { slug: 'supauth', version: 43 },
+            { slug: 'unrelated', version: 7 },
+            { slug: 'supauth', version: 44 },
+          ]);
+        }
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') bundleRequests += 1;
+        return Response.json({});
+      },
+    })).rejects.toThrow('duplicate supauth entries');
+
+    expect(bundleRequests).toBe(0);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['a string', '44'],
+    ['negative', -1],
+    ['fractional', 1.5],
+    ['unsafe', Number.MAX_SAFE_INTEGER + 1],
+  ])('rejects %s active Function version before bundle upload', async (_label, version) => {
+    const { root, artifactDir } = createFixture();
+    let bundleRequests = 0;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') {
+          return Response.json([{ slug: 'supauth', ...(version === undefined ? {} : { version }) }]);
+        }
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') bundleRequests += 1;
+        return Response.json({});
+      },
+    })).rejects.toThrow('version must be a non-negative safe integer');
+
+    expect(bundleRequests).toBe(0);
+  });
+
+  it('surfaces a Function version conflict without retrying the bundle request', async () => {
+    const { root, artifactDir } = createFixture();
+    let bundleRequests = 0;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') {
+          return Response.json([{ slug: 'supauth', version: 44 }]);
+        }
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
+          bundleRequests += 1;
+          return Response.json({ code: 'FUNCTION_ACTIVE_VERSION_CONFLICT' }, { status: 409 });
+        }
+        return Response.json({});
+      },
+    })).rejects.toThrow('failed with 409');
+
+    expect(bundleRequests).toBe(1);
   });
 
   it('rejects symlinks in the Admin static deployment tree before install requests', async () => {
@@ -1138,6 +1314,7 @@ describe('SupaCloud app installer', () => {
           auth: new Headers(init?.headers).get('authorization'),
           body: init?.body ? JSON.parse(String(init.body)) : null,
         });
+        if (url.pathname === '/v1/projects/project_123/functions') return Response.json([]);
         return new Response('{}', { status: 200 });
       },
     });
