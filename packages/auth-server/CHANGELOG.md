@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.8.0...auth-server-v0.8.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **auth:** localize account accessibility labels ([#72](https://github.com/zuohuadong/supauth/issues/72)) ([d790e8a](https://github.com/zuohuadong/supauth/commit/d790e8aa75784fb513f58218071500736183b3a3))
+* **auth:** localize hosted account title ([#70](https://github.com/zuohuadong/supauth/issues/70)) ([dacb5bd](https://github.com/zuohuadong/supauth/commit/dacb5bd159d4735b6ded6a1ac76d544764f8e1bd))
+
 ## [0.8.0](https://github.com/zuohuadong/supauth/compare/auth-server-v0.7.2...auth-server-v0.8.0) (2026-08-13)
 
 
