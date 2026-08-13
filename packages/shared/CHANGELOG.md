@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/zuohuadong/supauth/compare/shared-v0.6.0...shared-v0.7.0) (2026-08-13)
+
+
+### Features
+
+* **compat:** support GoTrue v2.195 runtime contracts ([139d05c](https://github.com/zuohuadong/supauth/commit/139d05c98b8d378ae47851e9d39bb01cc7bb0077))
+* **compat:** validate GoTrue v2.195 runtime contracts ([5992eef](https://github.com/zuohuadong/supauth/commit/5992eeff1aa3b39748ae2db7850bb90fdc998cad))
+
 ## [0.6.0](https://github.com/zuohuadong/supauth/compare/shared-v0.5.0...shared-v0.6.0) (2026-08-05)
 
 
