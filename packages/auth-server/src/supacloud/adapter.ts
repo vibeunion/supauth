@@ -393,7 +393,7 @@ export class SupaCloudAdapter {
     const storageTarget = resolveProjectUrl({
       explicitUrl: options?.storageUrl,
       baseUrl: configuredStorageUrl || storageFallbackUrl(config.oauthRuntimeUrl),
-      template: configuredStorageTemplate || fallbackStorageTemplate,
+      template: configuredStorageTemplate || (configuredStorageUrl ? undefined : fallbackStorageTemplate),
       defaultProjectRef: config.projectRef,
       targetProjectRef: this.projectRef,
     });
