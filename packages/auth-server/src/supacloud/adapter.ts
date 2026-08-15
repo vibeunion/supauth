@@ -5,6 +5,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { currentAdminRequestContext, getCurrentRequestId } from '../auth/request-context.js';
 import { getConfig, validateBffSigningSecret } from '../config/index.js';
+import { runtimeEnv } from '../config/platform-env.js';
 import { capabilityUnavailable } from '../utils/api-contract.js';
 
 const DELEGATED_HEADER_NAMES = [
@@ -171,6 +172,8 @@ export interface AdapterOptions {
   runtimeUrl?: string;
   /** Explicit storage URL for this project. */
   storageUrl?: string;
+  /** Project-matched Storage service-role key for a cross-project adapter. */
+  storageServiceRoleKey?: string;
 }
 
 export interface AdapterTargetInfo {
@@ -368,6 +371,7 @@ export class SupaCloudAdapter {
   private masterToken: string;
   private projectRef: string;
   private storageUrl: string;
+  private storageToken: string;
   private runtimeUrl: string;
   private runtimeProjectScoped: boolean;
   private storageProjectScoped: boolean;
@@ -378,7 +382,9 @@ export class SupaCloudAdapter {
     this.masterToken = config.supacloudMasterToken;
     // Per-instance projectRef: explicit override > env default
     this.projectRef = options?.projectRef || config.projectRef;
-    const runtimeTemplate = process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE;
+    this.storageToken = options?.storageServiceRoleKey
+      || (this.projectRef === config.projectRef ? config.supabaseServiceRoleKey : '');
+    const runtimeTemplate = runtimeEnv('SUPACLOUD_RUNTIME_URL_TEMPLATE');
 
     const runtimeTarget = resolveProjectUrl({
       explicitUrl: options?.runtimeUrl,
@@ -387,13 +393,19 @@ export class SupaCloudAdapter {
       defaultProjectRef: config.projectRef,
       targetProjectRef: this.projectRef,
     });
-    const configuredStorageUrl = process.env.SUPACLOUD_STORAGE_URL;
-    const configuredStorageTemplate = process.env.SUPACLOUD_STORAGE_URL_TEMPLATE;
-    const fallbackStorageTemplate = runtimeTemplate ? storageFallbackUrl(runtimeTemplate) : undefined;
+    const configuredStorageUrl = runtimeEnv('SUPACLOUD_STORAGE_URL');
+    const configuredStorageTemplate = runtimeEnv('SUPACLOUD_STORAGE_URL_TEMPLATE');
+    const projectApiUrl = runtimeEnv('SUPABASE_URL');
+    const fallbackStorageTemplate = !configuredStorageUrl
+      && !configuredStorageTemplate
+      && !projectApiUrl
+      && runtimeTemplate
+      ? storageFallbackUrl(runtimeTemplate)
+      : undefined;
     const storageTarget = resolveProjectUrl({
       explicitUrl: options?.storageUrl,
-      baseUrl: configuredStorageUrl || storageFallbackUrl(config.oauthRuntimeUrl),
-      template: configuredStorageTemplate || (configuredStorageUrl ? undefined : fallbackStorageTemplate),
+      baseUrl: configuredStorageUrl || projectApiUrl || storageFallbackUrl(config.oauthRuntimeUrl),
+      template: configuredStorageTemplate || fallbackStorageTemplate,
       defaultProjectRef: config.projectRef,
       targetProjectRef: this.projectRef,
     });
@@ -1265,22 +1277,24 @@ export class SupaCloudAdapter {
 
   // ─── Storage ──────────────────────────────────────────────────────
   // Uses Supabase Storage API via Kong or direct URL.
-  // The service_role key (master token) gives full bucket access.
+  // The project service-role key gives full bucket access.
 
   async listStorageBuckets() {
+    const storageToken = this.requiredStorageToken();
     const url = `${this.storageUrl}/storage/v1/bucket`;
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.masterToken}` },
+      headers: { Authorization: `Bearer ${storageToken}` },
     });
     if (!res.ok) throw new Error(`Storage list buckets: ${res.status}`);
     return res.json();
   }
 
   async getStorageBucket(bucketId: string) {
+    const storageToken = this.requiredStorageToken();
     const path = `/storage/v1/bucket/${bucketId}`;
     const url = `${this.storageUrl}${path}`;
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.masterToken}` },
+      headers: { Authorization: `Bearer ${storageToken}` },
     });
     if (!res.ok) {
       throw new SupaCloudApiError(res.status, await res.text(), path);
@@ -1289,12 +1303,13 @@ export class SupaCloudAdapter {
   }
 
   async createStorageBucket(bucketId: string, options?: { public?: boolean; fileSizeLimit?: number }) {
+    const storageToken = this.requiredStorageToken();
     const path = '/storage/v1/bucket';
     const url = `${this.storageUrl}${path}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.masterToken}`,
+        Authorization: `Bearer ${storageToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -1312,10 +1327,11 @@ export class SupaCloudAdapter {
   }
 
   async deleteStorageBucket(bucketId: string) {
+    const storageToken = this.requiredStorageToken();
     const url = `${this.storageUrl}/storage/v1/bucket/${bucketId}`;
     const res = await fetch(url, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${this.masterToken}` },
+      headers: { Authorization: `Bearer ${storageToken}` },
     });
     if (!res.ok) {
       const body = await res.text();
@@ -1329,12 +1345,13 @@ export class SupaCloudAdapter {
    * Returns the public URL if the bucket is public, or the key path.
    */
   async uploadFile(bucketId: string, filePath: string, file: File | Blob, contentType: string): Promise<{ key: string; url?: string }> {
+    const storageToken = this.requiredStorageToken();
     const path = `/storage/v1/object/${storageObjectPath(bucketId, filePath)}`;
     const url = `${this.storageUrl}${path}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.masterToken}`,
+        Authorization: `Bearer ${storageToken}`,
         'Content-Type': contentType,
         'x-upsert': 'true',
       },
@@ -1353,11 +1370,12 @@ export class SupaCloudAdapter {
    * Delete a file from Supabase Storage.
    */
   async deleteFile(bucketId: string, filePaths: string[]) {
+    const storageToken = this.requiredStorageToken();
     const url = `${this.storageUrl}/storage/v1/object/${storageBucketSegment(bucketId)}`;
     const res = await fetch(url, {
       method: 'DELETE',
       headers: {
-        Authorization: `Bearer ${this.masterToken}`,
+        Authorization: `Bearer ${storageToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ prefixes: filePaths }),
@@ -1370,9 +1388,10 @@ export class SupaCloudAdapter {
   }
 
   async downloadFile(bucketId: string, filePath: string): Promise<Response> {
+    const storageToken = this.requiredStorageToken();
     const url = `${this.storageUrl}/storage/v1/object/authenticated/${storageObjectPath(bucketId, filePath)}`;
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.masterToken}` },
+      headers: { Authorization: `Bearer ${storageToken}` },
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
@@ -1386,13 +1405,14 @@ export class SupaCloudAdapter {
    * Get a signed URL for private bucket access.
    */
   async createSignedUrl(bucketId: string, filePath: string, expiresIn: number = 3600): Promise<string> {
+    const storageToken = this.requiredStorageToken();
     const objectPath = storageObjectPath(bucketId, filePath);
     const safeExpiresIn = storageSignedUrlExpiry(expiresIn);
     const url = `${this.storageUrl}/storage/v1/object/sign/${objectPath}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.masterToken}`,
+        Authorization: `Bearer ${storageToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ expiresIn: safeExpiresIn }),
@@ -1410,6 +1430,11 @@ export class SupaCloudAdapter {
    */
   getPublicUrl(bucketId: string, filePath: string): string {
     return `${this.storageUrl}/storage/v1/object/public/${storageObjectPath(bucketId, filePath)}`;
+  }
+
+  private requiredStorageToken(): string {
+    if (!this.storageToken) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for Storage operations');
+    return this.storageToken;
   }
 }
 

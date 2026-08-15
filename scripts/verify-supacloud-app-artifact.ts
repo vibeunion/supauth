@@ -30,6 +30,7 @@ const ADMIN_SSO_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 const EXPECTED_REQUIRED_ENV = [
   'SUPACLOUD_INTERNAL_API_URL',
   'SUPACLOUD_INTERNAL_TOKEN',
+  'SUPABASE_SERVICE_ROLE_KEY',
   'SUPAOAUTH_BFF_SIGNING_SECRET',
   'SUPACLOUD_PROJECT_REF',
   'SUPACLOUD_RUNTIME_URL',
@@ -547,10 +548,12 @@ export function verifySupacloudAppArtifact(input: {
     if (!envNames.includes(envName)) result.errors.push(`Missing required SupaCloud env: ${envName}`);
   }
   const tokenEnv = requiredEnv.find((entry) => entry.name === 'SUPACLOUD_INTERNAL_TOKEN');
+  const storageServiceRoleEnv = requiredEnv.find((entry) => entry.name === 'SUPABASE_SERVICE_ROLE_KEY');
   const bffSigningSecretEnv = requiredEnv.find((entry) => entry.name === 'SUPAOAUTH_BFF_SIGNING_SECRET');
   const databaseEnv = requiredEnv.find((entry) => entry.name === 'SUPACLOUD_DATABASE_URL');
   const oauthAuthorizationProjectRefEnv = requiredEnv.find((entry) => entry.name === 'SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF');
   if (tokenEnv?.secret !== true) result.errors.push('SUPACLOUD_INTERNAL_TOKEN must be marked secret');
+  if (storageServiceRoleEnv?.secret !== true) result.errors.push('SUPABASE_SERVICE_ROLE_KEY must be marked secret');
   if (bffSigningSecretEnv?.secret !== true) result.errors.push('SUPAOAUTH_BFF_SIGNING_SECRET must be marked secret');
   if (databaseEnv?.secret !== true) result.errors.push('SUPACLOUD_DATABASE_URL must be marked secret');
   if (oauthAuthorizationProjectRefEnv && oauthAuthorizationProjectRefEnv.optional !== true) {

@@ -167,6 +167,7 @@ export function createSupacloudAppManifest(input: {
     required_supacloud_env: [
       { name: 'SUPACLOUD_INTERNAL_API_URL', secret: false, description: 'Project-scoped SupaCloud Management API base URL.' },
       { name: 'SUPACLOUD_INTERNAL_TOKEN', secret: true, description: 'Project-scoped internal token for server-side SupaCloud API calls.' },
+      { name: 'SUPABASE_SERVICE_ROLE_KEY', secret: true, description: 'Project-scoped service-role key for Supabase Storage data-plane calls.' },
       { name: 'SUPAOAUTH_BFF_SIGNING_SECRET', secret: true, description: 'Independent shared HMAC secret for SupAuth actor proof; server-side only.' },
       { name: 'SUPACLOUD_PROJECT_REF', secret: false, description: 'Current SupaCloud project ref.' },
       { name: 'SUPACLOUD_RUNTIME_URL', secret: false, description: 'Public Supabase-compatible runtime URL for the project.' },
