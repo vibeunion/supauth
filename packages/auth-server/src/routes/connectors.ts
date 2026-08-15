@@ -488,7 +488,9 @@ async function createEnterpriseConnector(
     const contractCode = error && typeof error === 'object' && 'code' in error
       ? String(error.code || '')
       : '';
-    if (isSupaCloudApiError(error, [404, 501])
+    const runtimeUnavailable = isSupaCloudApiError(error)
+      && (error.status === 404 || error.status >= 500);
+    if (runtimeUnavailable
       || ['capability_unavailable', 'connector_factory_runtime_unavailable'].includes(contractCode)) {
       throw new ApiContractError(
         503,
