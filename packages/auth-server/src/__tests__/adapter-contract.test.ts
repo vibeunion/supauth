@@ -10,12 +10,19 @@ describe('SupaCloudAdapter contract', () => {
   beforeEach(() => {
     process.env.SUPACLOUD_API_URL = 'http://test-api:9090';
     process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
     process.env.PROJECT_REF = 'test-ref';
     process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
     process.env.DATABASE_URL = 'postgres://test';
     delete process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE;
     delete process.env.SUPACLOUD_STORAGE_URL_TEMPLATE;
     delete process.env.SUPACLOUD_STORAGE_URL;
+    delete process.env.SUPABASE_URL;
+    delete process.env.EDGEFN_SUPAUTH_SUPACLOUD_RUNTIME_URL_TEMPLATE;
+    delete process.env.EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL_TEMPLATE;
+    delete process.env.EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL;
+    delete process.env.EDGEFN_SUPAUTH_SUPABASE_URL;
+    delete process.env.EDGEFN_SUPAUTH_SUPABASE_SERVICE_ROLE_KEY;
     loadConfig();
   });
 
@@ -98,15 +105,184 @@ describe('SupaCloudAdapter contract', () => {
     }
   });
 
-  it('preserves an explicitly configured Storage URL when the runtime has a template', () => {
-    process.env.OAUTH_RUNTIME_URL = 'https://runtime.example.test/auth/v1';
-    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test/auth/v1';
-    process.env.SUPACLOUD_STORAGE_URL = 'https://storage.example.test/gateway';
+  it('prefers the Supabase project API URL when OAuth uses a custom Auth domain', async () => {
+    const originalFetch = globalThis.fetch;
+    const storageRequests: string[] = [];
+    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
+    process.env.SUPABASE_URL = 'https://project.api.example.test';
+    loadConfig();
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      storageRequests.push(url);
+      return Promise.resolve(Response.json({ id: 'branding' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.getStorageBucket('branding');
+
+      expect(adapter.getTargetInfo()).toMatchObject({
+        runtimeUrl: 'https://auth.example.test/auth/v1',
+        storageUrl: 'https://project.api.example.test',
+      });
+      expect(storageRequests).toEqual([
+        'https://project.api.example.test/storage/v1/bucket/branding',
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('prefers the Supabase project API URL over an OAuth runtime template', () => {
+    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
+    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://auth-{projectRef}.example.test/auth/v1';
+    process.env.SUPABASE_URL = 'https://project.api.example.test';
     loadConfig();
 
     const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
 
+    expect(adapter.getTargetInfo()).toMatchObject({
+      runtimeUrl: 'https://auth-projecttarget1234567890.example.test/auth/v1',
+      storageUrl: 'https://project.api.example.test',
+      storageProjectScoped: false,
+    });
+  });
+
+  it('prefers the function-scoped Supabase project API URL', () => {
+    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
+    process.env.SUPABASE_URL = 'https://legacy-project.api.example.test';
+    process.env.EDGEFN_SUPAUTH_SUPABASE_URL = 'https://function-project.api.example.test';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter();
+
+    expect(adapter.getTargetInfo().storageUrl).toBe('https://function-project.api.example.test');
+  });
+
+  it('preserves an explicitly configured Storage URL', () => {
+    process.env.OAUTH_RUNTIME_URL = 'https://runtime.example.test/auth/v1';
+    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://auth-{projectRef}.example.test/auth/v1';
+    process.env.SUPABASE_URL = 'https://project.api.example.test';
+    process.env.SUPACLOUD_STORAGE_URL = 'https://storage.example.test/gateway';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter();
+
     expect(adapter.getTargetInfo().storageUrl).toBe('https://storage.example.test/gateway');
+  });
+
+  it('prefers a function-scoped Storage URL over project and OAuth runtime URLs', () => {
+    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
+    process.env.SUPABASE_URL = 'https://project.api.example.test';
+    process.env.SUPACLOUD_STORAGE_URL = 'https://legacy-storage.example.test';
+    process.env.EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL = 'https://function-storage.example.test';
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter();
+
+    expect(adapter.getTargetInfo().storageUrl).toBe('https://function-storage.example.test');
+  });
+
+  it('uses the function-scoped service-role key for Storage requests', async () => {
+    const originalFetch = globalThis.fetch;
+    const authorizations: string[] = [];
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'legacy-storage-token';
+    process.env.EDGEFN_SUPAUTH_SUPABASE_SERVICE_ROLE_KEY = 'function-storage-token';
+    loadConfig();
+    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+      authorizations.push(new Headers(init?.headers).get('authorization') || '');
+      return Promise.resolve(Response.json({ id: 'branding' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.getStorageBucket('branding');
+
+      expect(authorizations).toEqual(['Bearer function-storage-token']);
+      expect(authorizations).not.toContain('Bearer test-token');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('keeps Management API and all Storage credential domains separate', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ path: string; authorization: string }> = [];
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push({
+        path: new URL(url).pathname,
+        authorization: new Headers(init?.headers).get('authorization') || '',
+      });
+      if (url.includes('/object/sign/')) {
+        return Promise.resolve(Response.json({ signedURL: 'https://storage.example.test/signed/object' }));
+      }
+      if (url.includes('/object/authenticated/')) return Promise.resolve(new Response('asset'));
+      return Promise.resolve(Response.json({ id: 'branding', Key: 'branding/logo.png' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter();
+      await adapter.getProject();
+      await adapter.listStorageBuckets();
+      await adapter.getStorageBucket('branding');
+      await adapter.createStorageBucket('branding');
+      await adapter.deleteStorageBucket('branding');
+      await adapter.uploadFile('branding', 'logo.png', new Blob(['asset']), 'image/png');
+      await adapter.deleteFile('branding', ['logo.png']);
+      await adapter.downloadFile('branding', 'logo.png');
+      await adapter.createSignedUrl('branding', 'logo.png');
+
+      expect(requests[0]).toMatchObject({
+        path: '/v1/projects/test-ref',
+        authorization: 'Bearer test-token',
+      });
+      expect(requests.slice(1)).toHaveLength(8);
+      expect(requests.slice(1).every(request => request.authorization === 'Bearer test-storage-token')).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('fails closed when the Storage service-role key is unavailable', async () => {
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    loadConfig();
+
+    const adapter = new SupaCloudAdapter();
+
+    await expect(adapter.getStorageBucket('branding')).rejects.toThrow(
+      'SUPABASE_SERVICE_ROLE_KEY is required for Storage operations',
+    );
+  });
+
+  it('does not reuse the default service-role key for a cross-project adapter', async () => {
+    const adapter = new SupaCloudAdapter({ projectRef: 'other-project-12345' });
+
+    await expect(adapter.getStorageBucket('branding')).rejects.toThrow(
+      'SUPABASE_SERVICE_ROLE_KEY is required for Storage operations',
+    );
+  });
+
+  it('uses an explicitly project-matched service-role key for a cross-project adapter', async () => {
+    const originalFetch = globalThis.fetch;
+    const authorizations: string[] = [];
+    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+      authorizations.push(new Headers(init?.headers).get('authorization') || '');
+      return Promise.resolve(Response.json({ id: 'branding' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      const adapter = new SupaCloudAdapter({
+        projectRef: 'other-project-12345',
+        storageServiceRoleKey: 'other-project-storage-token',
+      });
+      await adapter.getStorageBucket('branding');
+
+      expect(authorizations).toEqual(['Bearer other-project-storage-token']);
+      expect(authorizations).not.toContain('Bearer test-storage-token');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('preserves Storage bucket lookup status in the adapter error contract', async () => {
@@ -226,7 +402,7 @@ describe('SupaCloudAdapter contract', () => {
         ['GET', '/storage/v1/object/authenticated/custom.ui-assets_1/versions/one/assets/app%20name.js'],
         ['DELETE', '/storage/v1/object/custom.ui-assets_1'],
       ]);
-      expect(calls.every(call => call.authorization === 'Bearer test-token')).toBe(true);
+      expect(calls.every(call => call.authorization === 'Bearer test-storage-token')).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -724,7 +900,6 @@ describe('SupaCloudAdapter contract', () => {
   it('derives project-scoped runtime and storage URLs from templates', () => {
     process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test';
     process.env.SUPACLOUD_STORAGE_URL_TEMPLATE = 'https://{projectRef}.storage.example.test';
-    process.env.SUPACLOUD_STORAGE_URL = 'https://default.storage.example.test';
     loadConfig();
 
     const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });

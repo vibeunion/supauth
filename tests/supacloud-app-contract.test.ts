@@ -42,6 +42,10 @@ describe('SupAuth SupaCloud app contract', () => {
       name: 'SUPAOAUTH_BFF_SIGNING_SECRET',
       secret: true,
     }));
+    expect(manifest.required_supacloud_env).toContainEqual(expect.objectContaining({
+      name: 'SUPABASE_SERVICE_ROLE_KEY',
+      secret: true,
+    }));
   });
 
   it('declares the Admin SSO install and multi-file Function bundle contract', () => {

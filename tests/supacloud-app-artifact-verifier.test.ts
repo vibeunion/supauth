@@ -410,6 +410,31 @@ describe('SupaCloud app artifact verifier', () => {
     expect(result.errors).toContain('SUPAOAUTH_BFF_SIGNING_SECRET must be marked secret');
   });
 
+  it('requires the Storage service-role key', () => {
+    const { root, manifest } = createFixture();
+    manifest.required_supacloud_env = manifest.required_supacloud_env.filter(
+      (entry) => entry.name !== 'SUPABASE_SERVICE_ROLE_KEY',
+    );
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('Missing required SupaCloud env: SUPABASE_SERVICE_ROLE_KEY');
+  });
+
+  it('requires the Storage service-role key to be declared as a secret', () => {
+    const { root, manifest } = createFixture();
+    const storageEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'SUPABASE_SERVICE_ROLE_KEY')!;
+    storageEnv.secret = false;
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('SUPABASE_SERVICE_ROLE_KEY must be marked secret');
+  });
+
   it('requires exact Admin SSO required, optional, and secret semantics', () => {
     const { root, manifest } = createFixture();
     const issuerEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'ADMIN_SSO_ISSUER')!;
