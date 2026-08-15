@@ -62,7 +62,7 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 1. 构建 SupaCloud app artifact：`bun run build`
 2. SupaCloud 读取 `artifacts/supacloud-app/supacloud-app-manifest.json`
-3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL` 和 `SUPACLOUD_DATABASE_URL`。安装器将 SupAuth 的逻辑变量（例如 `SUPAUTH_PUBLIC_URL`、`ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID`）写入 `supauth` Function 专属 secrets，平台以 `EDGEFN_SUPAUTH_<逻辑变量>` 注入；管理员 MFA 门禁仅在逻辑值显式为 `ADMIN_SSO_REQUIRE_AAL2=true` 时开启
+3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPABASE_SERVICE_ROLE_KEY`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL` 和 `SUPACLOUD_DATABASE_URL`。其中 internal token 仅用于 Management API，service-role key 仅用于项目 Storage。安装器将 SupAuth 的逻辑变量（例如 `SUPAUTH_PUBLIC_URL`、`ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID`）写入 `supauth` Function 专属 secrets，平台以 `EDGEFN_SUPAUTH_<逻辑变量>` 注入；管理员 MFA 门禁仅在逻辑值显式为 `ADMIN_SSO_REQUIRE_AAL2=true` 时开启
 4. 安装器按 manifest 的 V1/V4/V5/V6/V7/V8/V9/V10 顺序，通过 SupaCloud Management API
    对 `SUPACLOUD_DATABASE_URL` 应用幂等 hosted migrations；禁止绕过安装器直连
    执行迁移。V9 独立撤销旧 webhook 表的 Function/PUBLIC 权限，V10 仅在

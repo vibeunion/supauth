@@ -8,6 +8,7 @@ export interface ServerConfig {
   nodeEnv: string;
   supacloudApiUrl: string;
   supacloudMasterToken: string;
+  supabaseServiceRoleKey: string;
   supaoauthBffSigningSecret: string;
   projectRef: string;
   oauthAuthorizationProjectRef: string;
@@ -64,6 +65,7 @@ export function loadConfig(): ServerConfig {
       'SUPACLOUD_INTERNAL_SUPABASE_URL',
     ),
     supacloudMasterToken: env('SUPACLOUD_MASTER_TOKEN', 'SUPACLOUD_INTERNAL_TOKEN', 'SUPACLOUD_SERVICE_TOKEN'),
+    supabaseServiceRoleKey: env('SUPABASE_SERVICE_ROLE_KEY'),
     supaoauthBffSigningSecret: env('SUPAOAUTH_BFF_SIGNING_SECRET'),
     projectRef: env('PROJECT_REF', 'SUPACLOUD_PROJECT_REF', 'SUPABASE_PROJECT_REF'),
     oauthAuthorizationProjectRef: env(
@@ -107,6 +109,7 @@ export function validateConfig(config: ServerConfig): string[] {
     errors.push('SUPACLOUD_API_URL, SUPACLOUD_INTERNAL_API_URL, or SUPACLOUD_INTERNAL_SUPABASE_URL is required');
   }
   if (!config.supacloudMasterToken) errors.push('SUPACLOUD_MASTER_TOKEN or SUPACLOUD_INTERNAL_TOKEN is required');
+  if (!config.supabaseServiceRoleKey) errors.push('SUPABASE_SERVICE_ROLE_KEY is required');
   if (!config.projectRef) errors.push('PROJECT_REF or SUPACLOUD_PROJECT_REF is required');
   if (!config.oauthRuntimeUrl) errors.push('OAUTH_RUNTIME_URL, SUPACLOUD_RUNTIME_URL, or SUPABASE_URL is required');
   if (config.publicBaseUrl && !isHttpUrl(config.publicBaseUrl)) {

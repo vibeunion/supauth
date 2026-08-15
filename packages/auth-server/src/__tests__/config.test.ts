@@ -10,6 +10,7 @@ const REQUIRED_CONFIG_ENV_NAMES = [
   'SUPACLOUD_MASTER_TOKEN',
   'SUPACLOUD_INTERNAL_TOKEN',
   'SUPACLOUD_SERVICE_TOKEN',
+  'SUPABASE_SERVICE_ROLE_KEY',
   'SUPAOAUTH_BFF_SIGNING_SECRET',
   'PROJECT_REF',
   'SUPACLOUD_PROJECT_REF',
@@ -48,6 +49,7 @@ describe('ServerConfig', () => {
     delete process.env.SUPACLOUD_MASTER_TOKEN;
     delete process.env.SUPACLOUD_INTERNAL_TOKEN;
     delete process.env.SUPACLOUD_SERVICE_TOKEN;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     delete process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
     delete process.env.PROJECT_REF;
     delete process.env.SUPACLOUD_PROJECT_REF;
@@ -91,6 +93,7 @@ describe('ServerConfig', () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(errors).toContain('SUPACLOUD_API_URL, SUPACLOUD_INTERNAL_API_URL, or SUPACLOUD_INTERNAL_SUPABASE_URL is required');
     expect(errors).toContain('SUPACLOUD_MASTER_TOKEN or SUPACLOUD_INTERNAL_TOKEN is required');
+    expect(errors).toContain('SUPABASE_SERVICE_ROLE_KEY is required');
     expect(errors).toContain('PROJECT_REF or SUPACLOUD_PROJECT_REF is required');
     expect(errors).toContain('OAUTH_RUNTIME_URL, SUPACLOUD_RUNTIME_URL, or SUPABASE_URL is required');
     expect(errors).toContain('DATABASE_URL or SUPACLOUD_DATABASE_URL is required');
@@ -99,6 +102,7 @@ describe('ServerConfig', () => {
   it('passes validation with all required fields', () => {
     process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
     process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
     process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-0123456789abcdef';
     process.env.PROJECT_REF = 'test-ref';
     process.env.OAUTH_RUNTIME_URL = 'http://localhost:9999';
@@ -111,6 +115,7 @@ describe('ServerConfig', () => {
   it('uses SupaCloud project injected env aliases', () => {
     process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
     process.env.SUPACLOUD_INTERNAL_TOKEN = 'internal-token';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
     process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'internal-bff-signing-secret-0123456789abcdef';
     process.env.SUPACLOUD_PROJECT_REF = 'project-from-supacloud';
     process.env.SUPACLOUD_RUNTIME_URL = 'https://runtime.example.test';
@@ -119,6 +124,7 @@ describe('ServerConfig', () => {
     const config = loadConfig();
     expect(config.supacloudApiUrl).toBe('http://supacloud.internal');
     expect(config.supacloudMasterToken).toBe('internal-token');
+    expect(config.supabaseServiceRoleKey).toBe('test-storage-token');
     expect(config.projectRef).toBe('project-from-supacloud');
     expect(config.oauthRuntimeUrl).toBe('https://runtime.example.test');
     expect(config.publicBaseUrl).toBe('https://auth.example.test');
@@ -129,6 +135,7 @@ describe('ServerConfig', () => {
   it('accepts the SupaCloud edge-runtime internal management URL alias', () => {
     process.env.SUPACLOUD_INTERNAL_SUPABASE_URL = 'http://127.0.0.1:9090';
     process.env.SUPACLOUD_INTERNAL_TOKEN = 'internal-token';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
     process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'edge-bff-signing-secret-0123456789abcdef';
     process.env.SUPACLOUD_PROJECT_REF = 'project-from-supacloud';
     process.env.SUPACLOUD_RUNTIME_URL = 'https://runtime.example.test';
@@ -182,6 +189,7 @@ describe('ServerConfig', () => {
     expect(entrypointImport.exitCode).not.toBe(0);
     expect(stderr).toContain('SupaOAuth configuration is invalid:');
     expect(stderr).toContain('SUPACLOUD_MASTER_TOKEN or SUPACLOUD_INTERNAL_TOKEN is required');
+    expect(stderr).toContain('SUPABASE_SERVICE_ROLE_KEY is required');
     expect(stderr).toContain('PROJECT_REF or SUPACLOUD_PROJECT_REF is required');
     expect(stderr).toContain('OAUTH_RUNTIME_URL, SUPACLOUD_RUNTIME_URL, or SUPABASE_URL is required');
     expect(stderr).toContain('DATABASE_URL or SUPACLOUD_DATABASE_URL is required');
@@ -191,9 +199,11 @@ describe('ServerConfig', () => {
 
   it('does not disclose configured values in production startup errors', () => {
     const sensitiveToken = 'sensitive-management-token-0123456789abcdef';
+    const sensitiveStorageToken = 'sensitive-storage-token-0123456789abcdef';
     const sensitivePublicUrl = 'sensitive-public-url-value';
     process.env.NODE_ENV = 'production';
     process.env.SUPACLOUD_MASTER_TOKEN = sensitiveToken;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = sensitiveStorageToken;
     process.env.SUPAOAUTH_BFF_SIGNING_SECRET = sensitiveToken;
     process.env.SUPAUTH_PUBLIC_URL = sensitivePublicUrl;
     const config = loadConfig();
@@ -207,6 +217,7 @@ describe('ServerConfig', () => {
 
     expect(startupErrorMessage).toContain('SupaOAuth configuration is invalid:');
     expect(startupErrorMessage).not.toContain(sensitiveToken);
+    expect(startupErrorMessage).not.toContain(sensitiveStorageToken);
     expect(startupErrorMessage).not.toContain(sensitivePublicUrl);
   });
 

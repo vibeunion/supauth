@@ -6,6 +6,7 @@ mock.module('../repositories/security-config.js', () => ({
 
 process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
 process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
+process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
 process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-32-characters';
 process.env.SUPACLOUD_PROJECT_REF = 'test-project';
 process.env.OAUTH_RUNTIME_URL = 'http://runtime.internal';
