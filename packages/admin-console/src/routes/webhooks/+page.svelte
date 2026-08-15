@@ -1,6 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
+  import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
   import {
     createDurableMutationLockStore,
@@ -36,6 +37,7 @@
   let availableEvents = $state([]);
   let availableEventCatalog = $state([]);
   let loading = $state(true);
+  let loadError = $state(null);
   let error = $state(null);
   let showCreate = $state(false);
   let newWebhook = $state({ url: "", events: [], enabled: true });
@@ -395,6 +397,7 @@
   async function load() {
     const request = webhookListRequests.begin("webhooks");
     loading = true;
+    loadError = null;
     error = null;
     try {
       const [webhookResponse, eventsRes] = await Promise.all([
@@ -412,7 +415,7 @@
         ? eventsRes.catalog
         : [];
     } catch (requestError) {
-      if (webhookListRequests.isCurrent(request)) error = requestError.message;
+      if (webhookListRequests.isCurrent(request)) loadError = requestError;
     } finally {
       if (webhookListRequests.isCurrent(request)) loading = false;
     }
@@ -1000,20 +1003,14 @@
   </div>
 {/if}
 
-{#if loading}
-  <p class="text-surface-400">{t("Loading...")}</p>
-{:else if webhooks.length === 0}
-  <div
-    class="bg-surface-50 rounded-xl border border-surface-200 p-8 text-center"
-  >
-    <p class="text-surface-500">{t("No webhooks configured")}</p>
-    <p class="text-sm text-surface-400 mt-2">
-      {t(
-        "Webhooks notify external systems on events like user.created, application.created",
-      )}
-    </p>
-  </div>
-{:else}
+<RequestState
+  {loading}
+  error={loadError}
+  onRetry={load}
+  empty={webhooks.length === 0}
+  emptyTitle="No webhooks configured"
+  emptyDescription="Webhooks notify external systems on events like user.created, application.created"
+>
   <div class="space-y-3">
     {#each webhooks as wh (wh.id)}
       <div class="bg-white rounded-xl border border-surface-200 p-5">
@@ -1224,4 +1221,4 @@
       </div>
     {/each}
   </div>
-{/if}
+</RequestState>

@@ -8,6 +8,8 @@ test("localizes the issue-facing JWT, Webhook, audit, and tenant labels", () => 
     expect(t("jwt.hookState.inactive")).toBe("未生效");
     expect(t("jwt.verifyRuntimeHook")).toBe("验证运行时 Hook");
     expect(t("webhooks.createFailed")).toStartWith("Webhook 创建失败");
+    expect(t("state.unavailable")).toBe("服务暂不可用");
+    expect(t("state.unavailableDescription")).toContain("恢复后重试");
     expect(t("audit.export")).toBe("导出");
     expect(t("audit.filter.eventType")).toBe("事件类型");
     expect(t("audit.exportStatus.completed")).toBe("已完成");
