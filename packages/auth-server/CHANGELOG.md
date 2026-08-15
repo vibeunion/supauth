@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.2](https://github.com/zuohuadong/supauth/compare/auth-server-v0.8.1...auth-server-v0.8.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **connectors:** retry confirmed runtime failures ([00f3b40](https://github.com/zuohuadong/supauth/commit/00f3b40e2bd4e9dd9b24121bc371e2769cfe579b))
+* **connectors:** retry confirmed runtime failures ([8fd07cc](https://github.com/zuohuadong/supauth/commit/8fd07cc6e02d5e7fa08d59f97430a32e42799c0b))
+* **storage:** separate Storage service credentials ([57ba124](https://github.com/zuohuadong/supauth/commit/57ba1242e5e1f31bfffdc553699ec0d4074ccb1d))
+* **storage:** separate Storage service credentials ([8e5a597](https://github.com/zuohuadong/supauth/commit/8e5a597ffed8327de56a0c696f2234544b74ce34))
+
 ## [0.8.1](https://github.com/zuohuadong/supauth/compare/auth-server-v0.8.0...auth-server-v0.8.1) (2026-08-13)
 
 

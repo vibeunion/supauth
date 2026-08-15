@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/zuohuadong/supauth/compare/admin-console-v0.7.1...admin-console-v0.7.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **admin:** localize Webhook load failures ([1976b92](https://github.com/zuohuadong/supauth/commit/1976b924a3e11f4283edf4cafbb70d5b7075447c))
+* **admin:** localize Webhook load failures ([38d79a0](https://github.com/zuohuadong/supauth/commit/38d79a0b8c6b42aa46f029c0a459e4d836d56d4a))
+
 ## [0.7.1](https://github.com/zuohuadong/supauth/compare/admin-console-v0.7.0...admin-console-v0.7.1) (2026-08-13)
 
 
