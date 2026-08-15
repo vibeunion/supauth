@@ -69,8 +69,7 @@ describe('enterprise connector contracts', () => {
     })).rejects.toMatchObject({ status: 503, code: 'connector_runtime_unavailable' });
   });
 
-  it('preserves an ambiguous connector runtime 503 for outcome reconciliation', async () => {
-    const runtimeFailure = new SupaCloudApiError(503, 'response unavailable', '/auth/sso/providers');
+  it('classifies a confirmed connector runtime 503 as retryable without reconciliation', async () => {
     await expect(instantiateConnectorFactory({
       name: 'Enterprise SAML', protocol: 'saml', category: 'enterprise_sso', enabled: true,
     }, {
@@ -79,12 +78,32 @@ describe('enterprise connector contracts', () => {
       createCustomOidc: async () => { throw new Error('unexpected OIDC create'); },
       readCustomOidc: async () => { throw new Error('unexpected OIDC read'); },
       deleteCustomOidc: async () => { throw new Error('unexpected OIDC delete'); },
-      createSaml: async () => { throw runtimeFailure; },
+      createSaml: async () => {
+        throw new SupaCloudApiError(503, 'runtime unavailable', '/auth/sso/providers');
+      },
       readSaml: async () => { throw new Error('unexpected SAML read'); },
       deleteSaml: async () => { throw new Error('unexpected SAML delete'); },
       saveOverlay: async () => { throw new Error('unexpected overlay write'); },
       readOverlay: async () => null,
-    })).rejects.toBe(runtimeFailure);
+    })).rejects.toMatchObject({ status: 503, code: 'connector_runtime_unavailable' });
+  });
+
+  it('preserves a connector transport interruption for outcome reconciliation', async () => {
+    const transportFailure = new TypeError('fetch failed');
+    await expect(instantiateConnectorFactory({
+      name: 'Enterprise SAML', protocol: 'saml', category: 'enterprise_sso', enabled: true,
+    }, {
+      name: 'Acme', metadata_url: 'https://idp.example.test/metadata', enabled: true,
+    }, {
+      createCustomOidc: async () => { throw new Error('unexpected OIDC create'); },
+      readCustomOidc: async () => { throw new Error('unexpected OIDC read'); },
+      deleteCustomOidc: async () => { throw new Error('unexpected OIDC delete'); },
+      createSaml: async () => { throw transportFailure; },
+      readSaml: async () => { throw new Error('unexpected SAML read'); },
+      deleteSaml: async () => { throw new Error('unexpected SAML delete'); },
+      saveOverlay: async () => { throw new Error('unexpected overlay write'); },
+      readOverlay: async () => null,
+    })).rejects.toBe(transportFailure);
   });
 
   it('maps enterprise enabled state to each typed runtime contract', () => {
