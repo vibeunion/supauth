@@ -18,7 +18,7 @@ Pass the reviewed projection preflight, installation, and RLS SQL to `checkAutho
 
 This structural lint accepts the generator's canonical SQL shape; it is not a general SQL parser or authorization proof. Release acceptance also requires real negative observations from the target database. Tables near or above 250,000 rows, or principals with more than 1,000 scopes, must run authenticated `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` with representative data and pass the parsed JSON value to `checkAuthorizationExplain`; each helper node must report `Actual Loops = 1` and belong to the hashed subplan referenced by its ancestor filter.
 
-See the [Application Authorization Kit](https://github.com/zuohuadong/supauth/blob/main/docs/application-authorization-kit.md) for the required scenario and release evidence contract.
+See the [Application Authorization Kit](https://github.com/vibeunion/supauth/blob/main/docs/application-authorization-kit.md) for the required scenario and release evidence contract.
 
 ## License
 

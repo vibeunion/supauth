@@ -65,7 +65,7 @@ AUTHORIZATION_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:5432/supauth_a
 bun test packages/authorization-postgres/src/postgres.integration.test.ts
 ```
 
-See the [Application Authorization Kit](https://github.com/zuohuadong/supauth/blob/main/docs/application-authorization-kit.md) for the complete dual-mode and ownership contract.
+See the [Application Authorization Kit](https://github.com/vibeunion/supauth/blob/main/docs/application-authorization-kit.md) for the complete dual-mode and ownership contract.
 
 ## License
 
