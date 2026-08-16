@@ -625,22 +625,49 @@ function functionListEntry(entry: unknown) {
   if (typeof (entry as { slug?: unknown }).slug !== 'string') {
     throw new Error('SupaCloud Function list response entry slug must be a string');
   }
-  return entry as { slug: string; version?: unknown };
+  return entry as { slug: string; version?: unknown; activation_id?: unknown };
 }
 
-function expectedActiveFunctionVersion(functions: unknown) {
+const SUPACLOUD_ACTIVATION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+
+interface ExpectedFunctionState {
+  activeVersion: string;
+  activationId: string;
+  activationIdWasReported: boolean;
+}
+
+function expectedActiveFunctionState(functions: unknown): ExpectedFunctionState {
   if (!Array.isArray(functions)) throw new Error('SupaCloud Function list response must be an array');
   const matchingFunctions = functions.map(functionListEntry).filter(({ slug }) => slug === 'supauth');
   if (matchingFunctions.length > 1) {
     throw new Error('SupaCloud Function list response contains duplicate supauth entries');
   }
-  if (matchingFunctions.length === 0) return 'absent';
+  if (matchingFunctions.length === 0) {
+    return { activeVersion: 'absent', activationId: 'legacy', activationIdWasReported: false };
+  }
 
-  const version = matchingFunctions[0].version;
+  const matchingFunction = matchingFunctions[0];
+  const version = matchingFunction.version;
   if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 0) {
     throw new Error('SupaCloud Function supauth version must be a non-negative safe integer');
   }
-  return String(version);
+  if (!Object.hasOwn(matchingFunction, 'activation_id')) {
+    return { activeVersion: String(version), activationId: 'legacy', activationIdWasReported: false };
+  }
+
+  const activationId = matchingFunction.activation_id;
+  if (activationId !== 'legacy'
+    && (typeof activationId !== 'string' || !SUPACLOUD_ACTIVATION_ID_PATTERN.test(activationId))) {
+    throw new Error('SupaCloud Function supauth activation_id must be a canonical UUID or legacy');
+  }
+  return { activeVersion: String(version), activationId, activationIdWasReported: true };
+}
+
+function isUnsupportedActivationIdContract(error: unknown) {
+  return error instanceof Error
+    && error.message.includes(' failed with 400:')
+    && /expected_activation_id/i.test(error.message)
+    && /(unknown|unexpected|unsupported|additional|not allowed|not permitted)/i.test(error.message);
 }
 
 async function deployFunction(input: {
@@ -656,18 +683,32 @@ async function deployFunction(input: {
     if (error instanceof SyntaxError) throw new Error('SupaCloud Function list response must be valid JSON');
     throw error;
   }
-  const expectedActiveVersion = expectedActiveFunctionVersion(functions);
+  const expectedState = expectedActiveFunctionState(functions);
+  const bundlePath = `/v1/projects/${input.projectRef}/functions/supauth/bundle`;
+  const bundleBody = {
+    files: input.files,
+    entrypoint: 'index.ts',
+    minify: false,
+    expected_active_version: expectedState.activeVersion,
+    expected_activation_id: expectedState.activationId,
+    verify_jwt: false,
+  };
 
-  await input.client.request(`/v1/projects/${input.projectRef}/functions/supauth/bundle`, {
-    method: 'POST',
-    body: JSON.stringify({
-      files: input.files,
-      entrypoint: 'index.ts',
-      minify: false,
-      expected_active_version: expectedActiveVersion,
-      verify_jwt: false,
-    }),
-  });
+  try {
+    await input.client.request(bundlePath, {
+      method: 'POST',
+      body: JSON.stringify(bundleBody),
+    });
+  } catch (error) {
+    // SupaCloud 0.57+ requires activation CAS.  Older servers omit the ID
+    // from their list response and reject this otherwise harmless field.
+    if (expectedState.activationIdWasReported || !isUnsupportedActivationIdContract(error)) throw error;
+    const { expected_activation_id: _legacyActivationId, ...legacyBundleBody } = bundleBody;
+    await input.client.request(bundlePath, {
+      method: 'POST',
+      body: JSON.stringify(legacyBundleBody),
+    });
+  }
 }
 
 const hostedRoutePaths = [
