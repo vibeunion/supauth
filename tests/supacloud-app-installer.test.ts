@@ -636,6 +636,7 @@ describe('SupaCloud app installer', () => {
           const body = JSON.parse(String(init?.body));
           expect(body.entrypoint).toBe('index.ts');
           expect(body.expected_active_version).toBe('44');
+          expect(body.expected_activation_id).toBe('legacy');
           expect(body.verify_jwt).toBe(false);
           expect(Object.keys(body.files)).toEqual([
             'index.ts',
@@ -735,8 +736,82 @@ describe('SupaCloud app installer', () => {
       entrypoint: 'index.ts',
       minify: false,
       expected_active_version: 'absent',
+      expected_activation_id: 'legacy',
       verify_jwt: false,
     }));
+  });
+
+  it('uses the Function activation ID from the same list snapshot as the version CAS', async () => {
+    const { root, artifactDir } = createFixture();
+    let bundleBody: Record<string, unknown> | undefined;
+    const activationId = '123e4567-e89b-42d3-a456-426614174000';
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') {
+          return Response.json([{ slug: 'supauth', version: 44, activation_id: activationId }]);
+        }
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
+          bundleBody = JSON.parse(String(init?.body));
+          return Response.json({ active_version: 45, activation_id: '223e4567-e89b-42d3-a456-426614174000' });
+        }
+        throw new Error(`Unexpected request: ${pathname}`);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(bundleBody).toEqual(expect.objectContaining({
+      expected_active_version: '44',
+      expected_activation_id: activationId,
+    }));
+  });
+
+  it('retries once without activation CAS only for an older server that explicitly rejects the new field', async () => {
+    const { root, artifactDir } = createFixture();
+    const bundleBodies: Array<Record<string, unknown>> = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') {
+          return Response.json([{ slug: 'supauth', version: 44 }]);
+        }
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
+          const body = JSON.parse(String(init?.body));
+          bundleBodies.push(body);
+          if (bundleBodies.length === 1) {
+            return Response.json(
+              { message: 'unknown property expected_activation_id', code: 'VALIDATION_ERROR' },
+              { status: 400 },
+            );
+          }
+          return Response.json({ active_version: 45 });
+        }
+        throw new Error(`Unexpected request: ${pathname}`);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(bundleBodies).toHaveLength(2);
+    expect(bundleBodies[0]).toEqual(expect.objectContaining({
+      expected_active_version: '44',
+      expected_activation_id: 'legacy',
+    }));
+    expect(bundleBodies[1]).toEqual(expect.objectContaining({ expected_active_version: '44' }));
+    expect(bundleBodies[1]).not.toHaveProperty('expected_activation_id');
   });
 
   it.each([
@@ -845,6 +920,35 @@ describe('SupaCloud app installer', () => {
     expect(bundleRequests).toBe(0);
   });
 
+  it.each([
+    ['an empty string', ''],
+    ['a non-UUID string', 'not-an-activation-id'],
+    ['a UUID with an invalid variant', '123e4567-e89b-42d3-7456-426614174000'],
+    ['a null value', null],
+  ])('rejects %s Function activation ID before bundle upload', async (_label, activationId) => {
+    const { root, artifactDir } = createFixture();
+    let bundleRequests = 0;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') {
+          return Response.json([{ slug: 'supauth', version: 44, activation_id: activationId }]);
+        }
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') bundleRequests += 1;
+        return Response.json({});
+      },
+    })).rejects.toThrow('activation_id must be a canonical UUID or legacy');
+
+    expect(bundleRequests).toBe(0);
+  });
+
   it('surfaces a Function version conflict without retrying the bundle request', async () => {
     const { root, artifactDir } = createFixture();
     let bundleRequests = 0;
@@ -868,6 +972,71 @@ describe('SupaCloud app installer', () => {
         return Response.json({});
       },
     })).rejects.toThrow('failed with 409');
+
+    expect(bundleRequests).toBe(1);
+  });
+
+  it('does not retry an activation conflict for a Function with a reported activation ID', async () => {
+    const { root, artifactDir } = createFixture();
+    let bundleRequests = 0;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') {
+          return Response.json([{
+            slug: 'supauth',
+            version: 44,
+            activation_id: '123e4567-e89b-42d3-a456-426614174000',
+          }]);
+        }
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
+          bundleRequests += 1;
+          return Response.json({ code: 'FUNCTION_ACTIVE_VERSION_CONFLICT' }, { status: 409 });
+        }
+        return Response.json({});
+      },
+    })).rejects.toThrow('failed with 409');
+
+    expect(bundleRequests).toBe(1);
+  });
+
+  it('does not downgrade a reported activation ID after a validation failure', async () => {
+    const { root, artifactDir } = createFixture();
+    let bundleRequests = 0;
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      skipMigration: true,
+      skipSecrets: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input) => {
+        const pathname = new URL(String(input)).pathname;
+        if (pathname === '/v1/projects/project_123/functions') {
+          return Response.json([{
+            slug: 'supauth',
+            version: 44,
+            activation_id: '123e4567-e89b-42d3-a456-426614174000',
+          }]);
+        }
+        if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
+          bundleRequests += 1;
+          return Response.json(
+            { message: 'unknown property expected_activation_id', code: 'VALIDATION_ERROR' },
+            { status: 400 },
+          );
+        }
+        return Response.json({});
+      },
+    })).rejects.toThrow('failed with 400');
 
     expect(bundleRequests).toBe(1);
   });
