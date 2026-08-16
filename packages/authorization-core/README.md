@@ -25,7 +25,7 @@ The package deliberately has no cross-request cache or snapshot-expiry contract.
 
 V1 permissions are exactly `resource:action`. There are no wildcards, explicit deny rules, role inheritance, ABAC expressions, remote PDP calls, or implicit grants.
 
-See the [Application Authorization Kit](https://github.com/zuohuadong/supauth/blob/main/docs/application-authorization-kit.md) for ownership, caching, revocation, and release boundaries.
+See the [Application Authorization Kit](https://github.com/vibeunion/supauth/blob/main/docs/application-authorization-kit.md) for ownership, caching, revocation, and release boundaries.
 
 ## License
 
