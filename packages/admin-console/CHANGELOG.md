@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.4](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.3...admin-console-v0.7.4) (2026-08-18)
+
+
+### Bug Fixes
+
+* **connectors:** separate visibility from runtime state ([2abf280](https://github.com/vibeunion/supauth/commit/2abf28069859e304e8324048ec59081ce9fd5010))
+* **connectors:** separate visibility from runtime state ([1f1b53e](https://github.com/vibeunion/supauth/commit/1f1b53ea9ffd06942d22252306df70f6cbf77b1a))
+
+
+### Miscellaneous Chores
+
+* trigger release checks ([eda49b1](https://github.com/vibeunion/supauth/commit/eda49b17bcd11d5d74c35ea37399f1cd73416d94))
+
 ## [0.7.3](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.2...admin-console-v0.7.3) (2026-08-18)
 
 

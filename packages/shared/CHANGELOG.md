@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/vibeunion/supauth/compare/shared-v0.7.1...shared-v0.7.2) (2026-08-18)
+
+
+### Miscellaneous Chores
+
+* trigger release checks ([eda49b1](https://github.com/vibeunion/supauth/commit/eda49b17bcd11d5d74c35ea37399f1cd73416d94))
+
 ## [0.7.1](https://github.com/vibeunion/supauth/compare/shared-v0.7.0...shared-v0.7.1) (2026-08-18)
 
 

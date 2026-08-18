@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.5](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.4...auth-server-v0.8.5) (2026-08-18)
+
+
+### Bug Fixes
+
+* **auth:** preserve missing-user delete contract ([092f569](https://github.com/vibeunion/supauth/commit/092f569f78a2dc887418edb63f5c663a155b551e))
+* **auth:** preserve missing-user delete contract ([59b6dc2](https://github.com/vibeunion/supauth/commit/59b6dc2acf83acdd63ea1350286fdfbbd1ca34cc))
+* **connectors:** separate visibility from runtime state ([2abf280](https://github.com/vibeunion/supauth/commit/2abf28069859e304e8324048ec59081ce9fd5010))
+* **connectors:** separate visibility from runtime state ([1f1b53e](https://github.com/vibeunion/supauth/commit/1f1b53ea9ffd06942d22252306df70f6cbf77b1a))
+* **rbac:** persist inline role permissions ([ca1bd45](https://github.com/vibeunion/supauth/commit/ca1bd4594f11aaecfb826b79022d4a4ce90880f2))
+* **rbac:** persist inline role permissions ([50b2905](https://github.com/vibeunion/supauth/commit/50b29053039685ceba53f5210692319c3570070f))
+
 ## [0.8.4](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.3...auth-server-v0.8.4) (2026-08-18)
 
 
