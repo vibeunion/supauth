@@ -137,7 +137,7 @@ function generateWrapperSQL(policy: ExistingPolicy, permissionName: string): { s
   const cmdMap: Record<string, string> = { SELECT: 'FOR SELECT', INSERT: 'FOR INSERT', UPDATE: 'FOR UPDATE', DELETE: 'FOR DELETE', ALL: 'FOR ALL' };
   const cmdClause = cmdMap[policy.cmd] || 'FOR ALL';
 
-  let wrapperUsing = policy.qual;
+  let wrapperUsing: string;
   let wrapperWithCheck = policy.with_check;
 
   if (policy.qual) {

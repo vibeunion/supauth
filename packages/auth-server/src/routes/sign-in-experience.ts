@@ -44,12 +44,6 @@ async function audit(eventType: string, resourceType: string, resourceId: string
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin' });
 }
 
-function runtimeInternalUrl(path: string) {
-  const base = config.oauthRuntimeInternalUrl.replace(/\/$/, '');
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${base}${normalizedPath}`;
-}
-
 export function buildGoTrueApiUrl(baseUrl: string, path: string) {
   const base = new URL(baseUrl);
   base.pathname = base.pathname.replace(/\/+$/, '');

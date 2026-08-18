@@ -403,7 +403,7 @@ describe('hostedPageRoutes', () => {
       expect(body).toContain('<script src="/hosted-auth.js"></script>');
       expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
       expect(body).toContain('fetch(`${apiBase}/account/config`, { credentials: \'include\' })');
-      expect(body).toContain('hostedAuth.authenticatedFetch(`${apiBase}${path}`, {');
+      expect(body).toContain(`hostedAuth.authenticatedFetch(\`\${apiBase}\${path}\`, {`);
       expect(body).toContain("accountFetch('/account/me')");
       expect(body).toContain("accountFetch('/account/profile'");
       expect(body).not.toContain("load('sessions', '/account/sessions')");

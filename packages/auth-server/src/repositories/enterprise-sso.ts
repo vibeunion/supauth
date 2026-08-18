@@ -2,7 +2,7 @@
 
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
-import { enterpriseSSOConfig, connectors } from '../db/schema.js';
+import { enterpriseSSOConfig } from '../db/schema.js';
 
 export interface EnterpriseSSOConfigRow {
   id: string;

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { SupaOAuthClient, SupaOAuthAPIError } from '../index.js';
 
 function mockFetch(fn: (input: string | Request, init?: RequestInit) => Promise<Response>) {
