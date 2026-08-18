@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.5](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.5.4...sdk-typescript-v0.5.5) (2026-08-18)
+
+
+### Bug Fixes
+
+* harden management boundaries and installer ([566b00b](https://github.com/vibeunion/supauth/commit/566b00bf562338c8f8c403020326ff3de893a15b))
+* harden management boundaries and installer ([64dfd18](https://github.com/vibeunion/supauth/commit/64dfd1876540f389ce38958612fc93c7932d3910))
+
 ## [0.5.4](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.5.3...sdk-typescript-v0.5.4) (2026-08-18)
 
 

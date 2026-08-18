@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.7](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.6...auth-server-v0.8.7) (2026-08-18)
+
+
+### Bug Fixes
+
+* harden management boundaries and installer ([566b00b](https://github.com/vibeunion/supauth/commit/566b00bf562338c8f8c403020326ff3de893a15b))
+* harden management boundaries and installer ([64dfd18](https://github.com/vibeunion/supauth/commit/64dfd1876540f389ce38958612fc93c7932d3910))
+* **webhooks:** preserve accepted enqueue status ([84ba3ea](https://github.com/vibeunion/supauth/commit/84ba3ea946d02be106d5f81df1b6c6ef7b2a1cd4))
+* **webhooks:** preserve accepted enqueue status ([edb1606](https://github.com/vibeunion/supauth/commit/edb160670d4ae5199e11464bde8979fa1adaa2e7))
+
 ## [0.8.6](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.5...auth-server-v0.8.6) (2026-08-18)
 
 
