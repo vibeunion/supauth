@@ -18,6 +18,13 @@ describe('SupaCloud Management API facade routes', () => {
     authorization_source: 'rbac_projection',
   };
   const calls: Array<{ url: string; method: string; body?: string }> = [];
+  const queuedTestPayload = { queued: true, outbox_id: 'outbox-test' };
+  const queuedReplayPayload = {
+    queued: true,
+    outbox_id: 'outbox-replay',
+    event_id: 'event-one',
+    original_delivery_id: 'delivery-one',
+  };
 
   beforeEach(() => {
     process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
@@ -41,6 +48,13 @@ describe('SupaCloud Management API facade routes', () => {
         method: init?.method || 'GET',
         body: typeof init?.body === 'string' ? init.body : undefined,
       });
+      const path = new URL(url).pathname;
+      if (path.endsWith('/webhooks/wh-one/test')) {
+        return Promise.resolve(Response.json(queuedTestPayload, { status: 202 }));
+      }
+      if (path.endsWith('/webhooks/wh-one/deliveries/delivery-one/replay')) {
+        return Promise.resolve(Response.json(queuedReplayPayload, { status: 202 }));
+      }
       return Promise.resolve(Response.json({ items: [{ id: 'one' }], total: 1, id: 'one' }));
     }) as unknown as typeof fetch;
   });
@@ -252,7 +266,7 @@ describe('SupaCloud Management API facade routes', () => {
     });
   });
 
-  it('uses server-generated webhook test payloads only', async () => {
+  it('uses server-generated webhook test payloads only and returns accepted status', async () => {
     const { webhookRoutes } = await import('../routes/webhooks.js');
     const app = new Elysia().use(webhookRoutes);
     const accepted = await app.handle(new Request('http://supauth.local/v1/webhooks/wh-one/test', {
@@ -266,11 +280,27 @@ describe('SupaCloud Management API facade routes', () => {
       body: JSON.stringify({ event: 'user.created', payload: { user_id: 'attacker' } }),
     }));
 
-    expect(accepted.status).toBe(200);
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toEqual(queuedTestPayload);
     expect(rejected.status).toBe(400);
     expect(calls).toHaveLength(1);
     expect(new URL(calls[0]?.url || '').pathname).toEndWith('/webhooks/wh-one/test');
     expect(calls[0]?.body).toBe('{}');
+  });
+
+  it('returns 202 and preserves the queued webhook replay payload', async () => {
+    const { webhookRoutes } = await import('../routes/webhooks.js');
+    const app = new Elysia().use(webhookRoutes);
+    const replayResponse = await withAdminRequestContext(
+      { requestId: 'webhook-replay-request', principal: adminPrincipal },
+      () => app.handle(new Request(
+        'http://supauth.local/v1/webhooks/wh-one/deliveries/delivery-one/replay',
+        { method: 'POST' },
+      )),
+    );
+
+    expect(replayResponse.status).toBe(202);
+    expect(await replayResponse.json()).toEqual(queuedReplayPayload);
   });
 
   it('keeps the webhook event list compatible while exposing delivery guarantees', async () => {
