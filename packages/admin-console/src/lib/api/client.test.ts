@@ -101,6 +101,25 @@ describe("admin business API authentication recovery", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  test("loads persisted branding assets as same-origin authenticated blobs", async () => {
+    const brandingBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const fetcher = mock(async (input) => {
+      expect(new URL(String(input), "http://console.local").pathname).toBe(
+        "/api/v1/storage/branding/logo",
+      );
+      return new Response(brandingBytes, {
+        headers: { "Content-Type": "image/png" },
+      });
+    });
+    setAdminAuthenticatedFetch(fetcher);
+
+    const brandingAsset = await adminClient.getBrandingAsset("logo");
+
+    expect(brandingAsset.type).toBe("image/png");
+    expect(new Uint8Array(await brandingAsset.arrayBuffer())).toEqual(brandingBytes);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   test("uses the dedicated Custom UI lifecycle endpoints", async () => {
     const requests = [];
     setAdminAuthenticatedFetch(mock(async (input, init) => {
