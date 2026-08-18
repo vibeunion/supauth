@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/vibeunion/supauth/compare/authorization-core-v0.3.0...authorization-core-v0.3.1) (2026-08-18)
+
+
+### Miscellaneous Chores
+
+* update repository URLs to vibeunion/supauth ([#79](https://github.com/vibeunion/supauth/issues/79)) ([7527319](https://github.com/vibeunion/supauth/commit/752731959a39ea35788f78d2a2ea9f5f9fbcbfba))
+
 ## [0.3.0](https://github.com/zuohuadong/supauth/compare/authorization-core-v0.2.1...authorization-core-v0.3.0) (2026-08-05)
 
 
