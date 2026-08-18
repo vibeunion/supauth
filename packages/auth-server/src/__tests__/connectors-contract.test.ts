@@ -7,7 +7,9 @@ import {
   mergeProvidersWithConnectorConfigs,
   notifyCommittedConnectorUpdate,
   samlFactoryRequest,
+  updateBuiltinConnectorRuntime,
   updateConnectorEnabledState,
+  verifiedConnectorState,
 } from '../routes/connectors.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
 import { withoutSecrets } from '../utils/secrets.js';
@@ -26,7 +28,6 @@ describe('enterprise connector contracts', () => {
     })).rejects.toMatchObject({ status: 409, code: 'connector_configuration_required' });
     expect(updateCalls).toBe(0);
 
-    let runtimeEnabledState = false;
     let configuredOverlay = {
       id: 'google', provider_id: 'google', runtime_kind: 'builtin_oauth',
       name: 'google', category: 'social', enabled: false, config: {},
@@ -35,12 +36,12 @@ describe('enterprise connector contracts', () => {
       providerId: 'google', runtimeKind: 'builtin_oauth', enabled: true, existingConfig: null,
     }, {
       readRuntime: async () => ({
-        id: 'google', enabled: runtimeEnabledState,
+        id: 'google', enabled: true,
         client_id: 'client', secret_configured: true,
       }),
       updateRuntime: async () => {
-        runtimeEnabledState = true;
-        return { id: 'google', enabled: true };
+        updateCalls += 1;
+        throw new Error('builtin runtime update must not be called');
       },
       saveOverlay: async input => {
         configuredOverlay = { ...configuredOverlay, enabled: input.enabled === true };
@@ -48,6 +49,46 @@ describe('enterprise connector contracts', () => {
       },
       readOverlay: async () => configuredOverlay,
     })).resolves.toMatchObject({ enabled: true, provider_enabled: true });
+    expect(updateCalls).toBe(0);
+  });
+
+  it('keeps builtin visibility separate from provider availability in list and detail readback', async () => {
+    let updateCalls = 0;
+    let overlay = {
+      id: 'google', provider_id: 'google', runtime_kind: 'builtin_oauth',
+      name: 'Google', category: 'social', enabled: true, config: {},
+    };
+    const dependencies = {
+      readRuntime: async () => ({
+        id: 'google', enabled: true, client_id: 'client', secret_configured: true,
+      }),
+      updateRuntime: async () => { updateCalls += 1; return {}; },
+      saveOverlay: async (input: { enabled?: boolean }) => {
+        overlay = { ...overlay, enabled: input.enabled === true };
+        return overlay;
+      },
+      readOverlay: async () => overlay,
+    };
+
+    const disabled = await updateConnectorEnabledState({
+      providerId: 'google', runtimeKind: 'builtin_oauth', enabled: false, existingConfig: overlay,
+    }, dependencies);
+
+    expect(disabled).toMatchObject({ enabled: false, provider_enabled: true });
+    expect(updateCalls).toBe(0);
+    const listed = mergeProvidersWithConnectorConfigs([
+      { id: 'google', enabled: true, client_id: 'client', secret_configured: true },
+    ], [overlay])[0];
+    const detailed = await verifiedConnectorState('google', overlay, dependencies);
+    expect(listed).toMatchObject({ enabled: false, provider_enabled: true });
+    expect(detailed).toMatchObject({ enabled: false, provider_enabled: true });
+
+    const listedWithoutOverlay = mergeProvidersWithConnectorConfigs([
+      { id: 'google', enabled: true, client_id: 'client', secret_configured: true },
+    ], [])[0];
+    const detailedWithoutOverlay = await verifiedConnectorState('google', null, dependencies);
+    expect(listedWithoutOverlay).toMatchObject({ enabled: false, provider_enabled: true });
+    expect(detailedWithoutOverlay).toMatchObject({ enabled: false, provider_enabled: true });
   });
 
   it('classifies a confirmed connector capability rejection as retryable without reconciliation', async () => {
@@ -152,6 +193,19 @@ describe('enterprise connector contracts', () => {
       runtime_kind: 'custom_oidc',
     });
     expect(overlay.config).toEqual({ issuer: 'https://issuer.example.test' });
+  });
+
+  it('keeps enterprise detail state locked to the typed runtime readback', async () => {
+    const overlay = {
+      id: 'custom:workos', provider_id: 'custom:workos', runtime_kind: 'custom_oidc',
+      name: 'WorkOS', category: 'enterprise_sso', enabled: false, config: {},
+    };
+    await expect(verifiedConnectorState('custom:workos', overlay, {
+      readRuntime: async () => ({ identifier: 'custom:workos', enabled: true }),
+      updateRuntime: async () => { throw new Error('unexpected runtime update'); },
+      saveOverlay: async () => { throw new Error('unexpected overlay write'); },
+      readOverlay: async () => overlay,
+    })).rejects.toMatchObject({ status: 503, code: 'connector_update_outcome_unknown' });
   });
 
   it('accepts an interrupted overlay response only when readback proves it committed', async () => {
@@ -328,6 +382,53 @@ describe('enterprise connector contracts', () => {
       secret_configured: true,
     });
     expect(JSON.stringify(safeOverlayConfig)).not.toContain('send-once');
+  });
+
+  it('enforces client_id boundaries before builtin and custom OIDC runtime writes', async () => {
+    const maximumClientId = 'c'.repeat(255);
+    let builtinUpdateCalls = 0;
+    await expect(updateBuiltinConnectorRuntime('google', { client_id: maximumClientId }, async (_providerId, input) => {
+      builtinUpdateCalls += 1;
+      return input;
+    })).resolves.toMatchObject({ client_id: maximumClientId });
+    expect(builtinUpdateCalls).toBe(1);
+    for (const invalidLength of [256, 10_000]) {
+      await expect(updateBuiltinConnectorRuntime('google', {
+        client_id: 'c'.repeat(invalidLength),
+      }, async () => {
+        builtinUpdateCalls += 1;
+        return {};
+      })).rejects.toMatchObject({ status: 400, code: 'invalid_connector_client_id' });
+    }
+    expect(builtinUpdateCalls).toBe(1);
+    expect(customOidcFactoryRequest({
+      identifier: 'workos', name: 'WorkOS', client_id: maximumClientId,
+      client_secret: 'secret', issuer: 'https://issuer.example.test',
+    }).client_id).toBe(maximumClientId);
+    for (const invalidLength of [256, 10_000]) {
+      expect(() => customOidcFactoryRequest({
+        identifier: 'workos', name: 'WorkOS', client_id: 'c'.repeat(invalidLength),
+        client_secret: 'secret', issuer: 'https://issuer.example.test',
+      })).toThrow(`client_id must contain between 1 and 255 characters`);
+    }
+
+    let customOidcCreateCalls = 0;
+    await expect(instantiateConnectorFactory({
+      name: 'Enterprise OIDC', protocol: 'oidc', category: 'enterprise_sso', enabled: true,
+    }, {
+      identifier: 'workos', name: 'WorkOS', client_id: 'c'.repeat(256),
+      client_secret: 'secret', issuer: 'https://issuer.example.test',
+    }, {
+      createCustomOidc: async () => { customOidcCreateCalls += 1; return {}; },
+      readCustomOidc: async () => ({}),
+      deleteCustomOidc: async () => null,
+      createSaml: async () => ({}),
+      readSaml: async () => ({}),
+      deleteSaml: async () => null,
+      saveOverlay: async () => ({} as never),
+      readOverlay: async () => null,
+    })).rejects.toMatchObject({ status: 400, code: 'invalid_connector_client_id' });
+    expect(customOidcCreateCalls).toBe(0);
   });
 
   it('accepts either SAML metadata XML or URL and parses typed collection fields', () => {

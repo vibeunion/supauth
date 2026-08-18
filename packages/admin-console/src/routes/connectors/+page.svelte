@@ -360,7 +360,10 @@
       try {
         const state = await getConnector(lock.targetId);
         const listed = connectors.find((connector) => connector.id === lock.targetId);
-        if (state?.enabled === state?.provider_enabled && listed?.enabled === state.enabled) {
+        if (!state || !listed) continue;
+        const providerStateMatches = listed.runtime_kind !== "builtin_oauth"
+          || listed.provider_enabled === state.provider_enabled;
+        if (listed.enabled === state.enabled && providerStateMatches) {
           clearConnectorToggleLock(lock.targetId);
         }
       } catch {
