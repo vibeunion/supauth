@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.3](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.2...auth-server-v0.8.3) (2026-08-18)
+
+
+### Bug Fixes
+
+* **admin:** restore branding asset previews ([685d176](https://github.com/vibeunion/supauth/commit/685d176b836e5d3c5df692d48c4aca49617b90f3))
+* **admin:** restore branding asset previews ([59717f2](https://github.com/vibeunion/supauth/commit/59717f2478c97f8b9ee487bfd0c015b76da86a02))
+
 ## [0.8.2](https://github.com/zuohuadong/supauth/compare/auth-server-v0.8.1...auth-server-v0.8.2) (2026-08-15)
 
 

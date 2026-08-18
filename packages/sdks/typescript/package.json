@@ -1,6 +1,6 @@
 {
   "name": "@supauth/sdk-typescript",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "TypeScript SDK for the SupaOAuth Management API and public sign-in experience APIs",
   "type": "module",
   "sideEffects": false,
