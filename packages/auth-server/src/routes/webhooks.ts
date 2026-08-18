@@ -102,9 +102,11 @@ export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
   }, {
     detail: { summary: 'Rotate webhook signing secret', tags: ['Webhooks'] },
   })
-  .post('/:webhookId/test', async ({ params, body }) => {
+  .post('/:webhookId/test', async ({ params, body, set }) => {
     rejectCustomWebhookTestPayload(body);
-    return adapter.testWebhook(params.webhookId);
+    const queuedDelivery = await adapter.testWebhook(params.webhookId);
+    set.status = 202;
+    return queuedDelivery;
   }, {
     detail: {
       summary: 'Send diagnostic webhook delivery',
@@ -127,9 +129,10 @@ export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
   }, {
     detail: { summary: 'Get webhook delivery detail', tags: ['Webhooks'] },
   })
-  .post('/:webhookId/deliveries/:deliveryId/replay', async ({ params }) => {
+  .post('/:webhookId/deliveries/:deliveryId/replay', async ({ params, set }) => {
     const replay = await adapter.replayWebhookDelivery(params.webhookId, params.deliveryId);
     await audit('webhook.delivery.replay', 'webhook', params.webhookId, { delivery_id: params.deliveryId });
+    set.status = 202;
     return withoutSecrets(replay);
   }, {
     detail: { summary: 'Replay the exact durable webhook delivery', tags: ['Webhooks'] },
