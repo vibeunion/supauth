@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/vibeunion/supauth/compare/sdk-auth-ui-v0.5.1...sdk-auth-ui-v0.5.2) (2026-08-18)
+
+
+### Miscellaneous Chores
+
+* trigger release checks ([eda49b1](https://github.com/vibeunion/supauth/commit/eda49b17bcd11d5d74c35ea37399f1cd73416d94))
+
 ## [0.5.1](https://github.com/vibeunion/supauth/compare/sdk-auth-ui-v0.5.0...sdk-auth-ui-v0.5.1) (2026-08-18)
 
 

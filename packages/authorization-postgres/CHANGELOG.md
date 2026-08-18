@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/vibeunion/supauth/compare/authorization-postgres-v0.4.1...authorization-postgres-v0.4.2) (2026-08-18)
+
+
+### Miscellaneous Chores
+
+* trigger release checks ([eda49b1](https://github.com/vibeunion/supauth/commit/eda49b17bcd11d5d74c35ea37399f1cd73416d94))
+
 ## [0.4.1](https://github.com/vibeunion/supauth/compare/authorization-postgres-v0.4.0...authorization-postgres-v0.4.1) (2026-08-18)
 
 

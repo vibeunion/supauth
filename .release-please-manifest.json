@@ -1,10 +1,10 @@
 {
-  "packages/authorization-core": "0.3.1",
-  "packages/authorization-postgres": "0.4.1",
-  "packages/authorization-conformance": "0.3.1",
-  "packages/auth-server": "0.8.4",
-  "packages/admin-console": "0.7.3",
-  "packages/shared": "0.7.1",
-  "packages/sdks/typescript": "0.5.2",
-  "packages/sdks/auth-ui": "0.5.1"
+  "packages/authorization-core": "0.3.2",
+  "packages/authorization-postgres": "0.4.2",
+  "packages/authorization-conformance": "0.3.2",
+  "packages/auth-server": "0.8.5",
+  "packages/admin-console": "0.7.4",
+  "packages/shared": "0.7.2",
+  "packages/sdks/typescript": "0.5.3",
+  "packages/sdks/auth-ui": "0.5.2"
 }
