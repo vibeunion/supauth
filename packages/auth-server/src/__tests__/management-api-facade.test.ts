@@ -403,6 +403,287 @@ describe('SupaCloud Management API facade routes', () => {
     expect(calls).toEqual([]);
   });
 
+  it('rejects invalid user pagination before calling SupaCloud', async () => {
+    const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/users.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const invalidQueries = [
+      'page=-1',
+      'page=0',
+      'page=1.5',
+      'page=abc',
+      'page=9007199254740992',
+      'limit=-1',
+      'limit=0',
+      'limit=1.5',
+      'limit=abc',
+      'limit=101',
+      'limit=999999',
+    ];
+
+    for (const query of invalidQueries) {
+      calls.length = 0;
+      const response = await app.handle(new Request(`http://supauth.local/v1/users?${query}`));
+      const payload = await response.json() as {
+        success: boolean;
+        error: { code: string; details: { field: string; minimum: number; maximum: number } };
+      };
+
+      expect(response.status).toBe(400);
+      expect(payload.success).toBe(false);
+      expect(payload.error.code).toBe('invalid_pagination');
+      expect(payload.error.details.minimum).toBe(1);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('normalizes supported user pagination and preserves default response metadata', async () => {
+    const { userRoutes } = await import('../routes/users.js');
+    const app = new Elysia().use(userRoutes);
+    const cases = [
+      { query: '', page: 1, limit: 50 },
+      { query: '?page=1&limit=1', page: 1, limit: 1 },
+      { query: `?page=${Number.MAX_SAFE_INTEGER}&limit=100`, page: Number.MAX_SAFE_INTEGER, limit: 100 },
+    ];
+
+    for (const testCase of cases) {
+      calls.length = 0;
+      const response = await app.handle(new Request(`http://supauth.local/v1/users${testCase.query}`));
+      const payload = await response.json() as { page: number; limit: number };
+
+      expect(response.status).toBe(200);
+      expect(payload.page).toBe(testCase.page);
+      expect(payload.limit).toBe(testCase.limit);
+      expect(calls).toHaveLength(1);
+      const upstreamUrl = new URL(calls[0]?.url || '');
+      expect(upstreamUrl.searchParams.get('page')).toBe(String(testCase.page));
+      expect(upstreamUrl.searchParams.get('limit')).toBe(String(testCase.limit));
+    }
+  });
+
+  it('enforces every configured password requirement before creating an administrator user', async () => {
+    const [
+      { userRoutes },
+      { observabilityMiddleware },
+      { GOTRUE_PASSWORD_CHARACTER_POLICIES },
+    ] = await Promise.all([
+      import('../routes/users.js'),
+      import('../middleware/index.js'),
+      import('../utils/password-policy.js'),
+    ]);
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({ url, method: init?.method || 'GET' });
+      return Promise.resolve(Response.json({
+        password_min_length: 12,
+        password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.strong,
+      }));
+    }) as unknown as typeof fetch;
+    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const invalidPasswords = [
+      { password: 'Short1!', code: 'password_too_short' },
+      { password: 'abcdefghijkl1!', code: 'password_requires_uppercase' },
+      { password: 'ABCDEFGHIJKL1!', code: 'password_requires_lowercase' },
+      { password: 'Abcdefghijkl!', code: 'password_requires_number' },
+      { password: 'Abcdefghijkl1', code: 'password_requires_symbol' },
+    ];
+
+    for (const testCase of invalidPasswords) {
+      const response = await app.handle(new Request('http://supauth.local/v1/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'new-user@example.test', password: testCase.password }),
+      }));
+      const payload = await response.json() as { error: { code: string } };
+
+      expect(response.status).toBe(400);
+      expect(payload.error.code).toBe(testCase.code);
+    }
+
+    expect(calls).toHaveLength(invalidPasswords.length);
+    expect(calls.every((call) => call.method === 'GET'
+      && new URL(call.url).pathname.endsWith('/config/auth'))).toBe(true);
+  });
+
+  it('fails closed when the administrator user password policy cannot be read or parsed', async () => {
+    let configResponse: 'malformed' | 'unavailable' = 'malformed';
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({ url, method: init?.method || 'GET' });
+      if (configResponse === 'unavailable') {
+        return Promise.resolve(new Response(JSON.stringify({ message: 'unavailable' }), { status: 503 }));
+      }
+      return Promise.resolve(Response.json({
+        password_min_length: 5,
+        password_required_characters: '',
+      }));
+    }) as unknown as typeof fetch;
+    const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/users.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+
+    for (const failureMode of ['malformed', 'unavailable'] as const) {
+      configResponse = failureMode;
+      calls.length = 0;
+      const response = await app.handle(new Request('http://supauth.local/v1/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'new-user@example.test', password: 'Abcdefghi1!x' }),
+      }));
+      const payload = await response.json() as { error: { code: string } };
+
+      expect(response.status).toBe(503);
+      expect(payload.error.code).toBe('password_policy_unavailable');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.method).toBe('GET');
+      expect(new URL(calls[0]?.url || '').pathname).toEndWith('/config/auth');
+    }
+  });
+
+  it('creates users at the configured password boundary and skips policy reads without a password', async () => {
+    const configPaths: string[] = [];
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method || 'GET';
+      const pathname = new URL(url).pathname;
+      calls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined });
+      if (pathname.endsWith('/config/auth')) {
+        configPaths.push(pathname);
+        return Promise.resolve(Response.json({
+          password_min_length: 12,
+          password_required_characters: 'abcdefghijklmnopqrstuvwxyz:ABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789',
+        }));
+      }
+      if (method === 'POST' && pathname.endsWith('/auth/users')) {
+        return Promise.resolve(Response.json({ id: 'created-user' }));
+      }
+      return Promise.resolve(Response.json({ ok: true }));
+    }) as unknown as typeof fetch;
+    const { userRoutes } = await import('../routes/users.js');
+    const app = new Elysia().use(userRoutes);
+
+    const passwordResponse = await withAdminRequestContext(
+      { requestId: 'user-create-with-password', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'password-user@example.test', password: 'Abcdefghij12' }),
+      })),
+    );
+    expect(passwordResponse.status).toBe(200);
+    expect(configPaths).toHaveLength(1);
+    expect(calls.filter((call) => call.method === 'POST'
+      && new URL(call.url).pathname.endsWith('/auth/users'))).toHaveLength(1);
+
+    calls.length = 0;
+    configPaths.length = 0;
+    const passwordlessResponse = await withAdminRequestContext(
+      { requestId: 'user-create-without-password', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'passwordless-user@example.test', email_confirm: true }),
+      })),
+    );
+    expect(passwordlessResponse.status).toBe(200);
+    expect(configPaths).toEqual([]);
+    expect(calls.filter((call) => call.method === 'POST'
+      && new URL(call.url).pathname.endsWith('/auth/users'))).toHaveLength(1);
+  });
+
+  it('maps only exact upstream missing-user delete errors from 400 to 404', async () => {
+    let upstreamStatus = 400;
+    let upstreamBody: unknown = { code: 'user_not_found' };
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({ url, method: init?.method || 'GET' });
+      return Promise.resolve(new Response(JSON.stringify(upstreamBody), {
+        status: upstreamStatus,
+        headers: { 'content-type': 'application/json' },
+      }));
+    }) as unknown as typeof fetch;
+    const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/users.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const missingBodies = [
+      { code: 'user_not_found' },
+      { error_code: 'user_not_found' },
+      { error: { code: 'user_not_found' } },
+    ];
+
+    for (const body of missingBodies) {
+      upstreamStatus = 400;
+      upstreamBody = body;
+      calls.length = 0;
+      const response = await app.handle(new Request('http://supauth.local/v1/users/missing-user', {
+        method: 'DELETE',
+      }));
+      const payload = await response.json() as { error: { code: string } };
+
+      expect(response.status).toBe(404);
+      expect(payload.error.code).toBe('not_found');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.method).toBe('DELETE');
+    }
+
+    const preservedErrors = [
+      { status: 400, body: { code: 'USER_NOT_FOUND' }, expectedStatus: 400, expectedCode: 'supacloud_upstream_error' },
+      { status: 401, body: { code: 'user_not_found' }, expectedStatus: 401, expectedCode: 'supacloud_upstream_error' },
+      { status: 403, body: { code: 'user_not_found' }, expectedStatus: 403, expectedCode: 'supacloud_upstream_error' },
+      { status: 409, body: { code: 'user_not_found' }, expectedStatus: 409, expectedCode: 'supacloud_upstream_error' },
+      { status: 422, body: { code: 'user_not_found' }, expectedStatus: 422, expectedCode: 'supacloud_upstream_error' },
+      { status: 500, body: { code: 'user_not_found' }, expectedStatus: 503, expectedCode: 'supacloud_upstream_error' },
+      { status: 404, body: { code: 'user_not_found' }, expectedStatus: 404, expectedCode: 'not_found' },
+    ];
+    for (const testCase of preservedErrors) {
+      upstreamStatus = testCase.status;
+      upstreamBody = testCase.body;
+      calls.length = 0;
+      const response = await app.handle(new Request('http://supauth.local/v1/users/missing-user', {
+        method: 'DELETE',
+      }));
+      const payload = await response.json() as { error: { code: string } };
+
+      expect(response.status).toBe(testCase.expectedStatus);
+      expect(payload.error.code).toBe(testCase.expectedCode);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.method).toBe('DELETE');
+    }
+  });
+
+  it('keeps missing-user update and delete responses aligned at 404', async () => {
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({ url, method: init?.method || 'GET' });
+      return Promise.resolve(new Response(JSON.stringify({ code: 'user_not_found' }), {
+        status: init?.method === 'DELETE' ? 400 : 404,
+        headers: { 'content-type': 'application/json' },
+      }));
+    }) as unknown as typeof fetch;
+    const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/users.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const update = await app.handle(new Request('http://supauth.local/v1/users/missing-user', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'missing-user@example.test' }),
+    }));
+    const deletion = await app.handle(new Request('http://supauth.local/v1/users/missing-user', {
+      method: 'DELETE',
+    }));
+
+    expect([update.status, deletion.status]).toEqual([404, 404]);
+    expect(calls.map((call) => call.method)).toEqual(['PUT', 'DELETE']);
+  });
+
   it('retires the header-derived legacy account API without platform access', async () => {
     const { myAccountRoutes } = await import('../routes/my-account.js');
     const app = new Elysia().use(myAccountRoutes);

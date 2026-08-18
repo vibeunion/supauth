@@ -1,7 +1,7 @@
 // User management routes with OpenAPI annotations
 
 import { Elysia } from 'elysia';
-import { getSupaCloudAdapter } from '../supacloud/adapter.js';
+import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import {
@@ -10,10 +10,22 @@ import {
   sanitizeAdminUserUpdatePayload,
   userUpdateFailureBody,
 } from './user-update-policy.js';
-import { capabilityUnavailable, cursorResponse, pagedResponse } from '../utils/api-contract.js';
+import {
+  ApiContractError,
+  capabilityUnavailable,
+  cursorResponse,
+  pagedResponse,
+} from '../utils/api-contract.js';
+import {
+  passwordPolicyFromAuthConfig,
+  passwordPolicyViolation,
+} from '../utils/password-policy.js';
 import { withoutSecrets } from '../utils/secrets.js';
 
 const adapter = getSupaCloudAdapter();
+const DEFAULT_USER_PAGE = 1;
+const DEFAULT_USER_LIMIT = 50;
+const MAX_USER_LIMIT = 100;
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -28,12 +40,77 @@ function gotrueGrantPage(upstream: unknown) {
   return { ...page, items: page.items.map((grant) => ({ ...grant, source: 'gotrue' })) };
 }
 
+function parseUserPaginationValue(
+  input: unknown,
+  field: 'page' | 'limit',
+  fallback: number,
+  maximum: number,
+): number {
+  if (input === undefined) return fallback;
+  const raw = typeof input === 'number' ? String(input) : input;
+  const parsed = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new ApiContractError(
+      400,
+      'invalid_pagination',
+      'Pagination parameters are outside the supported range.',
+      { field, minimum: 1, maximum },
+    );
+  }
+  return parsed;
+}
+
+function parseUserPagination(query: Record<string, unknown>) {
+  return {
+    page: parseUserPaginationValue(query.page, 'page', DEFAULT_USER_PAGE, Number.MAX_SAFE_INTEGER),
+    limit: parseUserPaginationValue(query.limit, 'limit', DEFAULT_USER_LIMIT, MAX_USER_LIMIT),
+  };
+}
+
+async function validateAdminCreatePassword(password: string): Promise<void> {
+  let policy;
+  try {
+    policy = passwordPolicyFromAuthConfig(await adapter.getAuthConfig());
+  } catch {
+    throw new ApiContractError(
+      503,
+      'password_policy_unavailable',
+      'Password policy is temporarily unavailable.',
+    );
+  }
+
+  const violation = passwordPolicyViolation(password, policy);
+  if (violation) {
+    throw new ApiContractError(400, violation, 'Password does not satisfy the configured policy.');
+  }
+}
+
+function isRecord(candidate: unknown): candidate is Record<string, unknown> {
+  return typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate);
+}
+
+function isMissingUserDeleteError(error: unknown): boolean {
+  if (!isSupaCloudApiError(error, [400])) return false;
+  let body: unknown;
+  try {
+    body = JSON.parse(error.body);
+  } catch (parseError) {
+    if (parseError instanceof SyntaxError) return false;
+    throw parseError;
+  }
+  if (!isRecord(body)) return false;
+  const nestedError = isRecord(body.error) ? body.error : {};
+  return body.code === 'user_not_found'
+    || body.error_code === 'user_not_found'
+    || nestedError.code === 'user_not_found';
+}
+
 export const userRoutes = new Elysia({ prefix: '/v1/users' })
   .get('/', async ({ query }) => {
-    const pagination = { page: query.page, limit: query.limit };
+    const pagination = parseUserPagination(query);
     const users = await adapter.listUsers({
-      page: query.page,
-      limit: query.limit,
+      page: pagination.page,
+      limit: pagination.limit,
       search: query.search,
       email: query.email,
     });
@@ -46,6 +123,9 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
     if (!payload.ok) {
       set.status = payload.status;
       return userUpdateFailureBody(payload);
+    }
+    if (typeof payload.data.password === 'string') {
+      await validateAdminCreatePassword(payload.data.password);
     }
     const created = await adapter.createUser(payload.data);
     const userId = String((created as Record<string, unknown>).id || '');
@@ -92,7 +172,14 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
     detail: { summary: 'Restore (unsuspend) user through SupaCloud', tags: ['Users', 'Account Center'] },
   })
   .delete('/:userId', async ({ params }) => {
-    await adapter.deleteUser(params.userId);
+    try {
+      await adapter.deleteUser(params.userId);
+    } catch (error) {
+      if (isMissingUserDeleteError(error)) {
+        throw new ApiContractError(404, 'not_found', 'User was not found.');
+      }
+      throw error;
+    }
     await audit('user.delete', 'user', params.userId);
     await fireWebhook('user.deleted', { user_id: params.userId });
   }, {
