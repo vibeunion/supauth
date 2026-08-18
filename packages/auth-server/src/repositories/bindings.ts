@@ -1,6 +1,6 @@
 // Application-Resource/Scope bindings repository
 
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { applicationBindings, scopes } from '../db/schema.js';
 

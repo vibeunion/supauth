@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { SupaOAuthClient, SupaOAuthAPIError } from '../index.js';
 
 // Helper to mock globalThis.fetch without type mismatch

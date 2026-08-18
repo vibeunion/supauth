@@ -1,6 +1,6 @@
 // Compatibility inspector routes with OpenAPI annotations
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { runCompatibilityChecks } from '../compatibility/supabase.js';
 
 export const compatibilityRoutes = new Elysia({ prefix: '/v1/compatibility' })

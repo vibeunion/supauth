@@ -174,7 +174,8 @@ async function loadRuntimeAdminSsoConfig(
   try {
     return await pendingConfig;
   } catch (error) {
-    if (runtimeSsoConfigPromise === pendingConfig) runtimeSsoConfigPromise = null;
+    // 此处刻意比较 Promise 身份；await 会比较结果值并破坏过期请求保护。
+    if (Object.is(runtimeSsoConfigPromise, pendingConfig)) runtimeSsoConfigPromise = null;
     throw error;
   }
 }

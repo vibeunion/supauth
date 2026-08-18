@@ -1,6 +1,6 @@
 // Admin tool routes — RLS migration assistant and SDK coverage verification
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { generateWrapperPolicies, type ExistingPolicy } from '../compatibility/rls-migration.js';
 import { compileAuthorizationPlan, type AuthorizationCompileRequest } from '../compatibility/authorization-compiler.js';
 
