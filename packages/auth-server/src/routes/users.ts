@@ -90,7 +90,8 @@ function isRecord(candidate: unknown): candidate is Record<string, unknown> {
 }
 
 function isMissingUserDeleteError(error: unknown): boolean {
-  if (!isSupaCloudApiError(error, [400])) return false;
+  if (!isSupaCloudApiError(error, [400, 404])) return false;
+  if (error.status === 404) return true;
   let body: unknown;
   try {
     body = JSON.parse(error.body);
@@ -173,6 +174,10 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
   })
   .delete('/:userId', async ({ params }) => {
     try {
+      // SupaCloud's deletion fence makes an already-absent user look like a
+      // successful idempotent delete. Read first so this compatibility route
+      // preserves GoTrue's observable 404 contract for a missing user.
+      await adapter.getUser(params.userId);
       await adapter.deleteUser(params.userId);
     } catch (error) {
       if (isMissingUserDeleteError(error)) {

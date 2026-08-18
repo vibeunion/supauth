@@ -850,7 +850,7 @@ describe('SupaCloud Management API facade routes', () => {
       && new URL(call.url).pathname.endsWith('/auth/users'))).toHaveLength(1);
   });
 
-  it('maps only exact upstream missing-user delete errors from 400 to 404', async () => {
+  it('looks up a user before deletion and maps only exact missing-user errors to 404', async () => {
     let upstreamStatus = 400;
     let upstreamBody: unknown = { code: 'user_not_found' };
     globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
@@ -884,7 +884,7 @@ describe('SupaCloud Management API facade routes', () => {
       expect(response.status).toBe(404);
       expect(payload.error.code).toBe('not_found');
       expect(calls).toHaveLength(1);
-      expect(calls[0]?.method).toBe('DELETE');
+      expect(calls[0]?.method).toBe('GET');
     }
 
     const preservedErrors = [
@@ -908,7 +908,7 @@ describe('SupaCloud Management API facade routes', () => {
       expect(response.status).toBe(testCase.expectedStatus);
       expect(payload.error.code).toBe(testCase.expectedCode);
       expect(calls).toHaveLength(1);
-      expect(calls[0]?.method).toBe('DELETE');
+      expect(calls[0]?.method).toBe('GET');
     }
   });
 
@@ -936,7 +936,33 @@ describe('SupaCloud Management API facade routes', () => {
     }));
 
     expect([update.status, deletion.status]).toEqual([404, 404]);
-    expect(calls.map((call) => call.method)).toEqual(['PUT', 'DELETE']);
+    expect(calls.map((call) => call.method)).toEqual(['PUT', 'GET']);
+  });
+
+  it('deletes an existing user only after the preflight lookup succeeds', async () => {
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method || 'GET';
+      calls.push({ url, method });
+      return Promise.resolve(Response.json(method === 'GET'
+        ? { id: 'existing-user' }
+        : { id: 'existing-user', deleted: true }));
+    }) as unknown as typeof fetch;
+    const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/users.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+
+    const response = await withAdminRequestContext(
+      { requestId: 'delete-existing-user', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/users/existing-user', {
+        method: 'DELETE',
+      })),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls.slice(0, 2).map((call) => call.method)).toEqual(['GET', 'DELETE']);
   });
 
   it('retires the header-derived legacy account API without platform access', async () => {
