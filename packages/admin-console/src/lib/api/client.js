@@ -803,6 +803,10 @@ export function uploadBranding(assetType, file, contentType) {
   });
 }
 
+export function getBrandingAsset(assetType) {
+  return adminApiBlob(`/v1/storage/branding/${pathSegment(assetType)}`);
+}
+
 // Organization templates
 export function listOrgTemplates() {
   return request("/v1/org-templates");

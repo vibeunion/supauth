@@ -28,6 +28,7 @@ const BRANDING_IMAGE_TYPES = {
   'image/x-icon': { extension: 'ico', signature: iconSignature },
   'image/vnd.microsoft.icon': { extension: 'ico', signature: iconSignature },
 } as const;
+const BRANDING_OBJECT_FILE = /^[a-f0-9]{24}\.(?:png|jpg|gif|webp|svg|ico)$/;
 
 function startsWithBytes(bytes: Uint8Array, expected: number[]) {
   return expected.every((byte, index) => bytes[index] === byte);
@@ -130,6 +131,57 @@ function brandingAssetUrlInput(assetType: ManagedBrandingAssetType, publicUrl: s
 
 function brandingAssetUrl(snapshot: Awaited<ReturnType<typeof sieRepo.getSignInExperience>>, assetType: ManagedBrandingAssetType) {
   return assetType === 'logo' ? snapshot?.branding.logo_url : snapshot?.branding.favicon_url;
+}
+
+function brandingAssetObjectPath(assetType: ManagedBrandingAssetType, publicUrl: string) {
+  const pathPrefix = `/storage/v1/object/public/branding/${assetType}/`;
+  let assetUrl: URL;
+  try {
+    assetUrl = new URL(publicUrl);
+  } catch {
+    throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
+  }
+  const prefixIndex = assetUrl.pathname.lastIndexOf(pathPrefix);
+  if (prefixIndex < 0) {
+    throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
+  }
+  let fileName: string;
+  try {
+    fileName = decodeURIComponent(assetUrl.pathname.slice(prefixIndex + pathPrefix.length));
+  } catch {
+    throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
+  }
+  if (!BRANDING_OBJECT_FILE.test(fileName)) {
+    throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
+  }
+  return `${assetType}/${fileName}`;
+}
+
+async function brandingAssetResponse(assetType: ManagedBrandingAssetType, publicUrl: string) {
+  const filePath = brandingAssetObjectPath(assetType, publicUrl);
+  let storageResponse: Response;
+  try {
+    storageResponse = await getSupaCloudAdapter().downloadFile('branding', filePath);
+  } catch (error) {
+    if (isSupaCloudApiError(error, [404])) {
+      throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
+    }
+    if (isSupaCloudApiError(error) || error instanceof TypeError) {
+      throw new ApiContractError(503, 'branding_storage_unavailable', 'Branding storage is unavailable');
+    }
+    throw error;
+  }
+  const contentType = brandingContentType(storageResponse.headers.get('content-type') || '');
+  if (!(contentType in BRANDING_IMAGE_TYPES)) {
+    throw new ApiContractError(502, 'branding_asset_invalid_content_type', 'Branding asset returned an invalid media type');
+  }
+  return new Response(storageResponse.body, {
+    headers: {
+      'Cache-Control': 'private, no-store',
+      'Content-Type': contentType,
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 }
 
 async function persistBrandingAssetUrl(assetType: ManagedBrandingAssetType, publicUrl: string) {
@@ -360,10 +412,8 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
   })
 
   // ─── Branding asset read (admin console accesses it via /api/v1) ──
-  // Older frontends load the current branding asset from
-  // /api/v1/storage/branding/<assetType>[.<ext>]. Without this GET route the
-  // request fell into the global error handler and returned 500; now it
-  // redirects to the authoritative public URL, or returns a clear 404.
+  // Keep the browser on the authenticated BFF origin because the configured
+  // Storage URL can be internal even though the stored object is public.
   .get('/branding/:assetType', async ({ params }) => {
     const assetType = brandingAssetReadType(params.assetType);
     if (!managedBrandingAssetType(assetType)) {
@@ -374,7 +424,7 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     if (!assetUrl) {
       throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
     }
-    return new Response(null, { status: 302, headers: { Location: assetUrl } });
+    return brandingAssetResponse(assetType, assetUrl);
   })
 
   // ─── Branding upload (convenience endpoint) ──────────────────────

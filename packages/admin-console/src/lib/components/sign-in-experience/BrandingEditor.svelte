@@ -1,6 +1,6 @@
 <script>
-  import { onMount } from 'svelte';
-  import { getSignInExperience, updateSignInExperience, uploadBranding } from '$lib/api/client.js';
+  import { onDestroy, onMount } from 'svelte';
+  import { getBrandingAsset, getSignInExperience, updateSignInExperience, uploadBranding } from '$lib/api/client.js';
   import {
     brandingSettingsAuthority,
     settleAuthoritativeSettingsMutation,
@@ -18,6 +18,7 @@
     'image/vnd.microsoft.icon',
   ]);
   const BRANDING_FILE_ACCEPT = [...BRANDING_FILE_TYPES].join(',');
+  const BRANDING_ASSET_TYPES = ['logo', 'favicon'];
 
   let loading = $state(true);
   let saving = $state(false);
@@ -28,6 +29,9 @@
   let storageUnavailable = $state(false);
   let previewViewport = $state('desktop');
   let previewTheme = $state('light');
+  let localPreviewUrls = $state({ logo: '', favicon: '' });
+  let previewFailures = $state({ logo: false, favicon: false });
+  let previewsDisposed = false;
   let branding = $state({
     page_title: '',
     logo_url: '',
@@ -35,6 +39,8 @@
     primary_color: '',
     background_url: '',
   });
+  let logoPreviewUrl = $derived(localPreviewUrls.logo);
+  let faviconPreviewUrl = $derived(localPreviewUrls.favicon);
 
   function syncBranding(signInExperience) {
     const currentBranding = signInExperience?.branding || {};
@@ -46,6 +52,39 @@
       primary_color: managedBranding.primary_color || '',
       background_url: managedBranding.background_url || '',
     };
+    previewFailures = { logo: false, favicon: false };
+  }
+
+  function setLocalPreview(assetType, previewBlob) {
+    if (previewsDisposed) return;
+    const previousPreviewUrl = localPreviewUrls[assetType];
+    if (previousPreviewUrl) URL.revokeObjectURL(previousPreviewUrl);
+    localPreviewUrls[assetType] = URL.createObjectURL(previewBlob);
+    previewFailures[assetType] = false;
+  }
+
+  function markPreviewUnavailable(assetType) {
+    const failedPreviewUrl = localPreviewUrls[assetType];
+    if (failedPreviewUrl) URL.revokeObjectURL(failedPreviewUrl);
+    localPreviewUrls[assetType] = '';
+    previewFailures[assetType] = true;
+  }
+
+  function disposeLocalPreviews() {
+    previewsDisposed = true;
+    for (const previewUrl of Object.values(localPreviewUrls)) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    }
+  }
+
+  async function loadStoredPreview(assetType) {
+    if (!branding[`${assetType}_url`]) return;
+    try {
+      setLocalPreview(assetType, await getBrandingAsset(assetType));
+    } catch (requestError) {
+      markPreviewUnavailable(assetType);
+      console.error(`[branding] ${assetType} preview request failed:`, requestError);
+    }
   }
 
   async function loadBranding() {
@@ -55,6 +94,7 @@
     reconciliationStatus = null;
     try {
       syncBranding(await getSignInExperience());
+      await Promise.all(BRANDING_ASSET_TYPES.map(loadStoredPreview));
     } catch (requestError) {
       error = displayError(requestError);
     }
@@ -134,6 +174,7 @@
     error = null;
     try {
       await uploadBranding(assetType, selectedFile, selectedFile.type);
+      setLocalPreview(assetType, selectedFile);
       syncBranding(await getSignInExperience());
     } catch (requestError) {
       error = displayError(requestError);
@@ -144,6 +185,7 @@
   }
 
   onMount(loadBranding);
+  onDestroy(disposeLocalPreviews);
 </script>
 
 <div class="mb-6 flex items-start justify-between gap-4">
@@ -214,8 +256,12 @@
         <div class="mx-auto overflow-hidden rounded-xl border border-surface-200 shadow-sm transition-[max-width] {previewViewport === 'mobile' ? 'max-w-sm' : 'max-w-3xl'}">
           <div class="grid min-h-[26rem] place-items-center p-6 {previewTheme === 'dark' ? 'bg-surface-950' : 'bg-white'}">
             <div class="w-full max-w-sm rounded-xl border p-6 {previewTheme === 'dark' ? 'border-surface-700 bg-surface-900 text-white' : 'border-surface-200 bg-white text-surface-900'}">
-              {#if branding.logo_url}
-                <img src={branding.logo_url} alt="" class="mb-5 h-10 max-w-full object-contain object-left">
+              {#if logoPreviewUrl && !previewFailures.logo}
+                <div class="mb-5 flex h-10 max-w-full items-center overflow-hidden">
+                  <img src={logoPreviewUrl} alt="" class="max-h-full max-w-full object-contain object-left" onerror={() => markPreviewUnavailable('logo')}>
+                </div>
+              {:else if branding.logo_url && previewFailures.logo}
+                <p class="mb-5 text-xs text-surface-500" role="status">{t('signIn.brandingPreviewUnavailable')}</p>
               {/if}
               <h4 class="text-xl font-semibold">{branding.page_title || 'SupaOAuth'}</h4>
               <p class="mt-2 text-sm {previewTheme === 'dark' ? 'text-surface-300' : 'text-surface-500'}">{t('signIn.previewSignInHint')}</p>
@@ -239,18 +285,30 @@
         </div>
       {/if}
       <div class="grid gap-6 lg:grid-cols-2">
-        <div>
+        <div class="min-w-0">
           <p class="mb-2 text-sm font-medium text-surface-700">{t('Logo')}</p>
-          {#if branding.logo_url}<img src={branding.logo_url} alt={t('Logo')} class="mb-3 h-16 max-w-full rounded border border-surface-200 object-contain">{/if}
+          {#if logoPreviewUrl && !previewFailures.logo}
+            <div class="mb-3 flex h-16 w-full max-w-xs items-center overflow-hidden rounded border border-surface-200 bg-white">
+              <img src={logoPreviewUrl} alt={t('Logo')} class="max-h-full max-w-full object-contain" onerror={() => markPreviewUnavailable('logo')}>
+            </div>
+          {:else if branding.logo_url && previewFailures.logo}
+            <p class="mb-3 text-sm text-surface-500" role="status">{t('signIn.brandingPreviewUnavailable')}</p>
+          {/if}
           <label for="branding-logo-upload" class="inline-flex rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700" class:cursor-pointer={!storageUnavailable} class:cursor-not-allowed={storageUnavailable} class:opacity-50={storageUnavailable}>
             {uploading === 'logo' ? t('Uploading...') : t('Upload Logo')}
             <input id="branding-logo-upload" type="file" accept={BRANDING_FILE_ACCEPT} class="sr-only" disabled={uploading !== null || storageUnavailable} onchange={(uploadEvent) => uploadBrandingFile('logo', uploadEvent)}>
           </label>
           <p class="mt-2 text-xs leading-5 text-surface-500">{t('signIn.logoUploadHint')}</p>
         </div>
-        <div>
+        <div class="min-w-0">
           <p class="mb-2 text-sm font-medium text-surface-700">{t('Favicon')}</p>
-          {#if branding.favicon_url}<img src={branding.favicon_url} alt={t('Favicon')} class="mb-3 h-10 w-10 rounded border border-surface-200 object-contain">{/if}
+          {#if faviconPreviewUrl && !previewFailures.favicon}
+            <div class="mb-3 flex h-10 w-10 items-center justify-center overflow-hidden rounded border border-surface-200 bg-white">
+              <img src={faviconPreviewUrl} alt={t('Favicon')} class="max-h-full max-w-full object-contain" onerror={() => markPreviewUnavailable('favicon')}>
+            </div>
+          {:else if branding.favicon_url && previewFailures.favicon}
+            <p class="mb-3 text-sm text-surface-500" role="status">{t('signIn.brandingPreviewUnavailable')}</p>
+          {/if}
           <label for="branding-favicon-upload" class="inline-flex rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700" class:cursor-pointer={!storageUnavailable} class:cursor-not-allowed={storageUnavailable} class:opacity-50={storageUnavailable}>
             {uploading === 'favicon' ? t('Uploading...') : t('Upload Favicon')}
             <input id="branding-favicon-upload" type="file" accept={BRANDING_FILE_ACCEPT} class="sr-only" disabled={uploading !== null || storageUnavailable} onchange={(uploadEvent) => uploadBrandingFile('favicon', uploadEvent)}>

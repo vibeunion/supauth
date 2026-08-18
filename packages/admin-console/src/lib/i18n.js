@@ -274,6 +274,8 @@ const en = {
   "signIn.brandingUnsupportedFile": "Choose a PNG, JPG, GIF, WebP, SVG, or ICO image.",
   "signIn.brandingEmptyFile": "The selected image is empty.",
   "signIn.brandingFileTooLarge": "The selected image exceeds the 5MB limit.",
+  "signIn.brandingPreviewUnavailable":
+    "The saved image could not be loaded. Upload it again to refresh the preview.",
   "signIn.brandingStorageUnavailable":
     "Storage service is unavailable. Please ask an administrator to check the Storage deployment.",
   "signIn.brandingStorageDegradedTitle": "Branding asset uploads are temporarily disabled",
@@ -1368,6 +1370,7 @@ const zhCN = {
   "signIn.brandingUnsupportedFile": "请选择 PNG、JPG、GIF、WebP、SVG 或 ICO 图片。",
   "signIn.brandingEmptyFile": "所选图片为空文件。",
   "signIn.brandingFileTooLarge": "所选图片超过 5MB 限制。",
+  "signIn.brandingPreviewUnavailable": "已保存的图片无法加载，请重新上传以刷新预览。",
   "signIn.brandingStorageUnavailable":
     "存储服务连接失败，请联系管理员检查 Storage 部署。",
   "signIn.brandingStorageDegradedTitle": "品牌资源上传已暂时停用",

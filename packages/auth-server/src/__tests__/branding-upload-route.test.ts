@@ -26,9 +26,14 @@ const uploadFile = mock(async (
   _file: Blob,
   _contentType: string,
 ) => ({ key: path }));
+const downloadFile = mock(async () => new Response(pngBytes, {
+  headers: { 'content-type': 'image/png' },
+}));
 const getStorageBucket = mock(async () => ({ id: 'branding' }));
 const createStorageBucket = mock(async () => ({ id: 'branding' }));
-const getPublicUrl = mock((bucket: string, path: string) => `https://assets.example.test/${bucket}/${path}`);
+const getPublicUrl = mock((bucket: string, path: string) => (
+  `https://assets.example.test/storage/v1/object/public/${bucket}/${path}`
+));
 const logAudit = mock(async () => ({}));
 
 class MockSupaCloudApiError extends Error {
@@ -46,6 +51,7 @@ mock.module('../supacloud/adapter.js', () => ({
     getStorageBucket,
     createStorageBucket,
     uploadFile,
+    downloadFile,
     getPublicUrl,
   }),
 }));
@@ -74,6 +80,7 @@ beforeEach(() => {
   getSignInExperience.mockClear();
   updateSignInExperience.mockClear();
   uploadFile.mockClear();
+  downloadFile.mockClear();
   getStorageBucket.mockClear();
   createStorageBucket.mockClear();
   getPublicUrl.mockClear();
@@ -93,7 +100,9 @@ describe('branding upload route', () => {
     expect(path).toMatch(/^logo\/[a-f0-9]{24}\.png$/);
     expect(file).toBeInstanceOf(Blob);
     expect(contentType).toBe('image/png');
-    expect(payload.url).toBe(`https://assets.example.test/branding/${path}`);
+    expect(payload.url).toBe(
+      `https://assets.example.test/storage/v1/object/public/branding/${path}`,
+    );
     expect(brandingSnapshot?.branding.logo_url).toBe(payload.url as string);
     expect(getSignInExperience).toHaveBeenCalledTimes(2);
     expect(logAudit).toHaveBeenCalledTimes(1);
@@ -167,10 +176,11 @@ describe('branding upload route', () => {
     expect(uploadFile).not.toHaveBeenCalled();
   });
 
-  test('redirects branding asset reads to the authoritative public URL', async () => {
+  test('streams branding asset reads from Storage through the same-origin BFF', async () => {
+    const assetHash = 'a'.repeat(24);
     brandingSnapshot = {
       branding: {
-        logo_url: 'https://assets.example.test/branding/logo/abc123.png',
+        logo_url: `https://assets.example.test/storage/v1/object/public/branding/logo/${assetHash}.png`,
         favicon_url: null,
       },
     };
@@ -179,16 +189,19 @@ describe('branding upload route', () => {
       new Request('http://supauth.local/v1/storage/branding/logo.png'),
     );
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toBe(
-      'https://assets.example.test/branding/logo/abc123.png',
-    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(pngBytes);
+    expect(downloadFile).toHaveBeenCalledWith('branding', `logo/${assetHash}.png`);
   });
 
-  test('redirects legacy versioned branding asset reads to the authoritative public URL', async () => {
+  test('keeps legacy branding read paths on the same streamed asset contract', async () => {
+    const assetHash = 'b'.repeat(24);
     brandingSnapshot = {
       branding: {
-        logo_url: 'https://assets.example.test/branding/logo/abc123.png',
+        logo_url: `https://assets.example.test/storage/v1/object/public/branding/logo/${assetHash}.png`,
         favicon_url: null,
       },
     };
@@ -197,10 +210,28 @@ describe('branding upload route', () => {
       new Request('http://supauth.local/v1/storage/branding/logo-1723000000000.png'),
     );
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toBe(
-      'https://assets.example.test/branding/logo/abc123.png',
+    expect(response.status).toBe(200);
+    expect(downloadFile).toHaveBeenCalledWith('branding', `logo/${assetHash}.png`);
+  });
+
+  test('rejects an unexpected Storage media type instead of serving sniffable content', async () => {
+    const assetHash = 'c'.repeat(24);
+    brandingSnapshot = {
+      branding: {
+        logo_url: `https://assets.example.test/storage/v1/object/public/branding/logo/${assetHash}.png`,
+        favicon_url: null,
+      },
+    };
+    downloadFile.mockResolvedValueOnce(new Response('<html></html>', {
+      headers: { 'content-type': 'text/html' },
+    }));
+
+    const response = await app.handle(
+      new Request('http://supauth.local/v1/storage/branding/logo'),
     );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: 'branding_asset_invalid_content_type' });
   });
 
   test('returns a clear 404 for unconfigured branding assets instead of a 500', async () => {
