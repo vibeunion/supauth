@@ -14,6 +14,7 @@ import { ApiContractError, pagedResponse } from '../utils/api-contract.js';
 import { withoutSecrets } from '../utils/secrets.js';
 
 const adapter = getSupaCloudAdapter();
+const MAX_CONNECTOR_CLIENT_ID_LENGTH = 255;
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -129,7 +130,7 @@ async function updateConnectorRuntime(
   runtimeKind: ConnectorRuntimeKind,
   updateInput: Record<string, unknown>,
 ) {
-  if (runtimeKind === 'builtin_oauth') return adapter.updateProvider(providerId, updateInput);
+  if (runtimeKind === 'builtin_oauth') return updateBuiltinConnectorRuntime(providerId, updateInput);
   if (updateInput.enabled === undefined) return authoritativeConnector(providerId, runtimeKind);
   const enabledUpdate = enterpriseConnectorEnabledUpdate(runtimeKind, updateInput.enabled === true);
   if (runtimeKind === 'custom_oidc') return adapter.updateCustomOidcProvider(providerId, enabledUpdate);
@@ -255,15 +256,15 @@ async function persistUpdatedOverlay(
 function mergedConnectorState(
   runtime: ProviderInfo,
   overlay: ConnectorConfigInfo,
-  enabled: boolean,
+  providerEnabled: boolean,
 ) {
   return withoutSecrets({
     ...runtime,
     id: overlay.provider_id || runtime.id,
     name: overlay.name || runtime.name,
     type: overlay.category || runtime.type,
-    provider_enabled: enabled,
-    enabled,
+    provider_enabled: providerEnabled,
+    enabled: overlay.enabled === true,
     connector_record_id: overlay.connector_record_id,
     runtime_kind: overlay.runtime_kind,
   });
@@ -276,36 +277,38 @@ export async function updateConnectorEnabledState(
   const previousRuntime = await readRuntimeState(input, dependencies);
   if (input.runtimeKind === 'builtin_oauth'
     && input.enabled
-    && !previousRuntime.enabled
-    && !builtinConnectorConfigured(previousRuntime.provider)) {
+    && (!previousRuntime.enabled || !builtinConnectorConfigured(previousRuntime.provider))) {
     throw new ApiContractError(
       409,
       'connector_configuration_required',
       'Connector credentials must be configured before enabling the connector',
     );
   }
-  const updatedRuntime = await updateRuntimeEnabled(input, previousRuntime.enabled, dependencies);
+  const updatedRuntime = input.runtimeKind === 'builtin_oauth'
+    ? previousRuntime
+    : await updateRuntimeEnabled(input, previousRuntime.enabled, dependencies);
   const expectedOverlay = updatedOverlayInput(input, updatedRuntime.provider);
   const overlay = await persistUpdatedOverlay(expectedOverlay, dependencies);
-  return mergedConnectorState(updatedRuntime.provider, overlay, input.enabled);
+  return mergedConnectorState(updatedRuntime.provider, overlay, updatedRuntime.enabled);
 }
 
-async function verifiedConnectorState(
+export async function verifiedConnectorState(
   providerId: string,
   config: ConnectorConfigInfo | null,
+  dependencies: ConnectorEnabledUpdateDependencies = defaultEnabledUpdateDependencies,
 ) {
   const runtimeKind = connectorRuntimeKind(config);
-  const runtime = await readRuntimeState({ providerId, runtimeKind }, defaultEnabledUpdateDependencies);
+  const runtime = await readRuntimeState({ providerId, runtimeKind }, dependencies);
   if (!config) {
     return withoutSecrets({
       ...runtime.provider,
       provider_enabled: runtime.enabled,
-      enabled: runtime.enabled,
+      enabled: false,
       runtime_kind: runtimeKind,
       configuration_required: !builtinConnectorConfigured(runtime.provider),
     });
   }
-  if (config.enabled !== runtime.enabled) throw updateOutcomeUnknown();
+  if (runtimeKind !== 'builtin_oauth' && config.enabled !== runtime.enabled) throw updateOutcomeUnknown();
   return mergedConnectorState(runtime.provider, config, runtime.enabled);
 }
 
@@ -372,6 +375,34 @@ function requiredString(input: Record<string, unknown>, field: string) {
   return fieldValue.trim();
 }
 
+function connectorClientId(input: Record<string, unknown>) {
+  const clientId = input.client_id;
+  if (typeof clientId !== 'string'
+    || !clientId.trim()
+    || clientId.length > MAX_CONNECTOR_CLIENT_ID_LENGTH) {
+    throw new ApiContractError(
+      400,
+      'invalid_connector_client_id',
+      `client_id must contain between 1 and ${MAX_CONNECTOR_CLIENT_ID_LENGTH} characters`,
+    );
+  }
+  return clientId.trim();
+}
+
+function builtinConnectorUpdateRequest(input: Record<string, unknown>) {
+  if (!Object.prototype.hasOwnProperty.call(input, 'client_id')) return input;
+  return { ...input, client_id: connectorClientId(input) };
+}
+
+export async function updateBuiltinConnectorRuntime(
+  providerId: string,
+  input: Record<string, unknown>,
+  updateProvider: (providerId: string, input: Record<string, unknown>) => Promise<unknown>
+    = (id, updateInput) => adapter.updateProvider(id, updateInput),
+) {
+  return updateProvider(providerId, builtinConnectorUpdateRequest(input));
+}
+
 function customProviderIdentifier(input: Record<string, unknown>) {
   const requestedIdentifier = requiredString(input, 'identifier').toLowerCase();
   const suffix = requestedIdentifier.startsWith('custom:')
@@ -424,7 +455,7 @@ export function customOidcFactoryRequest(input: Record<string, unknown>) {
     provider_type: 'oidc',
     identifier: customProviderIdentifier(input),
     name: requiredString(input, 'name'),
-    client_id: requiredString(input, 'client_id'),
+    client_id: connectorClientId(input),
     client_secret: requiredString(input, 'client_secret'),
     issuer: requiredString(input, 'issuer'),
     enabled: input.enabled === true,
@@ -737,6 +768,7 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
       throw new ApiContractError(400, 'enterprise_connector_update_requires_factory', 'Enterprise connector settings must use their typed runtime contract');
     }
     if (typeof data.enabled === 'boolean') {
+      if (runtimeKind === 'builtin_oauth') builtinConnectorUpdateRequest(data);
       const updated = await updateConnectorEnabledState({
         providerId: params.connectorId,
         runtimeKind,

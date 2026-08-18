@@ -193,7 +193,10 @@ describe("remaining admin UI request coordination", () => {
     expect(failureBody).toContain("submitted || mutationOutcomeUnknown(requestError)");
     expect(submitBody).toContain('requestError?.code === "connector_update_outcome_unknown"');
     expect(reloadBody).toContain("getConnector(lock.targetId)");
-    expect(reloadBody).toContain("state?.enabled === state?.provider_enabled");
+    expect(reloadBody).toContain("listed.enabled === state.enabled");
+    expect(reloadBody).toContain('listed.runtime_kind !== "builtin_oauth"');
+    expect(reloadBody).toContain("listed.provider_enabled === state.provider_enabled");
+    expect(reloadBody).not.toContain("state?.enabled === state?.provider_enabled");
     expect(pageSource).toContain('allowedActions: ["create", "toggle"]');
     expect(pageSource).toContain("connectorToggleLocked(connector.id)");
     expect(pageSource).toContain('t("connector.configurationRequired")');
