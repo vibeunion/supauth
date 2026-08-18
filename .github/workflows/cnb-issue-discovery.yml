@@ -1,0 +1,88 @@
+name: CNB Issue Discovery
+
+on:
+  push:
+    branches:
+      - agent/cnb-issue-discovery
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read and encrypt open CNB issues
+        env:
+          CNB_TOKEN: ${{ secrets.ZHDS || secrets.CNB_TOKEN || secrets.CNB_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CNB_TOKEN:-}" ]]; then
+            echo "CNB_TOKEN_MISSING=1"
+            exit 2
+          fi
+
+          status="$({ curl --silent --show-error \
+            --output issues.json \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${CNB_TOKEN}" \
+            --header 'Accept: application/vnd.cnb.api+json' \
+            'https://api.cnb.cool/aizhuliren/xgic/supauth/-/issues?state=open&page=1&page_size=100&order_by=created_at'; } 2>curl-error.log)"
+
+          if [[ "${status}" != "200" ]]; then
+            echo "CNB_API_HTTP_STATUS=${status}"
+            sed -n '1,5p' curl-error.log
+            exit 3
+          fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          issues = json.loads(Path('issues.json').read_text(encoding='utf-8'))
+          if not isinstance(issues, list):
+              raise SystemExit('CNB_API_RESPONSE_NOT_LIST=1')
+          print(f'CNB_OPEN_ISSUES_COUNT={len(issues)}')
+          PY
+
+          cat > public-cert.pem <<'PEM'
+          -----BEGIN CERTIFICATE-----
+          MIIEUzCCArugAwIBAgIUBumTcyb/VIbO6oyFFRXU2aoRrrcwDQYJKoZIhvcNAQEL
+          BQAwOTEcMBoGA1UEAwwTQ05CIElzc3VlIERpc2NvdmVyeTEZMBcGA1UECgwQT3Bl
+          bkFJIFRlbXBvcmFyeTAeFw0yNjA4MTgwNjMxMDRaFw0yNjA4MjAwNjMxMDRaMDkx
+          HDAaBgNVBAMME0NOQiBJc3N1ZSBEaXNjb3ZlcnkxGTAXBgNVBAoMEE9wZW5BSSBU
+          ZW1wb3JhcnkwggGiMA0GCSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQDUgaUdzrqD
+          NEnAm+/JHBLzG7W9AB5c6/qFCzwuZwz+rmnN3tc6wWElwUgaWhkQourbs3BVY5c9
+          Ngn/YhLqIVxHfbQoDYLokyCLGdUQ0EuTo8HZaFV6+AsD25w/uah1Pthcf2xXjlsg
+          H6lF2PJB1XFryQGE/oIPDku9kaJsYoiDn5I7jKA18hKWWcdUZrzdlrdjZFr2kHVm
+          vx6ftSzen1Tm8jCgX93g8V6p7QBDITz2yLdgGT4yJcCQwrjPIYKG2qwNKxFckElw
+          5U64pk/rOR3YKSGXCPVNxFMdhW9gnEt177kPkN96rcU1CaS46NWnvO0LoW5oPJQe
+          l0bTN8Z33ZpNQTfsT/HMmbkw7xEwiv936+B5y3LLFAHqO6dwv3D+g9Zq2MQWA+8P
+          8SceJ10nVfrmSrQsz+1wHXF0cD6eW+MJB1ydcBzmr/AdeMyKY1ED/n5lkEbx4Nib
+          yKsq7nUC4zKTGKD3mdaPnT3QxDi6sUJw0pQKghDFTXpXe3FoUcBkr/MCAwEAAaNT
+          MFEwHQYDVR0OBBYEFDB1omyxNSWc1WBeOUblMnorOaRsMB8GA1UdIwQYMBaAFDB1
+          omyxNSWc1WBeOUblMnorOaRsMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEL
+          BQADggGBAGgCfAv5gLOyAU+ypdlghFAb423vUB5ClkjP9Vu8Y8BRvbyxgaKm8DSc
+          mSclJ6fIaMf19Z/eBnM1ueEZVaAocwNXPWj+5snH250IbULsv0nnk/a7LRf67htH
+          8WrBzSS2HfHX0O59dTDEr5s0y9r6LjtIVTKqsvgP89N7emDx1exJlEQXZj5RHtQi
+          t5HcvsACYUypOLk2OUtGFv2Rn+i/IXZdrmrbDebhprTCjbKqa4X1xCjEoUmdpmkQ
+          cP5mQBuIliMdK+HXu29kx4iIc8C1z3yG7jbae3cEqd7Vc6eVRv4hFllYmsPfcOyu
+          qpI88LXUNzsF6QdDGK+QnoZJQ/jgewQB/IzxSW32GijWPb6wVXVE1yaAz60amnQl
+          na0WcnvryuUAzQYsbMi6G6OVjgdCBq5kbYvG2baHmulYkhlrxr/9ShBd8w0RNxgb
+          MAMPEqPZYlG3z0hhCP3BTjaFM+BxIzTlLDgbOhpCi0d26ZFbIYvvFHnHOJ/ASzGH
+          d0N9AmzDig==
+          -----END CERTIFICATE-----
+          PEM
+
+          openssl cms -encrypt -binary -aes256 \
+            -in issues.json \
+            -out issues.cms \
+            -outform DER \
+            public-cert.pem
+
+          printf 'CNB_ISSUES_CMS_BASE64='
+          base64 --wrap=0 issues.cms
+          printf '\n'
