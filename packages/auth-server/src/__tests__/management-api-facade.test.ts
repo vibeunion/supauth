@@ -345,6 +345,261 @@ describe('SupaCloud Management API facade routes', () => {
     ]);
   });
 
+  it('creates inline role permissions through authoritative mutations and readback', async () => {
+    const longPermission = 'p'.repeat(255);
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const pathname = new URL(url).pathname;
+      calls.push({
+        url,
+        method: init?.method || 'GET',
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+      if (init?.method === 'POST' && pathname.endsWith('/rbac/roles')) {
+        return Promise.resolve(Response.json({ id: 'role-one', name: 'Custom role', permissions: [] }));
+      }
+      if (init?.method === 'POST' && pathname.endsWith('/rbac/roles/role-one/permissions')) {
+        const permission = JSON.parse(String(init.body)) as { name: string };
+        return Promise.resolve(Response.json({ id: `permission-${permission.name.length}`, name: permission.name }));
+      }
+      if ((init?.method || 'GET') === 'GET' && pathname.endsWith('/rbac/roles/role-one')) {
+        return Promise.resolve(Response.json({
+          id: 'role-one',
+          name: 'Custom role',
+          permissions: [{ id: 'permission-long', name: longPermission }, { id: 'permission-short', name: 'custom.manage' }],
+        }));
+      }
+      return Promise.resolve(Response.json({ id: 'audit-one' }));
+    }) as unknown as typeof fetch;
+    const [{ roleRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/roles.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+
+    const response = await withAdminRequestContext(
+      { requestId: 'inline-role-permissions-request', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/roles', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: '  Custom role  ',
+          description: 'Custom permissions remain supported',
+          permissions: [' custom.manage ', ` ${longPermission} `],
+          ignored_upstream_field: 'must-not-be-forwarded',
+        }),
+      })),
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json() as { permissions: Array<{ name: string }> }).permissions.map(permission => permission.name))
+      .toEqual([longPermission, 'custom.manage']);
+    expect(calls.map(call => [call.method, new URL(call.url).pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')]))
+      .toEqual([
+        ['POST', '/v1/projects/{projectRef}/rbac/roles'],
+        ['POST', '/v1/projects/{projectRef}/rbac/roles/role-one/permissions'],
+        ['POST', '/v1/projects/{projectRef}/rbac/roles/role-one/permissions'],
+        ['GET', '/v1/projects/{projectRef}/rbac/roles/role-one'],
+        ['POST', '/v1/projects/{projectRef}/audit/events'],
+      ]);
+    expect(calls[0]?.body).toBe(JSON.stringify({
+      name: 'Custom role',
+      description: 'Custom permissions remain supported',
+    }));
+    expect(calls.slice(1, 3).map(call => call.body)).toEqual([
+      JSON.stringify({ name: 'custom.manage' }),
+      JSON.stringify({ name: longPermission }),
+    ]);
+  });
+
+  it('keeps role creation without permissions compatible and applies the 255-character name boundary to updates', async () => {
+    const boundaryName = 'r'.repeat(255);
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        url,
+        method: init?.method || 'GET',
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+      const pathname = new URL(url).pathname;
+      if (pathname.endsWith('/rbac/roles') || pathname.endsWith('/rbac/roles/role-one')) {
+        return Promise.resolve(Response.json({ id: 'role-one', name: boundaryName, permissions: [] }));
+      }
+      return Promise.resolve(Response.json({ id: 'audit-one' }));
+    }) as unknown as typeof fetch;
+    const { roleRoutes } = await import('../routes/roles.js');
+    const app = new Elysia().use(roleRoutes);
+
+    const created = await withAdminRequestContext(
+      { requestId: 'boundary-role-create-request', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/roles', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: ` ${boundaryName} `, description: null }),
+      })),
+    );
+    const updated = await withAdminRequestContext(
+      { requestId: 'boundary-role-update-request', principal: adminPrincipal },
+      () => app.handle(new Request('http://supauth.local/v1/roles/role-one', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: ` ${boundaryName} `, description: null }),
+      })),
+    );
+
+    expect([created.status, updated.status]).toEqual([200, 200]);
+    expect(calls.filter(call => new URL(call.url).pathname.includes('/rbac/')).map(call => [call.method, call.body]))
+      .toEqual([
+        ['POST', JSON.stringify({ name: boundaryName, description: null })],
+        ['PUT', JSON.stringify({ name: boundaryName, description: null })],
+      ]);
+    expect(calls.some(call => new URL(call.url).pathname.endsWith('/permissions'))).toBe(false);
+    expect(calls.some(call => call.method === 'GET')).toBe(false);
+  });
+
+  it('rejects invalid role names on create and update before platform or audit access', async () => {
+    const [{ roleRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/roles.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+    const invalidNames: unknown[] = [undefined, null, 42, '', '   ', 'x'.repeat(256), 'x'.repeat(500), 'x'.repeat(10_000)];
+
+    for (const name of invalidNames) {
+      const methods = name === undefined ? ['POST'] as const : ['POST', 'PUT'] as const;
+      for (const method of methods) {
+        calls.length = 0;
+        const path = method === 'POST' ? '/v1/roles' : '/v1/roles/role-one';
+        const response = await app.handle(new Request(`http://supauth.local${path}`, {
+          method,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(name === undefined ? {} : { name }),
+        }));
+        const payload = await response.json() as { error: { code: string; details: { field: string } } };
+
+        expect(response.status).toBe(400);
+        expect(payload.error.code).toBe('invalid_role_input');
+        expect(payload.error.details.field).toBe('name');
+        expect(calls).toEqual([]);
+      }
+    }
+  });
+
+  it('rejects malformed, blank, oversized, and duplicate inline permissions before role creation', async () => {
+    const [{ roleRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/roles.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+    const invalidPermissions: unknown[] = [
+      'users.read',
+      [42],
+      [''],
+      ['   '],
+      ['p'.repeat(256)],
+      ['Manage.Users', ' manage.users '],
+    ];
+
+    for (const permissions of invalidPermissions) {
+      calls.length = 0;
+      const response = await app.handle(new Request('http://supauth.local/v1/roles', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Reader', permissions }),
+      }));
+      const payload = await response.json() as { error: { code: string; details: { field: string } } };
+
+      expect(response.status).toBe(400);
+      expect(payload.error.code).toBe('invalid_role_input');
+      expect(payload.error.details.field).toBe('permissions');
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it('deletes a newly-created role when an inline permission write fails', async () => {
+    let permissionWrites = 0;
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const pathname = new URL(url).pathname;
+      calls.push({ url, method: init?.method || 'GET', body: typeof init?.body === 'string' ? init.body : undefined });
+      if (init?.method === 'POST' && pathname.endsWith('/rbac/roles')) {
+        return Promise.resolve(Response.json({ id: 'role-one', name: 'Reader', permissions: [] }));
+      }
+      if (init?.method === 'POST' && pathname.endsWith('/permissions')) {
+        permissionWrites += 1;
+        if (permissionWrites === 2) {
+          return Promise.resolve(new Response(JSON.stringify({ code: 'permission_conflict' }), { status: 409 }));
+        }
+        return Promise.resolve(Response.json({ id: 'permission-one', name: 'users.read' }));
+      }
+      return Promise.resolve(Response.json({ deleted: true }));
+    }) as unknown as typeof fetch;
+    const [{ roleRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/roles.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+
+    const response = await app.handle(new Request('http://supauth.local/v1/roles', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Reader', permissions: ['users.read', 'users.write'] }),
+    }));
+    const payload = await response.json() as { error: { code: string } };
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe('supacloud_upstream_error');
+    expect(calls.map(call => call.method)).toEqual(['POST', 'POST', 'POST', 'DELETE']);
+    expect(new URL(calls.at(-1)?.url || '').pathname).toEndWith('/rbac/roles/role-one');
+    expect(calls.some(call => new URL(call.url).pathname.endsWith('/audit/events'))).toBe(false);
+  });
+
+  it('fails closed on role permission readback mismatch and reports an unknown outcome when rollback fails', async () => {
+    let rollbackFails = false;
+    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const pathname = new URL(url).pathname;
+      calls.push({ url, method: init?.method || 'GET', body: typeof init?.body === 'string' ? init.body : undefined });
+      if (init?.method === 'POST' && pathname.endsWith('/rbac/roles')) {
+        return Promise.resolve(Response.json({ id: 'role-one', name: 'Reader', permissions: [] }));
+      }
+      if (init?.method === 'POST' && pathname.endsWith('/permissions')) {
+        return Promise.resolve(Response.json({ id: 'permission-one', name: 'users.read' }));
+      }
+      if (init?.method === 'GET') {
+        return Promise.resolve(Response.json({ id: 'role-one', name: 'Reader', permissions: [] }));
+      }
+      if (rollbackFails) {
+        return Promise.resolve(new Response(JSON.stringify({ code: 'delete_unavailable' }), { status: 503 }));
+      }
+      return Promise.resolve(Response.json({ deleted: true }));
+    }) as unknown as typeof fetch;
+    const [{ roleRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/roles.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+
+    for (const expected of [
+      { rollbackFailure: false, status: 502, code: 'role_permissions_readback_mismatch' },
+      { rollbackFailure: true, status: 503, code: 'role_creation_outcome_unknown' },
+    ]) {
+      rollbackFails = expected.rollbackFailure;
+      calls.length = 0;
+      const response = await app.handle(new Request('http://supauth.local/v1/roles', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Reader', permissions: ['users.read'] }),
+      }));
+      const payload = await response.json() as { error: { code: string } };
+
+      expect(response.status).toBe(expected.status);
+      expect(payload.error.code).toBe(expected.code);
+      expect(calls.map(call => call.method)).toEqual(['POST', 'POST', 'GET', 'DELETE']);
+      expect(calls.some(call => new URL(call.url).pathname.endsWith('/audit/events'))).toBe(false);
+    }
+  });
+
   it('rejects generic user updates that try to write roles or SupaOAuth claims', async () => {
     const { userRoutes } = await import('../routes/users.js');
     const app = new Elysia().use(userRoutes);

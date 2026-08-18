@@ -6,6 +6,12 @@ import * as auditRepo from '../repositories/audit.js';
 import { ApiContractError, pagedResponse } from '../utils/api-contract.js';
 
 const adapter = getSupaCloudAdapter();
+const RBAC_NAME_MAX_LENGTH = 255;
+
+interface RoleCreateInput {
+  role: { name: string; description?: string | null };
+  permissions?: string[];
+}
 
 async function auditStrict(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -18,8 +24,8 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
     detail: { summary: 'List roles', tags: ['RBAC'] },
   })
   .post('/', async ({ body }) => {
-    const data = body as { name: string; description?: string };
-    const created = await adapter.createRole(data);
+    const input = roleCreateInput(body);
+    const created = await createRole(input);
     const record = created as Record<string, unknown>;
     await auditStrict('role.create', 'role', String(record.id || ''), { name: record.name });
     return created;
@@ -32,7 +38,7 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
     detail: { summary: 'Get role by ID', tags: ['RBAC'] },
   })
   .put('/:roleId', async ({ params, body }) => {
-    const updated = await adapter.updateRole(params.roleId, body as Record<string, unknown>);
+    const updated = await adapter.updateRole(params.roleId, roleUpdateInput(body));
     await auditStrict('role.update', 'role', params.roleId);
     return updated;
   }, {
@@ -98,6 +104,128 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
   }, {
     detail: { summary: 'Revoke role assignment', tags: ['RBAC', 'Assignments'] },
   });
+
+function invalidRoleInput(field: string) {
+  return new ApiContractError(
+    400,
+    'invalid_role_input',
+    `Invalid role field: ${field}`,
+    { field },
+  );
+}
+
+function roleInputRecord(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw invalidRoleInput('body');
+  return body as Record<string, unknown>;
+}
+
+function normalizedRbacName(candidate: unknown, field = 'name') {
+  if (typeof candidate !== 'string') throw invalidRoleInput(field);
+  const name = candidate.trim();
+  if (!name || name.length > RBAC_NAME_MAX_LENGTH) throw invalidRoleInput(field);
+  return name;
+}
+
+function optionalDescription(input: Record<string, unknown>): { description?: string | null } {
+  if (!Object.hasOwn(input, 'description')) return {};
+  if (input.description !== null && typeof input.description !== 'string') {
+    throw invalidRoleInput('description');
+  }
+  return { description: input.description };
+}
+
+function normalizedPermissions(candidate: unknown) {
+  if (!Array.isArray(candidate)) throw invalidRoleInput('permissions');
+  const permissions = candidate.map(permission => normalizedRbacName(permission, 'permissions'));
+  const uniqueNames = new Set(permissions.map(permission => permission.toLowerCase()));
+  if (uniqueNames.size !== permissions.length) throw invalidRoleInput('permissions');
+  return permissions;
+}
+
+function roleCreateInput(body: unknown): RoleCreateInput {
+  const input = roleInputRecord(body);
+  if (!Object.hasOwn(input, 'name')) throw invalidRoleInput('name');
+  return {
+    role: { name: normalizedRbacName(input.name), ...optionalDescription(input) },
+    ...(Object.hasOwn(input, 'permissions')
+      ? { permissions: normalizedPermissions(input.permissions) }
+      : {}),
+  };
+}
+
+function roleUpdateInput(body: unknown) {
+  const input = roleInputRecord(body);
+  return {
+    ...(Object.hasOwn(input, 'name') ? { name: normalizedRbacName(input.name) } : {}),
+    ...optionalDescription(input),
+  };
+}
+
+function createdRoleId(created: unknown) {
+  if (!created || typeof created !== 'object' || Array.isArray(created)) throw roleCreationOutcomeUnknown();
+  const roleId = (created as Record<string, unknown>).id;
+  if (typeof roleId !== 'string' || !roleId.trim()) throw roleCreationOutcomeUnknown();
+  return roleId;
+}
+
+function authoritativePermissionNames(role: unknown) {
+  if (!role || typeof role !== 'object' || Array.isArray(role)) return null;
+  const permissions = (role as Record<string, unknown>).permissions;
+  if (!Array.isArray(permissions)) return null;
+  const names = permissions.map(permission => {
+    if (!permission || typeof permission !== 'object' || Array.isArray(permission)) return null;
+    const name = (permission as Record<string, unknown>).name;
+    return typeof name === 'string' ? name : null;
+  });
+  return names.every((name): name is string => name !== null) ? names : null;
+}
+
+function permissionsMatch(role: unknown, requested: string[]) {
+  const committed = authoritativePermissionNames(role);
+  if (!committed || committed.length !== requested.length) return false;
+  const committedNames = committed.toSorted();
+  const requestedNames = requested.toSorted();
+  return committedNames.every((name, index) => name === requestedNames[index]);
+}
+
+function roleCreationOutcomeUnknown() {
+  return new ApiContractError(
+    503,
+    'role_creation_outcome_unknown',
+    'Role creation could not be reconciled safely',
+  );
+}
+
+async function rollbackCreatedRole(roleId: string, failure: unknown): Promise<never> {
+  try {
+    await adapter.deleteRole(roleId);
+  } catch {
+    throw roleCreationOutcomeUnknown();
+  }
+  throw failure;
+}
+
+async function createRole(input: RoleCreateInput) {
+  const created = await adapter.createRole(input.role);
+  if (input.permissions === undefined) return created;
+  const roleId = createdRoleId(created);
+  try {
+    for (const permission of input.permissions) {
+      await adapter.createPermission(roleId, { name: permission });
+    }
+    const authoritative = await adapter.getRole(roleId);
+    if (!permissionsMatch(authoritative, input.permissions)) {
+      throw new ApiContractError(
+        502,
+        'role_permissions_readback_mismatch',
+        'Role permissions authoritative readback did not match the requested permissions',
+      );
+    }
+    return authoritative;
+  } catch (failure) {
+    return rollbackCreatedRole(roleId, failure);
+  }
+}
 
 async function validateAssignmentTarget(input: {
   user_id?: string;
