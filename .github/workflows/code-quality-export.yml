@@ -1,0 +1,47 @@
+name: Code Quality Export
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  code-quality: read
+
+jobs:
+  export:
+    name: Export open findings
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Fetch open code quality findings
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          api_url="https://api.github.com/repos/${GH_REPOSITORY}/code-quality/findings?state=open&per_page=100"
+          response="$(curl --fail-with-body --silent --show-error --location \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "${api_url}")"
+
+          echo "OPEN_FINDING_COUNT=$(jq 'length' <<<"${response}")"
+          echo "CODE_QUALITY_FINDINGS_BEGIN"
+          jq -c '.[] | {
+            number,
+            state,
+            rule: {
+              id: .rule.id,
+              title: .rule.title,
+              severity: .rule.severity,
+              category: .rule.category
+            },
+            location,
+            message,
+            created_at
+          }' <<<"${response}"
+          echo "CODE_QUALITY_FINDINGS_END"
