@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/cnb-issue-discovery
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
