@@ -1110,6 +1110,8 @@ export class SupaOAuthClient {
     resource_type?: string;
     resource_id?: string;
     actor_id?: string;
+    status?: number;
+    method?: string;
     limit?: number;
     offset?: number;
     from?: string;
@@ -1121,6 +1123,8 @@ export class SupaOAuthClient {
     if (params?.resource_type) qs.set('resource_type', params.resource_type);
     if (params?.resource_id) qs.set('resource_id', params.resource_id);
     if (params?.actor_id) qs.set('actor_id', params.actor_id);
+    if (params?.status) qs.set('status', String(params.status));
+    if (params?.method) qs.set('method', params.method);
     if (params?.limit) qs.set('limit', String(params.limit));
     if (params?.offset) qs.set('offset', String(params.offset));
     if (params?.from) qs.set('from', params.from);

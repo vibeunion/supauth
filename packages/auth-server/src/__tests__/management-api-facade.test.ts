@@ -84,7 +84,7 @@ describe('SupaCloud Management API facade routes', () => {
       'http://supauth.local/v1/organizations',
       'http://supauth.local/v1/roles',
       'http://supauth.local/v1/roles/role-one/assign',
-      'http://supauth.local/v1/audit?resource_type=user&limit=5',
+      'http://supauth.local/v1/audit?resource_type=user&status=204&method=patch&limit=5',
       'http://supauth.local/v1/webhooks',
       'http://supauth.local/v1/users/user-one/roles?application_id=app-one',
       'http://supauth.local/v1/users/user-one/permissions?org_id=org-one&application_id=app-one',
@@ -102,7 +102,7 @@ describe('SupaCloud Management API facade routes', () => {
       ['GET', '/v1/projects/{projectRef}/organizations'],
       ['GET', '/v1/projects/{projectRef}/rbac/roles'],
       ['GET', '/v1/projects/{projectRef}/rbac/roles/role-one/assign'],
-      ['GET', '/v1/projects/{projectRef}/audit?resource_type=user&limit=5'],
+      ['GET', '/v1/projects/{projectRef}/audit?resource_type=user&status=204&method=PATCH&limit=5'],
       ['GET', '/v1/projects/{projectRef}/webhooks'],
       ['GET', '/v1/projects/{projectRef}/auth/users/user-one/roles?application_id=app-one'],
       ['GET', '/v1/projects/{projectRef}/auth/users/user-one/permissions?org_id=org-one&application_id=app-one'],
@@ -295,7 +295,10 @@ describe('SupaCloud Management API facade routes', () => {
   it('rejects unsupported events on both webhook creation and update', async () => {
     const { webhookRoutes } = await import('../routes/webhooks.js');
     const app = new Elysia().use(webhookRoutes);
-    const invalidPayload = JSON.stringify({ events: ['user.signed_in'] });
+    const invalidPayload = JSON.stringify({
+      url: 'https://receiver.example.test/hook',
+      events: ['user.signed_in'],
+    });
 
     const created = await app.handle(new Request('http://supauth.local/v1/webhooks', {
       method: 'POST',
@@ -310,6 +313,46 @@ describe('SupaCloud Management API facade routes', () => {
 
     expect(created.status).toBe(400);
     expect(updated.status).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['POST', '/v1/webhooks', 'http://receiver.example.test/hook'],
+    ['POST', '/v1/webhooks', 'https://user:secret@receiver.example.test/hook'],
+    ['PUT', '/v1/webhooks/wh-one', 'not-a-url'],
+  ])('rejects insecure webhook URL on %s %s', async (method, path, url) => {
+    const [{ webhookRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/webhooks.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(webhookRoutes);
+    const response = await app.handle(new Request(`http://supauth.local${path}`, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url, events: ['user.created'] }),
+    }));
+    const payload = await response.json() as { error?: { code?: string } };
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe('invalid_webhook_url');
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['status', '99'],
+    ['status', '600'],
+    ['method', 'GET POST'],
+  ])('rejects invalid audit %s filters before platform access', async (filterName, filterValue) => {
+    const [{ auditRoutes }, { observabilityMiddleware }] = await Promise.all([
+      import('../routes/audit.js'),
+      import('../middleware/index.js'),
+    ]);
+    const app = new Elysia().use(observabilityMiddleware).use(auditRoutes);
+    const response = await app.handle(new Request(
+      `http://supauth.local/v1/audit?${filterName}=${encodeURIComponent(filterValue)}`,
+    ));
+
+    expect(response.status).toBe(400);
     expect(calls).toHaveLength(0);
   });
 

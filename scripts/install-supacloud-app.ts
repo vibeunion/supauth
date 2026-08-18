@@ -83,6 +83,7 @@ export interface InstallSupacloudAppOptions {
   runtimeInternalUrl?: string;
   oauthAuthorizationProjectRef?: string;
   baseUrl?: string;
+  siteUrl?: string;
   apiUrl?: string;
   corsOrigins?: string | string[];
   edgeRuntimeUpstream?: string;
@@ -122,6 +123,7 @@ interface ResolvedInstallConfig {
   runtimeInternalUrl: string;
   oauthAuthorizationProjectRef: string;
   baseUrl: string;
+  siteUrl: string;
   apiUrl: string;
   corsOrigins: string[];
   edgeRuntimeUpstream: string;
@@ -233,6 +235,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     SUPACLOUD_RUNTIME_INTERNAL_URL: options.runtimeInternalUrl,
     SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF: options.oauthAuthorizationProjectRef,
     SUPAUTH_PUBLIC_URL: options.baseUrl,
+    SUPAUTH_SITE_URL: options.siteUrl,
     SUPAUTH_API_URL: options.apiUrl,
     CORS_ORIGINS: Array.isArray(options.corsOrigins) ? options.corsOrigins.join(',') : options.corsOrigins,
     SUPACLOUD_EDGE_RUNTIME_UPSTREAM: options.edgeRuntimeUpstream,
@@ -285,6 +288,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
   const databaseUrl = firstValue(sources, ['SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL']);
   const runtimeMode = (firstValue(sources, ['RUNTIME_MODE']) || 'gotrue').trim();
   const baseUrl = firstValue(sources, ['SUPAUTH_PUBLIC_URL', 'AUTH_PUBLIC_URL', 'SUPAUTH_INSTALLED_BASE_URL', 'SUPAUTH_BASE_URL']);
+  const siteUrl = firstValue(sources, ['SUPAUTH_SITE_URL']);
   const apiUrl = firstValue(sources, ['SUPAUTH_API_URL', 'AUTH_API_URL']);
   const configuredCorsOrigins = firstValue(sources, ['CORS_ORIGINS']);
   const edgeRuntimeUpstream = firstValue(sources, ['SUPACLOUD_EDGE_RUNTIME_UPSTREAM', 'EDGE_RUNTIME_UPSTREAM']);
@@ -304,6 +308,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     runtimeInternalUrl: stripTrailingSlash(runtimeInternalUrl),
     oauthAuthorizationProjectRef,
     baseUrl: stripTrailingSlash(baseUrl),
+    siteUrl: stripTrailingSlash(siteUrl),
     apiUrl: stripTrailingSlash(apiUrl),
     corsOrigins: uniqueOrigins([
       ...configuredCorsOrigins.split(','),
@@ -1148,6 +1153,78 @@ function adminSsoAal2PolicyInstallStep(config: ResolvedInstallConfig): InstallSt
   };
 }
 
+const PLACEHOLDER_SITE_URLS = new Set(['https://your-app.com']);
+
+function normalizedSiteUrl(siteUrl: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(siteUrl);
+  } catch {
+    throw new Error('SUPAUTH_SITE_URL must be an absolute HTTPS URL without credentials');
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    throw new Error('SUPAUTH_SITE_URL must be an absolute HTTPS URL without credentials');
+  }
+  return stripTrailingSlash(siteUrl);
+}
+
+function plannedAuthSiteUrlStep(config: ResolvedInstallConfig, desiredSiteUrl: string): InstallStep {
+  return {
+    name: 'auth-site-url-convergence',
+    status: 'planned',
+    detail: config.siteUrl
+      ? `set explicit site_url=${desiredSiteUrl} and verify read-back`
+      : `replace an empty or placeholder site_url with ${desiredSiteUrl} and verify read-back`,
+  };
+}
+
+async function readAuthSiteUrl(client: SupacloudClient, path: string): Promise<string> {
+  const response = await client.request(path);
+  const authConfig = await response.json() as Record<string, unknown>;
+  const rawSiteUrl = authConfig.site_url;
+  if (rawSiteUrl !== undefined && rawSiteUrl !== null && typeof rawSiteUrl !== 'string') {
+    throw new Error('SupaCloud auth config returned a non-string site_url');
+  }
+  return stripTrailingSlash(typeof rawSiteUrl === 'string' ? rawSiteUrl.trim() : '');
+}
+
+async function writeAndVerifyAuthSiteUrl(
+  client: SupacloudClient,
+  path: string,
+  desiredSiteUrl: string,
+): Promise<void> {
+  await client.request(path, {
+    method: 'PATCH',
+    body: JSON.stringify({ site_url: desiredSiteUrl }),
+  });
+  if (await readAuthSiteUrl(client, path) !== desiredSiteUrl) {
+    throw new Error('SupaCloud auth site_url read-back did not match the requested value');
+  }
+}
+
+async function authSiteUrlInstallStep(
+  config: ResolvedInstallConfig,
+  client: SupacloudClient,
+): Promise<InstallStep> {
+  const requestedSiteUrl = config.siteUrl || config.baseUrl;
+  if (!requestedSiteUrl) {
+    return { name: 'auth-site-url-convergence', status: 'skipped', detail: 'SUPAUTH_SITE_URL and SUPAUTH_PUBLIC_URL are not set' };
+  }
+  const desiredSiteUrl = normalizedSiteUrl(requestedSiteUrl);
+  if (config.dryRun) return plannedAuthSiteUrlStep(config, desiredSiteUrl);
+
+  const path = `/v1/projects/${config.projectRef}/config/auth`;
+  const currentSiteUrl = await readAuthSiteUrl(client, path);
+  const shouldReplace = Boolean(config.siteUrl)
+    || !currentSiteUrl
+    || PLACEHOLDER_SITE_URLS.has(currentSiteUrl);
+  if (!shouldReplace) {
+    return { name: 'auth-site-url-convergence', status: 'done', detail: `preserved existing site_url=${currentSiteUrl}` };
+  }
+  await writeAndVerifyAuthSiteUrl(client, path, desiredSiteUrl);
+  return { name: 'auth-site-url-convergence', status: 'done', detail: `site_url=${desiredSiteUrl} verified` };
+}
+
 export async function installSupacloudApp(options: InstallSupacloudAppOptions = {}): Promise<SupacloudInstallResult> {
   const config = resolveConfig(options);
   const fetchImpl = options.fetchImpl || fetch;
@@ -1229,6 +1306,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   steps.push(await adminSsoAllowlistInstallStep(config, adminSsoAllowlistVerifier));
   steps.push(await adminSsoOAuthClientInstallStep(config, client, fetchImpl, adminSsoOAuthClientVerifier));
   steps.push(adminSsoAal2PolicyInstallStep(config));
+  steps.push(await authSiteUrlInstallStep(config, client));
 
   if (options.skipSecrets) {
     steps.push({ name: 'runtime-env', status: 'skipped', detail: 'skipSecrets=true' });
@@ -1336,6 +1414,7 @@ if (import.meta.main) {
       runtimeInternalUrl: option('runtime-internal-url'),
       oauthAuthorizationProjectRef: option('oauth-authorization-project-ref'),
       baseUrl: option('base-url'),
+      siteUrl: option('site-url'),
       apiUrl: option('api-url'),
       corsOrigins: option('cors-origins'),
       edgeRuntimeUpstream: option('edge-runtime-upstream'),
