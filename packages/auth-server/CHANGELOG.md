@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.4](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.3...auth-server-v0.8.4) (2026-08-18)
+
+
+### Bug Fixes
+
+* **auth:** validate user management boundaries ([96c3452](https://github.com/vibeunion/supauth/commit/96c34522372f1bb0f5698bf633d49f30df3945a0))
+* **auth:** validate user management boundaries ([046cbe4](https://github.com/vibeunion/supauth/commit/046cbe4cfd1ab3dfe8e7da13ed7460df09552fe9))
+
 ## [0.8.3](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.2...auth-server-v0.8.3) (2026-08-18)
 
 
