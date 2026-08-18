@@ -10,6 +10,36 @@ import { withoutSecrets } from '../utils/secrets.js';
 const adapter = getSupaCloudAdapter();
 const supportedWebhookEventSet = new Set<string>(SUPPORTED_WEBHOOK_EVENTS);
 
+function validateWebhookUrl(rawUrl: unknown): void {
+  if (typeof rawUrl !== 'string') throw invalidWebhookUrl();
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw invalidWebhookUrl();
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw invalidWebhookUrl();
+}
+
+function validateOptionalWebhookUrl(webhook: Record<string, unknown>): void {
+  if (webhook.url !== undefined) validateWebhookUrl(webhook.url);
+}
+
+function webhookInput(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ApiContractError(400, 'invalid_request_body', 'Webhook request body must be a JSON object');
+  }
+  return body as Record<string, unknown>;
+}
+
+function invalidWebhookUrl() {
+  return new ApiContractError(
+    400,
+    'invalid_webhook_url',
+    'Webhook URL must be an absolute HTTPS URL without credentials',
+  );
+}
+
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
@@ -21,10 +51,11 @@ export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
     detail: { summary: 'List webhooks', tags: ['Webhooks'] },
   })
   .post('/', async ({ body }) => {
-    const data = body as { url: string; events: string[]; enabled?: boolean; signing_key_id?: string };
-    const validationError = unsupportedWebhookEventsResponse(data.events);
+    const webhook = webhookInput(body);
+    validateWebhookUrl(webhook.url);
+    const validationError = unsupportedWebhookEventsResponse(webhook.events);
     if (validationError) return validationError;
-    const created = await adapter.createWebhook(data as Record<string, unknown>);
+    const created = await adapter.createWebhook(webhook);
     const record = created as Record<string, unknown>;
     await audit('webhook.create', 'webhook', String(record.id || ''), { url: record.url });
     return withoutSecrets(created);
@@ -48,10 +79,11 @@ export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
     detail: { summary: 'List webhook delivery and diagnostic logs', tags: ['Webhooks'] },
   })
   .put('/:webhookId', async ({ params, body }) => {
-    const data = body as { url?: string; events?: string[]; enabled?: boolean; signing_key_id?: string };
-    const validationError = data.events === undefined ? null : unsupportedWebhookEventsResponse(data.events);
+    const webhook = webhookInput(body);
+    validateOptionalWebhookUrl(webhook);
+    const validationError = webhook.events === undefined ? null : unsupportedWebhookEventsResponse(webhook.events);
     if (validationError) return validationError;
-    const updated = await adapter.updateWebhook(params.webhookId, data as Record<string, unknown>);
+    const updated = await adapter.updateWebhook(params.webhookId, webhook);
     await audit('webhook.update', 'webhook', params.webhookId);
     return withoutSecrets(updated);
   }, {

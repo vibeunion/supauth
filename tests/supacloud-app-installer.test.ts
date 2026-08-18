@@ -78,6 +78,7 @@ const isolatedEnvKeys = [
   'SUPACLOUD_GATEWAY_ADMIN_TOKEN',
   'SUPACLOUD_ADMIN_TOKEN',
   'SUPAUTH_PUBLIC_URL',
+  'SUPAUTH_SITE_URL',
   'AUTH_PUBLIC_URL',
   'SUPAUTH_INSTALLED_BASE_URL',
   'SUPAUTH_BASE_URL',
@@ -166,12 +167,123 @@ describe('SupaCloud app installer', () => {
       expect.objectContaining({ name: 'admin-sso-allowlist-verification', status: 'planned' }),
       expect.objectContaining({ name: 'admin-sso-oauth-client-verification', status: 'planned' }),
       expect.objectContaining({ name: 'admin-sso-aal2-policy', status: 'planned' }),
+      expect.objectContaining({ name: 'auth-site-url-convergence', status: 'skipped' }),
       expect.objectContaining({ name: 'runtime-env', status: 'planned' }),
       expect.objectContaining({ name: 'function-deploy', status: 'planned' }),
       expect.objectContaining({ name: 'gateway-routes', status: 'skipped' }),
       expect.objectContaining({ name: 'direct-function-probe', status: 'planned' }),
     ]);
     expect(allowlistDatabaseRead).toBe(false);
+  });
+
+  it('converges an explicit auth site URL and verifies the exact read-back', async () => {
+    const { root, artifactDir } = createFixture();
+    const calls: string[] = [];
+    let siteUrl = 'https://business.example.test';
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      siteUrl: 'https://auth.example.test',
+      skipMigration: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (input, init) => {
+        const url = new URL(String(input));
+        calls.push(`${init?.method || 'GET'} ${url.pathname}`);
+        if (init?.method === 'PATCH') {
+          siteUrl = (JSON.parse(String(init.body)) as { site_url: string }).site_url;
+          return Response.json({ site_url: siteUrl });
+        }
+        return Response.json({ site_url: siteUrl });
+      },
+    });
+
+    expect(result.steps).toContainEqual({
+      name: 'auth-site-url-convergence',
+      status: 'done',
+      detail: 'site_url=https://auth.example.test verified',
+    });
+    expect(calls).toEqual([
+      'GET /v1/projects/project_123/config/auth',
+      'PATCH /v1/projects/project_123/config/auth',
+      'GET /v1/projects/project_123/config/auth',
+    ]);
+  });
+
+  it('replaces only an empty or placeholder site URL when using the public URL fallback', async () => {
+    const { root, artifactDir } = createFixture();
+    let siteUrl = 'https://your-app.com';
+    let patches = 0;
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      baseUrl: 'https://auth.example.test',
+      skipMigration: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (_input, init) => {
+        if (init?.method === 'PATCH') {
+          patches += 1;
+          siteUrl = (JSON.parse(String(init.body)) as { site_url: string }).site_url;
+        }
+        return Response.json({ site_url: siteUrl });
+      },
+    });
+
+    expect(patches).toBe(1);
+    expect(result.steps).toContainEqual(expect.objectContaining({
+      name: 'auth-site-url-convergence',
+      status: 'done',
+    }));
+  });
+
+  it('preserves a real business site URL when no explicit override is configured', async () => {
+    const { root, artifactDir } = createFixture();
+    const methods: string[] = [];
+
+    const result = await installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      baseUrl: 'https://auth.example.test',
+      skipMigration: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async (_input, init) => {
+        methods.push(init?.method || 'GET');
+        return Response.json({ site_url: 'https://business.example.test' });
+      },
+    });
+
+    expect(methods).toEqual(['GET']);
+    expect(result.steps).toContainEqual({
+      name: 'auth-site-url-convergence',
+      status: 'done',
+      detail: 'preserved existing site_url=https://business.example.test',
+    });
+  });
+
+  it('fails closed when auth site URL read-back does not match', async () => {
+    const { root, artifactDir } = createFixture();
+
+    await expect(installSupacloudApp({
+      root,
+      artifactDir,
+      ...requiredOptions,
+      siteUrl: 'https://auth.example.test',
+      skipMigration: true,
+      skipSecrets: true,
+      skipFunctionDeploy: true,
+      skipDirectVerify: true,
+      fetchImpl: async () => Response.json({ site_url: 'https://wrong.example.test' }),
+    })).rejects.toThrow('site_url read-back did not match');
   });
 
   it('requires explicit Admin SSO issuer and client id in dry-run mode', async () => {
@@ -526,6 +638,9 @@ describe('SupaCloud app installer', () => {
       adminSsoAllowlistVerifier: async () => ({ emailCount: 0, domainCount: 0 }),
       adminSsoOAuthClientVerifier: async () => undefined,
       fetchImpl: async (input) => {
+        if (new URL(String(input)).pathname.endsWith('/config/auth')) {
+          return Response.json({ site_url: 'https://auth.example.test' });
+        }
         fetchedUrls.push(String(input));
         return new Response('ok', { status: 200 });
       },
@@ -664,6 +779,7 @@ describe('SupaCloud app installer', () => {
       'admin-sso-allowlist-verification',
       'admin-sso-oauth-client-verification',
       'admin-sso-aal2-policy',
+      'auth-site-url-convergence',
       'runtime-env',
       'function-deploy',
       'gateway-routes',
@@ -1274,6 +1390,9 @@ describe('SupaCloud app installer', () => {
         adminSsoOAuthClientVerifier: async () => undefined,
         fetchImpl: async (input, init) => {
           const url = new URL(String(input));
+          if (url.pathname === '/v1/projects/project_from_file/config/auth') {
+            return Response.json({ site_url: 'https://auth.from-file.test' });
+          }
           if (url.pathname === '/v1/projects/project_from_file/secrets') {
             seenProjectSecrets.push(...JSON.parse(String(init?.body)));
           }
@@ -1478,6 +1597,9 @@ describe('SupaCloud app installer', () => {
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/config/auth') {
+          return Response.json({ site_url: 'https://auth.example.test' });
+        }
         calls.push({
           path: url.pathname,
           auth: new Headers(init?.headers).get('authorization'),
@@ -1572,6 +1694,9 @@ describe('SupaCloud app installer', () => {
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/config/auth') {
+          return Response.json({ site_url: 'https://auth.example.test' });
+        }
         if (url.pathname === '/v1/projects/project_123/secrets') {
           seenSecrets.push(...JSON.parse(String(init?.body)));
         }
@@ -1675,6 +1800,9 @@ describe('SupaCloud app installer', () => {
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/config/auth') {
+          return Response.json({ site_url: 'https://auth.example.test' });
+        }
         if (url.pathname === '/v1/projects/project_123/gateway/routes') {
           routeBodies.push(JSON.parse(String(init?.body)));
         }
@@ -1716,6 +1844,9 @@ describe('SupaCloud app installer', () => {
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/config/auth') {
+          return Response.json({ site_url: 'https://auth.example.test' });
+        }
         if (url.pathname === '/v1/projects/project_123/gateway/routes') {
           routeBodies.push(JSON.parse(String(init?.body)));
         }
@@ -1750,6 +1881,9 @@ describe('SupaCloud app installer', () => {
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
+        if (url.pathname === '/v1/projects/project_123/config/auth') {
+          return Response.json({ site_url: 'https://auth.example.test' });
+        }
         if (url.pathname === '/v1/projects/project_123/gateway/routes') {
           routeBodies.push(JSON.parse(String(init?.body)));
         }

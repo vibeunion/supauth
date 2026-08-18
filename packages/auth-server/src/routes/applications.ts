@@ -20,7 +20,7 @@ const grantTypesOpenApiSchema = {
   description: "Stock GoTrue supports only 'authorization_code' and 'refresh_token' OAuth client grants",
 };
 const editableOAuthClientProperties = {
-  redirect_uris: { type: 'array', minItems: 1, maxItems: 10, items: { type: 'string' } },
+  redirect_uris: { type: 'array', minItems: 1, maxItems: 10, uniqueItems: true, items: { type: 'string' } },
   token_endpoint_auth_method: {
     type: 'string',
     enum: ['none', 'client_secret_basic', 'client_secret_post'],
@@ -83,6 +83,33 @@ function validateCreateGrantTypes(input: Record<string, unknown>) {
   if (grantTypes.length === 0) throw invalidGrantTypes();
 }
 
+function invalidRedirectUris() {
+  return new ApiContractError(
+    400,
+    'invalid_redirect_uris',
+    'redirect_uris must contain 1 to 10 unique URI strings',
+  );
+}
+
+function validateRedirectUriList(redirectUris: unknown) {
+  if (!Array.isArray(redirectUris)
+    || redirectUris.length < 1
+    || redirectUris.length > 10
+    || redirectUris.some(uri => typeof uri !== 'string')
+    || new Set(redirectUris).size !== redirectUris.length) {
+    throw invalidRedirectUris();
+  }
+}
+
+function validateCreateRedirectUris(input: Record<string, unknown>) {
+  if (!Object.hasOwn(input, 'redirect_uris')) throw invalidRedirectUris();
+  validateRedirectUriList(input.redirect_uris);
+}
+
+function validateUpdateRedirectUris(input: Record<string, unknown>) {
+  if (Object.hasOwn(input, 'redirect_uris')) validateRedirectUriList(input.redirect_uris);
+}
+
 function validateUpdateGrantTypes(input: Record<string, unknown>) {
   if (!Object.hasOwn(input, 'grant_types')) return;
   const grantTypes = input.grant_types;
@@ -114,6 +141,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
 
   .post('/', async ({ body }) => {
     const input = oauthClientInput(body);
+    validateCreateRedirectUris(input);
     validateCreateGrantTypes(input);
     const created = await oauthClientAdapter().createOAuthClient(input);
     const clientId = String((created as Record<string, unknown>).client_id);
@@ -136,6 +164,7 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
 
   .put('/:appId', async ({ params, body }) => {
     const input = oauthClientInput(body);
+    validateUpdateRedirectUris(input);
     validateUpdateGrantTypes(input);
     const updated = await oauthClientAdapter().updateOAuthClient(params.appId, input);
     await audit('application.update', 'application', params.appId);

@@ -11,6 +11,7 @@ const expectedHeaders = {
   'x-frame-options': 'DENY',
   'referrer-policy': 'no-referrer',
   'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  'content-security-policy': "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'",
 };
 
 const app = new Elysia()
@@ -26,6 +27,9 @@ const app = new Elysia()
       'Referrer-Policy': 'unsafe-url',
       'Permissions-Policy': '*',
     },
+  }))
+  .get('/route-csp', () => new Response('<!doctype html>', {
+    headers: { 'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'" },
   }))
   .get('/error', () => {
     throw new ApiContractError(502, 'upstream_failed', 'Upstream failed');
@@ -80,6 +84,12 @@ describe('Function security response headers', () => {
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(response.headers.get('access-control-allow-origin')).toBe('https://client.example.test');
     expectSecurityHeaders(response);
+  });
+
+  test('preserves a stricter route-specific CSP', async () => {
+    const response = await app.handle(new Request('https://auth.example.test/route-csp'));
+
+    expect(response.headers.get('content-security-policy')).toBe("default-src 'none'; frame-ancestors 'none'");
   });
 
   test('protects normalized error responses', async () => {

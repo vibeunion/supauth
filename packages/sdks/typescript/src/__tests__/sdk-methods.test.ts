@@ -159,8 +159,10 @@ describe('SupaOAuthClient — query string construction', () => {
     });
 
     try {
-      await client.listAuditLogs({ event_type: 'user.created', limit: 10, offset: 5 });
+      await client.listAuditLogs({ event_type: 'user.created', status: 201, method: 'POST', limit: 10, offset: 5 });
       expect(capturedUrl).toContain('event_type=user.created');
+      expect(capturedUrl).toContain('status=201');
+      expect(capturedUrl).toContain('method=POST');
       expect(capturedUrl).toContain('limit=10');
       expect(capturedUrl).toContain('offset=5');
     } finally {

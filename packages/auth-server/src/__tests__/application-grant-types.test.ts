@@ -72,4 +72,23 @@ describe('GoTrue OAuth client grant type boundary', () => {
     expect(response.status).toBe(400);
     expect(upstreamCalls).toHaveLength(0);
   });
+
+  test.each([
+    ['POST', '/v1/applications'],
+    ['PUT', '/v1/applications/client-one'],
+  ])('rejects duplicate redirect URIs on %s before the SupaCloud facade', async (method, path) => {
+    const { applicationRoutes } = await import('../routes/applications.js');
+    const app = new Elysia().use(observabilityMiddleware).use(applicationRoutes);
+    const redirectUri = 'https://client.example.test/callback';
+    const response = await app.handle(new Request(`http://supauth.local${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ redirect_uris: [redirectUri, redirectUri] }),
+    }));
+    const payload = await response.json() as { error?: { code?: string } };
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe('invalid_redirect_uris');
+    expect(upstreamCalls).toHaveLength(0);
+  });
 });

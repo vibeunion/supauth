@@ -11,12 +11,19 @@ const securityResponseHeaders = {
   'x-frame-options': 'DENY',
   'referrer-policy': 'no-referrer',
   'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  'content-security-policy': "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'",
 };
 
 function applySecurityResponseHeaders(headers: Record<string, string | number> | Headers) {
   for (const [name, value] of Object.entries(securityResponseHeaders)) {
-    if (headers instanceof Headers) headers.set(name, value);
-    else headers[name] = value;
+    if (headers instanceof Headers) {
+      if (name === 'content-security-policy' && headers.has(name)) continue;
+      headers.set(name, value);
+      continue;
+    }
+    if (name === 'content-security-policy'
+      && Object.keys(headers).some(headerName => headerName.toLowerCase() === name)) continue;
+    headers[name] = value;
   }
 }
 

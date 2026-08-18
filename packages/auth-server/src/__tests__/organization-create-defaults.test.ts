@@ -53,8 +53,17 @@ function organizationCreateRequest(body: unknown) {
   });
 }
 
+function organizationUpdateRequest(body: unknown) {
+  return new Request('http://localhost/v1/organizations/organization-one', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 function organizationFields() {
   return {
+    name: 'Organization One',
     slug: 'organization-one',
     description: 'Organization description',
     branding: { display_name: 'Organization One' },
@@ -118,4 +127,35 @@ describe('organization creation defaults', () => {
       expect(logAudit).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ['missing name', { ...organizationFields(), name: undefined }, 'invalid_organization_name'],
+    ['blank name', { ...organizationFields(), name: '   ' }, 'invalid_organization_name'],
+    ['long name', { ...organizationFields(), name: 'x'.repeat(121) }, 'invalid_organization_name'],
+    ['short slug', { ...organizationFields(), slug: 'x' }, 'invalid_organization_slug'],
+    ['uppercase slug', { ...organizationFields(), slug: 'Organization-One' }, 'invalid_organization_slug'],
+    ['repeated separator', { ...organizationFields(), slug: 'organization--one' }, 'invalid_organization_slug'],
+  ] as const)('rejects %s before platform access', async (_scenario, requestBody, code) => {
+    const response = await app.handle(organizationCreateRequest(requestBody));
+    const payload = await response.json() as { error?: { code?: string } };
+
+    expect(response.status).toBe(400);
+    expect(payload.error?.code).toBe(code);
+    expect(outboundFetch).not.toHaveBeenCalled();
+  });
+
+  it('applies the same name and slug boundaries to partial updates', async () => {
+    const invalidName = await app.handle(organizationUpdateRequest({ name: 'x'.repeat(121) }));
+    const invalidSlug = await app.handle(organizationUpdateRequest({ slug: 'Invalid-Slug' }));
+    const validDescription = await app.handle(organizationUpdateRequest({ description: 'Updated' }));
+
+    expect(invalidName.status).toBe(400);
+    expect(invalidSlug.status).toBe(400);
+    expect(validDescription.status).toBe(200);
+    expect(outboundCalls).toEqual([{
+      method: 'PATCH',
+      path: '/v1/projects/test-project/organizations/organization-one',
+      body: { description: 'Updated' },
+    }]);
+  });
 });

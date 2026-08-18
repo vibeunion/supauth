@@ -6,6 +6,7 @@ import * as auditRepo from '../repositories/audit.js';
 import { ApiContractError, capabilityUnavailable, pagedResponse } from '../utils/api-contract.js';
 
 const adapter = getSupaCloudAdapter();
+const ORGANIZATION_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 async function auditStrict(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -48,9 +49,40 @@ function organizationCreatePayload(input: unknown): Record<string, unknown> {
     );
   }
   const organization = input as Record<string, unknown>;
+  validateOrganizationName(organization.name);
+  validateOrganizationSlug(organization.slug);
   return Object.hasOwn(organization, 'jit_domains')
     ? organization
     : { ...organization, jit_domains: [] };
+}
+
+function organizationUpdatePayload(input: unknown): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new ApiContractError(400, 'invalid_request_body', 'Organization request body must be a JSON object');
+  }
+  const organization = input as Record<string, unknown>;
+  if (Object.hasOwn(organization, 'name')) validateOrganizationName(organization.name);
+  if (Object.hasOwn(organization, 'slug')) validateOrganizationSlug(organization.slug);
+  return organization;
+}
+
+function validateOrganizationName(name: unknown): void {
+  if (typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 120) {
+    throw new ApiContractError(400, 'invalid_organization_name', 'Organization name must contain 1 to 120 characters');
+  }
+}
+
+function validateOrganizationSlug(slug: unknown): void {
+  if (typeof slug !== 'string'
+    || slug.length < 2
+    || slug.length > 120
+    || !ORGANIZATION_SLUG.test(slug)) {
+    throw new ApiContractError(
+      400,
+      'invalid_organization_slug',
+      'Organization slug must contain 2 to 120 lowercase URL-safe characters',
+    );
+  }
 }
 
 export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
@@ -81,7 +113,7 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
     detail: { summary: 'Get organization by ID', tags: ['Organizations'] },
   })
   .put('/:orgId', async ({ params, body }) => {
-    const updated = await adapter.updateOrganization(params.orgId, body as Record<string, unknown>);
+    const updated = await adapter.updateOrganization(params.orgId, organizationUpdatePayload(body));
     await auditStrict('organization.update', 'organization', params.orgId);
     return updated;
   }, {
