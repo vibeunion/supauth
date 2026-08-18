@@ -40,11 +40,11 @@ jobs:
           i18n = 'packages/admin-console/src/lib/i18n.js'
           remove_once(
               i18n,
-              '  "webhooks.createFailed": "Failed to create webhook. Please check the URL and selected events.",\n',
+              '  "webhooks.createFailed": "Failed to create webhook. Please check the URL and selected events.\",\n',
           )
           remove_once(
               i18n,
-              '  "webhooks.createFailed": "创建 Webhook 失败，请检查 URL 和所选事件。",\n',
+              '  "webhooks.createFailed": "创建 Webhook 失败，请检查 URL 和所选事件。\",\n',
           )
           remove_once(
               i18n,
@@ -135,8 +135,7 @@ jobs:
             packages/auth-server/src/repositories/enterprise-sso.ts \
             packages/auth-server/src/repositories/bindings.ts \
             packages/auth-server/src/compatibility/rls-migration.ts \
-            packages/auth-server/src/__tests__/hosted-authorize-page.test.ts \
-            .github/workflows/code-quality-export.yml
+            packages/auth-server/src/__tests__/hosted-authorize-page.test.ts
           git diff --cached --check
           git commit -m "fix: resolve code quality findings"
           git push origin "HEAD:${{ github.head_ref }}"
