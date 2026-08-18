@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.5](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.4...admin-console-v0.7.5) (2026-08-18)
+
+
+### Bug Fixes
+
+* resolve code quality findings ([eb83fd0](https://github.com/vibeunion/supauth/commit/eb83fd0c9856d07b71e53f8ced7981c28496361c))
+* resolve code quality findings ([8840964](https://github.com/vibeunion/supauth/commit/88409644602dccc38cf88b4cd94f70d0ef9dbcbe))
+
 ## [0.7.4](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.3...admin-console-v0.7.4) (2026-08-18)
 
 
