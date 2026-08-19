@@ -5,6 +5,7 @@ import { AuthApiError, AuthRetryableFetchError, type Session } from '@supabase/a
 import {
   clearLegacyAccountAccessToken,
   clearLegacyAccountTokensFromUrl,
+  consumeMagicLinkSessionFromUrl,
   createHostedAuthApi,
   LEGACY_ACCOUNT_ACCESS_TOKEN_STORAGE_KEY,
   type HostedAuthClient,
@@ -81,6 +82,59 @@ describe('hosted session client', () => {
     }, { replaceState });
 
     expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  test('consumes one complete magic-link session only on the hosted authorize route and clears the fragment first', async () => {
+    const persistedSession = session('magic-access');
+    const events: string[] = [];
+    const setSession = mock(async () => {
+      events.push('set-session');
+      return { data: { user: persistedSession.user, session: persistedSession }, error: null };
+    });
+    const replaceState = mock(() => events.push('clear-fragment'));
+
+    const result = await consumeMagicLinkSessionFromUrl(client({ setSession }), {
+      pathname: '/oauth/authorize',
+      search: '?authorization_id=authorization-1',
+      hash: '#access_token=magic-access&refresh_token=magic-refresh&token_type=bearer&type=magiclink&expires_in=3600',
+    }, { replaceState });
+
+    expect(events).toEqual(['clear-fragment', 'set-session']);
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/oauth/authorize?authorization_id=authorization-1');
+    expect(setSession).toHaveBeenCalledWith({ access_token: 'magic-access', refresh_token: 'magic-refresh' });
+    expect(result?.access_token).toBe('magic-access');
+  });
+
+  test('rejects and clears incomplete or non-magic-link fragments without persisting them', async () => {
+    for (const hash of [
+      '#access_token=access&token_type=bearer&type=magiclink',
+      '#access_token=access&refresh_token=refresh&token_type=bearer&type=recovery',
+    ]) {
+      const setSession = mock(async () => ({ data: { user: null, session: null }, error: null }));
+      const replaceState = mock(() => {});
+      await expect(consumeMagicLinkSessionFromUrl(client({ setSession }), {
+        pathname: '/oauth/authorize',
+        search: '?authorization_id=authorization-1',
+        hash,
+      }, { replaceState })).rejects.toMatchObject({ code: 'magic_link_invalid' });
+      expect(replaceState).toHaveBeenCalledWith(null, '', '/oauth/authorize?authorization_id=authorization-1');
+      expect(setSession).not.toHaveBeenCalled();
+    }
+  });
+
+  test('ignores auth fragments outside the hosted authorize route', async () => {
+    const setSession = mock(async () => ({ data: { user: null, session: null }, error: null }));
+    const replaceState = mock(() => {});
+
+    const result = await consumeMagicLinkSessionFromUrl(client({ setSession }), {
+      pathname: '/account',
+      search: '',
+      hash: '#access_token=access&refresh_token=refresh&token_type=bearer&type=magiclink',
+    }, { replaceState });
+
+    expect(result).toBeNull();
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(setSession).not.toHaveBeenCalled();
   });
 
   test('retries one 401 with a refreshed token while preserving the cloned request', async () => {

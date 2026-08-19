@@ -1349,6 +1349,16 @@
           return;
         }
         if (authorizationId && hostedAuth) {
+          try {
+            const magicLinkSession = await hostedAuth.consumeMagicLinkSessionFromUrl();
+            if (magicLinkSession && magicLinkSession.access_token) {
+              await continueAuthorization(magicLinkSession.access_token);
+              return;
+            }
+          } catch (error) {
+            setMessage('error', responseMessage(error, t('loginFailed')));
+            return;
+          }
           const { data, error } = await hostedAuth.getSession();
           if (!error && data && data.session && data.session.access_token) {
             await continueAuthorization(data.session.access_token);

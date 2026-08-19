@@ -501,6 +501,8 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");
     expect(body).toContain('return allowExternal ? url.toString() : `${url.pathname}${url.search}${url.hash}`;');
     expect(body).toContain('await continueAuthorization(session.access_token);');
+    expect(body).toContain('const magicLinkSession = await hostedAuth.consumeMagicLinkSessionFromUrl();');
+    expect(body).toContain('await continueAuthorization(magicLinkSession.access_token);');
     expect(body).not.toContain('continueAuthorizationWithMfaStepUp');
     expect(body).not.toContain('supaoauth.admin.mfa-step-up');
     expect(body).not.toContain('isAdminMfaStepUpFlow');

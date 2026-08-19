@@ -19,7 +19,7 @@ const SENSITIVE_AUTH_URL_PARAMS = [
 export class HostedAuthError extends Error {
   constructor(
     message: string,
-    public readonly code: 'request_not_replayable' | 'session_read_failed' | 'session_missing' | 'refresh_retryable' | 'refresh_failed',
+    public readonly code: 'magic_link_invalid' | 'request_not_replayable' | 'session_read_failed' | 'session_missing' | 'refresh_retryable' | 'refresh_failed',
   ) {
     super(message);
     this.name = 'HostedAuthError';
@@ -79,6 +79,7 @@ export interface HostedAuthApi {
   signInWithPassword(credentials: SignInWithPasswordCredentials): ReturnType<GoTrueClient['signInWithPassword']>;
   getSession(): ReturnType<GoTrueClient['getSession']>;
   setSession(session: { access_token: string; refresh_token: string }): ReturnType<GoTrueClient['setSession']>;
+  consumeMagicLinkSessionFromUrl(): Promise<Session | null>;
   authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
   onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void): {
     data: { subscription: Subscription };
@@ -87,6 +88,54 @@ export interface HostedAuthApi {
 }
 
 export type HostedFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+function magicLinkSessionTokens(fragmentText: string): { accessToken: string; refreshToken: string } | null {
+  const fragment = new URLSearchParams(fragmentText.replace(/^#/, ''));
+  if (!SENSITIVE_AUTH_URL_PARAMS.some((name) => fragment.has(name))) return null;
+
+  const accessToken = fragment.get('access_token') || '';
+  const refreshToken = fragment.get('refresh_token') || '';
+  const tokenType = (fragment.get('token_type') || '').toLowerCase();
+  const flowType = fragment.get('type') || '';
+  if (!accessToken || !refreshToken || tokenType !== 'bearer' || flowType !== 'magiclink') {
+    throw new HostedAuthError('一次性登录链接无效或不完整，请重新生成。', 'magic_link_invalid');
+  }
+  return { accessToken, refreshToken };
+}
+
+function clearAuthFragment(
+  location: Pick<Location, 'pathname' | 'search'>,
+  history: Pick<History, 'replaceState'>,
+): void {
+  history.replaceState(null, '', `${location.pathname}${location.search}`);
+}
+
+export async function consumeMagicLinkSessionFromUrl(
+  client: HostedAuthClient,
+  location: Pick<Location, 'pathname' | 'search' | 'hash'>,
+  history: Pick<History, 'replaceState'>,
+): Promise<Session | null> {
+  if (location.pathname.replace(/\/+$/, '') !== '/oauth/authorize' || !location.hash) return null;
+
+  let tokens: ReturnType<typeof magicLinkSessionTokens>;
+  try {
+    tokens = magicLinkSessionTokens(location.hash);
+  } catch (error) {
+    clearAuthFragment(location, history);
+    throw error;
+  }
+  if (!tokens) return null;
+  clearAuthFragment(location, history);
+
+  const { data, error } = await client.setSession({
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+  });
+  if (error || !data.session?.access_token) {
+    throw new HostedAuthError(`一次性登录会话无法建立：${errorMessage(error)}`, 'magic_link_invalid');
+  }
+  return data.session;
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message ? error.message : '未知认证错误';
@@ -209,6 +258,7 @@ export function createHostedAuthApi(
     signInWithPassword: (credentials: SignInWithPasswordCredentials) => client.signInWithPassword(credentials),
     getSession: () => client.getSession(),
     setSession: (session: { access_token: string; refresh_token: string }) => client.setSession(session),
+    consumeMagicLinkSessionFromUrl: () => consumeMagicLinkSessionFromUrl(client, window.location, window.history),
     onAuthStateChange: (callback: (event: AuthChangeEvent, session: Session | null) => void) => client.onAuthStateChange(callback),
     signOut: signOutSession,
     async authenticatedFetch(input: RequestInfo | URL, init?: RequestInit) {
