@@ -114,6 +114,9 @@ describe('SupAuth SupaCloud app contract', () => {
     expect(buildScript).toContain("VITE_AUTH_SERVER_URL: '/api'");
     expect(buildScript).toContain("VITE_ADMIN_SSO_ISSUER: ''");
     expect(buildScript).toContain("VITE_ADMIN_SSO_CLIENT_ID: ''");
+    expect(buildScript).toContain("resolve(artifactDir, 'function-bundle')");
+    expect(buildScript).toContain("resolve(deploymentBundleDir, 'index.ts')");
+    expect(buildScript).toContain("resolve(deploymentBundleDir, 'admin-console/build')");
   });
 
   it('declares SupaCloud-owned management domains and managed jobs', () => {

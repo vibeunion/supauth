@@ -7,8 +7,8 @@
  * required Function/Pages/runtime boundaries.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import {
   initSync as initModuleLexerSync,
   parse as parseModuleImports,
@@ -26,6 +26,7 @@ const ADMIN_SSO_OPTIONAL_ENV = [
 ];
 const ADMIN_SSO_ALLOWLIST_ENV = ['ADMIN_SSO_ALLOWED_EMAILS', 'ADMIN_SSO_ALLOWED_DOMAINS'];
 const ADMIN_SSO_GRANT_TYPES = ['authorization_code', 'refresh_token'];
+const FORBIDDEN_ARTIFACT_SEGMENTS = new Set(['node_modules', '.git']);
 
 const EXPECTED_REQUIRED_ENV = [
   'SUPACLOUD_INTERNAL_API_URL',
@@ -76,6 +77,26 @@ const EXPECTED_PRESERVED_RUNTIME_ROUTES = [
   '/realtime/v1/*',
   '/functions/v1/*',
 ];
+
+function verifyArtifactTree(result: VerificationResult, artifactDir: string, directory: string = artifactDir): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = join(directory, entry.name);
+    const artifactPath = relative(artifactDir, entryPath).split(sep).join('/');
+    const segments = artifactPath.split('/');
+    if (segments.some((segment) => segment.startsWith('._') || FORBIDDEN_ARTIFACT_SEGMENTS.has(segment))) {
+      result.errors.push(`SupaCloud app artifact contains a forbidden path: ${artifactPath}`);
+      continue;
+    }
+    const state = lstatSync(entryPath);
+    if (state.isSymbolicLink()) {
+      result.errors.push(`SupaCloud app artifact must not contain symlinks: ${artifactPath}`);
+    } else if (state.isDirectory()) {
+      verifyArtifactTree(result, artifactDir, entryPath);
+    } else if (!state.isFile()) {
+      result.errors.push(`SupaCloud app artifact must contain only regular files: ${artifactPath}`);
+    }
+  }
+}
 
 const EXPECTED_FORBIDDEN_RUNTIME_FORMS = [
   'standalone-http-server',
@@ -469,6 +490,8 @@ export function verifySupacloudAppArtifact(input: {
   const artifactDir = resolve(root, input.artifactDir || 'artifacts/supacloud-app');
   const manifestPath = input.manifestPath ? resolve(root, input.manifestPath) : resolve(artifactDir, 'supacloud-app-manifest.json');
   const result: VerificationResult = { ok: false, errors: [], warnings: [], manifestPath };
+
+  if (existsSync(artifactDir)) verifyArtifactTree(result, artifactDir);
 
   if (!existsSync(manifestPath)) {
     result.errors.push(`Missing SupaCloud app manifest: ${manifestPath}`);
