@@ -61,13 +61,13 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 ### 部署步骤
 
 1. 构建 SupaCloud app artifact：`bun run build`
-2. SupaCloud 读取 `artifacts/supacloud-app/supacloud-app-manifest.json`
+2. SupaCloud 读取 `artifacts/supacloud-app/supacloud-app-manifest.json`；该目录是完整发布制品，包含 `function-bundle/index.ts`、`function-bundle/admin-console/build/**`、OpenAPI 与 manifest，不依赖源码树或 `node_modules`
 3. SupaCloud 注入 `SUPACLOUD_INTERNAL_API_URL`、`SUPACLOUD_INTERNAL_TOKEN`、`SUPABASE_SERVICE_ROLE_KEY`、`SUPAOAUTH_BFF_SIGNING_SECRET`、`SUPACLOUD_PROJECT_REF`、`SUPACLOUD_RUNTIME_URL` 和 `SUPACLOUD_DATABASE_URL`。其中 internal token 仅用于 Management API，service-role key 仅用于项目 Storage。安装器将 SupAuth 的逻辑变量（例如 `SUPAUTH_PUBLIC_URL`、`ADMIN_SSO_ISSUER`、`ADMIN_SSO_CLIENT_ID`）写入 `supauth` Function 专属 secrets，平台以 `EDGEFN_SUPAUTH_<逻辑变量>` 注入；管理员 MFA 门禁仅在逻辑值显式为 `ADMIN_SSO_REQUIRE_AAL2=true` 时开启
 4. 安装器按 manifest 的 V1/V4/V5/V6/V7/V8/V9/V10 顺序，通过 SupaCloud Management API
    对 `SUPACLOUD_DATABASE_URL` 应用幂等 hosted migrations；禁止绕过安装器直连
    执行迁移。V9 独立撤销旧 webhook 表的 Function/PUBLIC 权限，V10 仅在
    两张旧表均为空时按 deliveries → definitions 顺序删除它们
-5. 将 `packages/auth-server/dist/supacloud-function/supacloud-function.js` 作为 `index.ts`，并将 `packages/admin-console/build` 的全部 regular UTF-8 text 文件稳定排序后发布到同一 Function bundle 的 `admin-console/build/**`；symlink、特殊文件、NUL/binary、无效 UTF-8 或越界路径必须阻断发布
+5. 使用官方 SupaCloud CLI 从 `artifacts/supacloud-app/function-bundle` 发布多文件 Function：其中 `index.ts` 是入口，`admin-console/build/**` 是同一 bundle 的静态页面；`node_modules`、`.git`、AppleDouble、symlink、特殊文件、NUL/binary、无效 UTF-8 或越界路径必须阻断发布
 6. 按 manifest 将 `/api/*`（strip `/api`）、`/v1/public/*`、`/oauth/*`、`/login`、`/login.html`、`/authorize.html`、`/claim`、`/claim.html` 和 `/admin/*` 路由到 Function
 7. 按 manifest 的 `authority`、`gotrue_owned_runtime_domains`、
    `supacloud_owned_management_domains` 与 `supacloud_management_facades`

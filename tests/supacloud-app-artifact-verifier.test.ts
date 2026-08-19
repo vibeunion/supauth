@@ -47,6 +47,25 @@ describe('SupaCloud app artifact verifier', () => {
     expect(result.errors).toEqual([]);
   });
 
+  it.each(['node_modules', '.git', '._metadata'])(
+    'rejects forbidden release artifact entry %s',
+    (entryName) => {
+      const { root } = createFixture();
+      const entryPath = join(root, 'artifact', entryName);
+      if (entryName === 'node_modules') {
+        mkdirSync(entryPath);
+        writeFileSync(join(entryPath, 'dependency.js'), 'forbidden');
+      } else {
+        writeFileSync(entryPath, 'forbidden');
+      }
+
+      const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+
+      expect(result.ok).toBe(false);
+      expect(result.errors).toContain(`SupaCloud app artifact contains a forbidden path: ${entryName}`);
+    },
+  );
+
   it('rejects Function routes that collide with preserved Supabase runtime routes', () => {
     const { root, manifest } = createFixture();
     manifest.functions[0].routes.push({ path: '/auth/v1/*' });
