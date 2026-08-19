@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.8](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.7...auth-server-v0.8.8) (2026-08-19)
+
+
+### Bug Fixes
+
+* **auth:** restore magic-link OAuth sessions ([fa613c8](https://github.com/vibeunion/supauth/commit/fa613c8abfd7f72a234b3fbcc08457b83cc5dda2))
+* **auth:** restore magic-link OAuth sessions ([9130308](https://github.com/vibeunion/supauth/commit/9130308015324840cc82453e375b74d5b7f679c6))
+
 ## [0.8.7](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.6...auth-server-v0.8.7) (2026-08-18)
 
 
