@@ -3,15 +3,13 @@
 import { appendFileSync } from 'node:fs';
 import { createSupaCloudOAuthFetch } from '@supacloud/js';
 import { createClient } from '@supabase/supabase-js';
-import type { User } from '@supabase/supabase-js';
 
 const runtimeUrl = requiredEnv('OAUTH_RUNTIME_URL').replace(/\/auth\/v1\/?$/, '').replace(/\/+$/, '');
 const clientId = requiredEnv('OAUTH21_CLIENT_ID');
 const redirectUri = requiredEnv('OAUTH21_REDIRECT_URI');
 const anonKey = requiredEnv('SUPABASE_ANON_KEY');
 const serviceRoleKey = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
-const email = requiredEnv('SUPABASE_TEST_EMAIL');
-const password = requiredEnv('SUPABASE_TEST_PASSWORD');
+const credentials = ephemeralCredentials(requiredEnv('SUPABASE_TEST_EMAIL'));
 const githubEnv = requiredEnv('GITHUB_ENV');
 const currentCompatVersion = 'v2.195.0';
 const supportedCompatVersions = new Set(['v2.192.0', currentCompatVersion]);
@@ -51,8 +49,8 @@ const supabase = createClient(runtimeUrl, anonKey, {
   },
 });
 
-await ensureCompatibilityUser(runtimeUrl, serviceRoleKey, email, password);
-const signIn = await supabase.auth.signInWithPassword({ email, password });
+await createCompatibilityUser(runtimeUrl, serviceRoleKey, credentials, githubEnv);
+const signIn = await supabase.auth.signInWithPassword(credentials);
 if (signIn.error || !signIn.data.session) {
   throw new Error(`Supabase Auth compatibility sign-in failed: ${signIn.error?.message || 'missing session'}`);
 }
@@ -178,23 +176,42 @@ function base64Url(value: Uint8Array): string {
   return Buffer.from(value).toString('base64url');
 }
 
-async function ensureCompatibilityUser(
+interface CompatibilityCredentials {
+  email: string;
+  password: string;
+}
+
+function ephemeralCredentials(baseEmail: string): CompatibilityCredentials {
+  const separator = baseEmail.lastIndexOf('@');
+  if (separator < 1) throw new Error('SUPABASE_TEST_EMAIL must be an email address');
+  const runId = crypto.randomUUID();
+  return {
+    email: `${baseEmail.slice(0, separator)}+${runId}@${baseEmail.slice(separator + 1)}`,
+    password: randomBase64Url(48),
+  };
+}
+
+async function createCompatibilityUser(
   runtimeUrl: string,
   serviceRoleKey: string,
-  email: string,
-  password: string,
+  credentials: CompatibilityCredentials,
+  githubEnv: string,
 ): Promise<void> {
   const admin = createClient(runtimeUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
-  const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (listed.error) throw new Error(`Unable to inspect compatibility user: ${listed.error.message}`);
-  const users = listed.data.users as User[];
-  const existing = users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
-  const prepared = existing
-    ? await admin.auth.admin.updateUserById(existing.id, { password, email_confirm: true })
-    : await admin.auth.admin.createUser({ email, password, email_confirm: true });
-  if (prepared.error) throw new Error(`Unable to prepare compatibility user: ${prepared.error.message}`);
+  const created = await admin.auth.admin.createUser({ ...credentials, email_confirm: true });
+  if (created.error || !created.data.user) {
+    throw new Error(`Unable to create compatibility user: ${created.error?.message || 'missing user'}`);
+  }
+  console.log(`::add-mask::${credentials.email}`);
+  console.log(`::add-mask::${credentials.password}`);
+  appendFileSync(githubEnv, [
+    `SUPABASE_TEST_EMAIL=${credentials.email}`,
+    `SUPABASE_TEST_PASSWORD=${credentials.password}`,
+    `SUPABASE_COMPAT_USER_ID=${created.data.user.id}`,
+    '',
+  ].join('\n'));
 }
 
 async function verifiedRuntimeVersion(runtimeBaseUrl: string, expectedVersion: string): Promise<string> {

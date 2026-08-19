@@ -85,7 +85,6 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.LIVE_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
-          SUPABASE_TEST_PASSWORD: ${{ secrets.LIVE_SUPABASE_TEST_PASSWORD }}
         run: bun run scripts/prepare-supabase-auth-compat-session.ts
 
       - name: Run strict Supabase Auth compatibility suite
@@ -104,8 +103,6 @@ jobs:
           SUPABASE_FULLSTACK_URL: ${{ secrets.LIVE_SUPABASE_FULLSTACK_URL }}
           SUPABASE_FULLSTACK_ANON_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_ANON_KEY || secrets.LIVE_SUPABASE_ANON_KEY }}
           SUPABASE_FULLSTACK_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_SERVICE_ROLE_KEY || secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
-          SUPABASE_TEST_PASSWORD: ${{ secrets.LIVE_SUPABASE_TEST_PASSWORD }}
         run: |
           set -o pipefail
           bun run test:supabase-auth-compat 2>&1 | tee supabase-auth-compat.log
@@ -113,6 +110,13 @@ jobs:
             echo "::error::Supabase Auth compatibility suite must not report skipped tests"
             exit 1
           fi
+
+      - name: Clean up ephemeral OAuth compatibility session
+        if: always()
+        env:
+          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_SUPABASE_AUTH_URL || secrets.LIVE_OAUTH_RUNTIME_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
+        run: bun run scripts/cleanup-supabase-auth-compat-session.ts
 
   package-auth-ui:
     name: Package Auth UI SDK
