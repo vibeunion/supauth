@@ -45,6 +45,7 @@ jobs:
           OAUTH21_CLIENT_ID: ${{ secrets.LIVE_OAUTH21_CLIENT_ID }}
           OAUTH21_REDIRECT_URI: ${{ secrets.LIVE_OAUTH21_REDIRECT_URI }}
           SUPABASE_ANON_KEY: ${{ secrets.LIVE_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
           SUPABASE_TEST_PASSWORD: ${{ secrets.LIVE_SUPABASE_TEST_PASSWORD }}
         run: bun run scripts/prepare-supabase-auth-compat-session.ts

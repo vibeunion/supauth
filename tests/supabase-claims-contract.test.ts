@@ -108,6 +108,14 @@ describe('Supabase claims compatibility contract', () => {
     expect(sessionPreparation).toContain('verifiedRuntimeVersion(runtimeUrl, expectedCompatVersion)');
     expect(sessionPreparation).toContain('runtimeVersion === currentCompatVersion');
     expect(sessionPreparation).toContain("new Set(['v2.192.0', currentCompatVersion])");
+    expect(sessionPreparation).toContain("requiredEnv('SUPABASE_SERVICE_ROLE_KEY')");
+    expect(sessionPreparation.indexOf('ensureCompatibilityUser(')).toBeLessThan(
+      sessionPreparation.indexOf('supabase.auth.signInWithPassword'),
+    );
+    for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/live-compat.yml']) {
+      const workflow = readFileSync(workflowPath, 'utf8');
+      expect(workflow).toContain('SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}');
+    }
   });
 
   it('preserves the Supabase runtime role domain', () => {
