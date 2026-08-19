@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.6](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.5...admin-console-v0.7.6) (2026-08-19)
+
+
+### Bug Fixes
+
+* **auth:** restore magic-link OAuth sessions ([fa613c8](https://github.com/vibeunion/supauth/commit/fa613c8abfd7f72a234b3fbcc08457b83cc5dda2))
+* **auth:** restore magic-link OAuth sessions ([9130308](https://github.com/vibeunion/supauth/commit/9130308015324840cc82453e375b74d5b7f679c6))
+
 ## [0.7.5](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.4...admin-console-v0.7.5) (2026-08-18)
 
 
