@@ -2,8 +2,8 @@
   "packages/authorization-core": "0.3.3",
   "packages/authorization-postgres": "0.4.3",
   "packages/authorization-conformance": "0.3.3",
-  "packages/auth-server": "0.8.9",
-  "packages/admin-console": "0.7.7",
+  "packages/auth-server": "0.8.10",
+  "packages/admin-console": "0.7.8",
   "packages/shared": "0.7.3",
   "packages/sdks/typescript": "0.5.6",
   "packages/sdks/auth-ui": "0.5.3"
