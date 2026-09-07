@@ -2,6 +2,21 @@ import type { RuntimeMode } from '@supauth/shared';
 
 export type ResponseDecoder<T> = (value: unknown) => T;
 
+export interface RequestContract<Input, Result> {
+  input: ResponseDecoder<Input>;
+  result: ResponseDecoder<Result>;
+  request: (input: Input) => { path: string; options?: RequestInit };
+}
+
+export class SupaOAuthRequestContractError extends Error {
+  readonly code = 'SUPAUTH_REQUEST_CONTRACT_INVALID';
+
+  constructor() {
+    super('SupaOAuth request contract invalid');
+    this.name = 'SupaOAuthRequestContractError';
+  }
+}
+
 export class SupaOAuthResponseContractError extends Error {
   readonly code = 'SUPAUTH_RESPONSE_CONTRACT_INVALID';
 
@@ -70,4 +85,13 @@ export function decodeJWKS(value: unknown) {
   const data = record(value);
   if (!Array.isArray(data.keys)) throw new TypeError('Expected keys array');
   return { keys: data.keys.map(record) };
+}
+
+export function decodeUserPermissions(value: unknown) {
+  const data = record(value);
+  function strings(value: unknown): string[] {
+    if (!Array.isArray(value)) throw new TypeError('Expected string array');
+    return value.map(string);
+  }
+  return { roles: strings(data.roles), permissions: strings(data.permissions), scopes: strings(data.scopes) };
 }
