@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.8](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.7...admin-console-v0.7.8) (2026-09-07)
+
+
+### Bug Fixes
+
+* **auth:** simplify public account claiming to require external ID only ([#102](https://github.com/vibeunion/supauth/issues/102)) ([a4eb699](https://github.com/vibeunion/supauth/commit/a4eb699e62db214d26690b111ad1a74226e9188e))
+
 ## [0.7.7](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.6...admin-console-v0.7.7) (2026-09-05)
 
 
