@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.5.7...sdk-typescript-v0.6.0) (2026-09-07)
+
+
+### Features
+
+* **sdk:** validate request contracts and permission receipts ([#106](https://github.com/vibeunion/supauth/issues/106)) ([0ec0702](https://github.com/vibeunion/supauth/commit/0ec070241aaf60a46107bfca2c2119925d30ff63))
+
 ## [0.5.7](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.5.6...sdk-typescript-v0.5.7) (2026-09-07)
 
 
