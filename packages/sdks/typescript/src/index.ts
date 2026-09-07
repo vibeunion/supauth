@@ -17,10 +17,14 @@ import type {
   PublicPhraseBundle,
   AuditLogEntry,
   Webhook,
-  RuntimeMode,
   CapabilitiesResponse,
   CompatibilityCheckResult,
 } from '@supauth/shared';
+import {
+  decodeHealth, decodeRuntimeHealth, decodeOAuthServerStatus, decodeDiscovery, decodeJWKS,
+  SupaOAuthResponseContractError, type ResponseDecoder,
+} from './response-contracts.js';
+export { SupaOAuthResponseContractError, type ResponseDecoder } from './response-contracts.js';
 
 // ─── Response wrappers ──────────────────────────────────
 interface ListResponse<T> {
@@ -37,38 +41,12 @@ interface CursorListResponse<T> {
   next_cursor: string | null;
 }
 
-interface HealthResponse {
-  status: string;
-  runtime_mode: RuntimeMode;
-  project_ref: string;
-}
-
 interface ProjectResponse {
   id: string;
   ref?: string;
   project_ref?: string;
   name: string;
   region?: string;
-}
-
-interface OAuthServerStatus {
-  enabled: boolean;
-  signing_alg: string;
-  allow_dynamic_registration: boolean;
-  migration_status?: string;
-}
-
-interface DiscoveryResponse {
-  issuer: string;
-  authorization_endpoint: string;
-  token_endpoint: string;
-  userinfo_endpoint: string;
-  jwks_uri: string;
-  [key: string]: unknown;
-}
-
-interface JWKSResponse {
-  keys: Record<string, unknown>[];
 }
 
 interface AuthConfigResponse {
@@ -399,10 +377,40 @@ export class SupaOAuthClient {
     return res;
   }
 
-  private async request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  private async jsonResponse(path: string, options: RequestInit): Promise<{ value: unknown; status: number }> {
     const res = await this.response(path, options);
-    if (res.status === 204) return null as T;
-    return res.json() as Promise<T>;
+    if (res.status === 204 || res.status === 205) {
+      throw new SupaOAuthResponseContractError(path, res.status, 'unexpected_no_content');
+    }
+    try {
+      const value: unknown = await res.json();
+      options.signal?.throwIfAborted();
+      return { value, status: res.status };
+    } catch (error) {
+      options.signal?.throwIfAborted();
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new SupaOAuthResponseContractError(path, res.status, 'invalid_json');
+    }
+  }
+
+  /** Result types are inferred from a decoder which must validate unknown input. */
+  async requestDecoded<T>(path: string, decoder: ResponseDecoder<T>, options: RequestInit = {}): Promise<T> {
+    const { value, status } = await this.jsonResponse(path, options);
+    try {
+      return decoder(value);
+    } catch {
+      throw new SupaOAuthResponseContractError(path, status, 'invalid_payload');
+    }
+  }
+
+  // 尚未迁移的管理接口保留私有兼容入口；不能当作已通过领域解码的响应。
+  private async request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+    return (await this.jsonResponse(path, options)).value as T;
+  }
+
+  private async requestVoid(path: string, options: RequestInit): Promise<void> {
+    const response = await this.response(path, options);
+    await response.body?.cancel();
   }
 
   private async requestBlob(path: string): Promise<Blob> {
@@ -411,7 +419,7 @@ export class SupaOAuthClient {
 
   // ─── Health / Project ─────────────────────────────────
   health() {
-    return this.request<HealthResponse>('/v1/health');
+    return this.requestDecoded('/v1/health', decodeHealth);
   }
 
   getProject() {
@@ -424,19 +432,19 @@ export class SupaOAuthClient {
 
   // ─── Runtime ──────────────────────────────────────────
   getRuntimeHealth() {
-    return this.request<{ status: string }>('/v1/runtime/health');
+    return this.requestDecoded('/v1/runtime/health', decodeRuntimeHealth);
   }
 
   getOAuthServerStatus() {
-    return this.request<OAuthServerStatus>('/v1/runtime/oauth-server');
+    return this.requestDecoded('/v1/runtime/oauth-server', decodeOAuthServerStatus);
   }
 
   getDiscovery() {
-    return this.request<DiscoveryResponse>('/v1/runtime/discovery');
+    return this.requestDecoded('/v1/runtime/discovery', decodeDiscovery);
   }
 
   getJWKS() {
-    return this.request<JWKSResponse>('/v1/runtime/jwks');
+    return this.requestDecoded('/v1/runtime/jwks', decodeJWKS);
   }
 
   // ─── Applications ──────────────────────────────────────
@@ -463,7 +471,7 @@ export class SupaOAuthClient {
   }
 
   deleteApplication(appId: string) {
-    return this.request<void>(`/v1/applications/${pathSegment(appId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/applications/${pathSegment(appId)}`, { method: 'DELETE' });
   }
 
   rotateApplicationSecret(appId: string) {
@@ -496,7 +504,7 @@ export class SupaOAuthClient {
   }
 
   deleteApplicationSignInExperience(appId: string) {
-    return this.request<void>(`/v1/applications/${pathSegment(appId)}/sign-in-experience`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/applications/${pathSegment(appId)}/sign-in-experience`, { method: 'DELETE' });
   }
 
   // ─── Application bindings ──────────────────────────────
@@ -512,7 +520,7 @@ export class SupaOAuthClient {
   }
 
   deleteApplicationBinding(appId: string, bindingId: string) {
-    return this.request<void>(`/v1/applications/${pathSegment(appId)}/bindings/${pathSegment(bindingId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/applications/${pathSegment(appId)}/bindings/${pathSegment(bindingId)}`, { method: 'DELETE' });
   }
 
   listApplicationScopes(appId: string) {
@@ -618,7 +626,7 @@ export class SupaOAuthClient {
   }
 
   deleteResource(resourceId: string) {
-    return this.request<void>(`/v1/resources/${pathSegment(resourceId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/resources/${pathSegment(resourceId)}`, { method: 'DELETE' });
   }
 
   // ─── Scopes ───────────────────────────────────────────
@@ -637,7 +645,7 @@ export class SupaOAuthClient {
   }
 
   removeScope(resourceId: string, scopeId: string) {
-    return this.request<void>(`/v1/resources/${pathSegment(resourceId)}/scopes/${pathSegment(scopeId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/resources/${pathSegment(resourceId)}/scopes/${pathSegment(scopeId)}`, { method: 'DELETE' });
   }
 
   listResourceApplications(resourceId: string) {
@@ -687,7 +695,7 @@ export class SupaOAuthClient {
   }
 
   deleteUser(userId: string) {
-    return this.request<void>(`/v1/users/${pathSegment(userId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/users/${pathSegment(userId)}`, { method: 'DELETE' });
   }
 
   resetUserMfa(userId: string, factorId: string) {
@@ -742,7 +750,7 @@ export class SupaOAuthClient {
   }
 
   deleteOrganization(orgId: string) {
-    return this.request<void>(`/v1/organizations/${pathSegment(orgId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/organizations/${pathSegment(orgId)}`, { method: 'DELETE' });
   }
 
   addOrganizationMember(orgId: string, data: { user_id: string; role?: string }) {
@@ -761,7 +769,7 @@ export class SupaOAuthClient {
   }
 
   removeOrganizationMember(orgId: string, userId: string) {
-    return this.request<void>(`/v1/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, { method: 'DELETE' });
   }
 
   updateOrganizationMemberRole(orgId: string, userId: string, data: { role: string }) {
@@ -851,7 +859,7 @@ export class SupaOAuthClient {
   }
 
   deleteRole(roleId: string) {
-    return this.request<void>(`/v1/roles/${pathSegment(roleId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/roles/${pathSegment(roleId)}`, { method: 'DELETE' });
   }
 
   // ─── Permissions ──────────────────────────────────────
@@ -870,7 +878,7 @@ export class SupaOAuthClient {
   }
 
   deleteRolePermission(roleId: string, permissionId: string) {
-    return this.request<void>(`/v1/roles/${pathSegment(roleId)}/permissions/${pathSegment(permissionId)}`, {
+    return this.requestVoid(`/v1/roles/${pathSegment(roleId)}/permissions/${pathSegment(permissionId)}`, {
       method: 'DELETE',
     });
   }
@@ -891,7 +899,7 @@ export class SupaOAuthClient {
   }
 
   revokeRole(roleId: string, assignmentId: string) {
-    return this.request<void>(`/v1/roles/${pathSegment(roleId)}/assign/${pathSegment(assignmentId)}`, {
+    return this.requestVoid(`/v1/roles/${pathSegment(roleId)}/assign/${pathSegment(assignmentId)}`, {
       method: 'DELETE',
     });
   }
@@ -1008,7 +1016,7 @@ export class SupaOAuthClient {
   }
 
   removeTenantMember(memberId: string) {
-    return this.request<void>(`/v1/tenant/members/${pathSegment(memberId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/tenant/members/${pathSegment(memberId)}`, { method: 'DELETE' });
   }
 
   listTenantInvitations(params: { page?: number; limit?: number; status?: string } = {}) {
@@ -1050,7 +1058,7 @@ export class SupaOAuthClient {
   }
 
   deleteWebhook(webhookId: string) {
-    return this.request<void>(`/v1/webhooks/${pathSegment(webhookId)}`, { method: 'DELETE' });
+    return this.requestVoid(`/v1/webhooks/${pathSegment(webhookId)}`, { method: 'DELETE' });
   }
 
   rotateWebhookSecret(webhookId: string) {

@@ -41,13 +41,13 @@ describe('SupaOAuthClient', () => {
     }
   });
 
-  it('returns null for 204 response', async () => {
+  it('returns undefined for a declared void deletion response', async () => {
     const restore = mockFetch(() =>
       Promise.resolve(new Response(null, { status: 204 }))
     );
     try {
-      const result = await client['request']('/v1/applications/123', { method: 'DELETE' });
-      expect(result).toBeNull();
+      const result = await client.deleteApplication('123');
+      expect(result).toBeUndefined();
     } finally {
       restore();
     }

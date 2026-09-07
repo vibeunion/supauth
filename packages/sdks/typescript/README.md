@@ -88,6 +88,32 @@ try {
 }
 ```
 
+## Response Validation
+
+`health()`, `getRuntimeHealth()`, `getOAuthServerStatus()`, `getDiscovery()` and
+`getJWKS()` validate successful JSON responses at runtime. Their result types are
+inferred from the decoders. This is response-shape validation, not JWT signature
+verification or authorization.
+
+For an application-specific endpoint, use `requestDecoded(path, decoder, options?)`.
+The decoder accepts `unknown`, must throw on invalid data, and determines the
+return type. `options` supports `AbortSignal`. Do not replace validation with a
+type assertion inside the decoder.
+
+Malformed JSON, unexpected 204/205 responses and invalid decoded payloads throw
+`SupaOAuthResponseContractError` with `code`, `path`, `status`, and `reason`. The
+error does not include the response body or decoder error. HTTP failures retain
+`SupaOAuthAPIError`; neither transport nor contract failures automatically replay
+writes. Explicit void deletion methods resolve to `undefined`, including 204/205.
+
+Compatibility note: deletion methods previously returned runtime `null` for 204
+despite declaring `void`; callers must not depend on that value. Data-returning
+methods now reject unexpected 204/205 instead of resolving an unchecked null.
+
+Other existing management methods still use the private compatibility transport
+and have not yet migrated to per-endpoint decoders. This change does not implement
+automatic session refresh or cross-tab session coordination.
+
 ## Token Management
 
 ```typescript
