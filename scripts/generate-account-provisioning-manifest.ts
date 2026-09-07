@@ -17,7 +17,6 @@ interface ProvisioningRecord {
   profile: Record<string, unknown>;
   import_batch: string;
   metadata: Record<string, unknown>;
-  claim_proof: string;
 }
 
 interface Args {
@@ -167,10 +166,6 @@ function buildEmails(rows: Array<{ externalId: string; displayName: string }>, d
 function csvEscape(value: unknown): string {
   const text = value === undefined || value === null ? '' : String(value);
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function generateClaimProof(): string {
-  return randomBytes(32).toString('base64url');
 }
 
 type TransactionPathSuffix = 'tmp' | 'backup' | 'recovery' | 'cleanup';
@@ -724,7 +719,6 @@ async function main() {
       source_sheet: sheetName,
       source_seq: row.sourceSeq || null,
     },
-    claim_proof: generateClaimProof(),
   }));
 
   const eligible = records.filter(record => ['active', '正常'].includes(record.source_status)).length;
@@ -744,7 +738,7 @@ async function main() {
 
   await mkdir(dirname(args.output), { recursive: true });
   await mkdir(dirname(args.csvOutput), { recursive: true });
-  const csvHeader = ['external_id', 'external_type', 'display_name', 'email', 'claim_proof', 'source_status', 'department', 'company', 'role'];
+  const csvHeader = ['external_id', 'external_type', 'display_name', 'email', 'source_status', 'department', 'company', 'role'];
   const csvBody = records.map(record => {
     const row = {
       ...record,

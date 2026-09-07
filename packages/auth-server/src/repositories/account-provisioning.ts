@@ -36,11 +36,13 @@ export interface AccountProvisioningImportRecord {
 
 export interface AccountClaimInput {
   externalId: string;
-  displayName: string;
+  /** @deprecated Public claiming no longer matches on display name. */
+  displayName?: string;
   externalType?: string;
   ip?: string;
   userAgent?: string;
   passwordMode?: AccountClaimPasswordMode;
+  /** @deprecated Public claiming no longer requires a claim proof. */
   claimProof?: string;
   newPassword?: string;
   updatePassword?: (target: AccountClaimPasswordUpdateTarget, password: string) => Promise<void>;
@@ -249,7 +251,7 @@ export async function upsertAccountProvisioningRecord(record: AccountProvisionin
 
 export async function findAccountProvisioningRecord(input: {
   externalId: string;
-  displayName: string;
+  displayName?: string;
   externalType?: string;
 }) {
   const db = getDb();
@@ -257,16 +259,15 @@ export async function findAccountProvisioningRecord(input: {
     .where(and(
       inArray(accountProvisioningRecords.externalId, externalIdLookupCandidates(input.externalId)),
       eq(accountProvisioningRecords.externalType, input.externalType || 'generic'),
-      eq(accountProvisioningRecords.normalizedDisplayName, normalizeDisplayName(input.displayName)),
     ))
-    .limit(1);
-  return rows[0] || null;
+    .limit(2);
+  return rows.length === 1 ? rows[0] : null;
 }
 
 interface AccountClaimReservation {
   record: AccountProvisioningRow;
   operationId: string;
-  proofHash: string;
+  proofHash: string | null;
   passwordMode: AccountClaimPasswordMode;
   passwordHash: string | null;
   passwordApplied: boolean;
@@ -281,15 +282,13 @@ interface AccountClaimReservationPlan {
   leaseExpiresAt: Date;
 }
 
-async function findAccountByClaimProof(input: AccountClaimInput, proofHash: string) {
+async function findAccountByExternalId(input: AccountClaimInput) {
   const db = getDb();
   const rows = await db.select().from(accountProvisioningRecords).where(and(
     inArray(accountProvisioningRecords.externalId, externalIdLookupCandidates(input.externalId)),
     eq(accountProvisioningRecords.externalType, input.externalType || 'generic'),
-    eq(accountProvisioningRecords.normalizedDisplayName, normalizeDisplayName(input.displayName)),
-    eq(accountProvisioningRecords.claimProofHash, proofHash),
-  )).limit(1);
-  return rows[0] || null;
+  )).limit(2);
+  return rows.length === 1 ? rows[0] : null;
 }
 
 function storedClaimState(record: AccountProvisioningRow): AccountClaimState {
@@ -377,7 +376,7 @@ function reservationUpdateValues(
 
 async function persistAccountClaimReservation(
   record: AccountProvisioningRow,
-  proofHash: string,
+  proofHash: string | null,
   passwordMode: AccountClaimPasswordMode,
   plan: AccountClaimReservationPlan,
 ) {
@@ -385,7 +384,9 @@ async function persistAccountClaimReservation(
     reservationUpdateValues(plan, passwordMode),
   ).where(and(
     eq(accountProvisioningRecords.id, record.id),
-    eq(accountProvisioningRecords.claimProofHash, proofHash),
+    proofHash
+      ? eq(accountProvisioningRecords.claimProofHash, proofHash)
+      : isNull(accountProvisioningRecords.claimProofHash),
     eq(accountProvisioningRecords.initialPasswordClaimed, false),
     inArray(accountProvisioningRecords.sourceStatus, CLAIMABLE_SOURCE_STATUSES),
     isNotNull(accountProvisioningRecords.initialPasswordEncrypted),
@@ -397,7 +398,7 @@ async function persistAccountClaimReservation(
 
 async function reserveAccountClaim(
   record: AccountProvisioningRow,
-  proofHash: string,
+  proofHash: string | null,
   passwordMode: AccountClaimPasswordMode,
   passwordHash: string | null,
 ): Promise<AccountClaimReservation | null> {
@@ -425,7 +426,9 @@ function reservationOwnershipCondition(
   return and(
     eq(accountProvisioningRecords.id, reservation.record.id),
     eq(accountProvisioningRecords.initialPasswordClaimed, false),
-    eq(accountProvisioningRecords.claimProofHash, reservation.proofHash),
+    reservation.proofHash
+      ? eq(accountProvisioningRecords.claimProofHash, reservation.proofHash)
+      : isNull(accountProvisioningRecords.claimProofHash),
     eq(accountProvisioningRecords.claimState, expectedState),
     eq(accountProvisioningRecords.claimMode, reservation.passwordMode),
     eq(accountProvisioningRecords.claimOperationId, reservation.operationId),
@@ -557,8 +560,7 @@ async function completeInitialPasswordClaim(
 }
 
 export async function claimAccount(input: AccountClaimInput): Promise<AccountClaimResult> {
-  const claimProof = input.claimProof?.trim();
-  if (!claimProof) return { status: 'unavailable' };
+  if (!input.externalId.trim()) return { status: 'unavailable' };
   const passwordMode = input.passwordMode || 'show_initial_password';
   const passwordClaimInput = passwordMode === 'set_on_claim' && input.newPassword && input.updatePassword
     ? { ...input, newPassword: input.newPassword, updatePassword: input.updatePassword }
@@ -567,15 +569,14 @@ export async function claimAccount(input: AccountClaimInput): Promise<AccountCla
     return { status: 'unavailable' };
   }
 
-  const proofHash = hashAccountClaimProof(claimProof);
-  const record = await findAccountByClaimProof(input, proofHash);
+  const record = await findAccountByExternalId(input);
   if (!record || !sourceStatusAllowsClaim(record.sourceStatus)) return { status: 'unavailable' };
   if (!record.initialPasswordEncrypted || (passwordMode === 'set_on_claim' && !record.userId)) {
     return { status: 'unavailable' };
   }
 
   const passwordHash = passwordClaimInput ? hashClaimPassword(passwordClaimInput.newPassword) : null;
-  const reservation = await reserveAccountClaim(record, proofHash, passwordMode, passwordHash);
+  const reservation = await reserveAccountClaim(record, record.claimProofHash, passwordMode, passwordHash);
   if (!reservation) return { status: 'unavailable' };
   return passwordClaimInput
     ? completePasswordClaim(reservation, passwordClaimInput)

@@ -249,22 +249,14 @@
       <img id="logo" class="logo" alt="">
       <div id="brand-mark" class="brand-mark">SA</div>
       <h1 id="claim-title">领取 SupAuth 账号</h1>
-      <p id="claim-lead" class="lead">输入姓名和数字 ID，查询你的登录邮箱并领取一次性初始密码。</p>
+      <p id="claim-lead" class="lead">输入数字 ID，查询你的登录邮箱并领取一次性初始密码。</p>
     </section>
 
     <section class="panel">
       <form id="claim-form" novalidate>
         <div class="field">
-          <label id="name-label" for="name">姓名</label>
-          <input id="name" name="name" autocomplete="name" required>
-        </div>
-        <div class="field">
           <label id="external-id-label" for="external-id">数字 ID</label>
           <input id="external-id" name="external_id" inputmode="numeric" autocomplete="off" required>
-        </div>
-        <div class="field">
-          <label id="claim-proof-label" for="claim-proof">领取凭证</label>
-          <input id="claim-proof" name="claim_proof" type="password" autocomplete="one-time-code" required>
         </div>
         <div id="password-fields" hidden>
           <div class="field">
@@ -307,11 +299,9 @@
       en: {
         documentTitle: 'SupaOAuth Account Claim',
         title: 'Claim SupAuth account',
-        leadInitial: 'Enter your name, numeric ID, and one-time claim proof to claim your account.',
-        leadSetPassword: 'Enter your name, numeric ID, and one-time claim proof to set your login password.',
-        name: 'Name',
+        leadInitial: 'Enter your numeric ID to claim your account.',
+        leadSetPassword: 'Enter your numeric ID to set your login password.',
         externalId: 'Numeric ID',
-        claimProof: 'One-time claim proof',
         newPassword: 'Set login password',
         confirmPassword: 'Confirm login password',
         submitInitial: 'Find account',
@@ -323,7 +313,7 @@
         copyPassword: 'Copy password',
         footerInitial: 'The initial password is shown only once. Future lookups only show the email.',
         footerSetPassword: 'After the password is set, sign in with your login email and new password.',
-        required: 'Enter your name, numeric ID, and one-time claim proof.',
+        required: 'Enter your numeric ID.',
         passwordTooShort: 'Password must be at least {min} characters.',
         passwordRequiresUppercase: 'Password must include an uppercase letter.',
         passwordRequiresLowercase: 'Password must include a lowercase letter.',
@@ -346,17 +336,15 @@
         claimUnavailable: 'Account claiming configuration is temporarily unavailable. Please try again later.',
         claimDisabled: 'Account claiming is currently disabled.',
         serverError: 'The system cannot complete the lookup right now. Please try again later or contact an administrator.',
-        invalidRequest: 'Enter your name, numeric ID, and one-time claim proof.',
+        invalidRequest: 'Enter your numeric ID.',
         networkError: 'Lookup failed. Please try again later.',
       },
       'zh-CN': {
         documentTitle: 'SupaOAuth 账号领取',
         title: '领取 SupAuth 账号',
-        leadInitial: '输入姓名、数字 ID 和一次性领取凭证，领取你的账号。',
-        leadSetPassword: '输入姓名、数字 ID 和一次性领取凭证，设置登录密码。',
-        name: '姓名',
+        leadInitial: '输入数字 ID，领取你的账号。',
+        leadSetPassword: '输入数字 ID，设置登录密码。',
         externalId: '数字 ID',
-        claimProof: '一次性领取凭证',
         newPassword: '设置登录密码',
         confirmPassword: '确认登录密码',
         submitInitial: '查询账号',
@@ -368,7 +356,7 @@
         copyPassword: '复制密码',
         footerInitial: '初始密码只展示一次。再次查询时只会显示邮箱。',
         footerSetPassword: '密码设置成功后，请使用登录邮箱和新密码登录。',
-        required: '请填写姓名、数字 ID 和一次性领取凭证。',
+        required: '请填写数字 ID。',
         passwordTooShort: '密码至少需要 {min} 个字符。',
         passwordRequiresUppercase: '密码必须包含大写字母。',
         passwordRequiresLowercase: '密码必须包含小写字母。',
@@ -391,7 +379,7 @@
         claimUnavailable: '账号领取配置暂时不可用，请稍后重试。',
         claimDisabled: '账号领取功能当前未启用。',
         serverError: '系统暂时无法完成查询，请稍后重试或联系管理员。',
-        invalidRequest: '请填写姓名、数字 ID 和一次性领取凭证。',
+        invalidRequest: '请填写数字 ID。',
         networkError: '查询失败，请稍后重试。',
       },
     };
@@ -412,7 +400,6 @@
     const passwordRow = document.getElementById('password-row');
     const passwordEl = document.getElementById('password');
     const passwordFields = document.getElementById('password-fields');
-    const claimProofInput = document.getElementById('claim-proof');
     const passwordPolicyHint = document.getElementById('password-policy-hint');
     const newPasswordInput = document.getElementById('new-password');
     const confirmPasswordInput = document.getElementById('confirm-password');
@@ -529,9 +516,7 @@
         brand.setAttribute('aria-label', t('title'));
         brandMark.textContent = brandInitials(t('title'));
       }
-      document.getElementById('name-label').textContent = t('name');
       document.getElementById('external-id-label').textContent = t('externalId');
-      document.getElementById('claim-proof-label').textContent = t('claimProof');
       document.getElementById('new-password-label').textContent = t('newPassword');
       document.getElementById('confirm-password-label').textContent = t('confirmPassword');
       document.querySelector('#result .row:first-child .key').textContent = t('email');
@@ -702,10 +687,8 @@
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       clearResult();
-      const name = form.name.value.trim();
       const externalId = form.external_id.value.trim();
-      const claimProof = claimProofInput.value.trim();
-      if (!name || !externalId || !claimProof) {
+      if (!externalId) {
         setMessage('error', t('required'));
         return;
       }
@@ -726,10 +709,7 @@
       submit.textContent = t('loading');
       try {
         const payload = {
-          display_name: name,
           external_id: externalId,
-          external_type: claimConfig.external_type || 'employee',
-          claim_proof: claimProof,
         };
         if (mustSetPassword) payload.new_password = newPassword;
         const response = await fetch(`${apiBase}/account-claims/claim`, {

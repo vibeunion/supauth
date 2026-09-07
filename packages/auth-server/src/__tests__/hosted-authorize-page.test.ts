@@ -354,7 +354,7 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain('.password-hint {\n      margin: 8px 0 0;');
     expect(body).not.toContain('.password-hint {\n      margin: -8px 0 16px;');
     expect(body).toContain('type="submit" disabled');
-    expect(body).toContain('id="claim-proof" name="claim_proof" type="password"');
+    expect(body).not.toContain('id="claim-proof" name="claim_proof"');
     expect(body).toContain('enabled: next.enabled === true');
     expect(body).toContain("setMessage('error', t('claimUnavailable'))");
     expect(body).toContain("return 'passwordRequiresUppercase'");
@@ -362,7 +362,9 @@ describe('hostedPageRoutes', () => {
     expect(body).toContain("code === 'password_requires_uppercase'");
     expect(body).toContain("'weak_password'].includes(code)");
     expect(body).toContain('领取账号并设置密码');
-    expect(body).toContain('claim_proof: claimProof');
+    expect(body).not.toContain('claim_proof: claimProof');
+    expect(body).not.toContain('name-label');
+    expect(body).not.toContain('claim-proof-label');
     expect(body).toContain('payload.new_password = newPassword;');
     expect(body).toContain('title.textContent = branding.page_title;');
     expect(body).toContain('/account-claims/claim');

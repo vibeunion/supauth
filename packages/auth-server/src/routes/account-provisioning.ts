@@ -348,19 +348,13 @@ export function createPublicAccountClaimRoutes(options?: {
       }
 
       const requestBody = body as {
-        display_name?: string;
-        name?: string;
         external_id?: string;
-        external_type?: string;
-        claim_proof?: string;
         new_password?: string;
       };
-      const displayName = String(requestBody?.display_name || requestBody?.name || '').trim();
       const externalId = String(requestBody?.external_id || '').trim();
-      const externalType = String(requestBody?.external_type || config.external_type || 'generic').trim() || 'generic';
-      if (!displayName || !externalId || !String(requestBody?.claim_proof || '').trim()) {
+      if (!externalId) {
         set.status = 400;
-        return { success: false, error: { code: 'invalid_request', message: 'Display name, external ID, and claim proof are required.' } };
+        return { success: false, error: { code: 'invalid_request', message: 'External ID is required.' } };
       }
       const passwordMode = config.password.mode;
       const newPassword = String(requestBody?.new_password || '');
@@ -382,10 +376,8 @@ export function createPublicAccountClaimRoutes(options?: {
       let claimOutcome: accountProvisioning.AccountClaimResult;
       try {
         claimOutcome = await claimAccount({
-          displayName,
           externalId,
-          externalType,
-          claimProof: String(requestBody.claim_proof).trim(),
+          externalType: config.external_type,
           ip,
           userAgent: headerMap['user-agent'],
           passwordMode,
