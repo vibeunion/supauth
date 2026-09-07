@@ -425,7 +425,7 @@ describe('SupaOAuthClient — error handling edge cases', () => {
     );
     try {
       const result = await client.deleteRole('role-1');
-      expect(result).toBeNull();
+      expect(result).toBeUndefined();
     } finally {
       restore();
     }
