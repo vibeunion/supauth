@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.7](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.5.6...sdk-typescript-v0.5.7) (2026-09-07)
+
+
+### Bug Fixes
+
+* **sdk:** validate runtime responses and explicit void results ([#104](https://github.com/vibeunion/supauth/issues/104)) ([c68802e](https://github.com/vibeunion/supauth/commit/c68802ece86aa362f02e7e9c860e57518fd28d2d))
+
 ## [0.5.6](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.5.5...sdk-typescript-v0.5.6) (2026-09-05)
 
 
