@@ -25,7 +25,7 @@ function secondCommitFailure(reviewPath: string) {
 }
 
 describe('account provisioning manifest', () => {
-  test('generates high-entropy claim proofs in owner-readable artifacts', async () => {
+  test('does not generate claim proofs in owner-readable artifacts', async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'supauth-account-manifest-'));
     const inputPath = join(temporaryDirectory, 'accounts.xlsx');
     const manifestPath = join(temporaryDirectory, 'manifest.json');
@@ -52,10 +52,9 @@ describe('account provisioning manifest', () => {
 
     expect(exitCode, stderr).toBe(0);
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-    const proof = manifest.records[0].claim_proof;
-    expect(proof).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(stdout).not.toContain(proof);
-    expect(await readFile(reviewPath, 'utf8')).toContain(`claim_proof`);
+    expect(manifest.records[0]).not.toHaveProperty('claim_proof');
+    expect(stdout).not.toContain('claim_proof');
+    expect(await readFile(reviewPath, 'utf8')).not.toContain('claim_proof');
     expect((await stat(manifestPath)).mode & 0o777).toBe(0o600);
     expect((await stat(reviewPath)).mode & 0o777).toBe(0o600);
   });

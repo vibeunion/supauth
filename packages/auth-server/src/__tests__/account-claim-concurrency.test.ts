@@ -8,6 +8,7 @@ let releaseSelects: (() => void) | null = null;
 let expectedSelects = 1;
 let selectCount = 0;
 let deactivateBeforeReservation = false;
+let ambiguousExternalIdCandidates = false;
 let accountRecord: Record<string, any>;
 
 function deferredSignal() {
@@ -68,6 +69,9 @@ const database = {
         limit: async () => {
           const snapshot = { ...accountRecord };
           await waitForSelectBarrier();
+          if (ambiguousExternalIdCandidates) {
+            return [snapshot, { ...snapshot, id: '33333333-3333-4333-8333-333333333333', externalId: '0267' }];
+          }
           return [snapshot];
         },
       }),
@@ -100,6 +104,7 @@ describe('account claim atomic state machine', () => {
     process.env.ACCOUNT_CLAIM_SECRET = CLAIM_SECRET;
     resetSelectBarrier(1);
     deactivateBeforeReservation = false;
+    ambiguousExternalIdCandidates = false;
     auditCalls.mockClear();
     accountRecord = {
       id: '11111111-1111-4111-8111-111111111111',
@@ -156,6 +161,18 @@ describe('account claim atomic state machine', () => {
     expect(outcomes.map((outcome) => outcome.status).sort()).toEqual(['claimed', 'unavailable']);
     expect(disclosed).toHaveLength(1);
     expect(disclosed[0]).toMatchObject({ initialPassword: INITIAL_PASSWORD });
+  });
+
+  test('rejects ambiguous zero-padded external ID candidates', async () => {
+    ambiguousExternalIdCandidates = true;
+
+    const outcome = await accountProvisioning.claimAccount({
+      ...claimInput('show_initial_password'),
+      externalId: '267',
+    });
+
+    expect(outcome).toEqual({ status: 'unavailable' });
+    expect(accountRecord.initialPasswordClaimed).toBe(false);
   });
 
   test('deactivation before the reservation CAS prevents any password update', async () => {

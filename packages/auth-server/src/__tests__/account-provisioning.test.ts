@@ -23,18 +23,13 @@ import {
 } from '../utils/password-policy.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
 
-const VALID_CLAIM_PROOF = 'claim-proof-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
 function enabledClaimConfig(value: Record<string, unknown> = {}) {
   return sanitizeAccountClaimConfig({ enabled: true, value });
 }
 
 function claimRequestBody(overrides: Record<string, unknown> = {}) {
   return {
-    display_name: '张三',
     external_id: '10086',
-    external_type: 'employee',
-    claim_proof: VALID_CLAIM_PROOF,
     ...overrides,
   };
 }
@@ -55,11 +50,12 @@ describe('account provisioning and claiming', () => {
     expect(decryptInitialPassword(encrypted, secret)).toBe('Abc123!@#');
   });
 
-  test('hashes one-time claim proofs without retaining plaintext', () => {
-    const hashed = hashAccountClaimProof(VALID_CLAIM_PROOF);
+  test('retains one-time claim proof hashing for legacy imports', () => {
+    const proof = 'claim-proof-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const hashed = hashAccountClaimProof(proof);
     expect(hashed).toMatch(/^v1:[A-Za-z0-9_-]{43}$/);
-    expect(hashed).not.toContain(VALID_CLAIM_PROOF);
-    expect(hashAccountClaimProof(VALID_CLAIM_PROOF)).toBe(hashed);
+    expect(hashed).not.toContain(proof);
+    expect(hashAccountClaimProof(proof)).toBe(hashed);
   });
 
   test('public claim route returns email and initial password once', async () => {
@@ -86,6 +82,41 @@ describe('account provisioning and claiming', () => {
       email: 'zhangsan@example.com',
       initial_password: 'Init123!',
     });
+  });
+
+  test('public claim route requires only external ID and locks external type to config', async () => {
+    let receivedInput: {
+      externalId?: string;
+      externalType?: string;
+      displayName?: string;
+      claimProof?: string;
+    } | undefined;
+    const app = new Elysia().use(createPublicAccountClaimRoutes({
+      getConfig: async () => enabledClaimConfig({ external_type: 'employee' }),
+      claimAccount: async (input) => {
+        receivedInput = input;
+        return { status: 'unavailable' };
+      },
+    }));
+
+    const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        external_id: '10086',
+        external_type: 'member',
+        display_name: '不应参与匹配',
+        claim_proof: 'legacy-proof-must-be-ignored',
+      }),
+    }));
+
+    expect(response.status).toBe(409);
+    expect(receivedInput).toMatchObject({
+      externalId: '10086',
+      externalType: 'employee',
+    });
+    expect(receivedInput).not.toHaveProperty('displayName');
+    expect(receivedInput).not.toHaveProperty('claimProof');
   });
 
   test('sanitizes account claim password mode configuration', () => {
@@ -481,18 +512,14 @@ describe('account provisioning and claiming', () => {
     expect(body.initial_password).toBeUndefined();
     expect(receivedInput).toMatchObject({
       passwordMode: 'set_on_claim',
-      claimProof: VALID_CLAIM_PROOF,
       newPassword: 'NewPass123!',
     });
     expect(typeof receivedInput?.updatePassword).toBe('function');
-    expect(JSON.stringify(body)).not.toContain(VALID_CLAIM_PROOF);
   });
 
-  test('uses one public error for wrong identity, proof, claimed, and unavailable records', async () => {
+  test('uses one public error for wrong identity, claimed, and unavailable records', async () => {
     for (const body of [
-      claimRequestBody({ display_name: '错误姓名' }),
       claimRequestBody({ external_id: 'wrong-id' }),
-      claimRequestBody({ claim_proof: 'wrong-proof' }),
       claimRequestBody(),
     ]) {
       const app = new Elysia().use(createPublicAccountClaimRoutes({
