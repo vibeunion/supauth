@@ -151,14 +151,21 @@ async function createAuthenticatedFixture(
 ): Promise<AuthenticatedFixture> {
   const compatibilityUser = await createCompatibilityUser(adminClient, label, cleanup);
   const client = supabaseClient(PUBLIC_KEY);
-  const signedIn = await client.auth.signInWithPassword({
-    email: compatibilityUser.email,
-    password: TEST_PASSWORD,
-  });
-  if (signedIn.error || !signedIn.data.session) {
-    throw new Error(`Unable to sign in ${label} compatibility user: ${signedIn.error?.message || 'missing session'}`);
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+    const signedIn = await client.auth.signInWithPassword({
+      email: compatibilityUser.email,
+      password: TEST_PASSWORD,
+    });
+    if (!signedIn.error && signedIn.data.session) {
+      return { client, userId: compatibilityUser.userId };
+    }
+    lastError = new Error(`Unable to sign in ${label} compatibility user: ${signedIn.error?.message || 'missing session'}`);
   }
-  return { client, userId: compatibilityUser.userId };
+  throw lastError ?? new Error(`Unable to sign in ${label} compatibility user`);
 }
 
 async function createCompatibilityUser(
