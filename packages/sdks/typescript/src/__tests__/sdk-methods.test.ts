@@ -7,11 +7,11 @@ function mockFetch(fn: (input: string | Request, init?: RequestInit) => Promise<
   return () => { globalThis.fetch = orig; };
 }
 
-async function capturedRequestUrl(invoke: (client: SupaOAuthClient) => Promise<unknown>) {
+async function capturedRequestUrl(invoke: (client: SupaOAuthClient) => Promise<unknown>, response: unknown = {}) {
   let requestUrl = '';
   const restore = mockFetch((input) => {
     requestUrl = typeof input === 'string' ? input : input.url;
-    return Promise.resolve(Response.json({}));
+    return Promise.resolve(Response.json(response));
   });
   try {
     await invoke(new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' }));
@@ -372,7 +372,10 @@ describe('SupaOAuthClient — dynamic URL boundaries', () => {
 
   it('keeps org_id query input in one parameter', async () => {
     const orgId = 'org-one&application_id=victim#fragment';
-    const requestUrl = await capturedRequestUrl((client) => client.getUserPermissions('user-one', orgId));
+    const requestUrl = await capturedRequestUrl(
+      (client) => client.getUserPermissions('user-one', orgId),
+      { roles: [], permissions: [], scopes: [] },
+    );
     const url = new URL(requestUrl);
     expect(url.searchParams.get('org_id')).toBe(orgId);
     expect(url.searchParams.has('application_id')).toBe(false);

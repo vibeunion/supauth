@@ -91,7 +91,7 @@ try {
 ## Response Validation
 
 `health()`, `getRuntimeHealth()`, `getOAuthServerStatus()`, `getDiscovery()` and
-`getJWKS()` validate successful JSON responses at runtime. Their result types are
+`getJWKS()` and `getUserPermissions()` validate successful JSON responses at runtime. Their result types are
 inferred from the decoders. This is response-shape validation, not JWT signature
 verification or authorization.
 
@@ -113,6 +113,25 @@ methods now reject unexpected 204/205 instead of resolving an unchecked null.
 Other existing management methods still use the private compatibility transport
 and have not yet migrated to per-endpoint decoders. This change does not implement
 automatic session refresh or cross-tab session coordination.
+
+### Request Contracts
+
+`client.execute(contract, input)` validates input before sending a request and
+validates the JSON receipt before resolving. `RequestContract<Input, Result>`
+contains `input` and `result` decoders plus
+`request(input): { path, options?: RequestInit }`. Types are inferred from the
+contract, not from a generic assertion at the call site. Pass idempotency headers
+and cancellation through `options` in the request mapping.
+
+Invalid input throws `SupaOAuthRequestContractError` with
+`SUPAUTH_REQUEST_CONTRACT_INVALID`, without including decoder errors or input.
+Malformed receipts retain `SupaOAuthResponseContractError`; neither failure
+clears the access token or retries a write.
+
+Permission responses require `roles`, `permissions`, and `scopes` string arrays.
+A malformed payload rejects rather than silently becoming an empty permission
+set. This is not token verification or an authorization decision, and does not
+imply that all existing management endpoints have migrated.
 
 ## Token Management
 

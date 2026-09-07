@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["src/__tests__/request-contract-types.ts"],
+  "exclude": []
+}

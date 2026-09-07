@@ -21,10 +21,13 @@ import type {
   CompatibilityCheckResult,
 } from '@supauth/shared';
 import {
-  decodeHealth, decodeRuntimeHealth, decodeOAuthServerStatus, decodeDiscovery, decodeJWKS,
-  SupaOAuthResponseContractError, type ResponseDecoder,
+  decodeHealth, decodeRuntimeHealth, decodeOAuthServerStatus, decodeDiscovery, decodeJWKS, decodeUserPermissions,
+  SupaOAuthResponseContractError, SupaOAuthRequestContractError, type ResponseDecoder, type RequestContract,
 } from './response-contracts.js';
-export { SupaOAuthResponseContractError, type ResponseDecoder } from './response-contracts.js';
+export {
+  SupaOAuthResponseContractError, SupaOAuthRequestContractError,
+  type ResponseDecoder, type RequestContract,
+} from './response-contracts.js';
 
 // ─── Response wrappers ──────────────────────────────────
 interface ListResponse<T> {
@@ -87,12 +90,6 @@ interface RoleAssignment {
   organization_id?: string;
   application_id?: string;
   created_at: string;
-}
-
-interface UserPermissions {
-  roles: string[];
-  permissions: string[];
-  scopes: string[];
 }
 
 interface SyncResult {
@@ -401,6 +398,18 @@ export class SupaOAuthClient {
     } catch {
       throw new SupaOAuthResponseContractError(path, status, 'invalid_payload');
     }
+  }
+
+  /** 请求先校验，回执后校验；不更改会话，也不自动重放写请求。 */
+  async execute<Input, Result>(contract: RequestContract<Input, Result>, input: NoInfer<Input>): Promise<Result> {
+    let validated: Input;
+    try {
+      validated = contract.input(input);
+    } catch {
+      throw new SupaOAuthRequestContractError();
+    }
+    const request = contract.request(validated);
+    return this.requestDecoded(request.path, contract.result, request.options);
   }
 
   // 尚未迁移的管理接口保留私有兼容入口；不能当作已通过领域解码的响应。
@@ -714,7 +723,7 @@ export class SupaOAuthClient {
   }
 
   getUserPermissions(userId: string, orgId?: string) {
-    return this.request<UserPermissions>(`/v1/users/${pathSegment(userId)}/permissions${queryString({ org_id: orgId })}`);
+    return this.requestDecoded(`/v1/users/${pathSegment(userId)}/permissions${queryString({ org_id: orgId })}`, decodeUserPermissions);
   }
 
   getUserRoles(userId: string) {

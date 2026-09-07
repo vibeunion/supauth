@@ -20,6 +20,7 @@
     "build": "bun run clean && bunx tsc -p tsconfig.json",
     "prepack": "bun run build",
     "typecheck": "bunx tsc --noEmit",
+    "typecheck:contracts": "bunx tsc --noEmit -p tsconfig.contracts.json",
     "test": "bun test"
   },
   "publishConfig": {
