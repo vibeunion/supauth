@@ -6,5 +6,5 @@
   "packages/admin-console": "0.7.8",
   "packages/shared": "0.7.3",
   "packages/sdks/typescript": "0.6.0",
-  "packages/sdks/auth-ui": "0.5.3"
+  "packages/sdks/auth-ui": "0.5.4"
 }

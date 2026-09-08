@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/vibeunion/supauth/compare/sdk-auth-ui-v0.5.3...sdk-auth-ui-v0.5.4) (2026-09-08)
+
+
+### Documentation
+
+* **auth-ui:** add bilingual usage guidance ([14693d1](https://github.com/vibeunion/supauth/commit/14693d1e708ca2ded200e5649b351e16217c3669))
+
 ## [0.5.3](https://github.com/vibeunion/supauth/compare/sdk-auth-ui-v0.5.2...sdk-auth-ui-v0.5.3) (2026-09-05)
 
 
