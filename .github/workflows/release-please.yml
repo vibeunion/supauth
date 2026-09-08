@@ -25,6 +25,9 @@ jobs:
   release-please:
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.release_tag == '') }}
     runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      paths_released: ${{ steps.release.outputs.paths_released }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: release
@@ -32,6 +35,93 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish-released-npm:
+    needs: release-please
+    if: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.release_tag == '')) && needs.release-please.outputs.releases_created == 'true' }}
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Install npm CLI with OIDC support
+        run: |
+          npm install --global npm@11.19.1
+          npm --version
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build SDK packages
+        run: |
+          bun run --filter '@supauth/authorization-core' build
+          bun run --filter '@supauth/authorization-postgres' build
+          bun run --filter '@supauth/authorization-conformance' build
+          bun run --filter '@supauth/shared' build
+          bun run --filter '@supauth/sdk-typescript' build
+          bun run --filter '@supauth/sdk-auth-ui' build
+
+      - name: Prepare npm package metadata
+        run: bun run scripts/prepare-npm-packages.ts --write
+
+      - name: Verify npm package contents
+        run: |
+          set -euo pipefail
+          for pkg_dir in packages/authorization-core packages/authorization-postgres packages/authorization-conformance packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
+            echo "Packing $pkg_dir"
+            (cd "$pkg_dir" && npm pack --dry-run)
+          done
+
+      - name: Publish released npm packages with OIDC
+        env:
+          PATHS_RELEASED: ${{ needs.release-please.outputs.paths_released }}
+        run: |
+          set -euo pipefail
+          jq -e 'type == "array"' <<< "$PATHS_RELEASED" >/dev/null
+
+          for PACKAGE_DIR in \
+            packages/authorization-core \
+            packages/authorization-postgres \
+            packages/authorization-conformance \
+            packages/shared \
+            packages/sdks/typescript \
+            packages/sdks/auth-ui; do
+            if ! jq -e --arg package_dir "$PACKAGE_DIR" 'index($package_dir) != null' <<< "$PATHS_RELEASED" >/dev/null; then
+              continue
+            fi
+
+            NAME=$(node -p "require('./$PACKAGE_DIR/package.json').name")
+            LOCAL_VER=$(node -p "require('./$PACKAGE_DIR/package.json').version")
+            if ! npm view "$NAME" version >/dev/null 2>&1; then
+              echo "::notice::$NAME does not exist on npm yet. Bootstrap only this package manually from a maintainer npm session."
+              continue
+            fi
+
+            NPM_EXISTS=$(npm view "$NAME@$LOCAL_VER" version 2>/dev/null || echo "")
+            if [ -n "$NPM_EXISTS" ]; then
+              echo "$NAME@$LOCAL_VER already exists on npm, skipping"
+              continue
+            fi
+
+            echo "Publishing $NAME@$LOCAL_VER with npm OIDC"
+            (cd "$PACKAGE_DIR" && npm publish --provenance --access public)
+          done
 
   publish-npm:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
@@ -71,6 +161,12 @@ jobs:
         with:
           node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Install npm CLI with OIDC support
+        run: |
+          npm install --global npm@11.19.1
+          npm --version
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -78,7 +174,7 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Build SDK packages
         run: |
@@ -97,7 +193,7 @@ jobs:
           set -e
           for pkg_dir in packages/authorization-core packages/authorization-postgres packages/authorization-conformance packages/shared packages/sdks/typescript packages/sdks/auth-ui; do
             echo "Packing $pkg_dir"
-            (cd "$pkg_dir" && bunx npm pack --dry-run)
+            (cd "$pkg_dir" && npm pack --dry-run)
           done
 
       - name: Check npm bootstrap status
@@ -123,8 +219,8 @@ jobs:
           LOCAL_VER=$(node -p "require('./$PACKAGE_DIR/package.json').version")
           NPM_EXISTS=$(npm view "$NAME@$LOCAL_VER" version 2>/dev/null || echo "")
           if [ -z "$NPM_EXISTS" ]; then
-            echo "Publishing $NAME@$LOCAL_VER"
-            (cd "$PACKAGE_DIR" && bunx npm publish --provenance --access public)
+            echo "Publishing $NAME@$LOCAL_VER with npm OIDC"
+            (cd "$PACKAGE_DIR" && npm publish --provenance --access public)
           else
             echo "$NAME@$LOCAL_VER already exists on npm, skipping"
           fi
