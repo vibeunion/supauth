@@ -42,6 +42,8 @@ describe('npm release workflow', () => {
   test('retains the single-tag recovery path', () => {
     expect(workflow).toContain("github.event_name == 'workflow_dispatch' && inputs.release_tag != ''");
     expect(workflow).toContain('ref: ${{ inputs.release_tag }}');
+    expect(workflow).toContain('PUBLISH_TAG=backfill');
+    expect(workflow).toContain('npm publish --provenance --access public --tag "$PUBLISH_TAG"');
   });
 
   test('does not dispatch a second npm publisher from release assets', () => {
