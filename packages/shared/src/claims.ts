@@ -97,6 +97,9 @@ export interface SupaOAuthJWTClaims {
   client_id?: string;
   scope?: string;
 
+  // Accepted authorized-party metadata for identity adapters; not required issuance.
+  azp?: string;
+
   /** @deprecated Stock GoTrue uses the standard `sub` claim for the user ID. */
   user_id?: string;
 }

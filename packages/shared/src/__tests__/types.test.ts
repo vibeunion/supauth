@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'bun:test';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import {
   GOTRUE_CLAIMS_STRATEGY,
   SUPABASE_METADATA_CLAIMS,
@@ -20,6 +22,25 @@ import {
 import type { CapabilitiesResponse, CapabilityStatus } from '../index.js';
 
 describe('Shared types', () => {
+  it('compile-checks optional authorized-party metadata', () => {
+    const program = ts.createProgram([
+      fileURLToPath(new URL('./claims-contract-types.ts', import.meta.url)),
+    ], {
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      types: [],
+    });
+    const diagnostics = ts.getPreEmitDiagnostics(program);
+
+    expect(diagnostics.map((diagnostic) =>
+      ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+    )).toEqual([]);
+  });
+
   it('requires capability verification timestamps in the shared API contract', () => {
     const response: CapabilitiesResponse = {
       runtime_mode: 'gotrue',
@@ -60,6 +81,7 @@ describe('Shared types', () => {
     expect(SUPABASE_REQUIRED_CLAIMS).toContain('is_anonymous');
     expect(SUPABASE_REQUIRED_CLAIMS).not.toContain('app_metadata');
     expect(SUPABASE_REQUIRED_CLAIMS).not.toContain('user_metadata');
+    expect(SUPABASE_REQUIRED_CLAIMS).not.toContain('azp');
   });
 
   it('exports metadata claims separately from required hook claims', () => {

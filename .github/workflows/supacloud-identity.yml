@@ -1,0 +1,42 @@
+name: SupaCloud Identity Contract
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: SupaCloud Identity Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install SupAuth dependencies
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Build public SupAuth claims
+        run: bun --no-env-file run --filter '@supauth/shared' build
+      - name: Typecheck the cross-project gate
+        run: bun --no-env-file x tsc --noEmit --strict --skipLibCheck --target esnext --module esnext --moduleResolution bundler --types bun scripts/check-supacloud-identity.ts tests/integration/supacloud-identity.test.ts
+      - name: Checkout the reviewed SupaCloud identity contract
+        uses: actions/checkout@v6
+        with:
+          repository: vibeunion/supacloud
+          ref: 66a77caea086bb1282772dd9401bd2adb9c04342
+          path: .contract-upstream/supacloud
+          persist-credentials: false
+      - name: Build the pinned runtime
+        working-directory: .contract-upstream/supacloud/packages/elysia
+        run: |
+          bun --no-env-file install --frozen-lockfile --ignore-scripts
+          bun --no-env-file run build
+      - name: Verify hook, signed identity and application-local authorization
+        run: bun --no-env-file run scripts/check-supacloud-identity.ts .contract-upstream/supacloud/packages/elysia
