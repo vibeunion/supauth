@@ -60,10 +60,10 @@ describe('sdk-auth-ui bridge helpers', () => {
     const config = buildSupabaseAuthUiConfig({
       experience: baseExperience,
       phrases: {
-        email: '邮箱',
-        password: '密码',
+        email: 'Email address',
+        password: 'Password',
         sign_up: {
-          button_label: '创建账号',
+          button_label: 'Create account',
         },
       },
       view: 'sign_up',
@@ -74,8 +74,8 @@ describe('sdk-auth-ui bridge helpers', () => {
     expect(config.auth.view).toBe('sign_up');
     expect(config.auth.redirectTo).toBe('https://app.example.com/callback');
     expect(config.auth.appearance.variables.default.colors.brand).toBe('#123456');
-    expect(config.auth.localization.variables.sign_in?.email_label).toBe('邮箱');
-    expect(config.auth.localization.variables.sign_up?.button_label).toBe('创建账号');
+    expect(config.auth.localization.variables.sign_in?.email_label).toBe('Email address');
+    expect(config.auth.localization.variables.sign_up?.button_label).toBe('Create account');
   });
 
   it('renders hosted branding css from background and custom css', () => {
@@ -124,7 +124,7 @@ describe('resolveSupabaseAuthUiConfig', () => {
       if (url.endsWith('/v1/public/phrases/zh-CN')) {
         return new Response(JSON.stringify({
           language_tag: 'zh-CN',
-          phrases: { email: '邮箱' },
+          phrases: { email: 'Email address' },
         }), { status: 200 });
       }
       return new Response('not found', { status: 404 });
@@ -139,7 +139,7 @@ describe('resolveSupabaseAuthUiConfig', () => {
     });
 
     expect(config.auth.providers).toEqual(['github']);
-    expect(config.auth.localization.variables.sign_in?.email_label).toBe('邮箱');
+    expect(config.auth.localization.variables.sign_in?.email_label).toBe('Email address');
     expect(config.auth.appearance.variables.default.colors.brand).toBe('#2563eb');
   });
 
