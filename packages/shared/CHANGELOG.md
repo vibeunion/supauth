@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/vibeunion/supauth/compare/shared-v0.7.3...shared-v0.8.0) (2026-09-08)
+
+
+### Features
+
+* **shared:** define SupaCloud identity integration contract ([#111](https://github.com/vibeunion/supauth/issues/111)) ([7e753ed](https://github.com/vibeunion/supauth/commit/7e753ed0b0dee57d39e19157b926cdd85c0ebc3f))
+
 ## [0.7.3](https://github.com/vibeunion/supauth/compare/shared-v0.7.2...shared-v0.7.3) (2026-09-05)
 
 
