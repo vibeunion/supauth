@@ -60,6 +60,12 @@ Native SupaCloud applications do not need SupAuth or a runtime package that adds
 
 ## Adoption
 
+For the strict external user-center adapter, see
+[SupaCloud Identity Integration](supacloud-identity-integration.md) for the
+OAuth-client/project/business-application ID mapping, 401/403/503 behavior and
+the pinned cross-project contract gate. This does not change native GoTrue
+authorization-postgres defaults or move application state into SupAuth.
+
 Application adoption is a separate application PR: create the authorization schema and effective-grant view over application-owned facts in one immutable migration; execute the read-only projection preflight separately and require zero rows; then install the fixed-application helper, replace generated policies, and place any legacy cleanup last in a second immutable migration. Integrate the current-state resolver, run conformance, and capture authenticated plans. The conformance revocation scenario must observe allow, perform a real fixture revocation, then observe denial on the next request. The packages never modify or connect to application databases by themselves.
 
 ## npm Distribution And Release Boundary
