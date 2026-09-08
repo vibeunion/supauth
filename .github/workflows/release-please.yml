@@ -219,8 +219,17 @@ jobs:
           LOCAL_VER=$(node -p "require('./$PACKAGE_DIR/package.json').version")
           NPM_EXISTS=$(npm view "$NAME@$LOCAL_VER" version 2>/dev/null || echo "")
           if [ -z "$NPM_EXISTS" ]; then
-            echo "Publishing $NAME@$LOCAL_VER with npm OIDC"
-            (cd "$PACKAGE_DIR" && npm publish --provenance --access public)
+            CURRENT_LATEST=$(npm view "$NAME@latest" version 2>/dev/null || echo "")
+            PUBLISH_TAG=latest
+            if [ -n "$CURRENT_LATEST" ]; then
+              HIGHEST_VERSION=$(printf '%s\n%s\n' "$CURRENT_LATEST" "$LOCAL_VER" | sort -V | tail -n 1)
+              if [ "$HIGHEST_VERSION" = "$CURRENT_LATEST" ]; then
+                PUBLISH_TAG=backfill
+              fi
+            fi
+
+            echo "Publishing $NAME@$LOCAL_VER with npm OIDC and dist-tag $PUBLISH_TAG"
+            (cd "$PACKAGE_DIR" && npm publish --provenance --access public --tag "$PUBLISH_TAG")
           else
             echo "$NAME@$LOCAL_VER already exists on npm, skipping"
           fi
