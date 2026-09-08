@@ -66,7 +66,7 @@ Application adoption is a separate application PR: create the authorization sche
 
 The three package names are already bootstrapped and publicly installable. Consumers must not run repository publish commands; install a tagged npm version through the commands above.
 
-Release Please versions and tags the packages independently. `.github/workflows/publish-release-assets.yml` dispatches `.github/workflows/release-please.yml` for the matching npm tag; that workflow builds every SDK dependency, runs package dry-runs, checks bootstrap state, and publishes only the tagged target when its version is absent. A newly named package still needs a one-time maintainer bootstrap before Trusted Publisher can manage later versions. A missing package must not block publication of unrelated packages.
+Release Please versions and tags the packages independently. When a release PR is merged, `.github/workflows/release-please.yml` publishes the public packages reported by Release Please directly from the same workflow, in dependency order, using npm Trusted Publisher OIDC and provenance. Its `workflow_dispatch` input remains the idempotent recovery path for one existing release tag. Both paths build every SDK dependency, run package dry-runs, check bootstrap state, and skip versions already present on npm. A newly named package still needs a one-time maintainer bootstrap before Trusted Publisher can manage later versions. A missing package must not block publication of unrelated packages.
 
 Treat publishing evidence precisely:
 

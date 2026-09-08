@@ -69,7 +69,7 @@ jobs:
               tar -czf release-assets/supacloud-app-bundle.tar.gz -C artifacts/supacloud-app/function-bundle .
               tar -czf release-assets/auth-server-dist.tar.gz -C packages/auth-server/dist .
               tar -czf release-assets/admin-console-build.tar.gz -C packages/admin-console/build .
-              (cd release-assets && sha256sum * > SHA256SUMS)
+              (cd release-assets && sha256sum -- * > SHA256SUMS)
               gh release upload "$RELEASE_TAG" release-assets/* --clobber
               ;;
             admin-console)
@@ -82,8 +82,7 @@ jobs:
               gh release upload "$RELEASE_TAG" release-assets/* --clobber
               ;;
             npm)
-              gh workflow run release-please.yml --repo "$GITHUB_REPOSITORY" --ref main -f release_tag="$RELEASE_TAG"
-              echo "Dispatched npm publish workflow for $RELEASE_TAG"
+              echo "npm packages are published directly by release-please.yml with Trusted Publisher OIDC"
               ;;
             *)
               echo "No release asset publisher is configured for $RELEASE_TAG"

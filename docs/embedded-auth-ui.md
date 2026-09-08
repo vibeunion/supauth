@@ -32,7 +32,7 @@ bun add @supauth/sdk-auth-ui
 
 现有 `@supauth/shared`、`@supauth/sdk-typescript` 和 `@supauth/sdk-auth-ui` 包名已经完成 bootstrap，使用者只需通过 npm 或 Bun 安装，不应执行仓库内的发布命令。
 
-新建的 npm 包名仍需维护者从本地认证会话完成一次 bootstrap，之后才能配置 `.github/workflows/release-please.yml` 的 Trusted Publisher。后续版本由 release tag 驱动：工作流先构建和 dry-run，再只发布目标包。发布完成必须回读 npm registry、执行全新安装/import smoke，并在声称 OIDC provenance 时验证 attestation；“版本已存在而跳过”只证明幂等，不证明该版本带 provenance。
+新建的 npm 包名仍需维护者从本地认证会话完成一次 bootstrap，之后才能配置 `.github/workflows/release-please.yml` 的 Trusted Publisher。Release Please 创建版本后，同一工作流会按依赖顺序使用 npm OIDC 和 provenance 自动发布本次变更的公开包；`workflow_dispatch` 单标签入口仅用于补发已有 release tag。发布完成必须回读 npm registry、执行全新安装/import smoke，并验证 provenance attestation；“版本已存在而跳过”只证明幂等，不证明该版本带 provenance。
 
 ## React 示例
 
