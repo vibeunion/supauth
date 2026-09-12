@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.6.0...sdk-typescript-v0.7.0) (2026-09-12)
+
+
+### Features
+
+* **sdk:** guard explicitly refreshable OAuth clients ([#113](https://github.com/vibeunion/supauth/issues/113)) ([2b8da70](https://github.com/vibeunion/supauth/commit/2b8da708add605602efe1941bd250ac70e94af42))
+
 ## [0.6.0](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.5.7...sdk-typescript-v0.6.0) (2026-09-07)
 
 
