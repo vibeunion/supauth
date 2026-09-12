@@ -1,0 +1,21 @@
+name: Debug Live URL Host
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: [self-hosted, mac-supauth-live]
+    steps:
+      - name: Show runtime URL host and test TLS
+        env:
+          OAUTH_RUNTIME_URL: ${{ secrets.LIVE_SUPABASE_AUTH_URL || secrets.LIVE_OAUTH_RUNTIME_URL }}
+        run: |
+          bun -e '
+            const u = new URL(process.env.OAUTH_RUNTIME_URL.trim());
+            console.log("host:", u.host, "protocol:", u.protocol, "port:", u.port || "(default)");
+          '
+          bun -e '
+            const u = new URL(process.env.OAUTH_RUNTIME_URL.trim());
+            const res = await fetch(new URL("/auth/v1/health", u), { cache: "no-store" });
+            console.log("health status:", res.status);
+          ' 2>&1 | tail -5
