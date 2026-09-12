@@ -1,4 +1,9 @@
 // @supauth/sdk-typescript — TypeScript SDK for SupaOAuth Management API
+import { assertOAuthSessionGrants, type OAuthApplicationSessionOptions, type CreateOAuthClientInput } from './oauth-session-grants.js';
+export {
+  assertOAuthSessionGrants, SupaOAuthSessionConfigurationError,
+  type OAuthSessionRequirement, type OAuthApplicationSessionOptions, type CreateOAuthClientInput,
+} from './oauth-session-grants.js';
 import type {
   Application,
   CreateApplicationInput,
@@ -461,7 +466,8 @@ export class SupaOAuthClient {
     return this.request<ListResponse<OAuthApplication>>('/v1/applications');
   }
 
-  createApplication(data: CreateApplicationInput) {
+  createApplication(data: CreateApplicationInput | CreateOAuthClientInput, options: OAuthApplicationSessionOptions = {}) {
+    if (options.sessionRequirement !== undefined) assertOAuthSessionGrants(data, options.sessionRequirement);
     return this.request<Application>('/v1/applications', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -472,7 +478,8 @@ export class SupaOAuthClient {
     return this.request<Application>(`/v1/applications/${pathSegment(appId)}`);
   }
 
-  updateApplication(appId: string, data: Partial<CreateApplicationInput>) {
+  updateApplication(appId: string, data: Partial<CreateApplicationInput> | Partial<CreateOAuthClientInput>, options: OAuthApplicationSessionOptions = {}) {
+    if (options.sessionRequirement !== undefined) assertOAuthSessionGrants(data, options.sessionRequirement);
     return this.request<Application>(`/v1/applications/${pathSegment(appId)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
