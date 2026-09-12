@@ -1,10 +1,12 @@
 name: Debug Live URL Host
 on:
   workflow_dispatch:
+  push:
+    branches: [debug-live-url-main]
 
 jobs:
   debug:
-    runs-on: [self-hosted, mac-supauth-live]
+    runs-on: [self-hosted, supauth-live]
     steps:
       - name: Show runtime URL host and test TLS
         env:
