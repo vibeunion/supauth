@@ -1,0 +1,3805 @@
+diff --git a/package.json b/package.json
+index af7486c..238714d 100644
+--- a/package.json
++++ b/package.json
+@@ -26,51 +26,51 @@
+   },
+   "exports": {
+     ".": {
+-      "types": "./src/index.ts",
++      "types": "./supauth-types-index.d.ts",
+       "default": "./src/index.ts"
+     },
+     "./router": {
+-      "types": "./src/router.ts",
++      "types": "./supauth-types-router.d.ts",
+       "default": "./src/router.ts"
+     },
+     "./i18n": {
+-      "types": "./src/i18n.svelte.ts",
++      "types": "./supauth-types-i18n.svelte.d.ts",
+       "default": "./src/i18n.svelte.ts"
+     },
+     "./permissions": {
+-      "types": "./src/permissions.svelte.ts",
++      "types": "./supauth-types-permissions.svelte.d.ts",
+       "default": "./src/permissions.svelte.ts"
+     },
+     "./toast": {
+-      "types": "./src/toast.svelte.ts",
++      "types": "./supauth-types-toast.svelte.d.ts",
+       "default": "./src/toast.svelte.ts"
+     },
+     "./audit": {
+-      "types": "./src/audit.ts",
++      "types": "./supauth-types-audit.d.ts",
+       "default": "./src/audit.ts"
+     },
+     "./live": {
+-      "types": "./src/live.svelte.ts",
++      "types": "./supauth-types-live.svelte.d.ts",
+       "default": "./src/live.svelte.ts"
+     },
+     "./theme": {
+-      "types": "./src/theme.svelte.ts",
++      "types": "./supauth-types-theme.svelte.d.ts",
+       "default": "./src/theme.svelte.ts"
+     },
+     "./inferencer": {
+-      "types": "./src/inferencer.ts",
++      "types": "./supauth-types-inferencer.d.ts",
+       "default": "./src/inferencer.ts"
+     },
+     "./inferencer-openapi": {
+-      "types": "./src/inferencer-openapi.ts",
++      "types": "./supauth-types-inferencer-openapi.d.ts",
+       "default": "./src/inferencer-openapi.ts"
+     },
+     "./inferencer-graphql": {
+-      "types": "./src/inferencer-graphql.ts",
++      "types": "./supauth-types-inferencer-graphql.d.ts",
+       "default": "./src/inferencer-graphql.ts"
+     },
+     "./admin-tool": {
+-      "types": "./src/admin-tool.ts",
++      "types": "./supauth-types-admin-tool.d.ts",
+       "default": "./src/admin-tool.ts"
+     }
+   },
+@@ -79,6 +79,7 @@
+   },
+   "description": "Core SDK — hooks, types, context, i18n, permissions, router",
+   "files": [
++    "supauth-types-*.d.ts",
+     "src/**/*.ts",
+     "!src/**/*.test.*",
+     "!src/**/*.spec.*",
+@@ -89,7 +90,7 @@
+   "license": "MIT",
+   "sideEffects": false,
+   "type": "module",
+-  "types": "src/index.ts",
++  "types": "./supauth-types-index.d.ts",
+   "dependencies": {
+     "@sinclair/typebox": "^0.34.52"
+   },
+diff --git a/supauth-types-adapters--casbin.d.ts b/supauth-types-adapters--casbin.d.ts
+new file mode 100644
+index 0000000..863d294
+--- /dev/null
++++ b/supauth-types-adapters--casbin.d.ts
+@@ -0,0 +1,43 @@
++/**
++ * Casbin adapter for svadmin AccessControlProvider.
++ *
++ * Converts a Casbin `Enforcer` instance into an `AccessControlProvider`.
++ *
++ * @example
++ * ```ts
++ * import { newEnforcer } from 'casbin';
++ * import { createCasbinAccessControl } from '@svadmin/core/adapters/casbin';
++ * import { setAccessControlProvider } from '@svadmin/core';
++ *
++ * const enforcer = await newEnforcer('model.conf', 'policy.csv');
++ * const currentUser = 'alice';
++ *
++ * setAccessControlProvider(
++ *   createCasbinAccessControl(enforcer, { getUser: () => currentUser })
++ * );
++ * ```
++ */
++import type { AccessControlProvider } from "./supauth-types-permissions.svelte.js";
++/** Casbin Enforcer interface (minimal, to avoid hard dependency on casbin) */
++interface CasbinEnforcer {
++    enforce: (...args: string[]) => Promise<boolean>;
++}
++export interface CasbinAdapterOptions {
++    /** Function to get the current user/subject for enforcement. */
++    getUser: () => string;
++    /** Provider-level options */
++    providerOptions?: AccessControlProvider['options'];
++}
++/**
++ * Create an AccessControlProvider from a Casbin Enforcer.
++ *
++ * Uses the standard (sub, obj, act) enforcement model:
++ * - sub = current user (from `getUser()`)
++ * - obj = resource name
++ * - act = action
++ *
++ * @param enforcer - A Casbin Enforcer instance
++ * @param options - Configuration with user getter
++ */
++export declare function createCasbinAccessControl(enforcer: CasbinEnforcer, options: CasbinAdapterOptions): AccessControlProvider;
++export {};
+diff --git a/supauth-types-adapters--casl.d.ts b/supauth-types-adapters--casl.d.ts
+new file mode 100644
+index 0000000..ed8ef50
+--- /dev/null
++++ b/supauth-types-adapters--casl.d.ts
+@@ -0,0 +1,34 @@
++/**
++ * CASL adapter for svadmin AccessControlProvider.
++ *
++ * Converts a CASL `Ability` instance into an `AccessControlProvider`.
++ *
++ * @example
++ * ```ts
++ * import { AbilityBuilder, createMongoAbility } from '@casl/ability';
++ * import { createCaslAccessControl } from '@svadmin/core/adapters/casl';
++ * import { setAccessControlProvider } from '@svadmin/core';
++ *
++ * const { can, build } = new AbilityBuilder(createMongoAbility);
++ * can('read', 'Post');
++ * can('create', 'Post');
++ * can('manage', 'User');
++ * const ability = build();
++ *
++ * setAccessControlProvider(createCaslAccessControl(ability));
++ * ```
++ */
++import type { AccessControlProvider } from "./supauth-types-permissions.svelte.js";
++/** CASL Ability interface (minimal, to avoid hard dependency on @casl/ability) */
++interface CaslAbility {
++    can: (action: string, subject: string, field?: string) => boolean;
++    cannot: (action: string, subject: string, field?: string) => boolean;
++}
++/**
++ * Create an AccessControlProvider from a CASL Ability.
++ *
++ * @param ability - A CASL Ability instance
++ * @param options - Optional configuration
++ */
++export declare function createCaslAccessControl(ability: CaslAbility, options?: AccessControlProvider['options']): AccessControlProvider;
++export {};
+diff --git a/supauth-types-admin-tool.d.ts b/supauth-types-admin-tool.d.ts
+new file mode 100644
+index 0000000..d676bd5
+--- /dev/null
++++ b/supauth-types-admin-tool.d.ts
+@@ -0,0 +1,63 @@
++import type { StaticDecode, TObject } from '@sinclair/typebox';
++/** Result returned by a tool execution. */
++export interface ToolResult {
++    success: boolean;
++    data?: unknown;
++    error?: string;
++}
++/**
++ * A tool that the Agent can invoke within the admin panel.
++ *
++ * @example
++ * ```ts
++ * const deletePostTool = defineAdminTool({
++ *   name: 'deletePosts',
++ *   description: 'Delete posts matching a filter',
++ *   parameters: Type.Object({
++ *     status: Type.Union([Type.Literal('draft'), Type.Literal('archived')]),
++ *   }),
++ *   needsApproval: true,
++ *   execute: async ({ status }) => {
++ *     const result = await dataProvider.getList({
++ *       resource: 'posts',
++ *       filters: [{ field: 'status', operator: 'eq', value: status }],
++ *     });
++ *     return { success: true, data: result };
++ *   },
++ * });
++ * ```
++ */
++export interface AdminTool<Schema extends TObject = TObject> {
++    /** Unique tool name (e.g. 'getList', 'deleteRecords', 'generateReport') */
++    name: string;
++    /** Human-readable description for LLM tool-use prompting */
++    description: string;
++    /** TypeBox schema used for static inference, runtime validation, and LLM projection. */
++    parameters: Schema;
++    /** Pause execution until the user explicitly approves the invocation. */
++    needsApproval?: boolean;
++    /** 显式声明是否为只读操作（只读操作可并发执行，无副作用）。 */
++    readOnly?: boolean;
++    /** 显式声明是否为破坏性或高风险操作。 */
++    destructive?: boolean;
++    /** 显式声明是否支持并发调用。 */
++    concurrent?: boolean;
++    /** Execute the tool with decoded arguments. */
++    execute(args: StaticDecode<Schema>): Promise<ToolResult>;
++}
++/** 保留具体 TypeBox Schema，让 execute 参数获得精确的静态类型。 */
++export declare function defineAdminTool<const Schema extends TObject>(tool: AdminTool<Schema>): AdminTool<Schema>;
++/** 在进入工具实现前统一执行 TypeBox 校验与转换。 */
++export declare function decodeAdminToolArgs<const Schema extends TObject>(tool: AdminTool<Schema>, input: unknown): StaticDecode<Schema>;
++/** 解码并执行工具，避免调用方绕过运行时参数边界。 */
++export declare function executeAdminTool<const Schema extends TObject>(tool: AdminTool<Schema>, input: unknown): Promise<ToolResult>;
++/** 将工具投影为发给 LLM 或 MCP 客户端的公开 Schema。 */
++export declare function projectAdminToolSchema<Schema extends TObject>(tool: AdminTool<Schema>): {
++    name: string;
++    description: string;
++    parameters: Schema;
++    readOnly?: boolean;
++    destructive?: boolean;
++    concurrent?: boolean;
++    needsApproval?: boolean;
++};
+diff --git a/supauth-types-audit.d.ts b/supauth-types-audit.d.ts
+new file mode 100644
+index 0000000..da92177
+--- /dev/null
++++ b/supauth-types-audit.d.ts
+@@ -0,0 +1,84 @@
++export type AuditAction = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'rollback' | 'undo' | (string & {});
++export interface AuditEntry {
++    id?: string | number;
++    timestamp: string;
++    action: AuditAction;
++    mutationId?: string;
++    resource?: string;
++    recordId?: string | number;
++    userId?: string;
++    details?: Record<string, unknown>;
++    data?: Record<string, unknown>;
++    previousData?: Record<string, unknown>;
++    meta?: Record<string, unknown>;
++    outcome?: 'success' | 'failure';
++    tenantId?: string | number;
++    requestId?: string;
++    traceId?: string;
++    ipAddress?: string;
++    userAgent?: string;
++    error?: {
++        message: string;
++        code?: string;
++    };
++}
++export type AuditHandler = (entry: AuditEntry) => void | Promise<void>;
++/**
++ * Full AuditLogProvider interface.
++ * - create: log a new entry
++ * - get: retrieve entries for a resource
++ * - update: update an existing entry (e.g. mark as reviewed)
++ */
++export interface AuditLogProvider {
++    create: (params: {
++        resource: string;
++        action: string;
++        timestamp?: string;
++        recordId?: string | number;
++        userId?: string;
++        outcome?: AuditEntry['outcome'];
++        data?: Record<string, unknown>;
++        previousData?: Record<string, unknown>;
++        meta?: Record<string, unknown>;
++    }) => Promise<AuditEntry>;
++    get: (params: {
++        resource: string;
++        action?: string;
++        meta?: Record<string, unknown>;
++        author?: Record<string, unknown>;
++    }) => Promise<AuditEntry[]>;
++    /** @deprecated 合规审计应保持追加写入；仅为旧实现兼容保留。 */
++    update?: (params: {
++        id: string | number;
++        name: string;
++        meta?: Record<string, unknown>;
++    }) => Promise<AuditEntry>;
++}
++export declare function setAuditHandler(fn: AuditHandler): void;
++export declare function setAuditLogProvider(provider: AuditLogProvider): void;
++export declare function getAuditLogProvider(): AuditLogProvider | null;
++export declare function resetAuditLogProvider(): void;
++/** Record an entry through an explicitly scoped provider and the compatibility handler. */
++export declare function auditWithProvider(entry: Omit<AuditEntry, 'timestamp'>, provider: AuditLogProvider | null | undefined): void;
++export declare function audit(entry: Omit<AuditEntry, 'timestamp'>): void;
++/**
++ * 严格写入审计记录。与兼容的 best-effort `audit` 不同，此函数会等待所有
++ * 写入并传播失败，适合权限、凭据、策略等必须和业务结果一起验证的流程。
++ */
++export declare function writeAuditEntry(entry: Omit<AuditEntry, 'timestamp'>, provider?: AuditLogProvider | null | undefined): Promise<AuditEntry>;
++/**
++ * 记录乐观变更回滚或撤回事件至审计流。
++ * 将前序状态快照与回滚原因作为不可变事实写入审计。
++ */
++export declare function recordMutationRollback(params: {
++    resource: string;
++    recordId?: string | number;
++    mutationId?: string;
++    previousData?: Record<string, unknown>;
++    currentData?: Record<string, unknown>;
++    reason?: string;
++    userId?: string;
++    tenantId?: string | number;
++    requestId?: string;
++    traceId?: string;
++}, provider?: AuditLogProvider | null | undefined): Promise<AuditEntry>;
+diff --git a/supauth-types-auth-hooks.svelte.d.ts b/supauth-types-auth-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..492e180
+--- /dev/null
++++ b/supauth-types-auth-hooks.svelte.d.ts
+@@ -0,0 +1,87 @@
++import type { AuthActionResult, CheckResult, Identity } from "./supauth-types-types.js";
++export declare function getLogoutVersion(): number;
++export declare function resetLogoutVersion(): void;
++export interface AuthNotificationOptions {
++    /** Set to false when the page owns the success state. */
++    successNotification?: string | false;
++    errorNotification?: string | false;
++}
++export declare function useLogin(opts?: AuthNotificationOptions & {
++    errorMessage?: string | false;
++}): {
++    mutate: (params?: Record<string, unknown>) => Promise<AuthActionResult>;
++    readonly isLoading: boolean;
++};
++export declare function useLogout(): {
++    mutate: (params?: Record<string, unknown>) => Promise<AuthActionResult>;
++    readonly isLoading: boolean;
++};
++export declare function useRegister(opts?: AuthNotificationOptions): {
++    mutate: (params?: Record<string, unknown>) => Promise<AuthActionResult>;
++    readonly isLoading: boolean;
++};
++export declare function useForgotPassword(opts?: AuthNotificationOptions): {
++    mutate: (params?: Record<string, unknown>) => Promise<AuthActionResult>;
++    readonly isLoading: boolean;
++};
++export declare function useUpdatePassword(opts?: AuthNotificationOptions): {
++    mutate: (params?: Record<string, unknown>) => Promise<AuthActionResult>;
++    readonly isLoading: boolean;
++};
++export declare function useUpdateIdentity(opts?: AuthNotificationOptions): {
++    mutate: (params?: Record<string, unknown>) => Promise<AuthActionResult>;
++    readonly isLoading: boolean;
++};
++export declare function useUpdateProfile(opts?: AuthNotificationOptions): {
++    mutate: (params?: Record<string, unknown>) => Promise<AuthActionResult>;
++    readonly isLoading: boolean;
++};
++export declare function useGetIdentity(): {
++    readonly data: Identity | null;
++    readonly isLoading: boolean;
++    readonly error: Error | null;
++    refetch: () => void;
++};
++export declare function useIsAuthenticated(): {
++    readonly isAuthenticated: boolean;
++    readonly isLoading: boolean;
++    readonly data: CheckResult | null;
++    refetch: () => void;
++};
++/**
++ * Handles errors from data hooks by calling authProvider.onError().
++ * If the provider returns { logout: true }, triggers logout flow.
++ * If it returns { redirectTo }, navigates there.
++ */
++export declare function useOnError(): {
++    mutate: (error: unknown) => Promise<void>;
++};
++/**
++ * Fetches UI-only hints from authProvider.getPermissions().
++ * Returns a reactive UI helper with convenience methods for permission checks.
++ * The result can change labels, navigation, and disabled controls, but it runs
++ * in the browser and never authorizes API, RLS, or action requests. Those
++ * requests must be independently authenticated and authorized by the backend.
++ *
++ * Supports `refetch()` for session-level permission refresh (e.g., after role change).
++ *
++ * @example
++ * ```svelte
++ * <script>
++ *   import { usePermissions } from '@svadmin/core';
++ *   const perms = usePermissions();
++ *   const canAdmin = $derived(perms.has('admin'));
++ * </script>
++ * ```
++ */
++export declare function usePermissions<T = unknown>(): {
++    readonly isLoading: boolean;
++    readonly error: Error | null;
++    readonly version: number;
++    readonly raw: T | null;
++    refetch: () => void;
++    /** Check if a specific permission string exists */
++    has: (perm: string) => boolean;
++    /** Check resource:action style permission */
++    can: (resource: string, action: string) => boolean;
++};
+diff --git a/supauth-types-chatProvider.svelte.d.ts b/supauth-types-chatProvider.svelte.d.ts
+new file mode 100644
+index 0000000..a4d1d6e
+--- /dev/null
++++ b/supauth-types-chatProvider.svelte.d.ts
+@@ -0,0 +1,205 @@
++import type { AdminTool, ToolResult } from "./supauth-types-admin-tool.js";
++export type { AdminTool, ToolResult } from "./supauth-types-admin-tool.js";
++export { decodeAdminToolArgs, defineAdminTool, executeAdminTool, projectAdminToolSchema, } from "./supauth-types-admin-tool.js";
++export type ToolState = 'input-streaming' | 'input-available' | 'approval-requested' | 'approval-responded' | 'output-available' | 'output-denied' | 'output-error';
++export type MessageStatus = 'submitted' | 'streaming' | 'complete' | 'aborted' | 'error';
++export interface ChatAttachment {
++    id: string;
++    name: string;
++    mediaType?: string;
++    url?: string;
++    size?: number;
++    /** 原始浏览器文件，供上传适配器直接读取；持久化恢复时不会保留。 */
++    file?: File;
++}
++export interface ChatSource {
++    id?: string;
++    title: string;
++    url?: string;
++    quote?: string;
++    description?: string;
++}
++export type ChatMessagePart = {
++    id?: string;
++    type: 'text';
++    text: string;
++} | {
++    id?: string;
++    type: 'reasoning';
++    text: string;
++    streaming?: boolean;
++} | {
++    id?: string;
++    type: 'tool-call';
++    tool: string;
++    input: unknown;
++    state: ToolState;
++    callId?: string;
++} | {
++    id?: string;
++    type: 'tool-result';
++    tool: string;
++    output: unknown;
++    error?: string;
++    callId?: string;
++} | {
++    id?: string;
++    type: 'source';
++    source: ChatSource;
++} | {
++    id?: string;
++    type: 'image';
++    src: string;
++    alt?: string;
++    width?: number;
++    height?: number;
++} | {
++    id?: string;
++    type: 'file';
++    file: ChatAttachment;
++} | {
++    id?: string;
++    type: 'approval';
++    approvalId: string;
++    tool: string;
++    input: Record<string, unknown>;
++    description: string;
++    approved?: boolean;
++} | {
++    id?: string;
++    type: 'component';
++    name: string;
++    props: Record<string, unknown>;
++};
++export interface ChatMessage {
++    id: string;
++    role: 'user' | 'assistant' | 'system';
++    parts: ChatMessagePart[];
++    status?: MessageStatus;
++    createdAt: number;
++    attachments?: ChatAttachment[];
++}
++/** Admin context passed separately from untrusted conversation messages. */
++export interface ChatContext {
++    currentResource?: string;
++    selectedRecordId?: string | number;
++    currentView?: 'list' | 'edit' | 'create' | 'show' | string;
++    pathname?: string;
++    metadata?: Record<string, unknown>;
++}
++/**
++ * ChatProvider interface for integrating AI chat into admin panels.
++ * Implement `sendMessage` to connect to any AI backend (OpenAI, self-hosted, etc.)
++ *
++ * Return text or structured parts for non-streaming responses. For streaming
++ * transports, yield text chunks and/or structured parts from an async generator.
++ */
++export interface ChatProvider {
++    sendMessage(messages: ChatMessage[], options?: {
++        signal?: AbortSignal;
++        context?: ChatContext;
++    }): Promise<ChatMessagePart[] | string> | AsyncGenerator<ChatMessagePart | string, void, unknown>;
++}
++/** Discriminated union of events emitted by an AgentProvider. */
++export type AgentEvent =
++/** Streaming text chunk */
++{
++    type: 'text';
++    content: string;
++}
++/** Streaming reasoning chunk */
++ | {
++    type: 'reasoning';
++    content: string;
++    streaming?: boolean;
++}
++/** Agent wants to call a tool (informational — execution is handled internally) */
++ | {
++    type: 'tool_call';
++    tool: string;
++    args: Record<string, unknown>;
++    callId?: string;
++}
++/** Agent wants to call a tool that requires user approval before execution */
++ | {
++    type: 'approval_request';
++    id: string;
++    tool: string;
++    args: Record<string, unknown>;
++    description: string;
++}
++/** Tool execution completed */
++ | {
++    type: 'tool_result';
++    tool: string;
++    result: ToolResult;
++    callId?: string;
++}
++/** Source attribution emitted by a retrieval step */
++ | {
++    type: 'source';
++    source: ChatSource;
++}
++/** Agent wants to render a named component (Generative UI) */
++ | {
++    type: 'component';
++    name: string;
++    props: Record<string, unknown>;
++}
++/** Stream finished */
++ | {
++    type: 'done';
++};
++/** Options passed to AgentProvider.chat() */
++export interface AgentOptions {
++    signal?: AbortSignal;
++    /** Admin context is injected automatically by the framework */
++    context?: ChatContext;
++}
++/**
++ * Cancellation signal supplied while an approval decision is being submitted.
++ * Providers must stop before committing tool execution when this signal aborts.
++ */
++export interface ApprovalResponseOptions {
++    signal: AbortSignal;
++}
++/**
++ * AgentProvider — advanced AI integration with tool calling and approval gates.
++ *
++ * Implement this interface to connect to agentic AI backends that support
++ * function calling (OpenAI, Anthropic, Google Gemini, etc.).
++ *
++ * For simpler chat-only use cases, use `ChatProvider` instead.
++ *
++ * @example
++ * ```ts
++ * const agentProvider: AgentProvider = {
++ *   tools: [deletePostTool, getStatsTool],
++ *   async *chat(messages, options) {
++ *     // Stream events from your AI backend
++ *     yield { type: 'text', content: 'Looking up draft posts...' };
++ *     yield { type: 'tool_call', tool: 'getList', args: { resource: 'posts', filter: { status: 'draft' } } };
++ *     yield { type: 'approval_request', id: 'req-1', tool: 'deletePosts', args: { ids: ['1', '2'] }, description: 'Delete 2 draft posts' };
++ *     yield { type: 'done' };
++ *   },
++ * };
++ * ```
++ */
++export interface AgentProvider {
++    tools?: AdminTool[];
++    chat(messages: ChatMessage[], options?: AgentOptions): AsyncGenerator<AgentEvent, void, unknown>;
++    approveToolCall?(id: string, approved: boolean, options: ApprovalResponseOptions): void | Promise<void>;
++}
++export declare function setChatProvider(provider: ChatProvider): void;
++export declare function getChatProvider(): ChatProvider | null;
++export declare function setAgentProvider(provider: AgentProvider): void;
++export declare function getAgentProvider(): AgentProvider | null;
++interface ApprovalCallback {
++    (approved: boolean): void;
++}
++export declare function registerApproval(id: string, callback: ApprovalCallback): void;
++export declare function resolveApproval(id: string, approved: boolean): boolean;
++export declare function hasPendingApprovals(): boolean;
++export declare function setChatContext(ctx: ChatContext): void;
++export declare function getChatContext(): ChatContext;
++export declare function resetChatProvider(): void;
+diff --git a/supauth-types-context.svelte.d.ts b/supauth-types-context.svelte.d.ts
+new file mode 100644
+index 0000000..7166f8b
+--- /dev/null
++++ b/supauth-types-context.svelte.d.ts
+@@ -0,0 +1,122 @@
++import type { DataProvider, AuthProvider, ResourceDefinition, TaskProvider } from "./supauth-types-types.js";
++import type { RouterProvider } from "./supauth-types-router-provider.js";
++import type { LiveProvider } from "./supauth-types-live.svelte.js";
++import type { AccessControlProvider } from "./supauth-types-permissions.svelte.js";
++import type { AuditLogProvider } from "./supauth-types-audit.js";
++import type { AgentProvider, ChatProvider } from "./supauth-types-chatProvider.svelte.js";
++import type { EnterpriseRequestContext } from "./supauth-types-enterprise.js";
++import { keys } from "./supauth-types-query-keys.js";
++import type { QueryMatcher } from "./supauth-types-query-keys.js";
++import type { DataProviderInput, ProviderBundle, TenantAdapter, TenantCacheKey, TenantContext } from "./supauth-types-provider-bundle.js";
++export type { DataProviderInput } from "./supauth-types-provider-bundle.js";
++interface AdminContextSourceBase extends Omit<Partial<ProviderBundle>, 'dataProvider'> {
++    readonly resources: ResourceDefinition[];
++    /** 请求树内租户；未传入时继承最近的 provideTenantContext。 */
++    readonly tenant?: TenantContext;
++}
++/** 必须提供旧式 dataProvider 或一等 ProviderBundle；同名顶层字段优先。 */
++export type AdminContextSource = AdminContextSourceBase & ({
++    readonly dataProvider: DataProviderInput;
++    readonly providerBundle?: ProviderBundle;
++} | {
++    readonly dataProvider?: DataProviderInput;
++    readonly providerBundle: ProviderBundle;
++});
++export interface AdminContextValue {
++    readonly providerBundle: ProviderBundle;
++    readonly providers: Record<string, DataProvider>;
++    readonly authProvider: AuthProvider | null;
++    readonly resources: ResourceDefinition[];
++    readonly routerProvider: RouterProvider | undefined;
++    readonly liveProvider: LiveProvider | undefined;
++    readonly taskProvider: TaskProvider | undefined;
++    readonly accessControlProvider: AccessControlProvider | null;
++    readonly auditLogProvider: AuditLogProvider | null;
++    readonly notificationProvider: ProviderBundle['notificationProvider'];
++    readonly chatProvider: ChatProvider | null;
++    readonly agentProvider: AgentProvider | null;
++    readonly organizationProvider: ProviderBundle['organizationProvider'];
++    readonly identityGovernanceProvider: ProviderBundle['identityGovernanceProvider'];
++    readonly sessionProvider: ProviderBundle['sessionProvider'];
++    readonly credentialProvider: ProviderBundle['credentialProvider'];
++    readonly tenant: TenantContext | undefined;
++    readonly tenantAdapter: TenantAdapter | undefined;
++}
++/**
++ * Initialization-time snapshot of the owning AdminContext tree.
++ *
++ * The accessor keeps the scoped context object (whose fields are reactive
++ * getters) instead of calling Svelte's getContext from later DOM/query
++ * callbacks. When no scoped context exists, getters intentionally continue to
++ * read the module-level compatibility setters dynamically.
++ */
++export interface AdminContextAccessor {
++    readonly providerBundle: ProviderBundle;
++    readonly providers: Record<string, DataProvider> | null;
++    readonly authProvider: AuthProvider | null;
++    readonly resources: ResourceDefinition[];
++    readonly routerProvider: RouterProvider | undefined;
++    readonly liveProvider: LiveProvider | undefined;
++    readonly taskProvider: TaskProvider | undefined;
++    readonly accessControlProvider: AccessControlProvider | null;
++    readonly auditLogProvider: AuditLogProvider | null;
++    readonly notificationProvider: ProviderBundle['notificationProvider'];
++    readonly chatProvider: ChatProvider | null;
++    readonly agentProvider: AgentProvider | null;
++    readonly organizationProvider: ProviderBundle['organizationProvider'];
++    readonly identityGovernanceProvider: ProviderBundle['identityGovernanceProvider'];
++    readonly sessionProvider: ProviderBundle['sessionProvider'];
++    readonly credentialProvider: ProviderBundle['credentialProvider'];
++    readonly tenant: TenantContext | undefined;
++    readonly tenantAdapter: TenantAdapter | undefined;
++    readonly tenantCacheKey: TenantCacheKey | undefined;
++    readonly enterpriseRequestContext: EnterpriseRequestContext;
++    getDataProvider(name?: string): DataProvider;
++    getDataProviderNames(): string[];
++    resolveDataProviderName(resourceName: string, overrideName?: string): string;
++    getDataProviderForResource(resourceName: string, overrideName?: string): DataProvider;
++    queryKeys(resourceName?: string, overrideName?: string): ReturnType<typeof keys>;
++    queryKeyMatcher(resourceName?: string, overrideName?: string): Pick<QueryMatcher, 'provider' | 'tenant'>;
++    getProviderMeta(resourceName: string | undefined, meta?: Record<string, unknown>): Record<string, unknown> | undefined;
++    getResource(nameOrIdentifier: string): ResourceDefinition;
++    currentPath(): string;
++    formatLink(path: string): string;
++    navigate(path: string, options?: {
++        replaceState?: boolean;
++    }): Promise<void>;
++    back(): void;
++}
++/** Provide tenant state to a request/component subtree. No module-level fallback is created. */
++export declare function provideTenantContext(tenant: TenantContext): TenantContext;
++/** Return the nearest request/tree-scoped tenant when called during initialization. */
++export declare function getTenantContext(): TenantContext | undefined;
++export declare function createAdminContext(source: AdminContextSource): AdminContextValue;
++/** Provide request/tree-scoped admin state to all descendants. */
++export declare function provideAdminContext(source: AdminContextSource): AdminContextValue;
++/** Return the current tree context when called during component initialization/render. */
++export declare function getAdminContext(): AdminContextValue | undefined;
++/** Capture the current tree once so delayed callbacks never re-enter getContext. */
++export declare function captureAdminContext(): AdminContextAccessor;
++export declare function setDataProvider(provider: DataProviderInput): void;
++export declare function getDataProvider(name?: string): DataProvider;
++export declare function getDataProviderNames(): string[];
++export declare function getDataProviderForResource(resourceName: string, overrideName?: string): DataProvider;
++export declare function getProviderBundle(): ProviderBundle;
++export declare function setAuthProvider(provider: AuthProvider | null | undefined): void;
++export declare function getAuthProvider(): AuthProvider;
++export declare function getAuthProvider(options: {
++    optional: true;
++}): AuthProvider | null;
++export declare function setResources(newResources: ResourceDefinition[]): void;
++export declare function getResources(): ResourceDefinition[];
++export declare function getResource(nameOrIdentifier: string): ResourceDefinition;
++export declare function setRouterProvider(provider: RouterProvider | undefined): void;
++export declare function getRouterProvider(): RouterProvider | undefined;
++export declare function setLiveProvider(provider: LiveProvider): void;
++export declare function getLiveProvider(): LiveProvider | undefined;
++export declare function setTaskProvider(provider: TaskProvider | undefined): void;
++export declare function getTaskProvider(): TaskProvider;
++export declare function getTaskProvider(options: {
++    optional: true;
++}): TaskProvider | undefined;
++export declare function resetContext(): void;
+diff --git a/supauth-types-data-transfer.svelte.d.ts b/supauth-types-data-transfer.svelte.d.ts
+new file mode 100644
+index 0000000..7e35b26
+--- /dev/null
++++ b/supauth-types-data-transfer.svelte.d.ts
+@@ -0,0 +1,68 @@
++import type { Sort, Filter, BaseRecord } from "./supauth-types-types.js";
++import type { ExportFormat } from "./supauth-types-export-format.js";
++export { parseCSV } from "./supauth-types-helpers-pure.js";
++export { downloadData, toCsv, toJson, toXlsx, escapeCsvField } from "./supauth-types-export-format.js";
++export type { ExportFormat } from "./supauth-types-export-format.js";
++export interface UseExportOptions<TData extends BaseRecord = BaseRecord> {
++    resource?: string;
++    mapData?: (item: TData) => Record<string, unknown>;
++    sorters?: Sort[];
++    filters?: Filter[];
++    maxItemCount?: number;
++    pageSize?: number;
++    download?: boolean;
++    /** 导出格式，默认 csv（兼容旧版） */
++    format?: ExportFormat;
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    onError?: (error: Error) => void;
++}
++/**
++ * useExport — export records from a resource as CSV/JSON/XLSX download
++ * Supports mapData, sorters, filters, maxItemCount, pageSize
++ */
++export declare function useExport<TData extends BaseRecord = BaseRecord>(options?: UseExportOptions<TData>): {
++    triggerExport: () => Promise<TData[]>;
++    readonly isLoading: boolean;
++};
++export interface UseImportOptions<TData = Record<string, unknown>> {
++    resource?: string;
++    /** 指定导入文件格式；默认 auto = 根据文件扩展名推断。注意：import 仅支持 csv 和 json，不支持 xlsx 解析 */
++    format?: 'auto' | 'csv' | 'json';
++    mapData?: (item: Record<string, unknown>) => TData;
++    batchSize?: number;
++    onFinish?: (result: {
++        succeeded: unknown[];
++        errored: {
++            request: unknown;
++            error: unknown;
++        }[];
++    }) => void;
++    onProgress?: (info: {
++        totalAmount: number;
++        processedAmount: number;
++    }) => void;
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++}
++/**
++ * useImport — import records from a CSV file
++ * Supports mapData, batchSize, onFinish, onProgress, meta
++ */
++export declare function useImport<TData = Record<string, unknown>>(options?: UseImportOptions<TData>): {
++    inputProps: {
++        type: "file";
++        accept: string;
++    };
++    handleChange: (info: {
++        file: File;
++    }) => Promise<void>;
++    readonly isLoading: boolean;
++    readonly mutationResult: {
++        succeeded: unknown[];
++        errored: {
++            request: unknown;
++            error: unknown;
++        }[];
++    } | null;
++};
+diff --git a/supauth-types-enterprise.d.ts b/supauth-types-enterprise.d.ts
+new file mode 100644
+index 0000000..7dac21c
+--- /dev/null
++++ b/supauth-types-enterprise.d.ts
+@@ -0,0 +1,144 @@
++/** 企业级管理能力的正式 Provider 契约。 */
++export interface EnterpriseActionError {
++    message: string;
++    code?: string;
++}
++export interface EnterpriseActionResult {
++    success: boolean;
++    error?: EnterpriseActionError;
++}
++/** 每次企业能力调用都必须显式携带当前请求树的租户与追踪上下文。 */
++export interface EnterpriseRequestContext {
++    tenantId?: string | number;
++    requestId?: string;
++    traceId?: string;
++    meta?: Readonly<Record<string, unknown>>;
++}
++/** Provider 调用使用的严格请求上下文；三项边界标识不可省略。 */
++export interface StrictEnterpriseRequestContext {
++    tenantId: string | number;
++    requestId: string;
++    traceId: string;
++    meta?: Readonly<Record<string, unknown>>;
++}
++export interface EnterpriseRequestContextInput {
++    tenantId: string | number;
++    requestId?: string;
++    traceId?: string;
++    meta?: Readonly<Record<string, unknown>>;
++}
++/** Create a validated provider context while preserving one trace across the request tree. */
++export declare function createEnterpriseRequestContext(input: EnterpriseRequestContextInput): StrictEnterpriseRequestContext;
++/** Narrow a legacy optional context at the provider boundary and fail closed on missing identity. */
++export declare function assertEnterpriseRequestContext(context: EnterpriseRequestContext): asserts context is StrictEnterpriseRequestContext;
++export type EnterpriseProviderRequestContext = StrictEnterpriseRequestContext;
++export interface Organization {
++    id: string;
++    name: string;
++    slug?: string;
++    domain?: string;
++    metadata?: Record<string, unknown>;
++}
++export interface OrganizationProvider {
++    getCurrentOrganization: (context: EnterpriseRequestContext) => Promise<Organization | null>;
++    updateCurrentOrganization?: (input: Partial<Omit<Organization, 'id'>>, context: EnterpriseRequestContext) => Promise<Organization>;
++}
++export interface EnterpriseSecurityPolicy {
++    sessionTimeoutMinutes: number;
++    auditRetentionDays: number;
++    auditLoggingEnabled: boolean;
++    requireSso: boolean;
++}
++export type IdentityProviderProtocol = 'oidc' | 'saml' | (string & {});
++export type IdentityProviderStatus = 'connected' | 'disabled' | 'error' | (string & {});
++export interface IdentityProviderSummary {
++    id: string;
++    name: string;
++    protocol: IdentityProviderProtocol;
++    status: IdentityProviderStatus;
++    metadataUrl?: string;
++    domain?: string;
++}
++export interface EnterpriseSecurityEvent {
++    id: string;
++    event: string;
++    actor?: string;
++    location?: string;
++    createdAt: string | Date;
++    severity?: 'info' | 'warning' | 'critical';
++    tenantId?: string | number;
++    requestId?: string;
++    traceId?: string;
++    metadata?: Record<string, unknown>;
++}
++export interface IdentityGovernanceProvider {
++    getSecurityPolicy: (context: EnterpriseRequestContext) => Promise<EnterpriseSecurityPolicy>;
++    updateSecurityPolicy: (policy: EnterpriseSecurityPolicy, context: EnterpriseRequestContext) => Promise<EnterpriseSecurityPolicy>;
++    listIdentityProviders: (context: EnterpriseRequestContext) => Promise<IdentityProviderSummary[]>;
++    testIdentityProvider: (params: {
++        id?: string;
++        protocol?: IdentityProviderProtocol;
++        metadataUrl?: string;
++    }, context: EnterpriseRequestContext) => Promise<EnterpriseActionResult>;
++    listSecurityEvents?: (params: {
++        page?: number;
++        pageSize?: number;
++    } | undefined, context: EnterpriseRequestContext) => Promise<{
++        data: EnterpriseSecurityEvent[];
++        total: number;
++    }>;
++}
++export interface SessionInfo {
++    id: string;
++    os?: string;
++    browser?: string;
++    ipAddress?: string;
++    lastActiveAt?: string | Date;
++    current: boolean;
++}
++export interface MfaState {
++    enabled: boolean;
++    methods?: string[];
++}
++export interface SessionProvider {
++    listSessions: (context: EnterpriseRequestContext) => Promise<SessionInfo[]>;
++    revokeSession: (sessionId: string, context: EnterpriseRequestContext) => Promise<EnterpriseActionResult>;
++    revokeOtherSessions: (context: EnterpriseRequestContext) => Promise<EnterpriseActionResult>;
++    getMfaState?: (context: EnterpriseRequestContext) => Promise<MfaState>;
++    setMfaEnabled?: (enabled: boolean, context: EnterpriseRequestContext) => Promise<MfaState>;
++}
++export interface ApiCredentialSummary {
++    id: string;
++    name: string;
++    prefix: string;
++    createdAt: string | Date;
++    lastUsedAt?: string | Date;
++    permissions: string[];
++}
++export interface CreatedApiCredential {
++    credential: ApiCredentialSummary;
++    /** 只在创建时返回一次；列表接口不得返回此字段。 */
++    secret: string;
++}
++export interface WebhookSummary {
++    id: string;
++    name: string;
++    url: string;
++    eventType: string;
++    enabled?: boolean;
++}
++export interface CredentialProvider {
++    listApiCredentials: (context: EnterpriseRequestContext) => Promise<ApiCredentialSummary[]>;
++    createApiCredential: (params: {
++        name: string;
++        permissions: string[];
++    }, context: EnterpriseRequestContext) => Promise<CreatedApiCredential>;
++    revokeApiCredential: (credentialId: string, context: EnterpriseRequestContext) => Promise<EnterpriseActionResult>;
++    listWebhooks: (context: EnterpriseRequestContext) => Promise<WebhookSummary[]>;
++    createWebhook: (params: {
++        name: string;
++        url: string;
++        eventType: string;
++    }, context: EnterpriseRequestContext) => Promise<WebhookSummary>;
++    deleteWebhook: (webhookId: string, context: EnterpriseRequestContext) => Promise<EnterpriseActionResult>;
++}
+diff --git a/supauth-types-export-format.d.ts b/supauth-types-export-format.d.ts
+new file mode 100644
+index 0000000..07f6bf6
+--- /dev/null
++++ b/supauth-types-export-format.d.ts
+@@ -0,0 +1,19 @@
++/** 支持的导出/导入格式 */
++export type ExportFormat = 'csv' | 'json' | 'xlsx';
++/** CSV 转义，含公式注入防护 */
++export declare function escapeCsvField(fieldValue: string): string;
++/** 将记录数组转为 CSV 字符串 */
++export declare function toCsv(records: Record<string, unknown>[]): string;
++/** 将记录数组转为格式化的 JSON 字符串 */
++export declare function toJson(records: Record<string, unknown>[]): string;
++/** 转义 XML 特殊字符 */
++export declare function escapeXml(xmlValue: string): string;
++/**
++ * 生成最小可用的 XLSX（SpreadsheetML）——零依赖。
++ */
++export declare function toXlsx(records: Record<string, unknown>[]): string;
++/**
++ * 将记录以指定格式下载为文件。
++ * 依赖浏览器 document API；在 Node/bun:test 中需 mock。
++ */
++export declare function downloadData(records: Record<string, unknown>[], resource: string, format?: ExportFormat): void;
+diff --git a/supauth-types-form-hooks.svelte.d.ts b/supauth-types-form-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..4e32e1a
+--- /dev/null
++++ b/supauth-types-form-hooks.svelte.d.ts
+@@ -0,0 +1,103 @@
++import { HttpError } from "./supauth-types-types.js";
++import type { BaseRecord, MutationMode, KnownResources } from "./supauth-types-types.js";
++export interface UseFormOptions<TVariables extends Record<string, unknown> = Record<string, unknown>, _TData extends BaseRecord = BaseRecord, _TError = HttpError> {
++    resource?: KnownResources;
++    action?: 'create' | 'edit' | 'clone' | 'show';
++    id?: string | number;
++    redirect?: 'list' | 'edit' | 'show' | false;
++    /** Initial values for the form. Merged with query data in edit mode (query wins). */
++    defaultValues?: TVariables;
++    /** Full-form validator. Returns field→error map or null. */
++    validate?: (values: TVariables) => Record<string, string> | null;
++    /** Per-field validator for real-time validation. */
++    validateField?: (field: string, value: unknown, values: TVariables) => string | null;
++    successNotification?: string | false;
++    errorNotification?: string | false;
++    onMutationSuccess?: (data: unknown) => void;
++    onMutationError?: (error: Error) => void;
++    /** Called every time a field value changes. */
++    onChange?: (event: {
++        field: string;
++        value: unknown;
++        values: TVariables;
++    }) => void;
++    /** Called before mutation. Return false or call cancel() to prevent submission. */
++    onSubmit?: (ctx: {
++        values: TVariables;
++        action: 'create' | 'edit' | 'clone' | 'show';
++        cancel: () => void;
++    }) => boolean | undefined;
++    meta?: Record<string, unknown>;
++    queryMeta?: Record<string, unknown>;
++    mutationMeta?: Record<string, unknown>;
++    disableServerSideValidation?: boolean;
++    autoSave?: {
++        enabled: boolean;
++        debounce?: number;
++        onFinish?: (values: TVariables) => TVariables;
++        invalidateOnUnmount?: boolean;
++        invalidates?: string[];
++    };
++    mutationMode?: MutationMode;
++    undoableTimeout?: number;
++    invalidates?: string[] | false;
++    optimisticUpdateMap?: {
++        list?: boolean | ((previous: unknown, variables: TVariables, id?: string | number) => unknown);
++        detail?: boolean | ((previous: unknown, variables: TVariables, id?: string | number) => unknown);
++    };
++    queryOptions?: {
++        staleTime?: number;
++        enabled?: boolean;
++    };
++    createMutationOptions?: Record<string, unknown>;
++    updateMutationOptions?: Record<string, unknown>;
++    /** DataProvider to use for this form */
++    dataProviderName?: string;
++    warnWhenUnsavedChanges?: boolean;
++}
++export interface UseFormReturn<TVariables extends Record<string, unknown> = Record<string, unknown>, _TData extends BaseRecord = BaseRecord> {
++    /** Reactive form values. Read/write directly. */
++    readonly values: TVariables;
++    /** Set a single field value. Tracks tainted state and fires onChange. */
++    setFieldValue: (field: string, value: unknown, opts?: {
++        taint?: boolean;
++    }) => void;
++    /** Bulk-set multiple field values. */
++    setValues: (newValues: Partial<TVariables>, opts?: {
++        taint?: boolean;
++    }) => void;
++    readonly tainted: Record<string, boolean>;
++    isTainted: (field?: string) => boolean;
++    untaint: () => void;
++    readonly errors: Record<string, string>;
++    setFieldError: (field: string, message: string) => void;
++    clearFieldError: (field: string) => void;
++    clearErrors: () => void;
++    /** Validate a single field. Sets/clears the field error. Returns the error or null. */
++    validateField: (field: string) => string | null;
++    /** Submit the form. Validates → onSubmit hook → mutation → redirect. */
++    submit: (overrides?: {
++        redirect?: 'list' | 'edit' | 'show' | false;
++    }) => Promise<void>;
++    /** Reset form to initial/query values. Clears tainted and errors. */
++    reset: () => void;
++    readonly loading: boolean;
++    readonly submitting: boolean;
++    readonly action: 'create' | 'edit' | 'clone' | 'show';
++    readonly resource: string;
++    readonly id: string | number | undefined;
++    readonly isDirty: boolean;
++    setId: (id: string | number | undefined) => void;
++    setAction: (action: 'create' | 'edit' | 'clone' | 'show') => void;
++    mutationMode: MutationMode;
++    redirect: (to: 'list' | 'edit' | 'show' | false) => void;
++    triggerAutoSave: () => void;
++    readonly autoSave: {
++        status: 'idle' | 'saving' | 'saved' | 'error';
++        data: unknown;
++        error: unknown;
++    };
++    readonly query: unknown;
++    readonly mutation: unknown;
++}
++export declare function useForm<TVariables extends Record<string, unknown> = Record<string, unknown>, TData extends BaseRecord = BaseRecord, TError = HttpError>(options?: UseFormOptions<TVariables, TData, TError>): UseFormReturn<TVariables, TData>;
+diff --git a/supauth-types-helpers-pure.d.ts b/supauth-types-helpers-pure.d.ts
+new file mode 100644
+index 0000000..b6cca57
+--- /dev/null
++++ b/supauth-types-helpers-pure.d.ts
+@@ -0,0 +1,59 @@
++import type { Filter, Sort, CrudOperator } from "./supauth-types-types.js";
++/**
++ * Get the current filter value for a field from a filter array.
++ */
++export declare function getDefaultFilter(columnName: string, filters?: Filter[], operatorType?: CrudOperator): unknown | undefined;
++/**
++ * Get the current sort order for a field from a sorter array.
++ */
++export declare function getDefaultSortOrder(columnName: string, sorters?: Sort[]): 'asc' | 'desc' | undefined;
++/**
++ * Merge two filter arrays, deduplicating by field+operator.
++ */
++export declare function unionFilters(permanentFilter: Filter[], newFilters: Filter[], prevFilters?: Filter[]): Filter[];
++/**
++ * Merge two sorter arrays, deduplicating by field.
++ */
++export declare function unionSorters(permanentSorters: Sort[], newSorters: Sort[]): Sort[];
++/**
++ * Convert a File to a base64 data URL string.
++ */
++export declare function file2Base64(file: File | {
++    uid?: string;
++} & Blob): Promise<string>;
++/** Parse full CSV text respecting quoted multi-line fields */
++export declare function parseCSV(text: string): string[][];
++/**
++ * TypeBox validator interface matching TypeCompiler.Compile or Value.Errors
++ */
++export type TypeBoxValidatorLike = {
++    Check?: (value: unknown) => boolean;
++    Errors: (value: unknown) => Iterable<{
++        path?: string;
++        message: string;
++    }>;
++};
++/**
++ * Creates a synchronous form validator function specifically optimized for TypeBox
++ * compiled validators (from TypeCompiler.Compile) or TypeBox value checks.
++ *
++ * @example
++ * ```ts
++ * import { Type } from '@sinclair/typebox';
++ * import { TypeCompiler } from '@sinclair/typebox/compiler';
++ * import { createTypeBoxValidator, useForm } from '@svadmin/core';
++ *
++ * const userSchema = Type.Object({
++ *   name: Type.String({ minLength: 2 }),
++ *   email: Type.String({ format: 'email' }),
++ * });
++ *
++ * const compiledUser = TypeCompiler.Compile(userSchema);
++ *
++ * const form = useForm({
++ *   resource: 'users',
++ *   validate: createTypeBoxValidator(compiledUser),
++ * });
++ * ```
++ */
++export declare function createTypeBoxValidator(validator: TypeBoxValidatorLike): (values: Record<string, unknown>) => Record<string, string> | null;
+diff --git a/supauth-types-helpers.d.ts b/supauth-types-helpers.d.ts
+new file mode 100644
+index 0000000..94aea5f
+--- /dev/null
++++ b/supauth-types-helpers.d.ts
+@@ -0,0 +1,41 @@
++import { t } from "./supauth-types-i18n.svelte.js";
++export { getDefaultFilter, getDefaultSortOrder, unionFilters, unionSorters, file2Base64, parseCSV, createTypeBoxValidator, } from "./supauth-types-helpers-pure.js";
++export type { TypeBoxValidatorLike } from "./supauth-types-helpers-pure.js";
++/**
++ * Generate a default document title for a resource page.
++ * e.g., "Edit Post #5 | Admin" or "Posts | Admin"
++ */
++export declare function generateDefaultDocumentTitle(options?: {
++    resource?: string;
++    action?: string;
++    id?: string | number;
++    suffix?: string;
++}): string;
++/**
++ * Derive a `useForm`-compatible `validate` function from `FieldDefinition[]`.
++ *
++ * Automatically validates:
++ * - `required` fields (non-empty check)
++ * - `type === 'email'` fields (basic email format)
++ * - `type === 'url'` fields (basic URL format)
++ * - `type === 'number'` fields (must be a valid number)
++ * - Custom per-field `field.validate()` callback
++ *
++ * This eliminates the need for hand-written schemas in most CRUD scenarios.
++ *
++ * @example
++ * ```ts
++ * const form = useForm({
++ *   resource: 'users',
++ *   validate: deriveValidator(resource.fields),
++ * });
++ * ```
++ */
++export declare function deriveValidator(fields: import("./supauth-types-types.js").FieldDefinition[], options?: {
++    /** Only validate these field keys. Default: all fields. */
++    only?: string[];
++    /** Skip these field keys. */
++    except?: string[];
++    /** Captured tree-local translator for validation that runs after component initialization. */
++    translate?: typeof t;
++}): (values: Record<string, unknown>) => Record<string, string> | null;
+diff --git a/supauth-types-hook-utils.svelte.d.ts b/supauth-types-hook-utils.svelte.d.ts
+new file mode 100644
+index 0000000..70e0bcd
+--- /dev/null
++++ b/supauth-types-hook-utils.svelte.d.ts
+@@ -0,0 +1,45 @@
++import type { LiveProvider, LiveEvent, LiveMode } from "./supauth-types-live.svelte.js";
++import type { AdminContextAccessor } from "./supauth-types-context.svelte.js";
++import type { NotificationProvider } from "./supauth-types-types.js";
++export declare function checkError(error: unknown, adminContext?: AdminContextAccessor): Promise<void>;
++export interface OvertimeOptions {
++    interval?: number;
++    onInterval?: (elapsedTime: number) => void;
++}
++export interface OvertimeResult {
++    readonly elapsedTime: number;
++}
++export declare function createOvertimeTracker(isLoadingFn: () => boolean, options?: OvertimeOptions): OvertimeResult;
++export interface LiveSubscriptionParams {
++    resource: string;
++    liveProvider?: LiveProvider;
++    liveMode?: LiveMode;
++    onLiveEvent?: (event: LiveEvent) => void;
++    liveParams?: Record<string, unknown>;
++    enabled?: boolean;
++    dataProviderName?: string;
++}
++export declare function createLiveSubscription(paramsFn: () => LiveSubscriptionParams): void;
++export type NotificationConfig = string | false | ((data?: unknown, values?: unknown, resource?: string) => {
++    message: string;
++    description?: string;
++    type?: 'success' | 'error';
++    key?: string;
++}) | undefined;
++export interface SuccessNotificationRequest {
++    config: NotificationConfig;
++    defaultMessage: string;
++    data?: unknown;
++    values?: unknown;
++    resource?: string;
++    provider?: NotificationProvider | null;
++}
++export interface ErrorNotificationRequest {
++    config: NotificationConfig;
++    defaultMessage: string;
++    error?: unknown;
++    resource?: string;
++    provider?: NotificationProvider | null;
++}
++export declare function fireSuccessNotification(request: SuccessNotificationRequest): void;
++export declare function fireErrorNotification(request: ErrorNotificationRequest): void;
+diff --git a/supauth-types-hooks.svelte.d.ts b/supauth-types-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..bc99a78
+--- /dev/null
++++ b/supauth-types-hooks.svelte.d.ts
+@@ -0,0 +1,199 @@
++export * from "./supauth-types-query-hooks.svelte.js";
++export * from "./supauth-types-mutation-hooks.svelte.js";
++export * from "./supauth-types-form-hooks.svelte.js";
++export * from "./supauth-types-table-hooks.svelte.js";
++export * from "./supauth-types-routing-hooks.svelte.js";
++export * from "./supauth-types-utility-hooks.svelte.js";
++export type { InvalidateScope, OvertimeConfig } from "./supauth-types-options.svelte.js";
++export { createOvertimeTracker, createLiveSubscription } from "./supauth-types-hook-utils.svelte.js";
++export type { OvertimeResult, OvertimeOptions, NotificationConfig } from "./supauth-types-hook-utils.svelte.js";
++import type { NotificationConfig, OvertimeOptions } from "./supauth-types-hook-utils.svelte.js";
++import { DeleteManyPartialError } from "./supauth-types-types.js";
++import type { BaseRecord, HttpError, Pagination, Sort, Filter, DataProvider, KnownResources, MutationMode } from "./supauth-types-types.js";
++import type { LiveMode, LiveEvent } from "./supauth-types-live.svelte.js";
++import type { MutationCallbacks } from "./supauth-types-mutation-hooks.svelte.js";
++export interface UseInfiniteListOptions<_TData extends BaseRecord = BaseRecord, _TError = HttpError> {
++    resource?: KnownResources;
++    pagination?: Pagination;
++    sorters?: Sort[];
++    filters?: Filter[];
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    queryOptions?: {
++        staleTime?: number;
++        enabled?: boolean;
++    };
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    liveMode?: LiveMode;
++    onLiveEvent?: (event: LiveEvent) => void;
++    overtimeOptions?: OvertimeOptions;
++}
++export declare function useInfiniteList<TData extends BaseRecord = BaseRecord, TError = HttpError>(options?: UseInfiniteListOptions<TData, TError>): {
++    query: import("@tanstack/svelte-query").CreateInfiniteQueryResult<import("@tanstack/query-core").InfiniteData<{
++        data: TData[];
++        total: number;
++    }, unknown>, TError>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export interface UseSelectOptions<TData extends BaseRecord = BaseRecord, _TOption = {
++    label: string;
++    value: string | number;
++}> {
++    resource: KnownResources;
++    optionLabel?: string | ((item: TData) => string);
++    optionValue?: string | ((item: TData) => string | number);
++    sorters?: Sort[];
++    filters?: Filter[];
++    defaultValue?: (string | number)[];
++    fetchSize?: number;
++    pagination?: Pagination;
++    debounce?: number;
++    queryOptions?: {
++        staleTime?: number;
++        enabled?: boolean;
++    };
++    defaultValueQueryOptions?: {
++        staleTime?: number;
++        enabled?: boolean;
++    };
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    onSearch?: (value: string) => Filter[];
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    overtimeOptions?: OvertimeOptions;
++}
++export declare function useSelect<TData extends BaseRecord = BaseRecord, TOption = {
++    label: string;
++    value: string | number;
++}>(options: UseSelectOptions<TData, TOption>): {
++    query: import("@tanstack/svelte-query").CreateQueryResult<{
++        data: TData[];
++        total: number;
++    }, Error>;
++    readonly options: TOption[];
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++    onSearchChange: (value: string) => void;
++};
++export interface UseCustomOptions<_TData = unknown, _TError = HttpError> {
++    url: string;
++    method: 'get' | 'post' | 'put' | 'patch' | 'delete';
++    config?: {
++        payload?: unknown;
++        query?: Record<string, unknown>;
++        headers?: Record<string, string>;
++        sorters?: Sort[];
++        filters?: Filter[];
++    };
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    queryOptions?: {
++        staleTime?: number;
++        enabled?: boolean;
++    };
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    overtimeOptions?: OvertimeOptions;
++}
++export declare function useCustom<TData = unknown, TError = HttpError>(options: UseCustomOptions<TData, TError>): {
++    query: import("@tanstack/svelte-query").CreateQueryResult<{
++        data: TData;
++    }, TError>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export declare function useCustomMutation<TData = unknown, TError = HttpError, TVariables = unknown>(dataProviderName?: string): {
++    mutation: import("@tanstack/svelte-query").CreateMutationResult<{
++        data: TData;
++    }, TError, {
++        url: string;
++        method: "get" | "post" | "put" | "patch" | "delete";
++        values?: TVariables;
++        query?: Record<string, unknown>;
++        headers?: Record<string, string>;
++        sorters?: Sort[];
++        filters?: Filter[];
++        meta?: Record<string, unknown>;
++        invalidates?: string[] | false;
++        resource?: string;
++    }, unknown>;
++};
++export declare function useCreateMany<TData extends BaseRecord = BaseRecord, TError = HttpError, TVariables = Record<string, unknown>>(options?: {
++    resource?: KnownResources;
++    overtimeOptions?: OvertimeOptions;
++}): {
++    mutation: import("@tanstack/svelte-query").CreateMutationResult<{
++        data: TData[];
++    }, TError, {
++        resource?: KnownResources;
++        variables: TVariables[];
++        meta?: Record<string, unknown>;
++        dataProviderName?: string;
++    }, unknown>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export declare function useUpdateMany<TData extends BaseRecord = BaseRecord, TError = HttpError, TVariables = Record<string, unknown>>(options?: {
++    resource?: KnownResources;
++    overtimeOptions?: OvertimeOptions;
++}): {
++    mutation: import("@tanstack/svelte-query").CreateMutationResult<{
++        data: TData[];
++    }, TError, {
++        resource?: KnownResources;
++        ids: (string | number)[];
++        variables: TVariables;
++        meta?: Record<string, unknown>;
++        dataProviderName?: string;
++    }, unknown>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export interface UseDeleteManyOptions {
++    resource?: KnownResources;
++    mutationMode?: MutationMode;
++    undoableTimeout?: number;
++    mutationOptions?: MutationCallbacks;
++    overtimeOptions?: OvertimeOptions;
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++}
++export interface UseDeleteManyMutateParams {
++    resource?: KnownResources;
++    ids: (string | number)[];
++    mutationMode?: MutationMode;
++    undoableTimeout?: number;
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    invalidates?: string[] | false;
++    onCancel?: () => void;
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++}
++interface DeleteManyMutationContext {
++    _svadmin_ctx?: boolean;
++    userContext?: unknown;
++    previousQueries?: [readonly unknown[], unknown][];
++}
++export declare function useDeleteMany<TData extends BaseRecord = BaseRecord, TError = HttpError>(options?: UseDeleteManyOptions): {
++    mutation: import("@tanstack/svelte-query").CreateMutationResult<{
++        data: TData[];
++    }, DeleteManyPartialError | TError, UseDeleteManyMutateParams, DeleteManyMutationContext>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export declare function useInvalidate(): (params: {
++    resource?: string;
++    invalidates?: string[] | "all" | false;
++    id?: string | number;
++    dataProviderName?: string;
++}) => void;
++export declare function useOvertime(options?: OvertimeOptions): {
++    readonly elapsedTime: number;
++    start(): void;
++    stop(): void;
++};
++export declare function useDataProvider(): (dataProviderName?: string) => DataProvider;
++export declare function resetSidebarCollapsed(): void;
++export declare function useThemedLayoutContext(): {
++    readonly sidebarCollapsed: boolean;
++    setSidebarCollapsed(v: boolean): void;
++    toggleSidebar(): void;
++};
+diff --git a/supauth-types-http.d.ts b/supauth-types-http.d.ts
+new file mode 100644
+index 0000000..f344fa0
+--- /dev/null
++++ b/supauth-types-http.d.ts
+@@ -0,0 +1,22 @@
++/**
++ * HTTP fetch 工具 — 带 CSRF 防护、401 自动跳转和结构化错误语义。
++ */
++export interface FetchWithInterceptorOptions {
++    /** 401 时跳转的登录页路径 */
++    loginPath?: string;
++    /** 403 且服务端未返回消息时使用的错误消息 */
++    forbiddenMessage?: string;
++    /** 是否自动添加 X-Requested-With header (CSRF 防护) */
++    csrfProtection?: boolean;
++    /** 自定义 fetch 实现，便于测试或 SSR 环境注入 */
++    fetchImpl?: FetchWithInterceptor;
++    /** 自定义 401 重定向处理，便于测试或 SSR 环境注入 */
++    onUnauthorized?: (loginPath: string, returnTo: string) => void;
++}
++export type FetchWithInterceptor = (url: string, init?: RequestInit) => Promise<Response>;
++/**
++ * 带拦截器的 fetch。Core 只保留错误语义；认证刷新和请求重放由认证提供方处理。
++ */
++export declare function createFetchWithInterceptor(options?: FetchWithInterceptorOptions): FetchWithInterceptor;
++/** 便捷全局实例 — 使用默认配置。 */
++export declare const fetchWithInterceptor: FetchWithInterceptor;
+diff --git a/supauth-types-i18n.svelte.d.ts b/supauth-types-i18n.svelte.d.ts
+new file mode 100644
+index 0000000..8445323
+--- /dev/null
++++ b/supauth-types-i18n.svelte.d.ts
+@@ -0,0 +1,59 @@
++/**
++ * I18nProvider — pluggable translation boundary.
++ * When set, all t/getLocale/getAvailableLocales delegates to it first,
++ * falling back to the built-in locale tables. This lets apps integrate
++ * existing i18n systems (svelte-i18n, paraglide, etc.) without rewriting callsites.
++ */
++export interface I18nProvider {
++    translate: (key: string, params?: Record<string, string | number>) => string;
++    getLocale: () => string;
++    setLocale: (locale: string) => void;
++    getAvailableLocales?: () => string[];
++}
++/** Owner-controlled values for one component-tree i18n scope. */
++export interface I18nScopeOptions {
++    locale?: string;
++    provider?: I18nProvider;
++    onLocaleChange?: (locale: string) => void;
++}
++/**
++ * Tree-local i18n state. `updateOwner` synchronizes props without emitting a
++ * change event, while `setLocale` represents a change requested inside the tree.
++ */
++export interface I18nScope {
++    readonly locale: string;
++    readonly provider: I18nProvider | undefined;
++    translate: (key: string, params?: Record<string, string | number>) => string;
++    setLocale: (locale: string) => void;
++    setProvider: (provider: I18nProvider | undefined) => void;
++    getAvailableLocales: () => string[];
++    updateOwner: (options: I18nScopeOptions) => void;
++}
++/** Create reactive i18n state that can be owned by one AdminApp tree. */
++export declare function createI18nScope(options?: I18nScopeOptions): I18nScope;
++/** Attach an i18n scope to the current component tree. */
++export declare function provideI18nScope(scope: I18nScope): I18nScope;
++/** Return the current tree scope when called during a Svelte render/effect. */
++export declare function getI18nScope(): I18nScope | undefined;
++declare function setLegacyLocale(locale: string): void;
++declare function getLegacyAvailableLocales(): string[];
++declare function translateLegacy(key: string, params?: Record<string, string | number>): string;
++export declare function setI18nProvider(provider: I18nProvider | undefined): void;
++export declare function getI18nProvider(): I18nProvider | undefined;
++export declare function setLocale(locale: string): void;
++export declare function getLocale(): string;
++export declare function getAvailableLocales(): string[];
++export declare function t(key: string, params?: Record<string, string | number>): string;
++export declare function addTranslations(locale: string, translations: Record<string, string>): void;
++export declare function resetI18n(): void;
++/**
++ * useTranslation — Svelte 5 reactive translation hook
++ * Tracks locale changes natively.
++ */
++export declare function useTranslation(): {
++    readonly t: typeof translateLegacy;
++    readonly locale: string;
++    setLocale: typeof setLegacyLocale;
++    getAvailableLocales: typeof getLegacyAvailableLocales;
++};
++export {};
+diff --git a/supauth-types-index.d.ts b/supauth-types-index.d.ts
+new file mode 100644
+index 0000000..08aceaa
+--- /dev/null
++++ b/supauth-types-index.d.ts
+@@ -0,0 +1,71 @@
++export { setDataProvider, getDataProvider, getDataProviderForResource, getDataProviderNames, setAuthProvider, getAuthProvider, setResources, getResources, getResource, setRouterProvider, getRouterProvider, setLiveProvider, getLiveProvider, setTaskProvider, getTaskProvider, createAdminContext, provideAdminContext, getAdminContext, captureAdminContext, provideTenantContext, getTenantContext, getProviderBundle, resetContext, } from "./supauth-types-context.svelte.js";
++export type { DataProviderInput, AdminContextSource, AdminContextValue, AdminContextAccessor } from "./supauth-types-context.svelte.js";
++export { createProviderBundle, createTenantCacheKey, defaultTenantAdapter, appendTenantCacheKey, isTenantCacheKey, queryKeyMatchesTenant, resolveTenantProviderMeta, withProviderMeta, withTenantDataProvider, } from "./supauth-types-provider-bundle.js";
++export { dataQueryMatches, isQueryKey, keys, parseQueryKey, queryKeyMatches, queryKeys, } from "./supauth-types-query-keys.js";
++export type { DataQueryMatcher, QueryDescriptor, QueryKey, QueryKeysBuilder, QueryKeysContext, QueryMatcher, } from "./supauth-types-query-keys.js";
++export type { ProviderBundle, ProviderMetaInput, ProviderMetaResolver, TenantAdapter, TenantCacheIdentity, TenantCacheKey, TenantContext, TenantId, } from "./supauth-types-provider-bundle.js";
++export { useList, useInfiniteList, useOne, useShow, useSelect, useMany, useCustom, useApiUrl, useCustomMutation, useInvalidate, useCreate, useCreateMany, useUpdate, useUpdateMany, useDelete, useDeleteMany, useForm, useTable, useNavigation, useGo, useBack, useGetToPath, useLink, useResource, useModalForm, useDrawerForm, useModal, useCheckboxGroup, useRadioGroup, useAutocomplete, useOvertime, useRelation, useNotification, useDataProvider, useMenu, useBreadcrumb, useThemedLayoutContext, publishLiveEvent, resetSidebarCollapsed, } from "./supauth-types-hooks.svelte.js";
++export { matchRoute, navigate, currentPath, setActiveRouterProvider, beforeEach, afterEach, resetRouter } from "./supauth-types-router.js";
++export type { RouteGuard } from "./supauth-types-router.js";
++export { appendListQuery, appendListQueryFromPath, readURLState, sanitizeListQueryParams, writeURLState, } from "./supauth-types-url-sync.js";
++export { setAccessControlProvider, getAccessControlProvider, getAccessControlOptions, canAccessAsync, createFeatureGate } from "./supauth-types-permissions.svelte.js";
++export { useLive, useSubscription, usePublish } from "./supauth-types-live.svelte.js";
++export { toast, getToastQueue, consumeToastQueue, getPromiseQueue, consumePromiseQueue, getToasts, removeToast, resetToast } from "./supauth-types-toast.svelte.js";
++export { notify, notifyWithProvider, closeNotification, setNotificationProvider, getNotificationProvider, } from "./supauth-types-notification.svelte.js";
++export type { NotificationParams } from "./supauth-types-notification.svelte.js";
++export { t, setLocale, getLocale, getAvailableLocales, addTranslations, useTranslation, setI18nProvider, getI18nProvider, createI18nScope, provideI18nScope, getI18nScope, resetI18n } from "./supauth-types-i18n.svelte.js";
++export type { I18nProvider, I18nScope, I18nScopeOptions } from "./supauth-types-i18n.svelte.js";
++export { audit, auditWithProvider, writeAuditEntry, recordMutationRollback, setAuditHandler, setAuditLogProvider, getAuditLogProvider } from "./supauth-types-audit.js";
++export type { AuditLogProvider } from "./supauth-types-audit.js";
++export type { ApiCredentialSummary, CreatedApiCredential, CredentialProvider, EnterpriseActionError, EnterpriseActionResult, EnterpriseRequestContext, EnterpriseRequestContextInput, EnterpriseProviderRequestContext, StrictEnterpriseRequestContext, EnterpriseSecurityEvent, EnterpriseSecurityPolicy, IdentityGovernanceProvider, IdentityProviderProtocol, IdentityProviderStatus, IdentityProviderSummary, MfaState, Organization, OrganizationProvider, SessionInfo, SessionProvider, WebhookSummary, } from "./supauth-types-enterprise.js";
++export { assertEnterpriseRequestContext, createEnterpriseRequestContext } from "./supauth-types-enterprise.js";
++export { setChatProvider, getChatProvider, setChatContext, getChatContext, setAgentProvider, getAgentProvider, registerApproval, resolveApproval, hasPendingApprovals, resetChatProvider, defineAdminTool, decodeAdminToolArgs, executeAdminTool, projectAdminToolSchema } from "./supauth-types-chatProvider.svelte.js";
++export type { ChatProvider, ChatMessage, ChatMessagePart, ChatContext, ChatAttachment, ChatSource, MessageStatus, ToolState, AgentProvider, AgentEvent, AgentOptions, ApprovalResponseOptions, AdminTool, ToolResult, } from "./supauth-types-chatProvider.svelte.js";
++export { getTheme, setTheme, toggleTheme, getResolvedTheme, getColorTheme, setColorTheme, getColorThemes, configureTheme, getThemeConfig, clearCssOverrides, builtinPresets, registerColorPreset, getColorPresets, registerThemeOwner, updateThemeOwner, unregisterThemeOwner, resetTheme } from "./supauth-types-theme.svelte.js";
++export type { ThemeMode, ColorTheme, ThemeStrategy, ThemeConfig, ColorPreset, ThemeOwnerOptions, ThemeOwnerToken } from "./supauth-types-theme.svelte.js";
++export { setUnsavedChanges, getUnsavedChanges, initUnsavedChangesNotifier, resetUnsavedChanges } from "./supauth-types-unsaved-changes.svelte.js";
++export { setAdminOptions, getAdminOptions, getTextTransformers } from "./supauth-types-options.svelte.js";
++export type { AdminOptions, TextTransformers, OvertimeConfig } from "./supauth-types-options.svelte.js";
++export { checkError } from "./supauth-types-hook-utils.svelte.js";
++export type { NotificationConfig, OvertimeOptions, OvertimeResult, LiveSubscriptionParams } from "./supauth-types-hook-utils.svelte.js";
++export { DeleteManyPartialError, HttpError, UndoError } from "./supauth-types-types.js";
++export type { DataProvider, AuthProvider, NotificationProvider, MutationMode, ValidationErrors, HttpErrorOptions, CrudOperator, LogicalFilter, FieldFilter, CustomParams, CustomResult, GetListParams, GetListResult, GetOneParams, GetOneResult, GetManyParams, GetManyResult, CreateParams, CreateResult, CreateManyParams, CreateManyResult, UpdateParams, UpdateResult, UpdateManyParams, UpdateManyResult, DeleteParams, DeleteResult, DeleteManyParams, DeleteManyResult, Pagination, Sort, Filter, Identity, ResourceDefinition, ResourceProviderConfig, ResourceTransportConfig, ResourceAdapterConfig, FieldDefinition, MenuItem, AuthActionResult, CheckResult, ResourceTypeMap, KnownResources, InferData, BaseRecord, Role, AuditLog } from "./supauth-types-types.js";
++export type { InvalidateScope } from "./supauth-types-options.svelte.js";
++export type { LiveProvider, LiveEvent, LiveMode } from "./supauth-types-live.svelte.js";
++export type { Action, CanParams, CanResult, AccessControlProvider, FeatureGateConfig, FeatureGateUser } from "./supauth-types-permissions.svelte.js";
++export type { AuditEntry, AuditHandler, AuditAction } from "./supauth-types-audit.js";
++export { useCan } from "./supauth-types-useCan.js";
++export type { UseCanOptions, UseCanResult } from "./supauth-types-useCan.js";
++export { createCaslAccessControl } from "./supauth-types-adapters--casl.js";
++export { createCasbinAccessControl } from "./supauth-types-adapters--casbin.js";
++export type { CasbinAdapterOptions } from "./supauth-types-adapters--casbin.js";
++export { useExport, useImport, downloadData, toCsv, toJson, toXlsx, parseCSV } from "./supauth-types-data-transfer.svelte.js";
++export type { UseExportOptions, UseImportOptions, ExportFormat } from "./supauth-types-data-transfer.svelte.js";
++export { useLogin, useLogout, useRegister, useForgotPassword, useUpdatePassword, useUpdateIdentity, useUpdateProfile, useGetIdentity, useIsAuthenticated, useOnError, usePermissions, getLogoutVersion, resetLogoutVersion, } from "./supauth-types-auth-hooks.svelte.js";
++export type { AuthNotificationOptions } from "./supauth-types-auth-hooks.svelte.js";
++export { useSubmitTask, useTask, useTaskList, useTaskSubscription, } from "./supauth-types-task-hooks.svelte.js";
++export { useParsed, resetGlobalPath, syncGlobalPath } from "./supauth-types-useParsed.svelte.js";
++export * from "./supauth-types-useStepsForm.svelte.js";
++export { createHashRouterProvider, createHistoryRouterProvider } from "./supauth-types-router-provider.js";
++export type { RouterNavigationResult, RouterProvider } from "./supauth-types-router-provider.js";
++export { inferFieldType, inferResource, generateTypeBoxSchemaCode, generateListPageCode, generateCreatePageCode, generateEditPageCode, generateShowPageCode, generateResourceCode, generateComponentCode, generateResourceBundle, } from "./supauth-types-inferencer.js";
++export type { InferResult } from "./supauth-types-inferencer.js";
++export { createWebSocketLiveProvider } from "./supauth-types-live-websocket.js";
++export type { WebSocketLiveProviderOptions } from "./supauth-types-live-websocket.js";
++export { createSSELiveProvider } from "./supauth-types-live-sse.js";
++export type { SSELiveProviderOptions } from "./supauth-types-live-sse.js";
++export { inferFromOpenAPI } from "./supauth-types-inferencer-openapi.js";
++export type { InferFromOpenAPIOptions } from "./supauth-types-inferencer-openapi.js";
++export { inferFromGraphQL, GRAPHQL_INTROSPECTION_QUERY } from "./supauth-types-inferencer-graphql.js";
++export type { InferFromGraphQLOptions, GraphQLIntrospectionSchema, GraphQLTypeDescriptor } from "./supauth-types-inferencer-graphql.js";
++export { getDefaultFilter, getDefaultSortOrder, unionFilters, unionSorters, file2Base64, generateDefaultDocumentTitle, deriveValidator, createTypeBoxValidator, } from "./supauth-types-helpers.js";
++export type { TypeBoxValidatorLike } from "./supauth-types-helpers.js";
++export { TableState } from "./supauth-types-table-state.svelte.js";
++export type { TableStateOptions } from "./supauth-types-table-state.svelte.js";
++export type { UseInfiniteListOptions } from "./supauth-types-hooks.svelte.js";
++export type { UseSelectOptions } from "./supauth-types-hooks.svelte.js";
++export type { UseDeleteManyOptions, UseDeleteManyMutateParams } from "./supauth-types-hooks.svelte.js";
++export type { UseFormReturn } from "./supauth-types-form-hooks.svelte.js";
++export type { TaskProvider, TaskDateValue, TaskMessageValue, TaskRecord, SubmitTaskOptions, TaskHandle, TaskListResult, TaskSubscription, } from "./supauth-types-types.js";
++export { createFetchWithInterceptor, fetchWithInterceptor } from "./supauth-types-http.js";
++export type { FetchWithInterceptor, FetchWithInterceptorOptions } from "./supauth-types-http.js";
+diff --git a/supauth-types-inferencer-graphql.d.ts b/supauth-types-inferencer-graphql.d.ts
+new file mode 100644
+index 0000000..2bd9e96
+--- /dev/null
++++ b/supauth-types-inferencer-graphql.d.ts
+@@ -0,0 +1,74 @@
++/**
++ * GraphQL Schema / Introspection → ResourceDefinition converter
++ *
++ * Parses a GraphQL introspection JSON result or schema definition and generates
++ * ResourceDefinition[] by analyzing entity types, fields, enums, queries, and mutations.
++ */
++import type { ResourceDefinition } from "./supauth-types-types.js";
++export interface GraphQLIntrospectionSchema {
++    __schema?: GraphQLSchemaBody;
++    data?: {
++        __schema?: GraphQLSchemaBody;
++    };
++    types?: GraphQLTypeDescriptor[];
++}
++export interface GraphQLSchemaBody {
++    queryType?: {
++        name?: string | null;
++    } | null;
++    mutationType?: {
++        name?: string | null;
++    } | null;
++    subscriptionType?: {
++        name?: string | null;
++    } | null;
++    types: GraphQLTypeDescriptor[];
++}
++export interface GraphQLTypeDescriptor {
++    kind: 'SCALAR' | 'OBJECT' | 'INTERFACE' | 'UNION' | 'ENUM' | 'INPUT_OBJECT' | 'LIST' | 'NON_NULL';
++    name: string | null;
++    description?: string | null;
++    fields?: GraphQLFieldDescriptor[] | null;
++    inputFields?: GraphQLInputValueDescriptor[] | null;
++    interfaces?: GraphQLTypeRef[] | null;
++    enumValues?: Array<{
++        name: string;
++        description?: string | null;
++    }> | null;
++    possibleTypes?: GraphQLTypeRef[] | null;
++}
++export interface GraphQLFieldDescriptor {
++    name: string;
++    description?: string | null;
++    args?: GraphQLInputValueDescriptor[];
++    type: GraphQLTypeRef;
++    isDeprecated?: boolean;
++    deprecationReason?: string | null;
++}
++export interface GraphQLInputValueDescriptor {
++    name: string;
++    description?: string | null;
++    type: GraphQLTypeRef;
++    defaultValue?: string | null;
++}
++export interface GraphQLTypeRef {
++    kind: 'SCALAR' | 'OBJECT' | 'INTERFACE' | 'UNION' | 'ENUM' | 'INPUT_OBJECT' | 'LIST' | 'NON_NULL';
++    name?: string | null;
++    ofType?: GraphQLTypeRef | null;
++}
++/**
++ * Standard GraphQL introspection query string to fetch the schema from any GraphQL endpoint.
++ */
++export declare const GRAPHQL_INTROSPECTION_QUERY = "query IntrospectionQuery {\n  __schema {\n    queryType { name }\n    mutationType { name }\n    subscriptionType { name }\n    types {\n      kind\n      name\n      description\n      fields(includeDeprecated: true) {\n        name\n        description\n        type {\n          kind\n          name\n          ofType {\n            kind\n            name\n            ofType {\n              kind\n              name\n              ofType {\n                kind\n                name\n                ofType {\n                  kind\n                  name\n                }\n              }\n            }\n          }\n        }\n      }\n      enumValues(includeDeprecated: true) {\n        name\n        description\n      }\n    }\n  }\n}";
++export interface InferFromGraphQLOptions {
++    /** Include only specific type names */
++    include?: string[];
++    /** Exclude specific type names */
++    exclude?: string[];
++    /** Custom primary key (default: 'id') */
++    primaryKey?: string;
++}
++/**
++ * Parses a GraphQL schema (introspection object or SDL string) and returns ResourceDefinition[].
++ */
++export declare function inferFromGraphQL(schemaOrIntrospection: GraphQLIntrospectionSchema | GraphQLSchemaBody | string | unknown, options?: InferFromGraphQLOptions): ResourceDefinition[];
+diff --git a/supauth-types-inferencer-openapi.d.ts b/supauth-types-inferencer-openapi.d.ts
+new file mode 100644
+index 0000000..e8d5974
+--- /dev/null
++++ b/supauth-types-inferencer-openapi.d.ts
+@@ -0,0 +1,73 @@
++/**
++ * OpenAPI Schema → ResourceDefinition converter
++ *
++ * Parses an OpenAPI 3.x JSON schema and generates ResourceDefinition[]
++ * by analyzing the schema's paths and components.
++ */
++import type { ResourceDefinition } from "./supauth-types-types.js";
++interface OpenAPISchema {
++    openapi?: string;
++    info?: {
++        title?: string;
++        version?: string;
++    };
++    paths?: Record<string, OpenAPIPathItem>;
++    components?: {
++        schemas?: Record<string, OpenAPISchemaObject>;
++    };
++}
++interface OpenAPIPathItem {
++    get?: OpenAPIOperation;
++    post?: OpenAPIOperation;
++    put?: OpenAPIOperation;
++    patch?: OpenAPIOperation;
++    delete?: OpenAPIOperation;
++}
++interface OpenAPIOperation {
++    operationId?: string;
++    tags?: string[];
++    parameters?: OpenAPIParameter[];
++    requestBody?: {
++        content?: Record<string, {
++            schema?: OpenAPISchemaObject | OpenAPIRef;
++        }>;
++    };
++    responses?: Record<string, {
++        content?: Record<string, {
++            schema?: OpenAPISchemaObject | OpenAPIRef;
++        }>;
++    }>;
++}
++interface OpenAPIParameter {
++    name: string;
++    in: string;
++    required?: boolean;
++    schema?: OpenAPISchemaObject;
++}
++interface OpenAPISchemaObject {
++    type?: string;
++    format?: string;
++    properties?: Record<string, OpenAPISchemaObject | OpenAPIRef>;
++    items?: OpenAPISchemaObject | OpenAPIRef;
++    required?: string[];
++    enum?: (string | number)[];
++    $ref?: string;
++    description?: string;
++    nullable?: boolean;
++}
++interface OpenAPIRef {
++    $ref: string;
++}
++export interface InferFromOpenAPIOptions {
++    /** Only infer resources matching these schema names */
++    include?: string[];
++    /** Exclude these schema names */
++    exclude?: string[];
++    /** Custom primary key (default: 'id') */
++    primaryKey?: string;
++}
++/**
++ * Parse an OpenAPI 3.x JSON schema and produce ResourceDefinition[].
++ */
++export declare function inferFromOpenAPI(spec: OpenAPISchema, options?: InferFromOpenAPIOptions): ResourceDefinition[];
++export {};
+diff --git a/supauth-types-inferencer.d.ts b/supauth-types-inferencer.d.ts
+new file mode 100644
+index 0000000..716e4e5
+--- /dev/null
++++ b/supauth-types-inferencer.d.ts
+@@ -0,0 +1,71 @@
++/**
++ * @svadmin/inferencer
++ *
++ * Analyzes API response data and infers ResourceDefinition + FieldDefinition[].
++ * Can also generate copy-paste-ready Svelte component code.
++ */
++import type { FieldDefinition, ResourceDefinition } from "./supauth-types-types.js";
++type InferredType = FieldDefinition['type'];
++/**
++ * Infer the svadmin field type from a single sample value.
++ */
++export declare function inferFieldType(key: string, value: unknown): InferredType;
++export interface InferResult {
++    fields: FieldDefinition[];
++    resource: ResourceDefinition;
++    code: string;
++    typeboxCode: string;
++    componentCode: {
++        list: string;
++        create: string;
++        edit: string;
++        show: string;
++    };
++}
++/**
++ * Analyze a sample data array and produce a ResourceDefinition.
++ * @param resourceName - Name of the resource (e.g. "posts")
++ * @param sampleData  - An array of records from the API
++ * @param options      - Additional configuration
++ */
++export declare function inferResource(resourceName: string, sampleData: Record<string, unknown>[], options?: {
++    primaryKey?: string;
++    label?: string;
++}): InferResult;
++/**
++ * Generate Svelte 5 ListPage component code for a resource.
++ */
++export declare function generateListPageCode(resource: ResourceDefinition): string;
++/**
++ * Generate Svelte 5 CreatePage component code for a resource.
++ */
++export declare function generateCreatePageCode(resource: ResourceDefinition): string;
++/**
++ * Generate Svelte 5 EditPage component code for a resource.
++ */
++export declare function generateEditPageCode(resource: ResourceDefinition): string;
++/**
++ * Generate Svelte 5 ShowPage component code for a resource.
++ */
++export declare function generateShowPageCode(resource: ResourceDefinition): string;
++/**
++ * Generate TypeScript code for ResourceDefinition.
++ */
++export declare function generateResourceCode(resource: ResourceDefinition): string;
++/**
++ * Generate TypeScript code for TypeBox schema definition.
++ */
++export declare function generateTypeBoxSchemaCode(resource: ResourceDefinition): string;
++/**
++ * Universal code generator for resource definition or Svelte page components.
++ */
++export declare function generateComponentCode(resource: ResourceDefinition, kind: 'resource' | 'typebox' | 'list' | 'create' | 'edit' | 'show'): string;
++/**
++ * Generate a complete InferResult bundle from an existing ResourceDefinition.
++ */
++export declare function generateResourceBundle(resource: ResourceDefinition): InferResult;
++export { inferFromOpenAPI } from "./supauth-types-inferencer-openapi.js";
++export type { InferFromOpenAPIOptions } from "./supauth-types-inferencer-openapi.js";
++export { inferFromGraphQL, GRAPHQL_INTROSPECTION_QUERY } from "./supauth-types-inferencer-graphql.js";
++export type { InferFromGraphQLOptions, GraphQLIntrospectionSchema, GraphQLTypeDescriptor } from "./supauth-types-inferencer-graphql.js";
++export type { FieldDefinition, ResourceDefinition } from "./supauth-types-types.js";
+diff --git a/supauth-types-live-sse.d.ts b/supauth-types-live-sse.d.ts
+new file mode 100644
+index 0000000..7cbab96
+--- /dev/null
++++ b/supauth-types-live-sse.d.ts
+@@ -0,0 +1,22 @@
++/**
++ * SSE (Server-Sent Events) LiveProvider
++ *
++ * Connects to an SSE endpoint and dispatches LiveEvents to subscribers.
++ * The server should emit events as JSON matching the LiveEvent shape:
++ *   data: { "type": "INSERT", "resource": "posts", "payload": {...} }
++ *
++ * Optionally, named SSE events can be used:
++ *   event: posts
++ *   data: { "type": "INSERT", "payload": {...} }
++ */
++import type { LiveProvider } from "./supauth-types-live.svelte.js";
++export interface SSELiveProviderOptions {
++    url: string;
++    eventSourceInit?: EventSourceInit;
++    onOpen?: () => void;
++    onError?: (event: Event) => void;
++}
++export declare function createSSELiveProvider(options: SSELiveProviderOptions): LiveProvider & {
++    disconnect: () => void;
++    getStatus: () => 'connecting' | 'connected' | 'disconnected';
++};
+diff --git a/supauth-types-live-websocket.d.ts b/supauth-types-live-websocket.d.ts
+new file mode 100644
+index 0000000..5b6017e
+--- /dev/null
++++ b/supauth-types-live-websocket.d.ts
+@@ -0,0 +1,26 @@
++/**
++ * WebSocket LiveProvider
++ *
++ * Connects to a WebSocket server and dispatches LiveEvents to subscribers.
++ * The server is expected to send JSON messages matching the LiveEvent shape:
++ *   { type: 'INSERT' | 'UPDATE' | 'DELETE', resource: string, payload: {...} }
++ */
++import type { LiveProvider } from "./supauth-types-live.svelte.js";
++export interface WebSocketLiveProviderOptions {
++    /** WebSocket server URL, e.g. "wss://api.example.com/ws" */
++    url: string;
++    /** Reconnect delay in ms (default 3000) */
++    reconnectDelay?: number;
++    /** Max reconnect attempts (default Infinity) */
++    maxReconnects?: number;
++    /** Optional callback when connection opens */
++    onOpen?: () => void;
++    /** Optional callback when connection closes */
++    onClose?: (event: CloseEvent) => void;
++    /** Optional callback for connection errors */
++    onError?: (event: Event) => void;
++}
++export declare function createWebSocketLiveProvider(options: WebSocketLiveProviderOptions): LiveProvider & {
++    disconnect: () => void;
++    getStatus: () => 'connecting' | 'connected' | 'disconnected';
++};
+diff --git a/supauth-types-live.svelte.d.ts b/supauth-types-live.svelte.d.ts
+new file mode 100644
+index 0000000..893943a
+--- /dev/null
++++ b/supauth-types-live.svelte.d.ts
+@@ -0,0 +1,41 @@
++export type LiveMode = 'auto' | 'manual' | 'off';
++export interface LiveEvent {
++    type: 'INSERT' | 'UPDATE' | 'DELETE';
++    resource: string;
++    payload: Record<string, unknown>;
++}
++export interface LiveProvider {
++    subscribe(params: {
++        resource: string;
++        liveParams?: Record<string, unknown>;
++        callback: (event: LiveEvent) => void;
++    }): () => void;
++    unsubscribe?(params: {
++        resource: string;
++        liveParams?: Record<string, unknown>;
++    }): void;
++    publish?(event: LiveEvent): void;
++    onConnected?: () => void;
++    onDisconnected?: () => void;
++}
++export interface LiveProviderReconnectOptions {
++    enabled?: boolean;
++    retryCount?: number;
++    retryInterval?: number;
++}
++export declare function useLive(liveProvider: LiveProvider | (() => LiveProvider), resource: string | (() => string), options?: {
++    liveMode?: LiveMode | (() => LiveMode);
++    onLiveEvent?: (event: LiveEvent) => void;
++    liveParams?: Record<string, unknown> | (() => Record<string, unknown>);
++    dataProviderName?: string;
++}): void;
++interface UseSubscriptionOptions {
++    resource: string | (() => string);
++    liveProvider: LiveProvider | (() => LiveProvider);
++    onLiveEvent: (event: LiveEvent) => void;
++    enabled?: boolean | (() => boolean);
++    liveParams?: Record<string, unknown> | (() => Record<string, unknown>);
++}
++export declare function useSubscription(options: UseSubscriptionOptions): void;
++export declare function usePublish(liveProvider: LiveProvider): (event: LiveEvent) => void;
++export {};
+diff --git a/supauth-types-mutation-hooks.svelte.d.ts b/supauth-types-mutation-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..b7f62d5
+--- /dev/null
++++ b/supauth-types-mutation-hooks.svelte.d.ts
+@@ -0,0 +1,104 @@
++import { useQueryClient } from '@tanstack/svelte-query';
++import type { QueryMatcher } from "./supauth-types-query-keys.js";
++import type { AdminContextAccessor } from "./supauth-types-context.svelte.js";
++import type { BaseRecord, HttpError, KnownResources } from "./supauth-types-types.js";
++import type { NotificationConfig, OvertimeOptions } from "./supauth-types-hook-utils.svelte.js";
++export declare function publishLiveEvent(resource: string, type: 'created' | 'updated' | 'deleted', ids?: (string | number)[], adminContext?: AdminContextAccessor): void;
++/**
++ * Invalidate queries by scope. Respects per-mutation `invalidates` override.
++ * Default invalidation scopes per operation:
++ *   - create: ['list', 'many']
++ *   - update: ['list', 'many', 'detail']
++ *   - delete: ['list', 'many']
++ */
++export interface InvalidateByScopesRequest {
++    queryClient: ReturnType<typeof useQueryClient>;
++    resource: string;
++    scopes?: string[] | false;
++    defaults: string[];
++    id?: string | number;
++    matcher: Pick<QueryMatcher, 'provider' | 'tenant'>;
++}
++export declare function invalidateByScopes(request: InvalidateByScopesRequest): void;
++export declare function deepMerge(target: unknown, source: unknown): unknown;
++export interface MutationCallbacks {
++    onMutate?: (variables: unknown) => unknown | Promise<unknown>;
++    onSuccess?: (data: unknown, variables: unknown, context: unknown) => void;
++    onError?: (error: unknown, variables: unknown, context: unknown) => void;
++    onSettled?: (data: unknown | undefined, error: unknown | null, variables: unknown, context: unknown) => void;
++}
++export interface UseCreateOptions {
++    resource?: KnownResources;
++    mutationOptions?: MutationCallbacks;
++    overtimeOptions?: OvertimeOptions;
++}
++export interface UseCreateMutateParams<TVariables> {
++    resource?: KnownResources;
++    variables: TVariables;
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    invalidates?: string[] | false;
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++}
++export declare function useCreate<TData extends BaseRecord = BaseRecord, TError = HttpError, TVariables = Record<string, unknown>>(options?: UseCreateOptions): {
++    mutation: import("@tanstack/svelte-query").CreateMutationResult<{
++        data: TData;
++    }, TError, UseCreateMutateParams<TVariables>, unknown>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export interface UseUpdateOptions {
++    resource?: KnownResources;
++    id?: string | number;
++    mutationMode?: 'pessimistic' | 'optimistic' | 'undoable';
++    undoableTimeout?: number;
++    mutationOptions?: MutationCallbacks;
++    overtimeOptions?: OvertimeOptions;
++}
++export interface UseUpdateMutateParams<TVariables> {
++    resource?: KnownResources;
++    id?: string | number;
++    variables: TVariables;
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    invalidates?: string[] | false;
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    onCancel?: () => void;
++    optimisticUpdateMap?: {
++        detail?: boolean | ((previous: unknown, variables: TVariables, id?: string | number) => unknown);
++        list?: boolean | ((previous: unknown, variables: TVariables, id?: string | number) => unknown);
++        many?: boolean | ((previous: unknown, variables: TVariables, id?: string | number) => unknown);
++    };
++}
++export declare function useUpdate<TData extends BaseRecord = BaseRecord, TError = HttpError, TVariables = Record<string, unknown>>(options?: UseUpdateOptions): {
++    mutation: import("@tanstack/svelte-query").CreateMutationResult<{
++        data: TData;
++    }, TError, UseUpdateMutateParams<TVariables>, unknown>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export interface UseDeleteOptions {
++    resource?: KnownResources;
++    id?: string | number;
++    mutationMode?: 'pessimistic' | 'optimistic' | 'undoable';
++    undoableTimeout?: number;
++    mutationOptions?: MutationCallbacks;
++    overtimeOptions?: OvertimeOptions;
++}
++export interface UseDeleteMutateParams<TVariables> {
++    resource?: KnownResources;
++    id?: string | number;
++    variables?: TVariables;
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    invalidates?: string[] | false;
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    onCancel?: () => void;
++}
++export declare function useDelete<TData extends BaseRecord = BaseRecord, TError = HttpError, TVariables = Record<string, unknown>>(options?: UseDeleteOptions): {
++    mutation: import("@tanstack/svelte-query").CreateMutationResult<{
++        data: TData;
++    }, TError, UseDeleteMutateParams<TVariables>, unknown>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
+diff --git a/supauth-types-notification.svelte.d.ts b/supauth-types-notification.svelte.d.ts
+new file mode 100644
+index 0000000..2121f06
+--- /dev/null
++++ b/supauth-types-notification.svelte.d.ts
+@@ -0,0 +1,20 @@
++import type { NotificationProvider } from "./supauth-types-types.js";
++export declare function setNotificationProvider(provider: NotificationProvider): void;
++export declare function getNotificationProvider(): NotificationProvider | null;
++/**
++ * Send a notification through the configured provider, or fall back to toast.
++ */
++export interface NotificationParams {
++    type: 'success' | 'error' | 'warning' | 'info';
++    message: string;
++    description?: string;
++    key?: string;
++}
++/** Send through an explicitly scoped provider, with the built-in toast as fallback. */
++export declare function notifyWithProvider(params: NotificationParams, provider: NotificationProvider | null | undefined): void;
++export declare function notify(params: NotificationParams): void;
++/**
++ * Close a notification by key (only works with custom provider).
++ */
++export declare function closeNotification(key: string): void;
++export declare function resetNotificationProvider(): void;
+diff --git a/supauth-types-options.svelte.d.ts b/supauth-types-options.svelte.d.ts
+new file mode 100644
+index 0000000..e05ecd5
+--- /dev/null
++++ b/supauth-types-options.svelte.d.ts
+@@ -0,0 +1,65 @@
++import type { MutationMode } from "./supauth-types-types.js";
++export type InvalidateScope = 'all' | 'resourceAll' | 'detail' | 'list' | false | string[];
++export interface TextTransformers {
++    humanize: (text: string) => string;
++    plural: (text: string) => string;
++    singular: (text: string) => string;
++}
++export interface OvertimeConfig {
++    enabled?: boolean;
++    interval?: number;
++    onInterval?: (elapsedInterval: number, context?: {
++        resource?: string;
++        action?: string;
++        id?: string | number;
++    }) => void;
++}
++export interface AdminOptions {
++    mutationMode?: MutationMode;
++    warnWhenUnsavedChanges?: boolean;
++    syncWithLocation?: boolean;
++    liveMode?: 'auto' | 'manual' | 'off';
++    disableServerSideValidation?: boolean;
++    undoableTimeout?: number;
++    textTransformers?: Partial<TextTransformers>;
++    redirect?: {
++        afterCreate?: 'list' | 'edit' | 'show' | false;
++        afterEdit?: 'list' | 'edit' | 'show' | false;
++        afterClone?: 'list' | 'edit' | 'show' | false;
++    };
++    reactQuery?: {
++        staleTime?: number;
++        gcTime?: number;
++        refetchOnWindowFocus?: boolean;
++    };
++    title?: {
++        text?: string;
++        icon?: string;
++    };
++    overtime?: OvertimeConfig;
++    breadcrumb?: false | 'default';
++    disableRouteChangeHandler?: boolean;
++    onLiveEvent?: (event: unknown) => void;
++    menuItems?: (items: {
++        name: string;
++        route: string;
++        label: string;
++        icon?: string;
++        parentName?: string;
++        order?: number;
++    }[]) => {
++        name: string;
++        route: string;
++        label: string;
++        icon?: string;
++        parentName?: string;
++        order?: number;
++    }[];
++    /** Default page size for tables. Falls back to localStorage 'svadmin-default-page-size' or 10. */
++    defaultPageSize?: number;
++}
++export declare function setAdminOptions(options: AdminOptions, merge?: boolean): void;
++export declare function getAdminOptions(): AdminOptions;
++export declare function resetAdminOptions(): void;
++/** Get the resolved text transformers (always returns full set) */
++export declare function getTextTransformers(): TextTransformers;
+diff --git a/supauth-types-permissions.svelte.d.ts b/supauth-types-permissions.svelte.d.ts
+new file mode 100644
+index 0000000..f6fb235
+--- /dev/null
++++ b/supauth-types-permissions.svelte.d.ts
+@@ -0,0 +1,107 @@
++/** Actions that can be checked for access control. Extensible via string literal union. */
++export type Action = 'list' | 'show' | 'create' | 'edit' | 'delete' | 'export' | 'field' | (string & {});
++export interface CanParams {
++    resource: string;
++    action: Action;
++    params?: {
++        id?: string | number;
++        [key: string]: unknown;
++    };
++    meta?: Record<string, unknown>;
++}
++export interface CanResult {
++    can: boolean;
++    reason?: string;
++}
++/**
++ * UI access-control integration point.
++ * It can mirror a backend policy decision for navigation and controls, but browser
++ * checks never authorize an API request. The backend must enforce the same policy.
++ *
++ * @example
++ * ```ts
++ * const accessControlProvider: AccessControlProvider = {
++ *   can: async ({ resource, action, params }) => {
++ *     if (resource === 'users' && action === 'delete') {
++ *       return { can: false, reason: 'Cannot delete users' };
++ *     }
++ *     return { can: true };
++ *   },
++ *   options: {
++ *     buttons: { enableAccessControl: true, hideIfUnauthorized: false },
++ *   },
++ * };
++ * ```
++ */
++export interface AccessControlProvider {
++    can: (params: CanParams | CanParams[]) => Promise<CanResult | CanResult[]>;
++    options?: {
++        buttons?: {
++            /** Enable access control checks on CRUD buttons globally. Default: false */
++            enableAccessControl?: boolean;
++            /** Hide buttons when unauthorized instead of disabling. Default: false */
++            hideIfUnauthorized?: boolean;
++        };
++    };
++}
++/**
++ * Register an AccessControlProvider.
++ */
++export declare function setAccessControlProvider(p: AccessControlProvider): void;
++/** Get the current AccessControlProvider (or null) */
++export declare function getAccessControlProvider(): AccessControlProvider | null;
++export declare function resetAccessControlProvider(): void;
++/** Get global button options from the AccessControlProvider */
++export declare function getAccessControlOptions(): {
++    buttons?: {
++        /** Enable access control checks on CRUD buttons globally. Default: false */
++        enableAccessControl?: boolean;
++        /** Hide buttons when unauthorized instead of disabling. Default: false */
++        hideIfUnauthorized?: boolean;
++    };
++};
++/**
++ * UI access check supporting single capabilities or a batch.
++ * Its result can change browser presentation but never authorizes the backend action.
++ */
++export declare function canAccessAsync(params: CanParams[]): Promise<CanResult[]>;
++export declare function canAccessAsync(resource: string, action: Action, params?: Record<string, unknown>, meta?: Record<string, unknown>): Promise<CanResult>;
++export interface FeatureGateConfig {
++    /** 仅用于前端展示的角色列表。 */
++    roles?: string[];
++    /**
++     * 需要的最低角色 (含以上所有角色)。
++     * 使用 minRole 时必须同时提供 roleHierarchy。
++     */
++    minRole?: string;
++    /**
++     * 角色层级定义 (高权 → 低权)，用于 minRole 比较。
++     * 由调用方按自身业务定义，框架不预设任何角色。
++     */
++    roleHierarchy?: string[];
++    /** 仅用于前端展示的权限列表 (全部匹配)。 */
++    permissions?: string[];
++}
++/** 浏览器中的角色和权限提示，不是授权凭据。 */
++export interface FeatureGateUser {
++    role: string;
++    permissions: string[];
++}
++/**
++ * 创建仅用于前端展示的功能门控函数。
++ * 只做客户端 UI 门控；输入可被篡改，后端必须独立完成令牌验证和操作授权。
++ * 不预设任何角色层级，也不解释通配符权限。
++ *
++ * @example
++ * ```ts
++ * const HIERARCHY = ['admin', 'editor', 'viewer'];
++ * const canEdit = createFeatureGate({
++ *   minRole: 'editor',
++ *   roleHierarchy: HIERARCHY,
++ *   permissions: ['content:write'],
++ * });
++ *
++ * if (canEdit(user)) { ... }
++ * ```
++ */
++export declare function createFeatureGate(config: FeatureGateConfig): (user: FeatureGateUser) => boolean;
+diff --git a/supauth-types-provider-bundle.d.ts b/supauth-types-provider-bundle.d.ts
+new file mode 100644
+index 0000000..506b17e
+--- /dev/null
++++ b/supauth-types-provider-bundle.d.ts
+@@ -0,0 +1,73 @@
++import type { AgentProvider, ChatProvider } from "./supauth-types-chatProvider.svelte.js";
++import type { AuditLogProvider } from "./supauth-types-audit.js";
++import type { AccessControlProvider } from "./supauth-types-permissions.svelte.js";
++import type { LiveProvider } from "./supauth-types-live.svelte.js";
++import type { RouterProvider } from "./supauth-types-router-provider.js";
++import type { CredentialProvider, IdentityGovernanceProvider, OrganizationProvider, SessionProvider } from "./supauth-types-enterprise.js";
++import type { AuthProvider, DataProvider, NotificationProvider, TaskProvider } from "./supauth-types-types.js";
++export type DataProviderInput = DataProvider | Record<string, DataProvider>;
++/**
++ * 一等 Provider 配置对象。字段名与现有独立 provider API 保持一致，
++ * 因此调用方可以渐进地从多个 props 迁移为一个 typed bundle。
++ */
++export interface ProviderBundle {
++    readonly dataProvider: DataProviderInput;
++    readonly authProvider?: AuthProvider | null;
++    readonly accessControlProvider?: AccessControlProvider | null;
++    readonly liveProvider?: LiveProvider;
++    readonly auditLogProvider?: AuditLogProvider | null;
++    readonly notificationProvider?: NotificationProvider | null;
++    readonly chatProvider?: ChatProvider | null;
++    readonly agentProvider?: AgentProvider | null;
++    readonly taskProvider?: TaskProvider;
++    readonly routerProvider?: RouterProvider;
++    readonly tenantAdapter?: TenantAdapter;
++    readonly organizationProvider?: OrganizationProvider | null;
++    readonly identityGovernanceProvider?: IdentityGovernanceProvider | null;
++    readonly sessionProvider?: SessionProvider | null;
++    readonly credentialProvider?: CredentialProvider | null;
++}
++/** 保留传入对象的精确类型，同时执行 ProviderBundle 的编译期校验。 */
++export declare function createProviderBundle<const TBundle extends ProviderBundle>(bundle: TBundle): TBundle;
++export type TenantId = string | number;
++export type TenantCacheIdentity = string | number;
++/** 请求树内的租户状态；不得通过模块级变量在 SSR 请求之间共享。 */
++export interface TenantContext {
++    readonly tenantId: TenantId;
++    readonly meta?: Readonly<Record<string, unknown>>;
++}
++/**
++ * 将标准 TenantContext 投影到具体后端所需的 provider meta 与 cache identity。
++ * Core 始终额外写入标准 `tenantId`，adapter 不能覆盖该字段。
++ */
++export interface TenantAdapter {
++    readonly getProviderMeta?: (tenant: TenantContext) => Readonly<Record<string, unknown>>;
++    readonly getCacheIdentity?: (tenant: TenantContext) => TenantCacheIdentity;
++}
++export interface TenantCacheKey {
++    readonly __svadminTenant: TenantCacheIdentity;
++}
++export declare const defaultTenantAdapter: Required<TenantAdapter>;
++export declare function resolveTenantProviderMeta(tenant: TenantContext, adapter?: TenantAdapter): Record<string, unknown>;
++export declare function createTenantCacheKey(tenant: TenantContext, adapter?: TenantAdapter): TenantCacheKey;
++export declare function isTenantCacheKey(value: unknown): value is TenantCacheKey;
++/**
++ * @deprecated 0.36 — Query Key v2 replaces positional tenant cache-key appending.
++ * Use `keys({ tenant })` instead. Removed in 0.39.
++ */
++export declare function appendTenantCacheKey(queryKey: readonly unknown[], tenantCacheKey: TenantCacheKey | undefined): readonly unknown[];
++/**
++ * @deprecated 0.36 — Query Key v2 replaces positional tenant cache-key matching.
++ * Use `queryKeyMatches(queryKey, { tenant })` instead. Removed in 0.39.
++ */
++export declare function queryKeyMatchesTenant(queryKey: readonly unknown[], tenantCacheKey: TenantCacheKey | undefined): boolean;
++export interface ProviderMetaInput {
++    readonly resource?: string;
++    readonly meta?: Record<string, unknown>;
++}
++export type ProviderMetaResolver = (input: ProviderMetaInput) => Record<string, unknown> | undefined;
++/**
++ * 为 DataProvider 的所有标准操作增量注入 meta；未声明的扩展字段仍由原 provider 保留。
++ */
++export declare function withProviderMeta(provider: DataProvider, resolveMeta: ProviderMetaResolver): DataProvider;
++export declare function withTenantDataProvider(provider: DataProvider, tenant: TenantContext, adapter?: TenantAdapter): DataProvider;
+diff --git a/supauth-types-query-hooks.svelte.d.ts b/supauth-types-query-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..90ea014
+--- /dev/null
++++ b/supauth-types-query-hooks.svelte.d.ts
+@@ -0,0 +1,76 @@
++import type { NotificationConfig, OvertimeOptions } from "./supauth-types-hook-utils.svelte.js";
++import type { GetListResult, Pagination, Sort, Filter, BaseRecord, HttpError, GetOneResult, GetManyResult, KnownResources } from "./supauth-types-types.js";
++import type { LiveMode, LiveEvent } from "./supauth-types-live.svelte.js";
++export type MaybeGetter<T> = T | (() => T);
++export interface UseListOptions<_TData extends BaseRecord = BaseRecord, _TError = HttpError> {
++    resource?: KnownResources;
++    pagination?: Pagination;
++    sorters?: Sort[];
++    filters?: Filter[];
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    queryOptions?: {
++        staleTime?: number;
++        enabled?: boolean;
++        gcTime?: number;
++        refetchOnWindowFocus?: boolean;
++    };
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    liveMode?: LiveMode;
++    onLiveEvent?: (event: LiveEvent) => void;
++    liveParams?: Record<string, unknown>;
++    overtimeOptions?: OvertimeOptions;
++}
++export declare function useList<TData extends BaseRecord = BaseRecord, TError = HttpError>(optionsOrGetter?: MaybeGetter<UseListOptions<TData, TError>>): import("@tanstack/svelte-query").CreateQueryResult<GetListResult<TData>, TError> & {
++    overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export interface UseOneOptions<_TData extends BaseRecord = BaseRecord, _TError = HttpError> {
++    resource?: KnownResources;
++    id?: string | number;
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    queryOptions?: {
++        staleTime?: number;
++        enabled?: boolean;
++        gcTime?: number;
++        refetchOnWindowFocus?: boolean;
++    };
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    liveMode?: LiveMode;
++    onLiveEvent?: (event: LiveEvent) => void;
++    liveParams?: Record<string, unknown>;
++    overtimeOptions?: OvertimeOptions;
++}
++export declare function useOne<TData extends BaseRecord = BaseRecord, TError = HttpError>(optionsOrGetter?: MaybeGetter<UseOneOptions<TData, TError>>): import("@tanstack/svelte-query").CreateQueryResult<GetOneResult<TData>, TError> & {
++    overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export declare function useShow<TData extends BaseRecord = BaseRecord, TError = HttpError>(optionsOrGetter?: MaybeGetter<UseOneOptions<TData, TError>>): (import("@tanstack/svelte-query").CreateQueryResult<GetOneResult<TData>, TError> & {
++    overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++}) & {
++    readonly showId: string | number | undefined;
++    setShowId: (id: string | number) => void;
++};
++export interface UseManyOptions<_TData extends BaseRecord = BaseRecord, _TError = HttpError> {
++    resource: KnownResources;
++    ids: (string | number)[];
++    meta?: Record<string, unknown>;
++    dataProviderName?: string;
++    queryOptions?: {
++        staleTime?: number;
++        enabled?: boolean;
++        gcTime?: number;
++        refetchOnWindowFocus?: boolean;
++    };
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    liveMode?: LiveMode;
++    onLiveEvent?: (event: LiveEvent) => void;
++    liveParams?: Record<string, unknown>;
++    overtimeOptions?: OvertimeOptions;
++}
++export declare function useMany<TData extends BaseRecord = BaseRecord, TError = HttpError>(optionsOrGetter: MaybeGetter<UseManyOptions<TData, TError>>): import("@tanstack/svelte-query").CreateQueryResult<GetManyResult<TData>, TError> & {
++    overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export declare function useApiUrl(dataProviderName?: string): string;
+diff --git a/supauth-types-query-keys.d.ts b/supauth-types-query-keys.d.ts
+new file mode 100644
+index 0000000..e724693
+--- /dev/null
++++ b/supauth-types-query-keys.d.ts
+@@ -0,0 +1,82 @@
++export declare const NAMESPACE = "svadmin";
++export declare const VERSION = 2;
++export type QueryKind = 'data' | 'task' | 'access' | 'custom';
++export type QueryDataAction = 'list' | 'infiniteList' | 'one' | 'many' | 'select' | 'selectDefaults';
++export type QueryTaskAction = 'list' | 'one';
++type TenantId = string | number;
++type BaseDescriptor = {
++    readonly namespace: typeof NAMESPACE;
++    readonly version: typeof VERSION;
++    readonly provider: string;
++    readonly tenant?: TenantId;
++    readonly resource?: string;
++    readonly id?: string | number;
++    readonly params?: unknown;
++    readonly method?: string;
++};
++export type QueryDescriptorData = BaseDescriptor & {
++    readonly kind: 'data';
++    readonly action: QueryDataAction;
++};
++export type QueryDescriptorTask = BaseDescriptor & {
++    readonly kind: 'task';
++    readonly action: QueryTaskAction;
++};
++export type QueryDescriptorAccess = BaseDescriptor & {
++    readonly kind: 'access';
++    readonly action?: 'can';
++};
++export type QueryDescriptorCustom = BaseDescriptor & {
++    readonly kind: 'custom';
++    readonly action?: string;
++};
++export type QueryDescriptor = QueryDescriptorData | QueryDescriptorTask | QueryDescriptorAccess | QueryDescriptorCustom;
++export type QueryKey = readonly [descriptor: QueryDescriptor];
++export type QueryKeysContext = {
++    readonly provider?: string;
++    readonly tenant?: TenantId;
++    readonly resource?: string;
++    readonly action?: string;
++    readonly id?: string | number;
++    readonly params?: unknown;
++    readonly method?: string;
++};
++export type QueryMatcher = {
++    readonly provider?: string;
++    readonly tenant?: TenantId;
++    readonly resource?: string;
++    readonly action?: string;
++    readonly id?: string | number;
++    readonly method?: string;
++    readonly kind?: QueryKind;
++};
++export type DataQueryMatcher = Omit<QueryMatcher, 'kind'> & {
++    readonly resource: string;
++};
++export type QueryKeysBuilder = {
++    data: {
++        list(resource: string, params?: unknown): QueryKey;
++        infiniteList(resource: string, params?: unknown): QueryKey;
++        one(resource: string, id: string | number, params?: unknown): QueryKey;
++        many(resource: string, params: unknown): QueryKey;
++        select(resource: string, params?: unknown): QueryKey;
++        selectDefaults(resource: string, params?: unknown): QueryKey;
++    };
++    task: {
++        list(params?: unknown): QueryKey;
++        one(id: string | number): QueryKey;
++    };
++    access: {
++        can(resource?: string, params?: unknown): QueryKey;
++    };
++    custom: {
++        call(resource: string, id: string | number, method?: string, params?: unknown): QueryKey;
++    };
++};
++export declare function keys(context?: QueryKeysContext): QueryKeysBuilder;
++export declare const queryKeys: QueryKeysBuilder;
++export declare function parseQueryKey(value: unknown): QueryDescriptor | undefined;
++export declare function isQueryKey(value: unknown): value is QueryKey;
++export declare function queryKeyMatches(queryKey: readonly unknown[], matcher?: QueryMatcher): boolean;
++export declare function dataQueryMatches(queryKey: readonly unknown[], matcher: DataQueryMatcher): boolean;
++export {};
+diff --git a/supauth-types-route-parsing.d.ts b/supauth-types-route-parsing.d.ts
+new file mode 100644
+index 0000000..acd3a1b
+--- /dev/null
++++ b/supauth-types-route-parsing.d.ts
+@@ -0,0 +1,5 @@
++export type ParsedResourceAction = {
++    action: 'list' | 'create' | 'edit' | 'show' | 'clone';
++    id?: string;
++};
++export declare function parseResourceActionSegments(restSegments: string[]): ParsedResourceAction;
+diff --git a/supauth-types-router-provider.d.ts b/supauth-types-router-provider.d.ts
+new file mode 100644
+index 0000000..a25899c
+--- /dev/null
++++ b/supauth-types-router-provider.d.ts
+@@ -0,0 +1,24 @@
++export type RouterNavigationResult = false | ReturnType<() => void>;
++export interface RouterProvider {
++    /** Navigate to a path */
++    go: (options: {
++        to: string;
++        query?: Record<string, string>;
++        hash?: string;
++        type?: 'push' | 'replace';
++    }) => RouterNavigationResult | Promise<RouterNavigationResult>;
++    /** Navigate back */
++    back: () => void;
++    /** Parse current URL into structured route info */
++    parse: () => {
++        resource?: string;
++        action?: string;
++        id?: string;
++        params: Record<string, string>;
++        pathname: string;
++    };
++    /** Formats an internal path into an href string for <a> tags */
++    formatLink?: (path: string) => string;
++}
++export declare function createHashRouterProvider(): RouterProvider;
++export declare function createHistoryRouterProvider(basePath?: string): RouterProvider;
+diff --git a/supauth-types-router.d.ts b/supauth-types-router.d.ts
+new file mode 100644
+index 0000000..e3c5a92
+--- /dev/null
++++ b/supauth-types-router.d.ts
+@@ -0,0 +1,34 @@
++import type { RouterProvider } from "./supauth-types-router-provider.js";
++export declare function registerRouterSync(fn: () => void): void;
++interface RouteMatch {
++    route: string;
++    params: Record<string, string>;
++}
++export type RouteGuard = (to: string, from: string) => boolean | Promise<boolean>;
++export declare function setActiveRouterProvider(provider: RouterProvider | undefined): void;
++export declare function beforeEach(guard: RouteGuard): () => void;
++export declare function afterEach(guard: (to: string, from: string) => void): () => void;
++/**
++ * Match a pathname against a list of route patterns.
++ * Accepts both hash paths (#/foo) and plain paths (/foo).
++ */
++export declare function matchRoute(pathname: string, routes: string[]): RouteMatch | null;
++/**
++ * Navigate with an explicit tree-scoped provider while preserving the same
++ * guards, path synchronization, and after hooks as the legacy active router.
++ */
++export declare function navigateWithProvider(provider: RouterProvider | undefined, path: string, options?: {
++    replaceState?: boolean;
++}): Promise<void>;
++export declare function navigate(path: string, options?: {
++    replaceState?: boolean;
++}): Promise<void>;
++/**
++ * Format a path into an href suitable for <a> tags.
++ */
++export declare function formatLink(path: string): string;
++export declare function formatLinkWithProvider(provider: RouterProvider | undefined, path: string): string;
++export declare function currentPath(): string;
++export declare function currentPathWithProvider(provider: RouterProvider | undefined): string;
++export declare function resetRouter(): void;
++export {};
+diff --git a/supauth-types-routing-hooks.svelte.d.ts b/supauth-types-routing-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..099b445
+--- /dev/null
++++ b/supauth-types-routing-hooks.svelte.d.ts
+@@ -0,0 +1,45 @@
++export declare function useGetToPath(): (options: {
++    resource?: string;
++    action?: "list" | "create" | "edit" | "show" | "clone";
++    id?: string | number;
++    meta?: Record<string, unknown>;
++}) => string;
++export declare function useGo(): (options: {
++    to?: string;
++    query?: Record<string, unknown>;
++    type?: "push" | "replace";
++    resource?: string;
++    action?: "list" | "create" | "edit" | "show" | "clone";
++    id?: string | number;
++}) => void;
++export declare function useBack(): () => void;
++/**
++ * useLink replaces standard <a> tags with Svelte routing-aware links
++ * (to avoid full page reloads in SSR apps)
++ */
++export declare function useLink(): () => string;
++export declare function useResource(resourceName?: string): {
++    readonly resource: import("./supauth-types-types.js").ResourceDefinition | undefined;
++    readonly resources: import("./supauth-types-types.js").ResourceDefinition[];
++    readonly identifier: string | undefined;
++    /** 当前 URL 解析出的 parent 资源信息（嵌套资源路由） */
++    readonly parent: Record<string, string> | undefined;
++    /** Resolve a resource by name — useful for dynamic lookups inside callbacks */
++    select: (name: string) => {
++        resource: import("./supauth-types-types.js").ResourceDefinition;
++        identifier: string;
++    } | {
++        resource: undefined;
++        identifier: undefined;
++    };
++};
++export declare function useNavigation(): {
++    create: (resource?: string) => void;
++    edit: (resource?: string, id?: string | number) => void;
++    clone: (resource?: string, id?: string | number) => void;
++    show: (resource?: string, id?: string | number) => void;
++    list: (resource?: string) => void;
++    push: (url: string) => void;
++    replace: (url: string) => void;
++    goBack: () => void;
++};
+diff --git a/supauth-types-table-hooks.svelte.d.ts b/supauth-types-table-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..cd8e14b
+--- /dev/null
++++ b/supauth-types-table-hooks.svelte.d.ts
+@@ -0,0 +1,38 @@
++import type { Pagination, Sort, Filter, BaseRecord, HttpError, KnownResources, GetListResult } from "./supauth-types-types.js";
++import type { UseListOptions, MaybeGetter } from "./supauth-types-query-hooks.svelte.js";
++export type FilterSetMode = 'merge' | 'replace';
++export interface UseTableOptions<TQueryFnData extends BaseRecord = BaseRecord, TError = HttpError, _TSearchVariables = Record<string, unknown>> extends Omit<UseListOptions<TQueryFnData, TError>, 'pagination' | 'sorters' | 'filters'> {
++    resource?: KnownResources;
++    pagination?: Pagination;
++    sorters?: {
++        initial?: Sort[];
++        permanent?: Sort[];
++        mode?: 'off' | 'server';
++    };
++    filters?: {
++        initial?: Filter[];
++        permanent?: Filter[];
++        mode?: 'off' | 'server';
++        defaultBehavior?: FilterSetMode;
++    };
++    syncWithLocation?: boolean;
++}
++export declare function useTable<TQueryFnData extends BaseRecord = BaseRecord, TError = HttpError, TSearchVariables = Record<string, unknown>>(optionsOrGetter?: MaybeGetter<UseTableOptions<TQueryFnData, TError, TSearchVariables>>): {
++    query: import("@tanstack/svelte-query").CreateQueryResult<GetListResult<TQueryFnData>, TError> & {
++        overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++    };
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++    readonly pagination: Pagination;
++    readonly sorters: Sort[];
++    readonly filters: Filter[];
++    setSorters: (newSorters: Sort[]) => void;
++    setFilters: (newFilters: Filter[], mode?: FilterSetMode) => void;
++    setPage: (page: number) => void;
++    setPageSize: (size: number) => void;
++    createLinkForSyncWithLocation: () => string;
++    readonly totalPages: number;
++    readonly current: number;
++    readonly pageSize: number;
++    readonly pageCount: number;
++    readonly clientData: TQueryFnData[];
++};
+diff --git a/supauth-types-table-state.svelte.d.ts b/supauth-types-table-state.svelte.d.ts
+new file mode 100644
+index 0000000..baa9117
+--- /dev/null
++++ b/supauth-types-table-state.svelte.d.ts
+@@ -0,0 +1,81 @@
++import type { Pagination, Sort, Filter, BaseRecord, HttpError, KnownResources, GetListResult } from "./supauth-types-types.js";
++import type { UseListOptions } from "./supauth-types-query-hooks.svelte.js";
++export type FilterSetMode = 'merge' | 'replace';
++export interface TableStateOptions<TData extends BaseRecord = BaseRecord, TError = HttpError> extends Omit<UseListOptions<TData, TError>, 'pagination' | 'sorters' | 'filters'> {
++    resource?: KnownResources;
++    pagination?: Pagination;
++    sorters?: {
++        initial?: Sort[];
++        permanent?: Sort[];
++        mode?: 'off' | 'server';
++    };
++    filters?: {
++        initial?: Filter[];
++        permanent?: Filter[];
++        mode?: 'off' | 'server';
++        defaultBehavior?: FilterSetMode;
++    };
++    syncWithLocation?: boolean;
++}
++/**
++ * Svelte 5 Class-based reactive table state.
++ *
++ * Usage:
++ * ```ts
++ * const table = new TableState({ resource: 'posts' });
++ * table.setPage(2);
++ * table.toggleSort('title');
++ * console.log(table.data); // reactive
++ * ```
++ */
++export declare class TableState<TData extends BaseRecord = BaseRecord, TError = HttpError> {
++    pagination: Pagination;
++    currentSorters: Sort[];
++    currentFilters: Filter[];
++    private permanentSorters;
++    private permanentFilters;
++    private sortersMode;
++    private filtersMode;
++    private filterDefaultBehavior;
++    private syncWithLocation;
++    private paginationMode;
++    private adminContext;
++    private _queryResult;
++    constructor(options?: TableStateOptions<TData, TError>);
++    get effectiveSorters(): Sort[];
++    get effectiveFilters(): Filter[];
++    private get queryPagination();
++    /** Underlying TanStack Query result */
++    get query(): import("@tanstack/svelte-query").CreateQueryResult<GetListResult<TData>, TError> & {
++        overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++    };
++    /** Table data rows */
++    get data(): TData[];
++    /** Total record count */
++    get total(): number;
++    /** Is data loading */
++    get isLoading(): boolean;
++    /** Is data error */
++    get isError(): boolean;
++    /** Error object */
++    get error(): TError | null;
++    /** Current page number */
++    get current(): number;
++    /** Page size */
++    get pageSize(): number;
++    /** Total number of pages */
++    get pageCount(): number;
++    /** Has next page */
++    get hasNextPage(): boolean;
++    /** Has previous page */
++    get hasPreviousPage(): boolean;
++    setPage(page: number): void;
++    setPageSize(size: number): void;
++    nextPage(): void;
++    previousPage(): void;
++    setSorters(newSorters: Sort[]): void;
++    toggleSort(field: string): void;
++    setFilters(newFilters: Filter[], mode?: FilterSetMode): void;
++    resetFilters(): void;
++    get clientData(): TData[];
++}
+diff --git a/supauth-types-task-hooks.svelte.d.ts b/supauth-types-task-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..3bbc2cf
+--- /dev/null
++++ b/supauth-types-task-hooks.svelte.d.ts
+@@ -0,0 +1,64 @@
++import type { NotificationConfig, OvertimeOptions } from "./supauth-types-hook-utils.svelte.js";
++import type { HttpError, SubmitTaskOptions, TaskHandle, TaskListResult, TaskProvider, TaskRecord } from "./supauth-types-types.js";
++export interface UseSubmitTaskOptions {
++    mutationOptions?: {
++        onSuccess?: (data: unknown, variables: unknown, context: unknown) => void;
++        onError?: (error: unknown, variables: unknown, context: unknown) => void;
++    };
++    overtimeOptions?: OvertimeOptions;
++}
++export interface UseSubmitTaskMutateParams<TTask extends TaskRecord = TaskRecord> {
++    taskName: string;
++    options?: SubmitTaskOptions;
++    taskProvider?: TaskProvider<TTask>;
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++}
++export declare function useSubmitTask<TTask extends TaskRecord = TaskRecord, TError = HttpError>(options?: UseSubmitTaskOptions): {
++    mutation: import("@tanstack/svelte-query").CreateMutationResult<TaskHandle<TTask>, TError, UseSubmitTaskMutateParams<TTask>, unknown>;
++    readonly overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export interface UseTaskOptions<TTask extends TaskRecord = TaskRecord, _TError = HttpError> {
++    taskId?: string;
++    taskProvider?: TaskProvider<TTask>;
++    queryOptions?: {
++        enabled?: boolean;
++        staleTime?: number;
++        gcTime?: number;
++        refetchOnWindowFocus?: boolean;
++        refetchInterval?: number | false;
++        refetchIntervalInBackground?: boolean;
++    };
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    overtimeOptions?: OvertimeOptions;
++}
++export declare function useTask<TTask extends TaskRecord = TaskRecord, TError = HttpError>(options?: UseTaskOptions<TTask, TError>): import("@tanstack/svelte-query").CreateQueryResult<TTask, TError> & {
++    overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export interface UseTaskListOptions<TTask extends TaskRecord = TaskRecord, _TError = HttpError> {
++    params?: Record<string, unknown>;
++    dlq?: boolean;
++    taskProvider?: TaskProvider<TTask>;
++    queryOptions?: {
++        enabled?: boolean;
++        staleTime?: number;
++        gcTime?: number;
++        refetchOnWindowFocus?: boolean;
++        refetchInterval?: number | false;
++        refetchIntervalInBackground?: boolean;
++    };
++    successNotification?: NotificationConfig;
++    errorNotification?: NotificationConfig;
++    overtimeOptions?: OvertimeOptions;
++}
++export declare function useTaskList<TTask extends TaskRecord = TaskRecord, TError = HttpError>(options?: UseTaskListOptions<TTask, TError>): import("@tanstack/svelte-query").CreateQueryResult<TaskListResult<TTask>, TError> & {
++    overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export interface UseTaskSubscriptionOptions<TTask extends TaskRecord = TaskRecord> {
++    taskId: string;
++    taskProvider?: TaskProvider<TTask>;
++    enabled?: boolean;
++    onTask: (task: TTask) => void;
++}
++export declare function useTaskSubscription<TTask extends TaskRecord = TaskRecord>(options: UseTaskSubscriptionOptions<TTask>): void;
+diff --git a/supauth-types-theme.svelte.d.ts b/supauth-types-theme.svelte.d.ts
+new file mode 100644
+index 0000000..1149d93
+--- /dev/null
++++ b/supauth-types-theme.svelte.d.ts
+@@ -0,0 +1,73 @@
++export type ThemeMode = 'light' | 'dark' | 'system';
++export type ColorTheme = 'blue' | 'green' | 'rose' | 'orange' | 'violet' | 'neutral';
++/** Controls how the theme class is applied to <html> */
++export type ThemeStrategy = 'standard' | 'dark-first';
++/** A color preset defines CSS variable overrides for light and dark modes. */
++export interface ColorPreset {
++    /** Unique name (e.g. 'indigo', 'blue') */
++    name: string;
++    /** Display label (e.g. 'Indigo', 'Blue') */
++    label: string;
++    /** Preview swatch color (hex) for UI pickers */
++    color: string;
++    /** CSS variable overrides for light mode */
++    light: Record<string, string>;
++    /** CSS variable overrides for dark mode */
++    dark: Record<string, string>;
++}
++/** Built-in color presets — consumers can extend via registerColorPreset(). */
++export declare const builtinPresets: Record<string, ColorPreset>;
++/** Register a custom color preset. Overwrites any built-in preset with the same name. */
++export declare function registerColorPreset(preset: ColorPreset): void;
++/** Get all available color presets (built-in + registered). */
++export declare function getColorPresets(): ColorPreset[];
++export interface ThemeConfig {
++    /** Class strategy: 'standard' toggles '.dark', 'dark-first' toggles '.light' */
++    strategy?: ThemeStrategy;
++    /** Custom CSS variables to inject as overrides on <html> */
++    cssOverrides?: Record<string, string>;
++    /** Whether to disable the built-in color-scheme attribute */
++    disableColorScheme?: boolean;
++    /** Built-in color preset name (e.g. 'indigo', 'blue') or a custom ColorPreset object */
++    colorPreset?: ColorPreset | string;
++    /** Layout style option: 'default' or 'clean-flat' for high-contrast flat panel design */
++    layoutPreset?: 'default' | 'clean-flat';
++}
++/** Explicit document-level values contributed by one mounted AdminApp. */
++export interface ThemeOwnerOptions {
++    themeConfig?: ThemeConfig;
++    defaultTheme?: ThemeMode;
++}
++/** Opaque identity used to update or unregister a mounted theme owner. */
++export type ThemeOwnerToken = symbol;
++/**
++ * Configure the legacy document owner. Configuration is replaced as a whole;
++ * mounted explicit owners continue to take precedence until they unregister.
++ */
++export declare function configureTheme(config: ThemeConfig): void;
++/** Get current effective theme configuration. */
++export declare function getThemeConfig(): ThemeConfig;
++/** Remove previously applied CSS overrides. */
++export declare function clearCssOverrides(keys?: string[]): void;
++export declare function getColorThemes(): {
++    id: ColorTheme;
++    label: string;
++    color: string;
++}[];
++export declare function getTheme(): ThemeMode;
++export declare function setTheme(newMode: ThemeMode): void;
++export declare function toggleTheme(): void;
++/** Resolved theme (always 'light' or 'dark', never 'system'). */
++export declare function getResolvedTheme(): 'light' | 'dark';
++export declare function getColorTheme(): ColorTheme;
++export declare function setColorTheme(nextColorTheme: ColorTheme): void;
++/**
++ * Register a browser-only document owner. Owners with omitted values remain
++ * inert, allowing a mounted AdminApp to activate the same token after prop updates.
++ */
++export declare function registerThemeOwner(options: ThemeOwnerOptions): ThemeOwnerToken | undefined;
++/** Update one mounted owner without changing its stack order. */
++export declare function updateThemeOwner(token: ThemeOwnerToken | undefined, options: ThemeOwnerOptions): void;
++/** Remove an owner safely regardless of its position in the stack. */
++export declare function unregisterThemeOwner(token: ThemeOwnerToken | undefined): void;
++export declare function resetTheme(): void;
+diff --git a/supauth-types-toast.svelte.d.ts b/supauth-types-toast.svelte.d.ts
+new file mode 100644
+index 0000000..3c14d15
+--- /dev/null
++++ b/supauth-types-toast.svelte.d.ts
+@@ -0,0 +1,50 @@
++export type ToastType = 'success' | 'error' | 'info' | 'warning' | 'undoable';
++export interface ToastItem {
++    id: number;
++    key?: string;
++    type: ToastType;
++    message: string;
++    duration?: number;
++    onUndo?: () => void;
++    onTimeout?: () => void;
++}
++export declare function getToastQueue(): ToastItem[];
++export declare function consumeToastQueue(): void;
++export declare function getPromiseQueue(): {
++    id: number;
++    promise: Promise<unknown>;
++    opts: {
++        loading: string;
++        success: string;
++        error: string;
++    };
++}[];
++export declare function consumePromiseQueue(): void;
++export declare function getToasts(): ToastItem[];
++export declare function addToast(type: ToastType, message: string, duration?: number, options?: {
++    key?: string;
++    onUndo?: () => void;
++    onTimeout?: () => void;
++}): void;
++export declare function removeToast(id: number): void;
++export declare function resetToast(): void;
++export declare const toast: {
++    success: (msg: string, duration?: number, opts?: {
++        key?: string;
++    }) => void;
++    error: (msg: string, duration?: number, opts?: {
++        key?: string;
++    }) => void;
++    info: (msg: string, duration?: number, opts?: {
++        key?: string;
++    }) => void;
++    warning: (msg: string, duration?: number, opts?: {
++        key?: string;
++    }) => void;
++    undoable: (msg: string, duration: number, onUndo: () => void, onTimeout: () => void) => void;
++    promise: <T>(promise: Promise<T>, opts: {
++        loading: string;
++        success: string;
++        error: string;
++    }) => Promise<T>;
++};
+diff --git a/supauth-types-types.d.ts b/supauth-types-types.d.ts
+new file mode 100644
+index 0000000..745ac95
+--- /dev/null
++++ b/supauth-types-types.d.ts
+@@ -0,0 +1,460 @@
++import type { Component } from 'svelte';
++export type ValidationErrors = Record<string, string | string[]>;
++export interface HttpErrorOptions {
++    code?: string;
++    details?: unknown;
++    body?: unknown;
++    cause?: unknown;
++}
++export declare class HttpError extends Error {
++    statusCode: number;
++    errors?: ValidationErrors;
++    code?: string;
++    details?: unknown;
++    body?: unknown;
++    cause?: unknown;
++    constructor(message: string, statusCode: number, errors?: ValidationErrors, options?: HttpErrorOptions);
++}
++export declare class UndoError extends Error {
++    constructor();
++}
++/** Raised when a delete-many fallback removed some records but not all. */
++export declare class DeleteManyPartialError extends Error {
++    readonly succeededIds: (string | number)[];
++    readonly failedIds: (string | number)[];
++    readonly causes: unknown[];
++    constructor(succeededIds: (string | number)[], failedIds: (string | number)[], causes?: unknown[]);
++}
++export type BaseRecord = Record<string, unknown>;
++export interface Pagination {
++    current?: number;
++    pageSize?: number;
++    mode?: 'server' | 'client' | 'off';
++}
++export interface Sort {
++    field: string;
++    order: 'asc' | 'desc';
++}
++export type CrudOperator = 'eq' | 'ne' | 'lt' | 'gt' | 'lte' | 'gte' | 'contains' | 'ncontains' | 'startswith' | 'endswith' | 'in' | 'nin' | 'null' | 'nnull' | 'between' | 'nbetween';
++export interface FieldFilter {
++    field: string;
++    operator: CrudOperator;
++    value: unknown;
++}
++export type Filter = FieldFilter | LogicalFilter;
++export interface LogicalFilter {
++    operator: 'or' | 'and';
++    value: Filter[];
++}
++export interface GetListParams {
++    resource: string;
++    pagination?: Pagination;
++    sorters?: Sort[];
++    filters?: Filter[];
++    meta?: Record<string, unknown>;
++}
++export interface GetListResult<TData extends BaseRecord = BaseRecord> {
++    data: TData[];
++    total: number;
++    [key: string]: unknown;
++}
++export interface GetOneParams {
++    resource: string;
++    id: string | number;
++    meta?: Record<string, unknown>;
++}
++export interface GetOneResult<TData extends BaseRecord = BaseRecord> {
++    data: TData;
++}
++export interface GetManyParams {
++    resource: string;
++    ids: (string | number)[];
++    meta?: Record<string, unknown>;
++}
++export interface GetManyResult<TData extends BaseRecord = BaseRecord> {
++    data: TData[];
++}
++export interface CreateParams<TVariables = unknown> {
++    resource: string;
++    variables: TVariables;
++    meta?: Record<string, unknown>;
++}
++export interface CreateResult<TData extends BaseRecord = BaseRecord> {
++    data: TData;
++}
++export interface CreateManyParams<TVariables = unknown> {
++    resource: string;
++    variables: TVariables[];
++    meta?: Record<string, unknown>;
++}
++export interface CreateManyResult<TData extends BaseRecord = BaseRecord> {
++    data: TData[];
++}
++export interface UpdateParams<TVariables = unknown> {
++    resource: string;
++    id: string | number;
++    variables: TVariables;
++    meta?: Record<string, unknown>;
++}
++export interface UpdateResult<TData extends BaseRecord = BaseRecord> {
++    data: TData;
++}
++export interface UpdateManyParams<TVariables = unknown> {
++    resource: string;
++    ids: (string | number)[];
++    variables: TVariables;
++    meta?: Record<string, unknown>;
++}
++export interface UpdateManyResult<TData extends BaseRecord = BaseRecord> {
++    data: TData[];
++}
++export interface DeleteParams<TVariables = unknown> {
++    resource: string;
++    id: string | number;
++    variables?: TVariables;
++    meta?: Record<string, unknown>;
++}
++export interface DeleteResult<TData extends BaseRecord = BaseRecord> {
++    data: TData;
++}
++export interface DeleteManyParams<TVariables = unknown> {
++    resource: string;
++    ids: (string | number)[];
++    variables?: TVariables;
++    meta?: Record<string, unknown>;
++}
++export interface DeleteManyResult<TData extends BaseRecord = BaseRecord> {
++    data: TData[];
++}
++export interface CustomParams<TVariables = unknown> {
++    url: string;
++    method: 'get' | 'post' | 'put' | 'patch' | 'delete';
++    payload?: TVariables;
++    query?: Record<string, unknown>;
++    headers?: Record<string, string>;
++    sorters?: Sort[];
++    filters?: Filter[];
++    meta?: Record<string, unknown>;
++}
++export interface CustomResult<TData = unknown> {
++    data: TData;
++}
++export interface DataProvider {
++    getList: <TData extends BaseRecord = BaseRecord>(params: GetListParams) => Promise<GetListResult<TData>>;
++    getOne: <TData extends BaseRecord = BaseRecord>(params: GetOneParams) => Promise<GetOneResult<TData>>;
++    create: <TData extends BaseRecord = BaseRecord, TVariables = unknown>(params: CreateParams<TVariables>) => Promise<CreateResult<TData>>;
++    update: <TData extends BaseRecord = BaseRecord, TVariables = unknown>(params: UpdateParams<TVariables>) => Promise<UpdateResult<TData>>;
++    deleteOne: <TData extends BaseRecord = BaseRecord, TVariables = unknown>(params: DeleteParams<TVariables>) => Promise<DeleteResult<TData>>;
++    getApiUrl: () => string;
++    getMany?: <TData extends BaseRecord = BaseRecord>(params: GetManyParams) => Promise<GetManyResult<TData>>;
++    createMany?: <TData extends BaseRecord = BaseRecord, TVariables = unknown>(params: CreateManyParams<TVariables>) => Promise<CreateManyResult<TData>>;
++    updateMany?: <TData extends BaseRecord = BaseRecord, TVariables = unknown>(params: UpdateManyParams<TVariables>) => Promise<UpdateManyResult<TData>>;
++    deleteMany?: <TData extends BaseRecord = BaseRecord, TVariables = unknown>(params: DeleteManyParams<TVariables>) => Promise<DeleteManyResult<TData>>;
++    custom?: <TData = unknown, TVariables = unknown>(params: CustomParams<TVariables>) => Promise<CustomResult<TData>>;
++}
++export type TaskDateValue = string | Date | null;
++export type TaskMessageValue = string | null;
++export interface TaskRecord extends BaseRecord {
++    id: string;
++    name?: string;
++    title?: string;
++    status?: string;
++    progress?: number;
++    priority?: number;
++    queueName?: string;
++    queue_name?: string;
++    message?: TaskMessageValue;
++    payload?: unknown;
++    /**
++     * Task output payload. `result` is the canonical camelCase field used by
++     * svadmin UI helpers; `result_data` is accepted for Supabase/Postgres-style
++     * task mirrors. Consumers should prefer `result`, then fall back to
++     * `result_data`, matching `resolveTaskResult`.
++     */
++    result?: unknown;
++    result_data?: unknown;
++    /**
++     * Task lifecycle timestamps. Supabase/Postgres mirrors often expose nullable
++     * columns for lifecycle phases that have not happened yet, and svadmin UI
++     * helpers intentionally skip nullish values with `??` fallback ordering.
++     */
++    createdAt?: TaskDateValue;
++    created_at?: TaskDateValue;
++    updatedAt?: TaskDateValue;
++    updated_at?: TaskDateValue;
++    startedAt?: TaskDateValue;
++    started_at?: TaskDateValue;
++    finishedAt?: TaskDateValue;
++    finished_at?: TaskDateValue;
++    cancelledAt?: TaskDateValue;
++    cancelled_at?: TaskDateValue;
++    /**
++     * Task failure payload/message. `error` carries structured error details
++     * when available; `errorMessage` and `error_message` are string fallbacks for
++     * camelCase and snake_case providers. Consumers should prefer `error`, then
++     * `errorMessage`, then `error_message`, matching `resolveTaskError`.
++     */
++    error?: unknown;
++    errorMessage?: TaskMessageValue;
++    error_message?: TaskMessageValue;
++}
++export interface SubmitTaskOptions {
++    body?: Record<string, unknown>;
++    idempotencyKey?: string;
++    headers?: Record<string, string>;
++    meta?: Record<string, unknown>;
++}
++export interface TaskSubscription {
++    unsubscribe(): void;
++}
++export interface TaskHandle<TTask extends TaskRecord = TaskRecord> {
++    id?: string;
++    wait(): Promise<TTask>;
++    subscribe?(callback: (task: TTask) => void): TaskSubscription | (() => void) | undefined;
++    cancel?(): Promise<unknown>;
++    retry?(): Promise<unknown>;
++}
++export interface TaskListResult<TTask extends TaskRecord = TaskRecord> {
++    data: TTask[];
++    total?: number;
++}
++export interface TaskProvider<TTask extends TaskRecord = TaskRecord> {
++    submit(taskName: string, options?: SubmitTaskOptions): Promise<TaskHandle<TTask>>;
++    get(taskId: string): Promise<TTask>;
++    list?(params?: Record<string, unknown>): Promise<TaskListResult<TTask>>;
++    listDlq?(params?: Record<string, unknown>): Promise<TaskListResult<TTask>>;
++    cancel?(taskId: string): Promise<unknown>;
++    retry?(taskId: string): Promise<unknown>;
++    subscribe?(taskId: string, callback: (task: TTask) => void): TaskSubscription | (() => void) | undefined;
++}
++export interface Identity {
++    id?: string;
++    name?: string;
++    email?: string;
++    avatar?: string;
++    [key: string]: unknown;
++}
++export interface AuthActionResult {
++    success: boolean;
++    redirectTo?: string;
++    error?: {
++        message: string;
++        name?: string;
++    };
++}
++export interface CheckResult {
++    authenticated: boolean;
++    redirectTo?: string;
++    error?: {
++        message: string;
++        name?: string;
++    };
++    logout?: boolean;
++}
++export interface Role {
++    id: string;
++    name: string;
++    description?: string;
++    [key: string]: unknown;
++}
++export interface AuthProvider {
++    login: (params: Record<string, unknown>) => Promise<AuthActionResult>;
++    logout: (params?: Record<string, unknown>) => Promise<AuthActionResult>;
++    check: (params?: Record<string, unknown>) => Promise<CheckResult>;
++    getIdentity: () => Promise<Identity | null>;
++    /**
++     * Returns UI-only permission hints for labels, navigation, or disabled controls.
++     * Browser-visible values are not authorization evidence: API, RLS, and action
++     * handlers must authenticate and authorize the request independently.
++     */
++    getPermissions?: (params?: Record<string, unknown>) => Promise<unknown>;
++    register?: (params: Record<string, unknown>) => Promise<AuthActionResult>;
++    forgotPassword?: (params: Record<string, unknown>) => Promise<AuthActionResult>;
++    updatePassword?: (params: Record<string, unknown>) => Promise<AuthActionResult>;
++    /** Update current user's identity fields such as name or email. */
++    updateIdentity?: (params: Partial<Identity> & Record<string, unknown>) => Promise<AuthActionResult>;
++    /** Update user profile (name, avatar, etc.) */
++    updateProfile?: (params: {
++        name?: string;
++        avatar?: string | File;
++        [key: string]: unknown;
++    }) => Promise<AuthActionResult>;
++    /** Get list of system roles for RBAC mapping */
++    getRoles?: () => Promise<Role[]>;
++    /** Get specific role permissions as a matrix map, e.g. { "users": ["create", "read"] } */
++    getRolePermissions?: (roleId: string) => Promise<Record<string, string[]>>;
++    /** Update permissions for a specific role */
++    updateRolePermissions?: (roleId: string, permissions: Record<string, string[]>) => Promise<AuthActionResult>;
++    /** Get recent audit logs */
++    getAuditLogs?: (params?: {
++        page?: number;
++        pageSize?: number;
++    }) => Promise<{
++        data: AuditLog[];
++        total: number;
++    }>;
++    onError?: (error: unknown) => Promise<{
++        redirectTo?: string;
++        logout?: boolean;
++    }>;
++}
++export interface AuditLog {
++    id: string | number;
++    userId?: string | number;
++    userName?: string;
++    action: string;
++    resource?: string;
++    createdAt: string | Date;
++    ipAddress?: string;
++    details?: Record<string, unknown> | string;
++}
++export interface NotificationProvider {
++    open: (params: {
++        type: 'success' | 'error' | 'warning' | 'info';
++        message: string;
++        description?: string;
++        key?: string;
++    }) => void;
++    close: (key: string) => void;
++}
++export type MutationMode = 'pessimistic' | 'optimistic' | 'undoable';
++/** 声明资源使用的传输协议；具体 URL/序列化行为由对应 provider 实现。 */
++export interface ResourceTransportConfig {
++    readonly type: string;
++    readonly endpoint?: string;
++    readonly options?: Readonly<Record<string, unknown>>;
++}
++/** 声明资源使用的后端 adapter，不在 Core 内绑定具体运行时实现。 */
++export interface ResourceAdapterConfig {
++    readonly name: string;
++    readonly version?: string;
++    readonly options?: Readonly<Record<string, unknown>>;
++}
++/** 每资源的 provider 选择与声明性 transport/adapter 元数据。 */
++export interface ResourceProviderConfig {
++    readonly dataProviderName?: string;
++    readonly transport?: string | ResourceTransportConfig;
++    readonly adapter?: string | ResourceAdapterConfig;
++    readonly meta?: Readonly<Record<string, unknown>>;
++}
++export interface ResourceDefinition {
++    name: string;
++    /** Unique identifier — use when multiple resources share the same `name` but target different DataProviders */
++    identifier?: string;
++    label: string;
++    icon?: string;
++    primaryKey?: string;
++    fields: FieldDefinition[];
++    defaultSort?: Sort;
++    pageSize?: number;
++    canCreate?: boolean;
++    canEdit?: boolean;
++    canDelete?: boolean;
++    canShow?: boolean;
++    showInMenu?: boolean;
++    parentName?: string;
++    menuOrder?: number;
++    /** Navigation group name — resources with the same group are displayed in a collapsible section */
++    group?: string;
++    /** DataProvider 选择及声明性 transport/adapter 元数据。 */
++    provider?: ResourceProviderConfig;
++    /** @deprecated 新代码优先使用 `provider.dataProviderName` 选择 DataProvider。 */
++    meta?: Record<string, unknown> & {
++        dataProviderName?: string;
++        parent?: string;
++    };
++}
++export interface MenuItem {
++    /** Unique identifier, also used as i18n fallback key: t(`menu.${name}`) */
++    name: string;
++    /** Display label. Falls back to `t('menu.${name}')` if omitted */
++    label?: string;
++    /** Icon name string (maps to lucide icon set) or Svelte component */
++    icon?: string | Component;
++    /** Navigation path — omit for parent-only menu nodes */
++    href?: string;
++    /** Open in new tab (useful for external links) */
++    target?: '_blank' | '_self';
++    /** Permission check metadata */
++    meta?: {
++        resource?: string;
++        action?: string;
++        /** Hide this item from the menu entirely */
++        hidden?: boolean;
++    };
++    /** Sub-menu items — supports infinite nesting */
++    children?: MenuItem[];
++}
++export interface FieldDefinition {
++    key: string;
++    label: string;
++    type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'multiselect' | 'tags' | 'textarea' | 'richtext' | 'image' | 'images' | 'json' | 'relation' | 'color' | 'url' | 'email' | 'phone' | 'currency' | 'file' | 'markdown' | 'password' | 'array' | 'tree-select' | 'treeselect' | 'cascader' | 'transfer' | 'rate' | 'rating' | 'avatar' | 'copy' | 'code';
++    required?: boolean;
++    searchable?: boolean;
++    sortable?: boolean;
++    filterable?: boolean;
++    width?: string;
++    showInList?: boolean;
++    showInForm?: boolean;
++    showInCreate?: boolean;
++    showInEdit?: boolean;
++    showInShow?: boolean;
++    options?: {
++        label: string;
++        value: string | number;
++        children?: unknown[];
++        disabled?: boolean;
++    }[];
++    treeOptions?: {
++        label: string;
++        value: string | number;
++        children?: unknown[];
++        disabled?: boolean;
++    }[];
++    cascaderOptions?: {
++        label: string;
++        value: string | number;
++        children?: unknown[];
++        disabled?: boolean;
++    }[];
++    transferData?: {
++        key: string | number;
++        title: string;
++        description?: string;
++        disabled?: boolean;
++    }[];
++    multiple?: boolean;
++    changeOnSelect?: boolean;
++    separator?: string;
++    defaultValue?: unknown;
++    resource?: string;
++    optionLabel?: string;
++    optionValue?: string;
++    subFields?: FieldDefinition[];
++    validate?: (value: unknown) => string | null;
++    group?: string;
++}
++/**
++ * Extend this interface via declaration merging to register resource types.
++ * When registered, all hooks automatically infer data types from resource names.
++ *
++ * @example
++ * ```ts
++ * declare module '@svadmin/core' {
++ *   interface ResourceTypeMap {
++ *     users: { id: string; name: string; email: string }
++ *     posts: { id: string; title: string; content: string }
++ *   }
++ * }
++ *
++ * // Now hooks auto-infer:
++ * const list = useList({ resource: 'users' })
++ * // list.data → { id: string; name: string; email: string }[]
++ * ```
++ */
++export interface ResourceTypeMap {
++}
++/** When ResourceTypeMap is empty → string; otherwise → registered keys */
++export type KnownResources = keyof ResourceTypeMap extends never ? string : Extract<keyof ResourceTypeMap, string>;
++/** Infer data type from resource name. Falls back to Record<string, unknown> for unregistered resources */
++export type InferData<R extends string> = R extends keyof ResourceTypeMap ? ResourceTypeMap[R] : Record<string, unknown>;
+diff --git a/supauth-types-unsaved-changes.svelte.d.ts b/supauth-types-unsaved-changes.svelte.d.ts
+new file mode 100644
+index 0000000..8c3402e
+--- /dev/null
++++ b/supauth-types-unsaved-changes.svelte.d.ts
+@@ -0,0 +1,8 @@
++export declare function setUnsavedChanges(value: boolean): void;
++export declare function resetUnsavedChanges(): void;
++export declare function getUnsavedChanges(): boolean;
++export declare function initUnsavedChangesNotifier(options?: {
++    beforeNavigate?: (callback: (nav: {
++        cancel: () => void;
++    }) => void) => void;
++}): (() => void) | undefined;
+diff --git a/supauth-types-url-sync.d.ts b/supauth-types-url-sync.d.ts
+new file mode 100644
+index 0000000..4c9a972
+--- /dev/null
++++ b/supauth-types-url-sync.d.ts
+@@ -0,0 +1,20 @@
++import type { Filter } from "./supauth-types-types.js";
++import type { AdminContextAccessor } from "./supauth-types-context.svelte.js";
++/**
++ * 保留从列表进入 CRUD 页面时可安全恢复的查询状态。
++ * 未知参数不会跨页面传播，避免把 detail、tenantId 或敏感参数带入记录路由。
++ */
++export declare function sanitizeListQueryParams(params: Record<string, string>): Record<string, string>;
++export declare function appendListQuery(path: string, params: Record<string, string>): string;
++export declare function appendListQueryFromPath(path: string, currentPath: string): string;
++export interface URLState {
++    page?: number;
++    pageSize?: number;
++    sortField?: string;
++    sortOrder?: 'asc' | 'desc';
++    search?: string;
++    filters?: Filter[];
++    detailId?: string;
++}
++export declare function readURLState(adminContext?: AdminContextAccessor): URLState;
++export declare function writeURLState(state: URLState, adminContext?: AdminContextAccessor, type?: 'push' | 'replace'): void;
+diff --git a/supauth-types-useCan.d.ts b/supauth-types-useCan.d.ts
+new file mode 100644
+index 0000000..cc3ef79
+--- /dev/null
++++ b/supauth-types-useCan.d.ts
+@@ -0,0 +1,27 @@
++import type { Action } from "./supauth-types-permissions.svelte.js";
++export interface UseCanOptions {
++    resource: string;
++    action: Action;
++    params?: Record<string, unknown>;
++    meta?: Record<string, unknown>;
++    queryOptions?: {
++        enabled?: boolean;
++        staleTime?: number;
++    };
++}
++export interface UseCanResult {
++    readonly allowed: boolean;
++    readonly reason: string | undefined;
++    readonly isLoading: boolean;
++}
++/**
++ * Reactive permission check backed by TanStack Query for caching and deduplication.
++ * Accepts a getter function for Svelte 5 fine-grained reactivity.
++ *
++ * @example
++ * ```ts
++ * const can = useCan(() => ({ resource: 'posts', action: 'delete', params: { id: 1 } }));
++ * if (can.allowed) { ... }
++ * ```
++ */
++export declare function useCan(options: () => UseCanOptions): UseCanResult;
+diff --git a/supauth-types-useParsed.svelte.d.ts b/supauth-types-useParsed.svelte.d.ts
+new file mode 100644
+index 0000000..9c7cb56
+--- /dev/null
++++ b/supauth-types-useParsed.svelte.d.ts
+@@ -0,0 +1,26 @@
++interface ParsedRoute {
++    resource?: string;
++    resourcePath?: string;
++    action?: 'list' | 'create' | 'edit' | 'show' | 'clone';
++    id?: string;
++    /** Query params parsed from the URL search string (e.g. ?page=2). */
++    params: Record<string, string>;
++    /** Parent path params derived from nested routes (e.g. /teams/123/users -> teamId). */
++    parentParams: Record<string, string>;
++}
++export declare function resetGlobalPath(): void;
++export declare function syncGlobalPath(): void;
++/**
++ * Parse the current hash URL into a structured route object.
++ * Returns reactive properties that update when the URL changes.
++ *
++ * Usage:
++ *   const parsed = useParsed();
++ *   // parsed.resource === 'posts'
++ *   // parsed.action === 'edit'
++ *   // parsed.id === '123'
++ *   // parsed.params contains query params only
++ *   // parsed.parentParams contains nested route params such as teamId
++ */
++export declare function useParsed(): ParsedRoute;
++export {};
+diff --git a/supauth-types-useStepsForm.svelte.d.ts b/supauth-types-useStepsForm.svelte.d.ts
+new file mode 100644
+index 0000000..5c871ed
+--- /dev/null
++++ b/supauth-types-useStepsForm.svelte.d.ts
+@@ -0,0 +1,26 @@
++import type { UseFormOptions, UseFormReturn } from "./supauth-types-form-hooks.svelte.js";
++import type { BaseRecord, HttpError } from "./supauth-types-types.js";
++export interface UseStepsFormOptions<TVariables extends Record<string, unknown> = Record<string, unknown>, TData extends BaseRecord = BaseRecord, TError = HttpError> extends UseFormOptions<TVariables, TData, TError> {
++    /** Total number of steps. Defaults to 1 */
++    stepsCount?: number;
++    /** Default step index. Starts at 0. */
++    defaultStep?: number;
++    /** Validate the form when navigating back? */
++    isBackValidate?: boolean;
++}
++export interface UseStepsFormReturn<TVariables extends Record<string, unknown> = Record<string, unknown>, TData extends BaseRecord = BaseRecord> extends UseFormReturn<TVariables, TData> {
++    steps: {
++        currentStep: number;
++        totalSteps: number;
++        canGoNext: boolean;
++        canGoPrev: boolean;
++        gotoStep: (step: number) => void;
++        nextStep: () => void;
++        prevStep: () => void;
++    };
++}
++/**
++ * useStepsForm
++ * Extends `useForm` with a nested `steps` object tracking navigation state.
++ */
++export declare function useStepsForm<TVariables extends Record<string, unknown> = Record<string, unknown>, TData extends BaseRecord = BaseRecord, TError = HttpError>(options?: UseStepsFormOptions<TVariables, TData, TError>): UseStepsFormReturn<TVariables, TData>;
+diff --git a/supauth-types-utility-hooks.svelte.d.ts b/supauth-types-utility-hooks.svelte.d.ts
+new file mode 100644
+index 0000000..14bf389
+--- /dev/null
++++ b/supauth-types-utility-hooks.svelte.d.ts
+@@ -0,0 +1,155 @@
++import { type UseFormOptions } from "./supauth-types-form-hooks.svelte.js";
++import type { BaseRecord, HttpError, Filter, KnownResources } from "./supauth-types-types.js";
++import type { UseSelectOptions } from "./supauth-types-hooks.svelte.js";
++export declare function useModal(options?: {
++    defaultVisible?: boolean;
++}): {
++    readonly visible: boolean;
++    show(): void;
++    close(): void;
++};
++export interface UseModalFormOptions<TVariables extends Record<string, unknown> = Record<string, unknown>, TData extends BaseRecord = BaseRecord, TError = HttpError> extends UseFormOptions<TVariables, TData, TError> {
++    defaultVisible?: boolean;
++    autoSave?: UseFormOptions<TVariables, TData, TError>['autoSave'] & {
++        invalidateOnClose?: boolean;
++    };
++}
++export declare function useModalForm<TVariables extends Record<string, unknown> = Record<string, unknown>, TData extends BaseRecord = BaseRecord, TError = HttpError>(options?: UseModalFormOptions<TVariables, TData, TError>): {
++    readonly visible: boolean;
++    show: (id?: string | number) => void;
++    close: () => void;
++    readonly modalProps: {
++        visible: boolean;
++        close: () => void;
++    };
++    formState: import("./supauth-types-form-hooks.svelte.js").UseFormReturn<TVariables, TData>;
++};
++export declare const useDrawerForm: typeof useModalForm;
++export interface MenuConfig {
++    name: string;
++    route: string;
++    label: string;
++    icon?: string;
++    parentName?: string;
++    order?: number;
++}
++export declare function useMenu(): {
++    readonly menuItems: MenuConfig[];
++    readonly selectedKey: string;
++};
++export interface BreadcrumbItem {
++    label: string;
++    link?: string;
++    icon?: string;
++}
++export declare function useBreadcrumb(): {
++    readonly items: BreadcrumbItem[];
++};
++export interface UseRelationOptions<_TData extends BaseRecord = BaseRecord, _TError = HttpError> {
++    resource: KnownResources;
++    id?: string | number;
++    pagination?: {
++        current?: number;
++        pageSize?: number;
++    };
++    sorters?: {
++        field: string;
++        order: 'asc' | 'desc';
++    }[];
++    filters?: Filter[];
++    queryOptions?: {
++        enabled?: boolean;
++        staleTime?: number;
++    };
++}
++export declare function useRelation<TData extends BaseRecord = BaseRecord, TError = HttpError>(options: UseRelationOptions<TData, TError>): import("@tanstack/svelte-query").CreateQueryResult<import("./supauth-types-types.js").GetListResult<TData>, TError> & {
++    overtime: import("./supauth-types-hook-utils.svelte.js").OvertimeResult;
++};
++export declare function useNotification(): {
++    open: (message: string, duration?: number, options?: {
++        key?: string;
++    }) => void;
++    success: (message: string, duration?: number, options?: {
++        key?: string;
++    }) => void;
++    error: (message: string, duration?: number, options?: {
++        key?: string;
++    }) => void;
++    warning: (message: string, duration?: number, options?: {
++        key?: string;
++    }) => void;
++    close: (key: string) => void | undefined;
++};
++export interface UseCheckboxGroupOptions<TData extends BaseRecord = BaseRecord> extends Omit<UseSelectOptions<TData>, 'optionLabel' | 'optionValue' | 'defaultValue'> {
++    /** Field on the record used as the option label (default: 'title') */
++    optionLabel?: string | ((item: TData) => string);
++    /** Field on the record used as the checkbox value (default: 'id') */
++    optionValue?: string | ((item: TData) => string | number);
++    /** Currently selected values — controlled mode */
++    defaultValue?: (string | number)[];
++}
++/**
++ * useCheckboxGroup — multi-select field state backed by a resource query.
++ * Provides a list of checkbox options plus helpers to toggle individual values.
++ */
++export declare function useCheckboxGroup<TData extends BaseRecord = BaseRecord>(options: UseCheckboxGroupOptions<TData>): {
++    query: import("@tanstack/svelte-query").CreateQueryResult<{
++        data: TData[];
++        total: number;
++    }, Error>;
++    readonly options: {
++        label: string;
++        value: string | number;
++    }[];
++    onSearchChange: (value: string) => void;
++    readonly selected: (string | number)[];
++    toggle: (value: string | number) => void;
++    isSelected: (value: string | number) => boolean;
++    setSelected: (values: (string | number)[]) => void;
++};
++export interface UseRadioGroupOptions<TData extends BaseRecord = BaseRecord> extends Omit<UseSelectOptions<TData>, 'optionLabel' | 'optionValue' | 'defaultValue'> {
++    optionLabel?: string | ((item: TData) => string);
++    optionValue?: string | ((item: TData) => string | number);
++    defaultValue?: string | number;
++}
++/**
++ * useRadioGroup — single-select field state backed by a resource query.
++ * Provides a list of radio options plus a setter for the currently selected value.
++ */
++export declare function useRadioGroup<TData extends BaseRecord = BaseRecord>(options: UseRadioGroupOptions<TData>): {
++    query: import("@tanstack/svelte-query").CreateQueryResult<{
++        data: TData[];
++        total: number;
++    }, Error>;
++    readonly options: {
++        label: string;
++        value: string | number;
++    }[];
++    onSearchChange: (value: string) => void;
++    readonly value: string | number | undefined;
++    setValue: (v: string | number) => void;
++};
++export interface UseAutocompleteOptions<TData extends BaseRecord = BaseRecord> extends Omit<UseSelectOptions<TData>, 'onSearch' | 'defaultValue'> {
++    optionLabel?: string | ((item: TData) => string);
++    optionValue?: string | ((item: TData) => string | number);
++    /** Field name to search against (default: optionLabel) */
++    searchField?: string;
++    defaultValue?: string | number;
++}
++/**
++ * useAutocomplete — typeahead search field backed by a resource query.
++ * Builds a 'contains' filter on the search field and debounces input.
++ */
++export declare function useAutocomplete<TData extends BaseRecord = BaseRecord>(options: UseAutocompleteOptions<TData>): {
++    query: import("@tanstack/svelte-query").CreateQueryResult<{
++        data: TData[];
++        total: number;
++    }, Error>;
++    readonly options: {
++        label: string;
++        value: string | number;
++    }[];
++    onSearchChange: (value: string) => void;
++    readonly value: string | number | undefined;
++    setValue: (v: string | number) => void;
++};

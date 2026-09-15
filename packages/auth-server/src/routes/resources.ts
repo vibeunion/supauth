@@ -1,6 +1,8 @@
 // API Resources and Scopes routes with OpenAPI annotations
 
 import { Elysia } from 'elysia';
+import { managementContract, decodeEndpointBody, decodeEndpointResponse } from '../utils/management-contract.js';
+import { requiredRow } from '../utils/defined-fields.js';
 import * as resourceRepo from '../repositories/resources.js';
 import * as auditRepo from '../repositories/audit.js';
 import { ApiContractError, pagedResponse } from '../utils/api-contract.js';
@@ -13,31 +15,31 @@ export const resourceRoutes = new Elysia({ prefix: '/v1/resources' })
   .get('/', async () => {
     const items = await resourceRepo.listResources();
     await audit('resource.list', 'resource', 'all');
-    return { items, total: items.length };
-  }, {
+    return decodeEndpointResponse('listResources', { items, total: items.length });
+  }, managementContract("GET", "/v1/resources", {
     detail: { summary: 'List API resources', tags: ['Resources'] },
-  })
+  }))
   .post('/', async ({ body }) => {
-    const created = await resourceRepo.createResource(body as { name: string; indicator: string; description?: string; scopes?: { name: string; description?: string }[] });
+    const created = await resourceRepo.createResource(decodeEndpointBody('createResource', body));
     await audit('resource.create', 'resource', created.id, { name: created.name });
-    return created;
-  }, {
+    return decodeEndpointResponse('createResource', created);
+  }, managementContract("POST", "/v1/resources", {
     detail: { summary: 'Create API resource', tags: ['Resources'] },
-  })
+  }))
   .get('/:resourceId', async ({ params }) => {
     const resource = await resourceRepo.getResource(params.resourceId);
     if (!resource) return new Response('Not found', { status: 404 });
-    return resource;
-  }, {
+    return decodeEndpointResponse('getResource', resource);
+  }, managementContract("GET", "/v1/resources/:resourceId", {
     detail: { summary: 'Get API resource by ID', tags: ['Resources'] },
-  })
+  }))
   .put('/:resourceId', async ({ params, body }) => {
-    const updated = await resourceRepo.updateResource(params.resourceId, body as { name?: string; indicator?: string; description?: string });
+    const updated = await resourceRepo.updateResource(params.resourceId, decodeEndpointBody('updateResource', body === undefined ? {} : body));
     await audit('resource.update', 'resource', params.resourceId);
-    return updated;
-  }, {
+    return updated === undefined ? undefined : decodeEndpointResponse('updateResource', updated);
+  }, managementContract("PUT", "/v1/resources/:resourceId", {
     detail: { summary: 'Update API resource', tags: ['Resources'] },
-  })
+  }))
   .delete('/:resourceId', async ({ params }) => {
     const bindings = await resourceRepo.resourceBindings(params.resourceId);
     if (bindings.length > 0) {
@@ -47,27 +49,27 @@ export const resourceRoutes = new Elysia({ prefix: '/v1/resources' })
     }
     await resourceRepo.deleteResource(params.resourceId);
     await audit('resource.delete', 'resource', params.resourceId);
-  }, {
+  }, managementContract("DELETE", "/v1/resources/:resourceId", {
     detail: { summary: 'Delete API resource', tags: ['Resources'] },
-  })
+  }))
   .post('/:resourceId/scopes', async ({ params, body }) => {
-    const scope = await resourceRepo.addScope(params.resourceId, body as { name: string; description?: string });
+    const scope = requiredRow(await resourceRepo.addScope(params.resourceId, decodeEndpointBody('addScope', body)));
     await audit('scope.create', 'scope', scope.id, { resource_id: params.resourceId });
-    return scope;
-  }, {
+    return decodeEndpointResponse('addScope', scope);
+  }, managementContract("POST", "/v1/resources/:resourceId/scopes", {
     detail: { summary: 'Add scope to resource', tags: ['Resources', 'Scopes'] },
-  })
+  }))
   .put('/:resourceId/scopes/:scopeId', async ({ params, body }) => {
     const resource = await resourceRepo.getResource(params.resourceId);
     if (!resource || !resource.scopes.some((scope) => scope.id === params.scopeId)) {
       throw new ApiContractError(404, 'scope_not_found', 'Scope was not found under this API resource');
     }
-    const scope = await resourceRepo.updateScope(params.scopeId, body as { name?: string; description?: string });
+    const scope = await resourceRepo.updateScope(params.scopeId, decodeEndpointBody('updateScope', body));
     await audit('scope.update', 'scope', params.scopeId, { resource_id: params.resourceId });
-    return scope;
-  }, {
+    return scope === undefined ? undefined : decodeEndpointResponse('updateScope', scope);
+  }, managementContract("PUT", "/v1/resources/:resourceId/scopes/:scopeId", {
     detail: { summary: 'Update scope under a resource', tags: ['Resources', 'Scopes'] },
-  })
+  }))
   .delete('/:resourceId/scopes/:scopeId', async ({ params }) => {
     const deletion = await resourceRepo.removeScope(params.resourceId, params.scopeId);
     if (deletion === 'not_found') {
@@ -77,11 +79,11 @@ export const resourceRoutes = new Elysia({ prefix: '/v1/resources' })
       throw new ApiContractError(409, 'scope_in_use', 'Scope is bound to one or more applications');
     }
     await audit('scope.delete', 'scope', params.scopeId);
-  }, {
+  }, managementContract("DELETE", "/v1/resources/:resourceId/scopes/:scopeId", {
     detail: { summary: 'Remove scope from resource', tags: ['Resources', 'Scopes'] },
-  })
+  }))
   .get('/:resourceId/applications', async ({ params }) => {
-    return pagedResponse(await resourceRepo.resourceBindings(params.resourceId));
-  }, {
+    return decodeEndpointResponse('listResourceApplications', pagedResponse(await resourceRepo.resourceBindings(params.resourceId)));
+  }, managementContract("GET", "/v1/resources/:resourceId/applications", {
     detail: { summary: 'List application bindings for a resource', tags: ['Resources', 'Applications'] },
-  });
+  }));

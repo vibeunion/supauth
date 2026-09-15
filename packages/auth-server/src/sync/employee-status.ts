@@ -6,6 +6,7 @@
 
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as accountProvisioning from '../repositories/account-provisioning.js';
+import { decodeUserReadback } from '../utils/upstream-contract.js';
 import * as auditRepo from '../repositories/audit.js';
 
 const adapter = getSupaCloudAdapter();
@@ -177,7 +178,6 @@ export async function reconcileAllEmployeeStatuses(options?: {
   };
 
   let offset = 0;
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const records = await accountProvisioning.listRecordsForSync({
       externalType,
@@ -196,13 +196,14 @@ export async function reconcileAllEmployeeStatuses(options?: {
 
       try {
         // Check if the GoTrue user state matches
-        const user = await adapter.getUser(record.userId) as Record<string, unknown> | null;
-        if (!user) {
+        const payload = await adapter.getUser(record.userId);
+        if (payload === null) {
           aggregate.unchanged += 1;
           continue;
         }
+        const user = decodeUserReadback(payload);
 
-        const isSuspended = user.banned_until !== undefined && user.banned_until !== null;
+        const isSuspended = user["banned_until"] !== undefined && user["banned_until"] !== null;
         const shouldSuspend = !isActive;
         const shouldReactivate = isActive && isSuspended;
 

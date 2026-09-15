@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { Snippet } from "svelte";
   import { t } from "$lib/i18n.js";
   import { errorMessage, requestErrorState } from "$lib/resource-page.js";
 
@@ -10,29 +11,38 @@
     emptyDescription = "",
     onRetry = null,
     children,
+  }: {
+    loading?: boolean;
+    error?: unknown;
+    empty?: boolean;
+    emptyTitle?: string;
+    emptyDescription?: string;
+    onRetry?: (() => void | Promise<unknown>) | null;
+    children: Snippet;
   } = $props();
 
-  const errorTitleKeys = {
+  const errorTitleKeys: Record<string, string> = {
     forbidden: "state.forbidden",
     not_found: "state.notFound",
     unsupported: "state.unsupported",
     unavailable: "state.unavailable",
     error: "state.requestFailed",
   };
-  const errorDescriptionKeys = {
+  const errorDescriptionKeys: Record<string, string> = {
     forbidden: "state.forbiddenDescription",
     not_found: "state.notFoundDescription",
     unsupported: "state.unsupportedDescription",
     unavailable: "state.unavailableDescription",
   };
 
-  let errorKind = $derived(requestErrorState(error));
+  let errorKind = $derived(requestErrorState(error) || "error");
   let errorTitle = $derived(
     t(errorTitleKeys[errorKind] || "state.requestFailed"),
   );
+  let descriptionKey = $derived(errorDescriptionKeys[errorKind]);
   let errorDescription = $derived(
-    errorDescriptionKeys[errorKind]
-      ? t(errorDescriptionKeys[errorKind])
+    descriptionKey
+      ? t(descriptionKey)
       : errorMessage(error),
   );
 </script>

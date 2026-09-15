@@ -3,6 +3,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createSupacloudAppManifest } from '../scripts/supacloud-app-contract.js';
 import { MIGRATION_SQL, MIGRATION_V6_SQL } from '../packages/auth-server/src/db/migrate.js';
+import { decodeSchema, RuntimeModeSchema } from '../packages/shared/src/index.js';
+import { requireArray, requireRecord, requireString } from '../scripts/tooling-values.js';
 
 function source(path: string) {
   return readFileSync(path, 'utf8');
@@ -53,8 +55,12 @@ describe('GoTrue-only product contract', () => {
     const sharedTypes = source('packages/shared/src/index.ts');
     const serverConfig = source('packages/auth-server/src/config/index.ts');
 
-    expect(sharedTypes).toContain("export type RuntimeMode = 'gotrue'");
+    expect(sharedTypes).toContain("export * from './core.js'");
     expect(sharedTypes).not.toContain("'external_oidc'");
+    expect(decodeSchema(RuntimeModeSchema, 'gotrue')).toBe('gotrue');
+    for (const mode of ['external_oidc', 'external', '', null, {}, true]) {
+      expect(() => decodeSchema(RuntimeModeSchema, mode)).toThrow();
+    }
     expect(serverConfig).toContain("configuredRuntimeMode !== 'gotrue'");
     expect(serverConfig).toContain("runtimeMode: 'gotrue'");
   });
@@ -125,20 +131,17 @@ describe('GoTrue-only product contract', () => {
       expect(sdkSource).not.toContain(method);
     }
 
-    process.env.PORT ||= '0';
-    process.env.SUPACLOUD_API_URL ||= 'http://localhost:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN ||= 'contract-test';
-    process.env.PROJECT_REF ||= 'contract-test';
-    process.env.DATABASE_URL ||= 'postgres://placeholder';
-    process.env.HOST ||= '127.0.0.1';
-    process.env.RUNTIME_MODE = 'gotrue';
+    process.env["PORT"] ||= '0';
+    process.env["SUPACLOUD_API_URL"] ||= 'http://localhost:9090';
+    process.env["SUPACLOUD_MASTER_TOKEN"] ||= 'contract-test';
+    process.env["PROJECT_REF"] ||= 'contract-test';
+    process.env["DATABASE_URL"] ||= 'postgres://placeholder';
+    process.env["HOST"] ||= '127.0.0.1';
+    process.env["RUNTIME_MODE"] = 'gotrue';
     const { app } = await import('../packages/auth-server/src/index.js');
     const swaggerResponse = await app.handle(new Request('http://localhost/swagger/json'));
     expect(swaggerResponse.ok).toBe(true);
-    const swagger = await swaggerResponse.json() as {
-      paths?: Record<string, unknown>;
-      tags?: Array<{ name?: string }>;
-    };
+    const swagger = requireRecord(await swaggerResponse.json(), 'OpenAPI response');
     const openApiText = JSON.stringify(swagger).toLowerCase();
     for (const fragment of FORBIDDEN_PRODUCT_SURFACE_FRAGMENTS) {
       expect(openApiText).not.toContain(fragment);
@@ -146,17 +149,26 @@ describe('GoTrue-only product contract', () => {
     for (const fragment of FORBIDDEN_ADVERTISED_SURFACE_FRAGMENTS) {
       expect(openApiText).not.toContain(fragment);
     }
-    expect(Object.keys(swagger.paths || {}).some((path) => /passkey/i.test(path))).toBe(false);
-    expect(Object.keys(swagger.paths || {}).some((path) => /\/applications\/.*\/secrets(?:\/|$)/i.test(path))).toBe(false);
-    expect((swagger.tags || []).some((tag) => /passkey|inline hook|personal access|subject token/i.test(tag.name || ''))).toBe(false);
+    expect(Object.keys(requireRecord(swagger['paths'])).some((path) => /passkey/i.test(path))).toBe(false);
+    expect(Object.keys(requireRecord(swagger['paths'])).some((path) => /\/applications\/.*\/secrets(?:\/|$)/i.test(path))).toBe(false);
+    expect(requireArray(swagger['tags'] ?? []).some(tag =>
+      /passkey|inline hook|personal access|subject token/i.test(requireString(requireRecord(tag)['name'])),
+    )).toBe(false);
   });
 
   it('keeps the removed passkey compatibility window explicit and unavailable', async () => {
     const compatibilitySource = source('packages/auth-server/src/routes/passkeys.ts');
     expect(compatibilitySource.match(/capabilityUnavailable\('gotrue_passkey_ceremony'/g) || []).toHaveLength(3);
-    expect(compatibilitySource.match(/detail:\s*\{\s*hide:\s*true\s*\}/g) || []).toHaveLength(3);
     const { passkeyRoutes } = await import('../packages/auth-server/src/routes/passkeys.js');
     passkeyRoutes.compile();
+    expect(passkeyRoutes.routes.map(({ method, path }) => [method, path])).toEqual([
+      ['GET', '/v1/passkeys/:userId'],
+      ['PUT', '/v1/passkeys/:passkeyId/rename'],
+      ['DELETE', '/v1/passkeys/:passkeyId'],
+    ]);
+    for (const route of passkeyRoutes.routes) {
+      expect(route.hooks.detail?.hide).toBe(true);
+    }
     for (const [method, path] of [
       ['GET', '/v1/passkeys/user-id'],
       ['PUT', '/v1/passkeys/passkey-id/rename'],
@@ -181,6 +193,8 @@ describe('GoTrue-only product contract', () => {
       '/realtime/v1/*',
       '/functions/v1/*',
     ]);
-    expect(manifest.functions[0].routes.some((route) => route.path.startsWith('/auth/v1'))).toBe(false);
+    const appFunction = manifest.functions[0];
+    if (!appFunction) throw new Error('Expected SupAuth Function declaration');
+    expect(appFunction.routes.some((route) => route.path.startsWith('/auth/v1'))).toBe(false);
   });
 });

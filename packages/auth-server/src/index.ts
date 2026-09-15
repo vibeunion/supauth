@@ -1,7 +1,7 @@
 // SupAuth Function app — Elysia route composition for SupaCloud Functions.
 // This module must not bind a port. SupaCloud owns all HTTP invocation.
 
-import { Elysia } from 'elysia';
+import { Elysia, type AnyElysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { swagger } from '@elysiajs/swagger';
 import { enforceStartupConfig, getConfig } from './config/index.js';
@@ -45,9 +45,25 @@ import { tenantRoutes } from './routes/tenant.js';
 const config = getConfig();
 enforceStartupConfig(config);
 
+function withInfrastructureContracts<App extends AnyElysia>(
+  plugin: App,
+  contracts: Record<string, { request: 'protocol' | 'none'; response: 'empty' | 'html' | 'protocol'; source: string }>,
+): App {
+  // 插件原本不进入 Swagger 文档；显式声明 hide，但 inventory 仍保留全部分母。
+  for (const route of plugin.routes) {
+    const key = `${route.method} ${route.path}`;
+    if (!Object.hasOwn(contracts, key)) continue;
+    route.hooks.detail = { ...route.hooks.detail, hide: true, 'x-supauth-contract': contracts[key] };
+  }
+  return plugin;
+}
+
 const app = new Elysia()
   .use(observabilityMiddleware)
-  .use(cors({ origin: config.corsOrigins, credentials: true }))
+  .use(withInfrastructureContracts(cors({ origin: config.corsOrigins, credentials: true }), {
+    'OPTIONS /': { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' },
+    'OPTIONS /*': { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' },
+  }))
   .use(authRoutes)
   .use(hostedPageRoutes)
   .use(publicSignInExperienceRoutes)
@@ -61,7 +77,7 @@ const app = new Elysia()
   .use(authHookRoutes)
   .use(publicOrganizationRoutes)
   .use(ssoAuthorizeRoutes)
-  .use(swagger({
+  .use(withInfrastructureContracts(swagger({
     path: '/swagger',
     documentation: {
       info: { title: 'SupaOAuth Management API', version: '0.3.0', description: 'SupaOAuth is a SupaCloud-hosted enterprise IAM and user-center control plane. In gotrue mode, GoTrue remains the OAuth/OIDC runtime and token issuer; SupaOAuth provides hosted UI, product RBAC, organizations, connectors, audit, configuration, and compatibility tooling.' },
@@ -107,6 +123,9 @@ const app = new Elysia()
         { name: 'Account Provisioning', description: 'Bulk account provisioning, SupaOAuth user creation, and self-service account claiming' },
       ],
     },
+  }), {
+    'GET /swagger': { request: 'none', response: 'html', source: 'infra.swagger.ui' },
+    'GET /swagger/json': { request: 'none', response: 'protocol', source: 'infra.swagger.openapi' },
   }))
   .use(adminAuthGuard)
 

@@ -1,11 +1,7 @@
-export interface AdminPrincipal {
-  id: string;
-  email: string;
-  name: string;
-  roles: string[];
-  permissions: string[];
-  authorization_source: 'development_token' | 'admin_allowlist' | 'rbac_projection';
-}
+import type { Static } from '../../../shared/src/schema.js';
+import type { AdminPrincipalSchema } from '../../../shared/src/admin-auth-contracts.js';
+
+export type AdminPrincipal = Static<typeof AdminPrincipalSchema>;
 
 const RESOURCE_PERMISSIONS: Record<string, string> = {
   applications: 'applications',
@@ -56,7 +52,7 @@ export function requiredAdminAction(method: string, pathname: string): string | 
   }
 
   const resource = pathname.split('/')[2];
-  const permissionPrefix = RESOURCE_PERMISSIONS[resource] || 'operations';
+  const permissionPrefix = RESOURCE_PERMISSIONS[resource ?? ''] || 'operations';
   return `${permissionPrefix}.${method === 'GET' || method === 'HEAD' ? 'read' : 'manage'}`;
 }
 

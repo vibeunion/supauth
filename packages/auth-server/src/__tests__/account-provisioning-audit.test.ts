@@ -1,8 +1,9 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import type { accountProvisioningRecords } from '../db/schema.js';
 
 const accountClaimSecret = 'account-claim-secret-for-audit-test';
 const accountClaimProof = 'claim-proof-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-const originalAccountClaimSecret = process.env.ACCOUNT_CLAIM_SECRET;
+const originalAccountClaimSecret = process.env["ACCOUNT_CLAIM_SECRET"];
 const auditCalls = mock(async (_event: Record<string, unknown>) => ({ id: 'audit-one' }));
 const updateRecord = mock((values: Record<string, unknown>) => ({
   where: () => ({
@@ -12,19 +13,19 @@ const updateRecord = mock((values: Record<string, unknown>) => ({
     },
   }),
 }));
-const provisionedAccount = {
+const provisionedAccount: typeof accountProvisioningRecords.$inferSelect = {
   id: 'record-one',
   externalId: '10086',
   externalType: 'employee',
   displayName: '张三',
   normalizedDisplayName: '张三',
   email: 'zhangsan@example.com',
-  userId: 'gotrue-user-one' as string | null,
-  initialPasswordEncrypted: '' as string | null,
+  userId: 'gotrue-user-one',
+  initialPasswordEncrypted: '',
   initialPasswordClaimed: false,
   claimedAt: null,
   claimCount: 0,
-  claimProofHash: '' as string | null,
+  claimProofHash: '',
   claimState: 'ready',
   claimMode: null,
   claimPasswordHash: null,
@@ -54,7 +55,7 @@ const accountProvisioning = await import('../repositories/account-provisioning.j
 
 describe('account provisioning audit actor', () => {
   beforeEach(() => {
-    process.env.ACCOUNT_CLAIM_SECRET = accountClaimSecret;
+    process.env["ACCOUNT_CLAIM_SECRET"] = accountClaimSecret;
     provisionedAccount.userId = 'gotrue-user-one';
     provisionedAccount.initialPasswordClaimed = false;
     provisionedAccount.claimState = 'ready';
@@ -72,8 +73,8 @@ describe('account provisioning audit actor', () => {
   });
 
   afterAll(() => {
-    if (originalAccountClaimSecret === undefined) delete process.env.ACCOUNT_CLAIM_SECRET;
-    else process.env.ACCOUNT_CLAIM_SECRET = originalAccountClaimSecret;
+    if (originalAccountClaimSecret === undefined) delete process.env["ACCOUNT_CLAIM_SECRET"];
+    else process.env["ACCOUNT_CLAIM_SECRET"] = originalAccountClaimSecret;
   });
 
   test('uses the verified GoTrue user ID and falls back to the claimed email', async () => {
@@ -148,7 +149,7 @@ describe('account provisioning audit actor', () => {
       passwordMode: 'show_initial_password',
     })).rejects.toThrow();
     expect(auditCalls).not.toHaveBeenCalled();
-    expect(updateRecord.mock.calls.some(([values]) => values.initialPasswordClaimed === true)).toBe(false);
+    expect(updateRecord.mock.calls.some(([values]) => values["initialPasswordClaimed"] === true)).toBe(false);
   });
 
   test('imports only the claim proof hash into an unclaimed record', async () => {
@@ -161,8 +162,9 @@ describe('account provisioning audit actor', () => {
     });
     const updateValues = updateRecord.mock.calls.at(-1)?.[0];
 
-    expect(updateValues?.claimProofHash).toBe(accountProvisioning.hashAccountClaimProof(accountClaimProof));
+    expect(updateValues?.["claimProofHash"]).toBe(accountProvisioning.hashAccountClaimProof(accountClaimProof));
     expect(JSON.stringify(updateValues)).not.toContain(accountClaimProof);
+    if (!saved.record) throw new Error('Expected the persisted provisioning record');
     expect(saved.record.claimProofHash).not.toContain(accountClaimProof);
   });
 
@@ -183,7 +185,7 @@ describe('account provisioning audit actor', () => {
     const updateValues = updateRecord.mock.calls.at(-1)?.[0];
 
     expect(saved.initialPassword).toBeUndefined();
-    expect(updateValues?.initialPasswordEncrypted).toBeNull();
-    expect(updateValues?.claimProofHash).toBeNull();
+    expect(updateValues?.["initialPasswordEncrypted"]).toBeNull();
+    expect(updateValues?.["claimProofHash"]).toBeNull();
   });
 });

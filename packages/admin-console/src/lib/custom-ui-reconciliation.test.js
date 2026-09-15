@@ -12,6 +12,7 @@ const consoleSource = readFileSync(
   "utf8",
 );
 
+/** @param {string} status */
 function customUiStatus(status) {
   const blocked = status === "blocked_unsafe_origin";
   const cleanupPending = status === "cleanup_pending";
@@ -54,6 +55,11 @@ describe("Custom UI authoritative mutation read-back", () => {
     expect(customUiStatusReady({
       ...customUiStatus("disabled"),
       audit_pending: true,
+    })).toBe(false);
+    expect(customUiStatusReady({
+      ...customUiStatus("blocked_unsafe_origin"),
+      file_count: 1,
+      files: Array(1),
     })).toBe(false);
   });
 
@@ -156,7 +162,7 @@ describe("Custom UI authoritative mutation read-back", () => {
     const deleteStart = consoleSource.indexOf("async function removeCustomUi");
     const reconcileStart = consoleSource.indexOf("async function reconcileStatus");
     const beginMutationStart = consoleSource.indexOf("function beginMutation");
-    const beginMutationEnd = consoleSource.indexOf("async function reconcileLockedMutation");
+    const beginMutationEnd = deleteStart;
     const deleteSource = consoleSource.slice(deleteStart, reconcileStart);
     const beginMutationSource = consoleSource.slice(beginMutationStart, beginMutationEnd);
 
@@ -173,7 +179,37 @@ describe("Custom UI authoritative mutation read-back", () => {
     expect(consoleSource).not.toContain("globalThis.location.origin");
     expect(beginMutationSource).toContain("stageMutation(action, targetId)");
     expect(deleteSource.indexOf('beginMutation("delete")')).toBeLessThan(
-      deleteSource.indexOf("deleteCustomUiAssets()"),
+      deleteSource.indexOf("await deleteCustomUiCommand("),
     );
+    expect(deleteSource.indexOf('confirm(t("customUi.deleteConfirm"))')).toBeLessThan(
+      deleteSource.indexOf('beginMutation("delete")'),
+    );
+    expect(deleteSource).toContain("readStatus: getCustomUiStatus");
+    expect(deleteSource).toContain('outcome.kind === "confirmed" && clearMutation("delete", targetId)');
+    expect(deleteSource).not.toContain("mutationOutcomeUnknown");
+    expect(consoleSource).not.toContain("recordMutationFailure");
+    expect(consoleSource).not.toContain("reconcileLockedMutation");
+    expect(consoleSource).toContain("&& !mutating");
+    expect(consoleSource).toContain("&& !outcomeUnknown");
+    expect(consoleSource).toContain('allowedActions: ["delete", "upload"]');
+  });
+
+  test("manual reconciliation stays read-only and acknowledgement requires two confirmations", () => {
+    const manual = consoleSource.slice(
+      consoleSource.indexOf("async function reconcileStatus"),
+      consoleSource.indexOf("function acknowledgeUnknownMutation"),
+    );
+    const acknowledge = consoleSource.slice(
+      consoleSource.indexOf("function acknowledgeUnknownMutation"),
+      consoleSource.indexOf("onMount(()"),
+    );
+    expect(manual).toContain("await readCustomUiStatus()");
+    expect(manual).toContain("clearConfirmedMutations(status)");
+    expect(manual).not.toContain("deleteCustomUiCommand");
+    expect(manual).not.toContain("deleteCustomUiAssets");
+    expect(acknowledge).toContain('if (!confirm(t("customUi.acknowledgeConfirm"))) return;');
+    expect(acknowledge).toContain('if (!confirm(t("customUi.allowRetryConfirm"))) return;');
+    expect(acknowledge).not.toContain("deleteCustomUiCommand");
+    expect(acknowledge).not.toContain("deleteCustomUiAssets");
   });
 });

@@ -1,3 +1,9 @@
+import { strictProperty } from './helpers/strict-values.js';
+import { strictRecord } from './helpers/strict-values.js';
+import { strictDefined } from './helpers/strict-values.js';
+import { strictFetch } from './helpers/strict-fetch.js';
+import { decodeSchema } from '../../../shared/src/schema.js';
+import { accountEndpoints } from '../../../shared/src/server-account.js';
 import { describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { observabilityMiddleware } from '../middleware/index.js';
@@ -116,7 +122,7 @@ describe('account self-service API', () => {
   test('gets current account through GoTrue user endpoint with bearer token', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), init });
+      calls.push({ url: String(url), ...(init === undefined ? {} : { init }) });
       return Response.json({
         id: 'user-1',
         email: 'user@example.test',
@@ -128,7 +134,7 @@ describe('account self-service API', () => {
     };
 
     const result = await getAccountWithGoTrue('user-access-token', {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
     });
 
@@ -151,8 +157,8 @@ describe('account self-service API', () => {
       },
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe('https://auth.example.test/auth/v1/user');
-    expect(calls[0].init?.headers).toMatchObject({ Authorization: 'Bearer user-access-token' });
+    expect(strictDefined(calls[0]).url).toBe('https://auth.example.test/auth/v1/user');
+    expect(strictDefined(calls[0]).init?.headers).toMatchObject({ Authorization: 'Bearer user-access-token' });
   });
 
   test('falls back to raw GoTrue user endpoint when internal auth/v1 route is unavailable', async () => {
@@ -172,7 +178,7 @@ describe('account self-service API', () => {
     };
 
     const result = await getAccountWithGoTrue('user-access-token', {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['http://127.0.0.1:9999'],
     });
 
@@ -198,7 +204,7 @@ describe('account self-service API', () => {
     };
 
     const result = await getAccountWithGoTrue('invalid-token', {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
     });
 
@@ -213,7 +219,7 @@ describe('account self-service API', () => {
   test('maps only structured GoTrue user_banned codes to the fixed public failure', async () => {
     for (const payload of [{ code: 'user_banned' }, { error_code: 'user_banned' }]) {
       const accountFailure = await getAccountWithGoTrue('banned-token', {
-        fetchImpl: (() => Promise.resolve(Response.json(payload, { status: 403 }))) as unknown as typeof fetch,
+        fetchImpl: strictFetch((() => Promise.resolve(Response.json(payload, { status: 403 })))),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -236,10 +242,10 @@ describe('account self-service API', () => {
 
     for (const responseCase of responseCases) {
       const accountFailure = await getAccountWithGoTrue('user-access-token', {
-        fetchImpl: (() => Promise.resolve(Response.json(
+        fetchImpl: strictFetch((() => Promise.resolve(Response.json(
           responseCase.payload,
           { status: responseCase.status },
-        ))) as unknown as typeof fetch,
+        )))),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -263,9 +269,9 @@ describe('account self-service API', () => {
 
     for (const failureCase of cases) {
       const result = await getAccountWithGoTrue('user-access-token', {
-        fetchImpl: (() => Promise.resolve(Response.json({
+        fetchImpl: strictFetch((() => Promise.resolve(Response.json({
           message: 'postgres://secret@auth.internal:5432/private',
-        }, { status: failureCase.status }))) as unknown as typeof fetch,
+        }, { status: failureCase.status })))),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -293,7 +299,7 @@ describe('account self-service API', () => {
       },
     ]) {
       const result = await getAccountWithGoTrue('user-access-token', {
-        fetchImpl: (() => Promise.reject(transportCase.error)) as unknown as typeof fetch,
+        fetchImpl: strictFetch((() => Promise.reject(transportCase.error))),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -305,20 +311,20 @@ describe('account self-service API', () => {
 
   test('classifies account response-body timeout and preserves timeout across candidates', async () => {
     const bodyFailure = await getAccountWithGoTrue('user-access-token', {
-      fetchImpl: (async () => responseWithBodyError(
+      fetchImpl: strictFetch((async () => responseWithBodyError(
         new DOMException('private response detail', 'TimeoutError'),
-      )) as unknown as typeof fetch,
+      ))),
       runtimeBaseUrls: ['https://auth.example.test'],
     });
     expect(bodyFailure).toMatchObject({ ok: false, status: 504, code: 'runtime_timeout' });
 
     let calls = 0;
     const mixedFailure = await getAccountWithGoTrue('user-access-token', {
-      fetchImpl: (async () => {
+      fetchImpl: strictFetch((async () => {
         calls += 1;
         if (calls === 1) throw new DOMException('private timeout detail', 'TimeoutError');
         throw new TypeError('private DNS detail');
-      }) as unknown as typeof fetch,
+      })),
       runtimeBaseUrls: ['https://first.example.test', 'https://second.example.test'],
     });
     expect(mixedFailure).toMatchObject({ ok: false, status: 504, code: 'runtime_timeout' });
@@ -328,7 +334,7 @@ describe('account self-service API', () => {
   test('updates profile metadata with the user bearer token only', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), init });
+      calls.push({ url: String(url), ...(init === undefined ? {} : { init }) });
       expect(init?.headers).toMatchObject({
         'Content-Type': 'application/json',
         Authorization: 'Bearer user-access-token',
@@ -342,7 +348,7 @@ describe('account self-service API', () => {
     };
 
     const result = await updateAccountProfileWithGoTrue('user-access-token', { name: 'Updated User' }, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test/auth/v1'],
       audit: false,
     });
@@ -361,7 +367,7 @@ describe('account self-service API', () => {
   test('updates email and phone through GoTrue user endpoint with the user bearer token', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), init });
+      calls.push({ url: String(url), ...(init === undefined ? {} : { init }) });
         expect(init?.headers).toMatchObject({
           'Content-Type': 'application/json',
           Authorization: 'Bearer user-access-token',
@@ -375,17 +381,17 @@ describe('account self-service API', () => {
     };
 
     const emailResult = await updateAccountContactWithGoTrue('user-access-token', { email: 'new@example.test' }, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
     });
     const phoneResult = await updateAccountContactWithGoTrue('user-access-token', { phone: '+15551234567' }, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test/auth/v1'],
     });
 
     expect(emailResult).toMatchObject({ ok: true, user: { id: 'user-1', email: 'new@example.test' } });
     expect(phoneResult).toMatchObject({ ok: true, user: { id: 'user-1', phone: '+15551234567' } });
-    expect(calls.map(call => JSON.parse(String(call.init?.body)))).toEqual([
+    expect(calls.map((call): unknown => JSON.parse(String(call.init?.body)))).toEqual([
       { email: 'new@example.test' },
       { phone: '+15551234567' },
     ]);
@@ -406,7 +412,7 @@ describe('account self-service API', () => {
     };
 
     const result = await listOAuthGrantsWithGoTrue('user-access-token', {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
     });
 
@@ -434,7 +440,7 @@ describe('account self-service API', () => {
         : new Response(null, { status: 204 });
     };
     const options = {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
     };
 
@@ -475,7 +481,7 @@ describe('account self-service API', () => {
   test('starts identity linking through the stock GoTrue authorize contract', async () => {
     const calls: Array<{ url: URL; init?: RequestInit }> = [];
     const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: new URL(String(input)), init });
+      calls.push({ url: new URL(String(input)), ...(init === undefined ? {} : { init }) });
       return Response.json({ url: 'https://github.com/login/oauth/authorize?state=flow-state' });
     };
 
@@ -483,7 +489,7 @@ describe('account self-service API', () => {
       provider: 'github',
       redirectTo: 'https://auth.example.test/account',
     }, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
     });
 
@@ -495,14 +501,14 @@ describe('account self-service API', () => {
       },
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0].url.pathname).toBe('/auth/v1/user/identities/authorize');
-    expect(Object.fromEntries(calls[0].url.searchParams)).toEqual({
+    expect(strictDefined(calls[0]).url.pathname).toBe('/auth/v1/user/identities/authorize');
+    expect(Object.fromEntries(strictDefined(calls[0]).url.searchParams)).toEqual({
       provider: 'github',
       redirect_to: 'https://auth.example.test/account',
       skip_http_redirect: 'true',
     });
-    expect(calls[0].init).toMatchObject({ method: 'GET', redirect: 'manual' });
-    expect(new Headers(calls[0].init?.headers).get('authorization')).toBe('Bearer user-access-token');
+    expect(strictDefined(calls[0]).init).toMatchObject({ method: 'GET', redirect: 'manual' });
+    expect(new Headers(strictDefined(calls[0]).init?.headers).get('authorization')).toBe('Bearer user-access-token');
   });
 
   test('logs out only through the requested stock GoTrue scope', async () => {
@@ -516,7 +522,7 @@ describe('account self-service API', () => {
 
     for (const scope of ['local', 'global', 'others'] as const) {
       await expect(logoutWithGoTrue('user-access-token', scope, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: strictFetch(fetchImpl),
         runtimeBaseUrls: ['https://auth.example.test'],
       })).resolves.toEqual({ ok: true, data: { scope, status: 'logged_out' } });
     }
@@ -530,7 +536,7 @@ describe('account self-service API', () => {
     test('enrolls TOTP MFA through GoTrue without returning the raw secret', async () => {
       const calls: Array<{ url: string; init?: RequestInit }> = [];
       const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
-        calls.push({ url: String(url), init });
+        calls.push({ url: String(url), ...(init === undefined ? {} : { init }) });
         expect(init?.headers).toMatchObject({
           'Content-Type': 'application/json',
           Authorization: 'Bearer user-access-token',
@@ -557,7 +563,7 @@ describe('account self-service API', () => {
         friendly_name: 'Work phone',
         issuer: 'SupAuth',
       }, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: strictFetch(fetchImpl),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -582,7 +588,7 @@ describe('account self-service API', () => {
     test('verifies TOTP MFA by creating a GoTrue challenge first', async () => {
       const calls: Array<{ url: string; init?: RequestInit }> = [];
       const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
-        calls.push({ url: String(url), init });
+        calls.push({ url: String(url), ...(init === undefined ? {} : { init }) });
         expect(init?.headers).toMatchObject({
           'Content-Type': 'application/json',
           Authorization: 'Bearer user-access-token',
@@ -596,7 +602,7 @@ describe('account self-service API', () => {
       };
 
       const result = await verifyTotpMfaWithGoTrue('user-access-token', 'factor-1', { code: '123456' }, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: strictFetch(fetchImpl),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -610,7 +616,7 @@ describe('account self-service API', () => {
   test('unenrolls an MFA factor through GoTrue with the user bearer token', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), init });
+      calls.push({ url: String(url), ...(init === undefined ? {} : { init }) });
       expect(init?.method).toBe('DELETE');
       expect(init?.headers).toMatchObject({
         'Content-Type': 'application/json',
@@ -620,7 +626,7 @@ describe('account self-service API', () => {
     };
 
     const result = await unenrollMfaFactorWithGoTrue('user-access-token', 'factor-1', {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
     });
 
@@ -717,7 +723,7 @@ describe('account self-service API', () => {
     }));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account/me'));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(401);
     expect(body).toEqual({
@@ -823,7 +829,7 @@ describe('account self-service API', () => {
     ));
 
     expect(response.status).toBe(401);
-    expect((await response.json() as any).error.code).toBe('invalid_token');
+    expect(strictProperty((strictRecord(await response.json()))["error"], "code")).toBe('invalid_token');
     expect(resolvePermissions).not.toHaveBeenCalled();
   });
 
@@ -859,10 +865,7 @@ describe('account self-service API', () => {
     const response = await app.handle(new Request('http://localhost/v1/public/account/config'));
 
     expect(response.status).toBe(200);
-    const payload = await response.json() as {
-      config: { security: Record<string, unknown> };
-      capabilities: { provider_linking: ProviderLinkingCapability };
-    };
+    const payload = decodeSchema(accountEndpoints.config.result, await response.json());
     expect(payload).toMatchObject({ success: true });
     expect(payload.config).not.toHaveProperty('sessions');
     expect(payload.config.security).not.toHaveProperty('passkeys');
@@ -1286,7 +1289,7 @@ describe('account self-service API', () => {
         return { ok: true, data: { scope, status: 'logged_out' } };
       },
       auditEvent: async (eventType, userId, details) => {
-        events.push(`audit:${eventType}:${userId}:${details?.scope}`);
+        events.push(`audit:${eventType}:${userId}:${details?.["scope"]}`);
       },
     }));
 
@@ -1352,6 +1355,49 @@ describe('account self-service API', () => {
     expect(revokeResponse.status).toBe(501);
     });
 
+    test('documents an optional TOTP enrollment body and preserves the no-body defaults', async () => {
+      const inputs: Array<{ friendly_name: string; issuer?: string }> = [];
+      const app = new Elysia().use(routes({
+        getAccount: async () => ({ ok: true, user: { id: 'user-1' } }),
+        enrollTotpMfa: async (_token, input) => {
+          inputs.push(input);
+          return {
+            ok: true,
+            data: {
+              id: 'factor-1', factor_id: 'factor-1', type: 'totp', status: 'unverified',
+              friendly_name: input.friendly_name,
+              totp: { qr_code: 'mock-qr', uri: 'otpauth://totp/mock' },
+            },
+          };
+        },
+        auditEvent: async () => {},
+      }));
+      const path = '/v1/public/account/mfa/totp/enroll';
+      for (const withBody of [false, true]) {
+        const response = await app.handle(new Request(`http://localhost${path}`, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer user-access-token', ...(withBody ? { 'content-type': 'application/json' } : {}) },
+          ...(withBody ? { body: '{}' } : {}),
+        }));
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ success: true, enrollment: { factor_id: 'factor-1' } });
+      }
+      expect(inputs).toEqual([
+        { friendly_name: 'Authenticator app' },
+        { friendly_name: 'Authenticator app' },
+      ]);
+      const route = app.routes.find((route) => route.method === 'POST' && route.path === path);
+      expect(route?.hooks.detail?.requestBody).toMatchObject({
+        required: false,
+        content: { 'application/json': { schema: {
+          type: 'object',
+          properties: {
+            friendly_name: { type: 'string' }, name: { type: 'string' }, issuer: { type: 'string' },
+          },
+        } } },
+      });
+    });
+
     test('enrolls and verifies TOTP MFA only with the current user token', async () => {
       const events: string[] = [];
       const app = new Elysia().use(routes({
@@ -1394,7 +1440,7 @@ describe('account self-service API', () => {
           return { ok: true, data: { id: factorId, status: 'unenrolled' } };
         },
         auditEvent: async (eventType, userId, details) => {
-          events.push(`audit:${eventType}:${userId}:${details?.factor_id || ''}`);
+          events.push(`audit:${eventType}:${userId}:${details?.["factor_id"] || ''}`);
         },
       }));
 
@@ -1431,7 +1477,7 @@ describe('account self-service API', () => {
       expect(verifyResponse.status).toBe(200);
       expect(unenrollResponse.status).toBe(200);
       expect(resetResponse.status).toBe(404);
-      const enrollBody = await enrollResponse.json();
+      const enrollBody: unknown = await enrollResponse.json();
       expect(enrollBody).toMatchObject({
         success: true,
         enrollment: { factor_id: 'factor-1', totp: { qr_code: 'data:image/svg+xml;base64,abc' } },

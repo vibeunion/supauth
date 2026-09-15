@@ -1,19 +1,18 @@
 import type { CheckResult } from '@svadmin/core';
+import { isUnknownRecord } from './unknown-value.js';
 
 function errorRecord(error: unknown): Record<string, unknown> | null {
-  return typeof error === 'object' && error !== null
-    ? error as Record<string, unknown>
-    : null;
+  return isUnknownRecord(error) ? error : null;
 }
 
 export function adminCheckFailure(error: unknown): CheckResult {
   const record = errorRecord(error);
-  const status = typeof record?.statusCode === 'number'
-    ? record.statusCode
-    : typeof record?.status === 'number'
-      ? record.status
+  const status = typeof record?.["statusCode"] === 'number'
+    ? record["statusCode"]
+    : typeof record?.["status"] === 'number'
+      ? record["status"]
       : null;
-  const code = typeof record?.code === 'string' ? record.code : null;
+  const code = typeof record?.["code"] === 'string' ? record["code"] : null;
 
   if (status === 401) {
     return { authenticated: false, redirectTo: '/admin/login', logout: true };

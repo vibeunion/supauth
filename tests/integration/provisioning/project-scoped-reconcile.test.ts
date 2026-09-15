@@ -1,3 +1,5 @@
+import { requireError } from "../../tooling-test-values.js";
+import { requireDefined } from "../../../scripts/tooling-values.js";
 /**
  * P0-26: Project-scoped provisioning reconcile tests
  *
@@ -11,22 +13,22 @@ import { describe, it, expect, beforeAll } from 'bun:test';
 import { SupaCloudAdapter, getSupaCloudAdapterForProject } from '../../../packages/auth-server/src/supacloud/adapter.js';
 import { loadConfig } from '../../../packages/auth-server/src/config/index.js';
 
-const gate = process.env.RUN_PROVISIONING_SCOPED === '1';
+const gate = process.env["RUN_PROVISIONING_SCOPED"] === '1';
 const describeLive = gate ? describe : describe.skip;
 
 describeLive('P0-26: Project-scoped provisioning', () => {
   beforeAll(() => {
-    process.env.SUPACLOUD_API_URL = process.env.SUPACLOUD_API_URL || '';
-    process.env.SUPACLOUD_MASTER_TOKEN = process.env.SUPACLOUD_MASTER_TOKEN || '';
-    process.env.PROJECT_REF = process.env.PROJECT_REF || 'default-ref';
-    process.env.OAUTH_RUNTIME_URL = process.env.OAUTH_RUNTIME_URL || '';
-    process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgres://noop';
+    process.env["SUPACLOUD_API_URL"] = process.env["SUPACLOUD_API_URL"] || '';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = process.env["SUPACLOUD_MASTER_TOKEN"] || '';
+    process.env["PROJECT_REF"] = process.env["PROJECT_REF"] || 'default-ref';
+    process.env["OAUTH_RUNTIME_URL"] = process.env["OAUTH_RUNTIME_URL"] || '';
+    process.env["DATABASE_URL"] = process.env["DATABASE_URL"] || 'postgres://noop';
     loadConfig();
   });
 
   it('default adapter uses env PROJECT_REF', () => {
     const adapter = new SupaCloudAdapter();
-    expect(adapter.getProjectRef()).toBe(process.env.PROJECT_REF || '');
+    expect(adapter.getProjectRef()).toBe(process.env["PROJECT_REF"] || '');
   });
 
   it('scoped adapter uses explicit projectRef', () => {
@@ -53,10 +55,10 @@ describeLive('P0-26: Project-scoped provisioning', () => {
     try {
       await scoped.getAuthConfig();
     } catch (e) {
-      const msg = (e as Error).message;
+      const msg = (requireError(e)).message;
       if (msg.includes('/v1/projects/')) {
         expect(msg).toContain(ref);
-        expect(msg).not.toContain(process.env.PROJECT_REF!);
+        expect(msg).not.toContain(requireDefined(process.env["PROJECT_REF"]));
       }
     }
   });
@@ -65,21 +67,23 @@ describeLive('P0-26: Project-scoped provisioning', () => {
     const refs = ['project-a-00001', 'project-b-00002', 'project-c-00003'];
     const adapters = refs.map(ref => getSupaCloudAdapterForProject(ref));
 
-    for (let i = 0; i < refs.length; i++) {
-      expect(adapters[i].getProjectRef()).toBe(refs[i]);
+    for (const [i, ref] of refs.entries()) {
+      const adapter = adapters[i];
+      if (!adapter) throw new Error(`Expected scoped adapter at index ${i}`);
+      expect(adapter.getProjectRef()).toBe(ref);
     }
   });
 });
 
 describe('P0-26: Project-scoped provisioning (unit)', () => {
   beforeAll(() => {
-    process.env.SUPACLOUD_API_URL = 'http://test-api:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-    process.env.PROJECT_REF = 'default-test-ref';
-    process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
-    process.env.DATABASE_URL = 'postgres://test';
-    delete process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE;
-    delete process.env.SUPACLOUD_STORAGE_URL_TEMPLATE;
+    process.env["SUPACLOUD_API_URL"] = 'http://test-api:9090';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = 'test-token';
+    process.env["PROJECT_REF"] = 'default-test-ref';
+    process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.test';
+    process.env["DATABASE_URL"] = 'postgres://test';
+    delete process.env["SUPACLOUD_RUNTIME_URL_TEMPLATE"];
+    delete process.env["SUPACLOUD_STORAGE_URL_TEMPLATE"];
     loadConfig();
   });
 
@@ -102,8 +106,8 @@ describe('P0-26: Project-scoped provisioning (unit)', () => {
   });
 
   it('derives cross-project runtime/storage URLs from templates', () => {
-    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'http://{projectRef}.api.192.168.1.48.sslip.io';
-    process.env.SUPACLOUD_STORAGE_URL_TEMPLATE = 'http://{projectRef}.api.192.168.1.48.sslip.io';
+    process.env["SUPACLOUD_RUNTIME_URL_TEMPLATE"] = 'http://{projectRef}.api.192.168.1.48.sslip.io';
+    process.env["SUPACLOUD_STORAGE_URL_TEMPLATE"] = 'http://{projectRef}.api.192.168.1.48.sslip.io';
     loadConfig();
 
     const adapter = getSupaCloudAdapterForProject('vwsvexjelurvczfivgiz');

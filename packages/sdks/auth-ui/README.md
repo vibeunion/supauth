@@ -46,7 +46,7 @@ const { experience, phrases } = await fetchExperience();
 
 const config = buildSupabaseAuthUiConfig({
   experience,
-  phrases: phrases?.phrases,
+  ...(phrases ? { phrases: phrases.phrases } : {}),
   view: 'sign_in',
   redirectTo: 'https://your-app.com/callback',
 });
@@ -128,6 +128,12 @@ Options / 参数：
 - `applicationId` (string, optional / 可选) - OAuth client ID for per-app branding / 用于应用级品牌配置的 OAuth client ID
 - `authorizationId` (string, optional / 可选) - GoTrue authorization ID / GoTrue authorization ID
 - `locale` (string, optional / 可选) - Language tag for i18n phrases / 本地化短语的语言标签，例如 `'en'` 或 `'zh-CN'`
+- `fetch` (optional / 可选) - Injectable browser/worker transport; does not replace global fetch / 可注入浏览器或 Worker 传输，不修改全局 fetch
+- `signal` (AbortSignal, optional / 可选) - Cancels the whole resolution, including response body reads / 取消整个解析流程，包括响应体读取
+- `timeoutMs` (number, optional / 可选) - Bounds the whole resolution; omitted means no additional timeout / 整个解析流程的时限；省略时不额外设置超时
+
+Cancellation and timeout reject with `AuthUiRequestError` (`request_aborted` or `request_timeout`). Unavailable translations retain the existing default-language fallback; malformed API data fails shared schema validation and does not silently fall back.
+取消及超时会抛出 `AuthUiRequestError`（`request_aborted` 或 `request_timeout`）。翻译不可用时保留默认语言回退；API 数据不符合共享 Schema 时直接失败，不静默回退。
 - `view` (EmbeddedAuthUiView, optional / 可选) - `'sign_in'` | `'sign_up'` | `'forgotten_password'`
 - `redirectTo` (string, optional / 可选) - Post-login redirect URL / 登录后的跳转 URL
 

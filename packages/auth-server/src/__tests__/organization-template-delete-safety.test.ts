@@ -1,3 +1,5 @@
+import { strictRecord } from './helpers/strict-values.js';
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { Elysia } from 'elysia';
@@ -10,13 +12,15 @@ import {
 
 const deleteTemplate = mock(async (): Promise<'deleted' | 'protected' | 'not_found'> => 'deleted');
 const createTemplate = mock(async () => ({ id: 'template-new', name: 'New template' }));
-const updateTemplate = mock(async () => ({ id: 'template-one' } as { id: string } | undefined));
+const updateTemplate = mock(async (): Promise<{ id: string; name: string } | undefined> => ({ id: 'template-one', name: 'Template One' }));
 const instantiateFromTemplate = mock(async (): Promise<{
-  org: { id: string };
+  org: { id: string; name: string; description: string; members: never[]; created_at: string; updated_at: string };
+  template: { id: string; name: string };
   rolesCreated: number;
   replayed?: boolean;
 }> => ({
-  org: { id: 'org-one' },
+  org: { id: 'org-one', name: 'Organization', description: '', members: [], created_at: '2026-09-08T00:00:00Z', updated_at: '2026-09-08T00:00:00Z' },
+  template: { id: 'template-one', name: 'Template One' },
   rolesCreated: 0,
 }));
 const logAudit = mock(async () => ({}));
@@ -80,9 +84,7 @@ describe('organization template deletion safety', () => {
     ['PUT', { description: null }],
   ] as const)('rejects malformed %s input before side effects', async (method, body) => {
     const response = await app.handle(templateMutationRequest(method, body));
-    const responseBody = await response.json() as {
-      error?: { code?: string };
-    };
+    const responseBody = strictDecodeSchema(StrictType.Object({ "error": StrictType.Optional(StrictType.Object({ "code": StrictType.Optional(StrictType.String()) })) }), await response.json());
 
     expect(response.status).toBe(400);
     expect(responseBody.error?.code).toBe('invalid_organization_template');
@@ -162,8 +164,11 @@ describe('organization template deletion safety', () => {
   });
 
   it('does not repeat audit or webhook side effects when an instantiation is replayed', async () => {
+    const org = { id: 'org-one', name: 'Organization', description: '', members: [], created_at: '2026-09-08T00:00:00Z', updated_at: '2026-09-08T00:00:00Z' };
+    const template = { id: 'template-one', name: 'Template One' };
     instantiateFromTemplate.mockResolvedValueOnce({
-      org: { id: 'org-one' },
+      org,
+      template,
       rolesCreated: 1,
       replayed: true,
     });
@@ -185,7 +190,8 @@ describe('organization template deletion safety', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      org: { id: 'org-one' },
+      org,
+      template,
       rolesCreated: 1,
     });
     expect(logAudit).not.toHaveBeenCalled();
@@ -199,11 +205,11 @@ describe('organization template deletion safety', () => {
       'http://localhost/v1/org-templates/template-default',
       { method: 'DELETE' },
     ));
-    const responseBody = await response.json() as Record<string, unknown>;
+    const responseBody = strictRecord(await response.json());
 
     expect(response.status).toBe(409);
-    expect(responseBody.code).toBe('default_organization_template_protected');
-    expect(responseBody.message).toBe('The default organization template cannot be deleted.');
+    expect(responseBody["code"]).toBe('default_organization_template_protected');
+    expect(responseBody["message"]).toBe('The default organization template cannot be deleted.');
     expect(logAudit).not.toHaveBeenCalled();
   });
 

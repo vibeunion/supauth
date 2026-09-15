@@ -1,3 +1,4 @@
+import { requireDefined } from "./tooling-values.js";
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,7 +12,7 @@ if (!existsSync(entry)) throw new Error('Build the candidate @supacloud/elysia p
 
 // 只传入本地工具链环境，不继承线上认证、数据库或部署凭据。
 const environment = Object.fromEntries(
-  ['PATH', 'HOME', 'TMPDIR', 'LANG'].flatMap(key => process.env[key] ? [[key, process.env[key]!]] : []),
+  ['PATH', 'HOME', 'TMPDIR', 'LANG'].flatMap(key => process.env[key] ? [[key, requireDefined(process.env[key])]] : []),
 );
 const child = Bun.spawn([
   process.execPath, '--no-env-file', 'test', '--isolate',

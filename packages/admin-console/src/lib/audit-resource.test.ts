@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, test } from "bun:test";
 import { auditResourcePath } from "./audit-resource.js";
 
@@ -17,5 +16,8 @@ describe("audit resource links", () => {
 
   test("does not create links without a canonical resource id", () => {
     expect(auditResourcePath({ resource_type: "user" })).toBeNull();
+    expect(auditResourcePath({ resource_type: "__proto__", resource_id: "user-one" })).toBeNull();
+    expect(auditResourcePath({ resource_type: "toString", resource_id: "user-one" })).toBeNull();
+    expect(auditResourcePath({ resourceType: "user", resourceId: "a/b" })).toBe("/users/a%2Fb/settings");
   });
 });

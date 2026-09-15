@@ -6,7 +6,7 @@ import { resolveSupabaseAdminKey } from './supabase-compat-env.js';
 const runtimeUrl = requiredEnv('OAUTH_RUNTIME_URL').replace(/\/auth\/v1\/?$/, '').replace(/\/+$/, '');
 const adminKey = resolveSupabaseAdminKey(process.env)
   || requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
-const userId = process.env.SUPABASE_COMPAT_USER_ID?.trim();
+const userId = process.env["SUPABASE_COMPAT_USER_ID"]?.trim();
 
 if (userId) {
   const admin = createClient(runtimeUrl, adminKey, {

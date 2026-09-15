@@ -1,8 +1,8 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { disabledSsoConfig, enabledSsoConfig, adminIdentityFixture, deferredRequest, runLockOperation } from './auth-fixtures';
 import {
   buildAdminEndSessionUrl,
+  getAdminMfaStepUpState,
   initializeAdminAuthProvider,
   prepareAdminAuthCallbackRetry,
   resetAdminAuthRuntimeForTests,
@@ -10,15 +10,7 @@ import {
 
 const originalFetch = globalThis.fetch;
 
-function deferredRequest() {
-  let resolveRequest;
-  const promise = new Promise((resolve) => {
-    resolveRequest = resolve;
-  });
-  return { promise, resolve: resolveRequest };
-}
-
-async function waitFor(predicate, message) {
+async function waitFor(predicate: () => boolean, message: string) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (predicate()) return;
     await Promise.resolve();
@@ -36,6 +28,31 @@ afterEach(() => {
 });
 
 describe('admin SSO runtime config', () => {
+  test('rejects an MFA state request when its provider resets before the deferred read', async () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    const values = new Map<string, string>();
+    const browserWindow = {
+      location: { href: 'https://admin.example.test/admin' },
+      document: {},
+      sessionStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => { values.set(key, value); },
+        removeItem: (key: string) => { values.delete(key); },
+      },
+    };
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: browserWindow });
+    globalThis.fetch = (mock(async () => Response.json(enabledSsoConfig)));
+    try {
+      await initializeAdminAuthProvider();
+      const pendingState = getAdminMfaStepUpState();
+      resetAdminAuthRuntimeForTests();
+      await expect(pendingState).rejects.toThrow('MFA 会话已变化');
+    } finally {
+      if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+      else Reflect.deleteProperty(globalThis, 'window');
+    }
+  });
+
   test('builds the hosted end-session navigation with the current ID token', () => {
     expect(buildAdminEndSessionUrl({
       endpoint: 'https://auth.example.test/logout',
@@ -48,21 +65,24 @@ describe('admin SSO runtime config', () => {
   });
 
   test('preserves an unavailable config endpoint as a structured initialization failure', async () => {
-    const fetcher = mock(async () => Response.json({
+    const fetcher = mock(async (_request: RequestInfo | URL) => Response.json({
       code: 'upstream_unavailable',
       message: 'SupaCloud unavailable',
     }, { status: 503 }));
-    globalThis.fetch = fetcher;
+    globalThis.fetch = (fetcher);
 
     await expect(initializeAdminAuthProvider()).rejects.toMatchObject({
       statusCode: 503,
       code: 'upstream_unavailable',
     });
-    const requestUrl = new URL(String(fetcher.mock.calls[0][0]), 'http://localhost');
+    const requestCall = fetcher.mock.calls[0];
+    expect(requestCall).toBeDefined();
+    if (!requestCall) throw new Error('Expected runtime config request');
+    const requestUrl = new URL(String(requestCall[0]), 'http://localhost');
     expect(requestUrl.pathname).toBe('/api/v1/public/admin-sso-config');
 
-    const recoveryFetcher = mock(async () => Response.json({ enabled: false }));
-    globalThis.fetch = recoveryFetcher;
+    const recoveryFetcher = mock(async () => Response.json(disabledSsoConfig));
+    globalThis.fetch = (recoveryFetcher);
     await expect(initializeAdminAuthProvider()).resolves.toBeDefined();
     expect(recoveryFetcher).toHaveBeenCalledTimes(1);
   });
@@ -71,11 +91,11 @@ describe('admin SSO runtime config', () => {
     const fetcher = mock(async (request: RequestInfo | URL) => {
       const requestUrl = new URL(String(request), 'http://localhost');
       if (requestUrl.pathname === '/api/v1/public/admin-sso-config') {
-        return Response.json({ enabled: false });
+        return Response.json(disabledSsoConfig);
       }
       if (requestUrl.pathname === '/api/v1/auth/identity') {
         return Response.json({
-          id: 'admin-1',
+          ...adminIdentityFixture,
           roles: ['auditor'],
           permissions: ['audit.read', 'audit.export'],
           authorization_source: 'rbac_projection',
@@ -83,7 +103,7 @@ describe('admin SSO runtime config', () => {
       }
       return Response.json({ code: 'not_found', message: 'Not found' }, { status: 404 });
     });
-    globalThis.fetch = fetcher;
+    globalThis.fetch = (fetcher);
 
     const provider = await initializeAdminAuthProvider();
     await expect(provider.getPermissions?.()).resolves.toEqual({
@@ -94,14 +114,14 @@ describe('admin SSO runtime config', () => {
   });
 
   test('does not share caller cancellation with an immediate remount', async () => {
-    const firstResponse = deferredRequest();
+    const firstResponse = deferredRequest<Response>();
     const firstCaller = new AbortController();
     let configRequests = 0;
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = (mock(async () => {
       configRequests += 1;
       if (configRequests === 1) return firstResponse.promise;
-      return Response.json({ enabled: false });
-    });
+      return Response.json(disabledSsoConfig);
+    }));
 
     const cancelledAttempt = initializeAdminAuthProvider({ signal: firstCaller.signal });
     await waitFor(() => configRequests === 1, 'first runtime config request did not start');
@@ -109,7 +129,7 @@ describe('admin SSO runtime config', () => {
     const remountedAttempt = initializeAdminAuthProvider({
       signal: new AbortController().signal,
     });
-    firstResponse.resolve(Response.json({ enabled: false }));
+    firstResponse.resolve(Response.json(disabledSsoConfig));
 
     await expect(cancelledAttempt).rejects.toMatchObject({ code: 'request_aborted' });
     await expect(remountedAttempt).resolves.toBeDefined();
@@ -124,59 +144,55 @@ describe('admin SSO runtime config', () => {
       ['supaoauth_admin_sso_state', callbackState],
       ['supaoauth_admin_sso_pkce_verifier', 'callback-verifier'],
     ]);
-    const tokenResponse = deferredRequest();
+    const tokenResponse = deferredRequest<Response>();
     let tokenRequests = 0;
     const adminHistoryState = { svelteKitIndex: 7 };
-    let replacedHistoryState;
+    let replacedHistoryState: unknown;
     let currentHref = `https://admin.example.test/admin?code=issued-code&state=${callbackState}`;
     const location = {
       get href() { return currentHref; },
       set href(value) { currentHref = new URL(String(value), currentHref).href; },
       get origin() { return new URL(currentHref).origin; },
       get pathname() { return new URL(currentHref).pathname; },
-      assign(value) { currentHref = new URL(String(value), currentHref).href; },
+      assign(value: string | URL) { currentHref = new URL(String(value), currentHref).href; },
     };
-    globalThis.window = {
+    const browserWindow = {
       document: {},
       navigator: {
         locks: {
-          request: async (_name, optionsOrOperation, operation) => (
-            operation ?? optionsOrOperation
-          )(),
+          request: runLockOperation,
         },
       },
       location,
       history: {
         state: adminHistoryState,
-        replaceState: (state, _title, nextUrl) => {
+        replaceState: (state: unknown, _title: string, nextUrl?: string | URL | null) => {
           replacedHistoryState = state;
           currentHref = new URL(String(nextUrl), currentHref).href;
         },
       },
       sessionStorage: {
-        getItem: (key) => storageValues.get(key) ?? null,
-        setItem: (key, value) => storageValues.set(key, value),
-        removeItem: (key) => storageValues.delete(key),
+        getItem: (key: string) => storageValues.get(key) ?? null,
+        setItem: (key: string, value: string) => { storageValues.set(key, value); },
+        removeItem: (key: string) => { storageValues.delete(key); },
       },
     };
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: browserWindow });
     globalThis.Request = class BrowserRequest extends OriginalRequest {
-      constructor(input, init) {
+      constructor(input: RequestInfo | URL, init?: RequestInit) {
         super(typeof input === 'string' && input.startsWith('/')
           ? new URL(input, location.href)
           : input, init);
       }
     };
-    globalThis.fetch = mock(async (input) => {
+    globalThis.fetch = (mock(async (input: RequestInfo | URL) => {
       const requestUrl = new URL(
         input instanceof Request ? input.url : String(input),
         location.href,
       );
       if (requestUrl.pathname === '/api/v1/public/admin-sso-config') {
         return Response.json({
-          enabled: true,
-          issuer: 'https://issuer.example.test',
-          client_id: 'admin-client',
-          redirect_uri: 'https://admin.example.test/admin',
+          ...enabledSsoConfig,
         });
       }
       if (requestUrl.pathname === '/.well-known/openid-configuration') {
@@ -191,10 +207,10 @@ describe('admin SSO runtime config', () => {
         return tokenResponse.promise;
       }
       if (requestUrl.pathname === '/api/v1/auth/identity') {
-        return Response.json({ id: 'admin-1' });
+        return Response.json(adminIdentityFixture);
       }
       return Response.json({ code: 'not_found' }, { status: 404 });
-    });
+    }));
 
     try {
       const provider = await initializeAdminAuthProvider({
@@ -220,7 +236,10 @@ describe('admin SSO runtime config', () => {
 
       await expect(replacementCheck).resolves.toEqual({ authenticated: true });
       expect(tokenRequests).toBe(1);
-      expect(JSON.parse(storageValues.get('supaoauth_admin_sso_tokens'))).toMatchObject({
+      const serializedTokens = storageValues.get('supaoauth_admin_sso_tokens');
+      expect(serializedTokens).toBeDefined();
+      if (!serializedTokens) throw new Error('Expected persisted SSO tokens');
+      expect(JSON.parse(serializedTokens)).toMatchObject({
         access_token: 'safe-access-token',
       });
 
@@ -243,7 +262,7 @@ describe('admin SSO runtime config', () => {
       expect(storageValues.get('supaoauth_admin_sso_state')).toBe('newer-state');
 
       const cancelledDuringCleanup = new AbortController();
-      const retryStorage = globalThis.window.sessionStorage;
+      const retryStorage = browserWindow.sessionStorage;
       const removeStorageItem = retryStorage.removeItem;
       retryStorage.removeItem = (key) => {
         removeStorageItem(key);
@@ -267,6 +286,9 @@ describe('admin SSO runtime config', () => {
       const loginSignal = new AbortController().signal;
       const freshLogin = await rebuiltProvider.login({ signal: loginSignal });
       expect(freshLogin).toMatchObject({ success: true });
+      if (!('commitRedirect' in freshLogin) || typeof freshLogin.commitRedirect !== 'function') {
+        throw new Error('Expected prepared redirect');
+      }
       await freshLogin.commitRedirect(loginSignal);
       const freshState = storageValues.get('supaoauth_admin_sso_state');
       const freshVerifier = storageValues.get('supaoauth_admin_sso_pkce_verifier');
@@ -288,10 +310,10 @@ describe('admin SSO runtime config', () => {
 
       const navigationLock = deferredRequest();
       let navigationLockRequested = false;
-      globalThis.window.navigator.locks.request = async (_name, optionsOrOperation, operation) => {
+      browserWindow.navigator.locks.request = async (name, optionsOrOperation, operation) => {
         navigationLockRequested = true;
         await navigationLock.promise;
-        return (operation ?? optionsOrOperation)();
+        return runLockOperation(name, optionsOrOperation, operation);
       };
       currentHref = `https://admin.example.test/admin?code=stale-code&state=${freshState}&view=members#permissions`;
       const navigationRetry = prepareAdminAuthCallbackRetry({
@@ -310,12 +332,13 @@ describe('admin SSO runtime config', () => {
 
       const abortedLock = deferredRequest();
       const queuedAbort = new AbortController();
-      let queuedLockSignal;
-      globalThis.window.navigator.locks.request = async (_name, options, operation) => {
+      let queuedLockSignal: AbortSignal | undefined;
+      browserWindow.navigator.locks.request = async (name, options, operation) => {
+        if (typeof options === 'function' || !options.signal) throw new Error('Expected queued lock signal');
         queuedLockSignal = options.signal;
         await abortedLock.promise;
         options.signal.throwIfAborted();
-        return operation();
+        return runLockOperation(name, options, operation);
       };
       currentHref = `https://admin.example.test/admin?error=access_denied&state=${freshState}&view=members#permissions`;
       const abortedRetry = prepareAdminAuthCallbackRetry({ signal: queuedAbort.signal });
@@ -329,9 +352,7 @@ describe('admin SSO runtime config', () => {
       expect(storageValues.get('supaoauth_admin_sso_state')).toBe(freshState);
       expect(storageValues.get('supaoauth_admin_sso_pkce_verifier')).toBe(freshVerifier);
 
-      globalThis.window.navigator.locks.request = async (_name, optionsOrOperation, operation) => (
-        operation ?? optionsOrOperation
-      )();
+      browserWindow.navigator.locks.request = runLockOperation;
       currentHref = `https://admin.example.test/admin?error=access_denied&error_description=private-detail&error_uri=https%3A%2F%2Fissuer.example.test%2Ferrors%2Fdenied&error_code=provider_denied&state=${freshState}&iss=https%3A%2F%2Fissuer.example.test&session_state=session-123&view=members#permissions`;
       await prepareAdminAuthCallbackRetry({ signal: new AbortController().signal });
       expect(currentHref).toBe('https://admin.example.test/admin?view=members#permissions');
@@ -340,7 +361,7 @@ describe('admin SSO runtime config', () => {
       expect(storageValues.has('supaoauth_admin_sso_pkce_verifier')).toBe(false);
     } finally {
       globalThis.Request = OriginalRequest;
-      globalThis.window = originalWindow;
+      Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: originalWindow });
     }
   });
 });

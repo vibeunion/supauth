@@ -1,19 +1,29 @@
-// @ts-nocheck
+import { readFile } from 'node:fs/promises';
+// @ts-check
 import { describe, expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { AdminApiError } from "./admin-api.js";
 import {
   applicationDetailTabValues,
   capabilityAvailable,
   collectionItems,
+  collectionPage,
+  cursorCollectionPage,
+  createKeyedSingleFlightTracker,
+  createLatestRequestTracker,
   createOperationTracker,
   isLatestResourceLoad,
   resourceOwnedItems,
   requestErrorState,
   tabFromRoute,
+  mutationOutcomeUnknown,
 } from "./resource-page.js";
 
 function deferredRequest() {
-  let resolve;
+  /** @type {(value?: unknown) => void} */
+  let resolve = () => { throw new Error("Deferred request was not initialized"); };
+  /** @type {Promise<unknown>} */
   const promise = new Promise((resolveRequest) => {
     resolve = resolveRequest;
   });
@@ -51,6 +61,7 @@ const ROLE_MUTATION_BUTTON_ACTIONS = [
   "showClone = false",
 ];
 
+/** @param {string} source @param {string} functionName */
 function functionBody(source, functionName) {
   const signatureOffset = source.indexOf(`function ${functionName}(`);
   if (signatureOffset < 0) throw new Error(`Missing ${functionName}`);
@@ -64,6 +75,7 @@ function functionBody(source, functionName) {
   throw new Error(`Unclosed ${functionName}`);
 }
 
+/** @param {string} source */
 function sourceButtonBlocks(source) {
   return [...source.matchAll(/<button\b[\s\S]*?<\/button\s*>/g)].map(
     (match) => match[0],
@@ -71,10 +83,13 @@ function sourceButtonBlocks(source) {
 }
 
 class ResourcePageHarness {
+  /** @type {import("./resource-page.js").ResourceLoadContext | null} */
   #currentContext = null;
   #generation = 0;
+  /** @type {{revealedSecret: string, selectedDelivery: {id: string} | null, roles?: unknown, users?: unknown, loading?: boolean}} */
   state = { revealedSecret: "", selectedDelivery: null };
 
+  /** @param {string} resourceId @param {string} tab */
   navigate(resourceId, tab) {
     this.#currentContext = {
       generation: (this.#generation += 1),
@@ -86,7 +101,9 @@ class ResourcePageHarness {
     return this.#currentContext;
   }
 
+  /** @param {import("./resource-page.js").ResourceLoadContext} loadContext @param {Partial<ResourcePageHarness["state"]>} update */
   commit(loadContext, update) {
+    if (!this.#currentContext) return false;
     if (!isLatestResourceLoad(loadContext, this.#currentContext)) return false;
     Object.assign(this.state, update);
     return true;
@@ -94,6 +111,162 @@ class ResourcePageHarness {
 }
 
 describe("resource page helpers", () => {
+  test("retains collection element types without trusting an unknown or conflicting envelope", () => {
+    const items = [{ id: "user-one", enabled: true }];
+    expect(collectionItems({ users: items })).toBe(items);
+    expect(collectionPage({ data: { items }, total: 3, page: 1, limit: 1 })).toEqual({
+      items, total: 3, page: 1, limit: 1, complete: false,
+    });
+    expect(cursorCollectionPage({ items, total: 2, limit: 1, next_cursor: "next" })).toEqual({
+      items, total: 2, limit: 1, nextCursor: "next",
+    });
+    expect(collectionItems({ items: ["first"], users: items })).toEqual(["first"]);
+  });
+
+  test("keeps latest and singleflight tokens bound to their original owner", () => {
+    const latest = createLatestRequestTracker();
+    const first = latest.begin("users", { page: 1 });
+    const second = latest.begin("users", { page: 2 });
+    expect(first.ownerContext.page).toBe(1);
+    expect(latest.isCurrent(first)).toBe(false);
+    expect(latest.isCurrent(second)).toBe(true);
+    expect(latest.invalidate("users")).toBe(true);
+    expect(latest.isCurrent(second)).toBe(false);
+    expect(latest.begin("roles").ownerContext).toBeNull();
+
+    const singleflight = createKeyedSingleFlightTracker();
+    const active = singleflight.begin("rotate", { id: "user-one" });
+    if (!active) throw new Error("Expected first operation");
+    expect(singleflight.begin("rotate", { id: "user-two" })).toBeNull();
+    expect(singleflight.isPending("rotate")).toBe(true);
+    expect(singleflight.finish(active)).toBe(true);
+    const next = singleflight.begin("rotate");
+    if (!next) throw new Error("Expected next operation");
+    expect(singleflight.finish(active)).toBe(false);
+    expect(singleflight.isPending("rotate")).toBe(true);
+    expect(singleflight.finish(next)).toBe(true);
+  });
+
+  test("classifies unknown write outcomes without replaying a write", () => {
+    for (const error of [
+      new TypeError("Network unavailable"),
+      { statusCode: 502 },
+      { statusCode: "503" },
+      { code: "request_timeout" },
+      { code: "request_aborted" },
+      Object.assign(() => {}, { code: "request_timeout" }),
+    ]) expect(mutationOutcomeUnknown(error)).toBe(true);
+    for (const error of [null, undefined, "failed", { statusCode: 403 }, new Error("Rejected")]) {
+      expect(mutationOutcomeUnknown(error)).toBe(false);
+    }
+  });
+
+  test("checks generic consumers and rejects unsafe state, payload, and draft types", () => {
+    const prelude = `
+      import {
+        collectionItems, collectionPage, cursorCollectionPage,
+        createOperationTracker, createLatestRequestTracker, createKeyedSingleFlightTracker,
+        type CollectionPayload
+      } from "./resource-page.js";
+      import {
+        createDurableMutationLockStore, settleWritesThenReadBack,
+        type MutationReconciliation
+      } from "./mutation-reconciliation.js";
+      import {
+        freezeSettingsDraft, settleAuthoritativeSettingsMutation,
+        accountCenterSettingsAuthority, organizationSettingsAuthority,
+        passwordPolicySettingsAuthority, generalSecuritySettingsAuthority
+      } from "./authoritative-settings-readback.js";
+      interface User { id: string; enabled: boolean }
+      declare const payload: CollectionPayload<User>;
+      declare const raw: unknown;
+      declare const bag: Record<string, unknown>;
+      declare const mixed: { items: {scope: string}[]; users: User[] };
+      declare const result: MutationReconciliation<User>;
+      const tracker = createLatestRequestTracker<"users", {page: number}>();
+      const frozen = freezeSettingsDraft({enabled: true, permissions: ["read"]});
+      const store = createDurableMutationLockStore<"delete">({
+        storageKey: "type-test", allowedActions: ["delete"], storageProvider: () => undefined
+      });
+    `;
+    const valid = typeDiagnostics(`${prelude}
+      const users: User[] = collectionItems(payload);
+      const pageUsers: User[] = collectionPage(payload).items;
+      const unknownItems: unknown[] = collectionItems(raw);
+      const mixedItems: unknown[] = collectionItems(mixed);
+      const token = tracker.begin("users", {page: 2});
+      const page: number = token.ownerContext.page;
+      const noOwner: null = tracker.begin("users").ownerContext;
+      const operation = createOperationTracker<{id: string}>(() => {}).begin({id: "u"});
+      const id: string = operation.ownerContext.id;
+      const singleflight = createKeyedSingleFlightTracker<"rotate", User>();
+      const rotation = singleflight.begin("rotate", {id: "u", enabled: true});
+      if (rotation) { const userId: string = rotation.ownerContext.id; }
+      if (result.status === "success") {
+        const confirmed: "success" = result.writeStatus;
+        const user: User = result.readBackValue;
+      } else if (result.status === "partial_failure") {
+        const partial: "partial_failure" = result.writeStatus;
+        const user: User = result.readBackValue;
+      } else if (result.status === "readback_failure") {
+        const error: unknown = result.readBackError;
+      }
+      store.stage({}, {action: "delete", ownerId: "users", targetId: "one"});
+      interface Command { enabled: boolean; scopes: string[] }
+      declare const command: Command;
+      const detached = freezeSettingsDraft(command);
+      const scopes: readonly string[] = detached.scopes;
+      const organization = organizationSettingsAuthority({
+        organizationResponse: {organization: {id: "org", name: "Name", description: null}},
+        jitEnabled: true, jitResponse: {enabled: true, domains: ["example.test"]}
+      });
+      const orgId: string = organization.resource_id;
+      const jwtExpiry: number = generalSecuritySettingsAuthority({
+        authConfig: {jwt_expiry: 3600}, securityConfig: {maxLoginAttempts: 5}
+      }).jwt_expiry;
+      const maxAttempts: number = generalSecuritySettingsAuthority({
+        authConfig: {}, securityConfig: {maxLoginAttempts: 5}
+      }).max_login_attempts;
+      const passwordLength: string = passwordPolicySettingsAuthority({
+        authConfig: {password_min_length: "12"}
+      }).password_min_length;
+      declare const numericConfig: Record<string, number>;
+      const optionalPasswordLength: number | undefined = passwordPolicySettingsAuthority({
+        authConfig: numericConfig
+      }).password_min_length;
+      async function reconcile() {
+        const outcome = await settleAuthoritativeSettingsMutation({
+          draft: {command, authority: {enabled: true}},
+          writeCommands: saved => [() => saved.scopes.length],
+          readSnapshot: async (): Promise<User> => ({id: "u", enabled: true}),
+          authorityFromSnapshot: snapshot => ({enabled: snapshot.enabled})
+        });
+        if (outcome.status === "success") { const user: User = outcome.readBackValue; }
+      }
+    `);
+    expect(valid).toEqual([]);
+    const invalid = typeDiagnostics(`${prelude}
+      const trusted: User[] = collectionItems(raw);
+      const conflicting: User[] = collectionItems(mixed);
+      collectionItems<User>(raw);
+      collectionItems<User>(bag);
+      tracker.begin("roles", {page: 2});
+      tracker.begin("users", {page: "2"});
+      frozen.permissions.push("write");
+      frozen.enabled = false;
+      const mutable: User = freezeSettingsDraft(raw);
+      const date: Date = freezeSettingsDraft(new Date());
+      result.readBackValue;
+      store.stage({}, {action: "rotate", ownerId: "users", targetId: "one"});
+      const wrongStatus: MutationReconciliation<User> = {
+        status: "success", writeStatus: "partial_failure", writeErrors: [], readBackValue: {id:"u", enabled:true}
+      };
+    `);
+    expect(invalid.map((diagnostic) => diagnostic.code).sort()).toEqual(
+      [2322, 2322, 2345, 2345, 2345, 2322, 2339, 2540, 2322, 2322, 2339, 2322, 2322].sort(),
+    );
+  }, 30_000);
+
   test("normalizes supported management list envelopes", () => {
     expect(collectionItems({ items: [{ id: "one" }] })).toEqual([
       { id: "one" },
@@ -247,7 +420,7 @@ describe("resource page helpers", () => {
       "../routes/applications/[appId]/+page.svelte",
       import.meta.url,
     );
-    const applicationPageSource = await Bun.file(applicationPageUrl).text();
+    const applicationPageSource = await readFile(applicationPageUrl, 'utf8');
 
     for (const handlerName of APPLICATION_MUTATION_HANDLERS) {
       const handlerBody = functionBody(applicationPageSource, handlerName);
@@ -274,7 +447,7 @@ describe("resource page helpers", () => {
       "../routes/roles/+page.svelte",
       import.meta.url,
     );
-    const rolesPageSource = await Bun.file(rolesPageUrl).text();
+    const rolesPageSource = await readFile(rolesPageUrl, 'utf8');
     const declaredHandlers = [
       ...rolesPageSource.matchAll(
         /async function (handle\w+|toggleCatalogPermission|applyGroup|revokeAssignmentById)\s*\(/g,
@@ -295,7 +468,7 @@ describe("resource page helpers", () => {
       "../routes/roles/+page.svelte",
       import.meta.url,
     );
-    const rolesPageSource = await Bun.file(rolesPageUrl).text();
+    const rolesPageSource = await readFile(rolesPageUrl, 'utf8');
     const buttonBlocks = sourceButtonBlocks(rolesPageSource);
 
     for (const actionName of ROLE_MUTATION_BUTTON_ACTIONS) {
@@ -318,7 +491,7 @@ describe("resource page helpers", () => {
       "../routes/roles/+page.svelte",
       import.meta.url,
     );
-    const rolesPageSource = await Bun.file(rolesPageUrl).text();
+    const rolesPageSource = await readFile(rolesPageUrl, 'utf8');
     const savingFieldsets = [
       ...rolesPageSource.matchAll(
         /<fieldset\b[^>]*disabled=\{saving\}[^>]*>[\s\S]*?<\/fieldset>/g,
@@ -337,7 +510,7 @@ describe("resource page helpers", () => {
     ].map((match) => ({ markup: match[0], stateName: match[1] }));
     const unprotectedBindings = bindingEntries.filter(
       ({ markup, stateName }) =>
-        !readOnlyFilterStates.has(stateName) &&
+        (stateName === undefined || !readOnlyFilterStates.has(stateName)) &&
         !protectedMarkup.includes(markup),
     );
 
@@ -492,3 +665,36 @@ describe("resource page helpers", () => {
     ).toEqual(["settings", "roles", "logs", "permissions", "organizations"]);
   });
 });
+
+/** @param {string} source */
+function typeDiagnostics(source) {
+  const fixturePath = fileURLToPath(new URL("./resource-page.type-fixture.ts", import.meta.url));
+  /** @type {ts.CompilerOptions} */
+  const options = {
+    allowJs: true,
+    checkJs: true,
+    strict: true,
+    noUncheckedIndexedAccess: true,
+    exactOptionalPropertyTypes: true,
+    noImplicitOverride: true,
+    noFallthroughCasesInSwitch: true,
+    noEmit: true,
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    types: ["bun"],
+  };
+  const host = ts.createCompilerHost(options);
+  const originalGetSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
+    fileName === fixturePath
+      ? ts.createSourceFile(fileName, source, languageVersion, true, ts.ScriptKind.TS)
+      : originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+  const program = ts.createProgram([fixturePath], options, host);
+  return ts.getPreEmitDiagnostics(program)
+    .filter((diagnostic) => diagnostic.file?.fileName === fixturePath)
+    .map((diagnostic) => ({
+      code: diagnostic.code,
+      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+    }));
+}

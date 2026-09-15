@@ -13,7 +13,7 @@ import {
   generateRlsPoliciesSql,
 } from './index.js';
 
-const DATABASE_URL = process.env.AUTHORIZATION_POSTGRES_URL || '';
+const DATABASE_URL = process.env['AUTHORIZATION_POSTGRES_URL'] || '';
 const AUTHORIZATION_SCHEMA = 'authorization_test_rbac';
 const STRICT_AUTHORIZATION_SCHEMA = 'authorization_test_rbac_strict';
 const SOURCE_SCHEMA = 'authorization_test_source';
@@ -34,7 +34,7 @@ function isDisposableDatabaseUrl(databaseUrl: string): boolean {
   }
 }
 
-const postgresGateRequested = process.env.RUN_AUTHORIZATION_POSTGRES_TESTS === '1';
+const postgresGateRequested = process.env['RUN_AUTHORIZATION_POSTGRES_TESTS'] === '1';
 if (postgresGateRequested && !isDisposableDatabaseUrl(DATABASE_URL)) {
   throw new Error(
     'Authorization PostgreSQL tests require AUTHORIZATION_POSTGRES_URL to use a loopback disposable *authorization_test database',

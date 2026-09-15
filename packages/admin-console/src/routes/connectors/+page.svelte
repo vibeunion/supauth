@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { ConnectorView, ConnectorFactoryView, DurableMutationLocks, CollectionPayload, KeyedOperation } from "$lib/management-view-types.js";
+  import { adminEndpoints, decodeSchema, Type } from "@supauth/shared";
   import { onMount } from "svelte";
   import { t } from "$lib/i18n.js";
   import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
@@ -7,6 +9,7 @@
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     mutationOutcomeUnknown,
+    errorMessage,
   } from "$lib/resource-page.js";
   import {
     createConnectorFromFactory,
@@ -17,18 +20,19 @@
     listConnectorFactories,
   } from "$lib/api/client.js";
 
-  let connectors = $state([]);
-  let factories = $state([]);
+  let connectors = $state<ConnectorView[]>([]);
+  let factories = $state<ConnectorFactoryView[]>([]);
   let loading = $state(true);
-  let error = $state(null);
-  let testing = $state(null);
-  let runtimeCheckStatus = $state(null);
-  let selectedFactory = $state(null);
-  let factoryForm = $state({});
+  let error = $state<string | null>(null);
+  let testing = $state<string | null>(null);
+  let runtimeCheckStatus = $state<{ tone: "success" | "error"; message: string } | null>(null);
+  let selectedFactory = $state<ConnectorFactoryView | null>(null);
+  let factoryForm = $state<Record<string, string>>({});
   let creatingFactory = $state(false);
-  let mutationLocks = $state({});
+  type ConnectorLocks = DurableMutationLocks<"create" | "toggle">;
+  let mutationLocks = $state<ConnectorLocks>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   const connectorListRequests = createLatestRequestTracker();
   const factoryCreateOperations = createKeyedSingleFlightTracker();
   const connectorToggleOperations = createKeyedSingleFlightTracker();
@@ -36,7 +40,7 @@
     action: "create",
     ownerId: "connectors",
     targetId: "new",
-  };
+  } as const;
   const connectorMutationLockStore = createDurableMutationLockStore({
     storageKey: "supaoauth.admin.connector-factory-mutation-locks.v1",
     allowedActions: ["create", "toggle"],
@@ -66,7 +70,7 @@
   ];
 
   // Map raw connector IDs to localized brand names for display.
-  const connectorBrandMap = {
+  const connectorBrandMap: Record<string, string> = {
     wechat: "connector.brand.wechat",
     wechat_miniprogram: "connector.brand.wechat_miniprogram",
     wechat_mp: "connector.brand.wechat_mp",
@@ -82,13 +86,13 @@
     bilibili: "connector.brand.bilibili",
   };
 
-  function connectorDisplayName(connectorId) {
+  function connectorDisplayName(connectorId: string) {
     const key = connectorBrandMap[connectorId];
     return key ? t(key) : connectorId;
   }
 
   // Map raw factory field names to localized labels.
-  const factoryFieldLabelMap = {
+  const factoryFieldLabelMap: Record<string, string> = {
     name: "connector.field.name",
     domains: "connector.field.domains",
     metadata_url: "connector.field.metadata_url",
@@ -101,12 +105,12 @@
     issuer: "connector.field.issuer",
   };
 
-  function factoryFieldLabel(fieldName) {
+  function factoryFieldLabel(fieldName: string) {
     const key = factoryFieldLabelMap[fieldName];
     return key ? t(key) : fieldName;
   }
 
-  function factoryFieldIssue(factory, fieldName) {
+  function factoryFieldIssue(factory: ConnectorFactoryView, fieldName: string) {
     const conflictingGroup = (factorySchema(factory).one_of || []).find(
       (group) =>
         group.includes(fieldName) &&
@@ -116,13 +120,13 @@
     return conflictingGroup ? t("connector.metadataExclusiveError") : null;
   }
 
-  function connectorRecordId(connector) {
+  function connectorRecordId(connector: ConnectorView | null) {
     return typeof connector?.connector_record_id === "string"
       ? connector.connector_record_id
       : "";
   }
 
-  function completeConnectorList(response) {
+  function completeConnectorList(response: CollectionPayload<ConnectorView>) {
     const listedConnectors = completeCollectionItems(response);
     if (listedConnectors.every((connector) => typeof connector?.id === "string")) {
       return listedConnectors;
@@ -140,7 +144,7 @@
     }
   }
 
-  function applyConnectorList(readBack) {
+  function applyConnectorList(readBack: Awaited<ReturnType<typeof readConnectorList>>) {
     if (!connectorListRequests.isCurrent(readBack.request)) return false;
     if (readBack.requestError) throw readBack.requestError;
     connectors = readBack.connectors;
@@ -156,36 +160,36 @@
         listConnectorFactories(),
       ]);
       if (!applyConnectorList(readBack)) return;
-      factories = completeCollectionItems(factoryResponse);
+      factories = completeCollectionItems<ConnectorFactoryView>(factoryResponse);
       await reconcilePersistedToggleLocks();
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     } finally {
       loading = false;
     }
   }
 
-  function connectorToggleLock(connectorId) {
-    return { action: "toggle", ownerId: "connectors", targetId: connectorId };
+  function connectorToggleLock(connectorId: string) {
+    return { action: "toggle" as const, ownerId: "connectors", targetId: connectorId };
   }
 
-  function connectorToggleLocked(connectorId) {
+  function connectorToggleLocked(connectorId: string) {
     return connectorMutationLockStore.isLocked(
       mutationLocks,
       connectorToggleLock(connectorId),
     );
   }
 
-  function connectorTogglePending(connectorId) {
+  function connectorTogglePending(connectorId: string) {
     return connectorToggleOperations.isPending(connectorId);
   }
 
-  function connectorConfigurationRequired(connector) {
+  function connectorConfigurationRequired(connector: ConnectorView) {
     return connector?.runtime_kind === "builtin_oauth" &&
       connector?.configuration_required === true;
   }
 
-  function stageConnectorToggleLock(connectorId) {
+  function stageConnectorToggleLock(connectorId: string) {
     return updateMutationLocks(() =>
       connectorMutationLockStore.stage(
         mutationLocks,
@@ -194,7 +198,7 @@
     );
   }
 
-  function clearConnectorToggleLock(connectorId) {
+  function clearConnectorToggleLock(connectorId: string) {
     return updateMutationLocks(() =>
       connectorMutationLockStore.clear(
         mutationLocks,
@@ -203,28 +207,28 @@
     );
   }
 
-  async function submitConnectorToggle(connectorId, enabled) {
+  async function submitConnectorToggle(connectorId: string, enabled: boolean) {
     try {
       await updateConnector(connectorId, { enabled });
     } catch (requestError) {
-      if (requestError?.code === "connector_update_outcome_unknown") {
+      if (typeof requestError === "object" && requestError !== null && "code" in requestError && requestError.code === "connector_update_outcome_unknown") {
         throw requestError;
       }
       if (!mutationOutcomeUnknown(requestError)) throw requestError;
     }
   }
 
-  function connectorToggleFailure(requestError) {
-    if (requestError?.code === "connector_configuration_required") {
+  function connectorToggleFailure(requestError: unknown) {
+    if (typeof requestError === "object" && requestError !== null && "code" in requestError && requestError.code === "connector_configuration_required") {
       return t("connector.configurationRequired");
     }
-    if (requestError?.statusCode === 400) {
+    if (typeof requestError === "object" && requestError !== null && "statusCode" in requestError && requestError.statusCode === 400) {
       return t("Connector status update was rejected. Refresh and review the connector settings.");
     }
     return t("Connector status update failed. Verify the authentication runtime and try again.");
   }
 
-  async function reconcileSubmittedToggle(connectorId, expectedEnabled, operation) {
+  async function reconcileSubmittedToggle(connectorId: string, expectedEnabled: boolean, operation: KeyedOperation<string, null>) {
     const readBack = await readConnectorList();
     if (!connectorToggleOperations.isCurrent(operation)) return;
     if (readBack.requestError) throw readBack.requestError;
@@ -237,7 +241,7 @@
     }
   }
 
-  function reportConnectorToggleFailure(connectorId, submitted, requestError) {
+  function reportConnectorToggleFailure(connectorId: string, submitted: boolean, requestError: unknown) {
     const updateMayHaveCommitted = submitted || mutationOutcomeUnknown(requestError);
     if (!updateMayHaveCommitted) clearConnectorToggleLock(connectorId);
     error = updateMayHaveCommitted
@@ -245,7 +249,7 @@
       : connectorToggleFailure(requestError);
   }
 
-  async function handleToggle(connector) {
+  async function handleToggle(connector: ConnectorView) {
     if (!mutationStorageReady || connectorToggleLocked(connector.id)) return;
     if (!connector.enabled && connectorConfigurationRequired(connector)) {
       error = t("connector.configurationRequired");
@@ -271,7 +275,7 @@
     }
   }
 
-  async function handleTest(connectorId) {
+  async function handleTest(connectorId: string) {
     testing = connectorId;
     runtimeCheckStatus = null;
     try {
@@ -283,7 +287,7 @@
     } catch (requestError) {
       runtimeCheckStatus = {
         tone: "error",
-        message: requestError?.statusCode === 404
+        message: typeof requestError === "object" && requestError !== null && "statusCode" in requestError && requestError.statusCode === 404
           ? t("Connector runtime check is unavailable. Ask an administrator to verify the runtime route.")
           : t("Connector runtime configuration check failed. Verify the provider settings and try again."),
       };
@@ -291,11 +295,19 @@
     testing = null;
   }
 
-  function factorySchema(factory) {
-    return factory?.configSchema || factory?.config_schema || {};
+  const factoryConfigSchema = Type.Object({
+    required: Type.Optional(Type.Array(Type.String())),
+    secret_fields: Type.Optional(Type.Array(Type.String())),
+    optional: Type.Optional(Type.Array(Type.String())),
+    one_of: Type.Optional(Type.Array(Type.Array(Type.String()))),
+    notes: Type.Optional(Type.String()),
+  });
+
+  function factorySchema(factory: ConnectorFactoryView | null) {
+    return decodeSchema(factoryConfigSchema, factory?.configSchema || factory?.config_schema || {});
   }
 
-  function factoryFields(factory) {
+  function factoryFields(factory: ConnectorFactoryView | null) {
     const schema = factorySchema(factory);
     return [
       ...new Set([
@@ -307,7 +319,7 @@
     ];
   }
 
-  function configureFactory(factory) {
+  function configureFactory(factory: ConnectorFactoryView) {
     error = null;
     selectedFactory = factory;
     factoryForm = Object.fromEntries(
@@ -321,7 +333,7 @@
     error = null;
   }
 
-  function updateMutationLocks(lockCommand) {
+  function updateMutationLocks(lockCommand: () => ConnectorLocks) {
     try {
       mutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -378,24 +390,30 @@
     clearFactoryCreateLock();
   }
 
-  function factoryCreationFailure(requestError) {
-    if (requestError?.code === "connector_creation_outcome_unknown") {
+  function factoryCreationFailure(requestError: unknown) {
+    if (typeof requestError === "object" && requestError !== null && "code" in requestError && requestError.code === "connector_creation_outcome_unknown") {
       return t("Connector creation outcome is unknown. Verify the current connector list before trying again.");
     }
-    if (requestError?.statusCode === 400) {
+    if (typeof requestError === "object" && requestError !== null && "statusCode" in requestError && requestError.statusCode === 400) {
       return t("Connector settings are invalid. Check the required fields and try again.");
     }
-    if (requestError?.code === "connector_runtime_unavailable") {
+    if (typeof requestError === "object" && requestError !== null && "code" in requestError && requestError.code === "connector_runtime_unavailable") {
       return t("connector.runtimeUnavailable");
     }
     return t("Connector creation failed. Verify the authentication runtime capability and try again.");
   }
 
-  function factoryRuntimeKind(factory) {
+  function factoryRuntimeKind(factory: ConnectorFactoryView) {
     return factory.protocol === "saml" ? "saml" : "custom_oidc";
   }
 
-  function reconciledFactoryConnector({ beforeConnectors, afterConnectors, response, factory, draft }) {
+  function reconciledFactoryConnector({ beforeConnectors, afterConnectors, response, factory, draft }: {
+    beforeConnectors: ConnectorView[];
+    afterConnectors: ConnectorView[];
+    response: ConnectorView | null;
+    factory: ConnectorFactoryView;
+    draft: { name: string };
+  }) {
     const responseRecordId = connectorRecordId(response);
     if (!responseRecordId) return null;
     const beforeRecordIds = new Set(beforeConnectors.map(connectorRecordId).filter(Boolean));
@@ -408,7 +426,7 @@
     ) || null;
   }
 
-  function factoryDraft(factory) {
+  function factoryDraft(factory: ConnectorFactoryView) {
     const schema = factorySchema(factory);
     const missingField = (schema.required || []).find(
       (fieldName) => !String(factoryForm[fieldName] || "").trim(),
@@ -436,7 +454,10 @@
       };
     }
     return {
-      draft: { ...factoryForm, enabled: true },
+      draft: decodeSchema(
+        adminEndpoints.createConnectorFromFactory.input.properties.body,
+        { ...factoryForm, enabled: true },
+      ),
       errorMessage: null,
     };
   }
@@ -450,6 +471,9 @@
     let creationMayHaveCommitted = false;
     try {
       const factory = selectedFactory;
+      if (!factory) return;
+      const factoryId = factory.factoryId || factory.factory_id;
+      if (!factoryId) throw new Error("Connector factory has no runtime identity");
       const draftState = factoryDraft(factory);
       if (!draftState.draft) {
         error = draftState.errorMessage;
@@ -464,12 +488,12 @@
       let creationInterrupted = false;
       try {
         response = await createConnectorFromFactory(
-          factory.factoryId || factory.factory_id,
+          factoryId,
           draft,
         );
         creationMayHaveCommitted = true;
       } catch (requestError) {
-        if (requestError?.code === "connector_runtime_unavailable") {
+        if (typeof requestError === "object" && requestError !== null && "code" in requestError && requestError.code === "connector_runtime_unavailable") {
           throw requestError;
         }
         if (!mutationOutcomeUnknown(requestError)) throw requestError;

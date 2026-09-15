@@ -1,3 +1,6 @@
+import { strictProperty } from './helpers/strict-values.js';
+import { strictRecord } from './helpers/strict-values.js';
+import { strictFetch } from './helpers/strict-fetch.js';
 import { describe, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import {
@@ -38,7 +41,7 @@ function responseWithBodyError(error: unknown) {
   }), { status: 200 });
 }
 
-function enabledRouteOptions(changePassword: (input: any) => Promise<{ ok: true; userId?: string }>) {
+function enabledRouteOptions(changePassword: NonNullable<NonNullable<Parameters<typeof createPublicAccountPasswordRoutes>[0]>['changePassword']>) {
   return {
     changePassword,
     getAccountCenterConfig: async () => permissiveAccountCenterConfig,
@@ -50,7 +53,7 @@ describe('account password self-service', () => {
   test('changes password through GoTrue password grant and user update', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), init });
+      calls.push({ url: String(url), ...(init === undefined ? {} : { init }) });
       if (String(url).includes('/token?grant_type=password')) {
         return Response.json({
           access_token: 'user-access-token',
@@ -69,7 +72,7 @@ describe('account password self-service', () => {
       currentPassword: 'OldPass123!',
       newPassword: 'NewPass123!',
     }, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
       auditImpl: async () => {},
     });
@@ -94,7 +97,7 @@ describe('account password self-service', () => {
       currentPassword: 'OldPass123!',
       newPassword: 'NewPass123!',
     }, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
       auditImpl: async () => { throw new Error('audit unavailable'); },
     })).rejects.toThrow('audit unavailable');
@@ -112,7 +115,7 @@ describe('account password self-service', () => {
       currentPassword: 'wrong',
       newPassword: 'NewPass123!',
     }, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: strictFetch(fetchImpl),
       runtimeBaseUrls: ['https://auth.example.test'],
     });
 
@@ -166,11 +169,11 @@ describe('account password self-service', () => {
         confirm_password: 'Mismatch123!',
       }),
     }));
-    const body = await response.json();
+    const body = strictRecord(await response.json());
 
     expect(response.status).toBe(400);
-    expect(body.success).toBe(false);
-    expect(body.error.code).toBe('password_mismatch');
+    expect(body["success"]).toBe(false);
+    expect(strictProperty(body, 'error', 'code')).toBe('password_mismatch');
   });
 
   test('requires both account center and password change feature gates before runtime access', async () => {
@@ -226,7 +229,7 @@ describe('account password self-service', () => {
     }));
 
     const response = await app.handle(passwordChangeRequest('config-failure@example.test'));
-    const body = await response.json() as Record<string, unknown>;
+    const body = strictRecord(await response.json());
 
     expect(response.status).toBe(503);
     expect(body).toEqual({
@@ -311,10 +314,10 @@ describe('account password self-service', () => {
       }));
 
       const response = await app.handle(passwordChangeRequest(policyCase.email, policyCase.password));
-      const body = await response.json() as any;
+      const body = strictRecord(await response.json());
 
       expect(response.status).toBe(400);
-      expect(body.error.code).toBe(policyCase.code);
+      expect(strictProperty(body["error"], "code")).toBe(policyCase.code);
       expect(passwordChanges).toBe(0);
     }
   });
@@ -362,7 +365,7 @@ describe('account password self-service', () => {
         currentPassword: 'OldPass123!',
         newPassword: 'NewPass123!',
       }, {
-        fetchImpl: (() => Promise.resolve(Response.json(failureCase.payload, { status: failureCase.status }))) as unknown as typeof fetch,
+        fetchImpl: strictFetch((() => Promise.resolve(Response.json(failureCase.payload, { status: failureCase.status })))),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -390,12 +393,12 @@ describe('account password self-service', () => {
         currentPassword: 'OldPass123!',
         newPassword: 'NewPass123!',
       }, {
-        fetchImpl: (() => {
+        fetchImpl: strictFetch((() => {
           calls += 1;
           return Promise.resolve(calls === 1
             ? Response.json({ access_token: 'user-access-token', user: { id: 'user-1' } })
             : updateCase.response.clone());
-        }) as unknown as typeof fetch,
+        })),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -412,7 +415,7 @@ describe('account password self-service', () => {
         currentPassword: 'OldPass123!',
         newPassword: 'NewPass123!',
       }, {
-        fetchImpl: (() => Promise.reject(transportCase.error)) as unknown as typeof fetch,
+        fetchImpl: strictFetch((() => Promise.reject(transportCase.error))),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
 
@@ -429,7 +432,7 @@ describe('account password self-service', () => {
         currentPassword: 'OldPass123!',
         newPassword: 'NewPass123!',
       }, {
-        fetchImpl: (async () => responseWithBodyError(new DOMException('private detail', errorName))) as unknown as typeof fetch,
+        fetchImpl: strictFetch((async () => responseWithBodyError(new DOMException('private detail', errorName)))),
         runtimeBaseUrls: ['https://auth.example.test'],
       });
       expect(grantResult).toMatchObject({ ok: false, status: 504, code: 'runtime_timeout' });
@@ -442,12 +445,12 @@ describe('account password self-service', () => {
       currentPassword: 'OldPass123!',
       newPassword: 'NewPass123!',
     }, {
-      fetchImpl: (async () => {
+      fetchImpl: strictFetch((async () => {
         updateCalls += 1;
         return updateCalls === 1
           ? Response.json({ access_token: 'user-access-token' })
           : responseWithBodyError(new DOMException('private detail', 'TimeoutError'));
-      }) as unknown as typeof fetch,
+      })),
       runtimeBaseUrls: ['https://auth.example.test'],
       auditImpl: async () => { auditCalls += 1; },
     });
@@ -462,11 +465,11 @@ describe('account password self-service', () => {
       currentPassword: 'OldPass123!',
       newPassword: 'NewPass123!',
     }, {
-      fetchImpl: (async () => {
+      fetchImpl: strictFetch((async () => {
         calls += 1;
         if (calls === 1) throw new DOMException('private timeout detail', 'TimeoutError');
         throw new TypeError('private DNS detail');
-      }) as unknown as typeof fetch,
+      })),
       runtimeBaseUrls: ['https://first.example.test', 'https://second.example.test'],
     });
     expect(result).toMatchObject({ ok: false, status: 504, code: 'runtime_timeout' });

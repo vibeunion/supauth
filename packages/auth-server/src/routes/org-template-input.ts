@@ -1,26 +1,11 @@
-import { ApiContractError } from '../utils/api-contract.js';
+import { ApiContractError, isRecord } from '../utils/api-contract.js';
+import { sdkEndpoints } from '../../../shared/src/sdk-endpoints.js';
+import type { Static } from '../../../shared/src/schema.js';
 
-export interface OrganizationTemplateRoleInput {
-  name: string;
-  permissions: string[];
-}
-
-export interface OrganizationTemplateScopeInput {
-  name: string;
-  description?: string;
-}
-
-export interface OrganizationTemplateUpdateInput {
-  name?: string;
-  description?: string;
-  template_roles?: OrganizationTemplateRoleInput[];
-  template_scopes?: OrganizationTemplateScopeInput[];
-  is_default?: boolean;
-}
-
-export interface OrganizationTemplateCreateInput extends OrganizationTemplateUpdateInput {
-  name: string;
-}
+export type OrganizationTemplateCreateInput = Static<typeof sdkEndpoints.createOrgTemplate.input>['body'];
+export type OrganizationTemplateUpdateInput = Partial<OrganizationTemplateCreateInput>;
+export type OrganizationTemplateRoleInput = NonNullable<OrganizationTemplateCreateInput['template_roles']>[number];
+export type OrganizationTemplateScopeInput = NonNullable<OrganizationTemplateCreateInput['template_scopes']>[number];
 
 const ORGANIZATION_TEMPLATE_FIELDS = new Set([
   'name',
@@ -41,10 +26,10 @@ function invalidOrganizationTemplate(field: string) {
 }
 
 function organizationTemplateRecord(body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+  if (!isRecord(body)) {
     throw invalidOrganizationTemplate('body');
   }
-  return body as Record<string, unknown>;
+  return body;
 }
 
 function nonEmptyString(candidate: unknown): candidate is string {
@@ -56,57 +41,70 @@ function validOrganizationTemplateName(candidate: unknown): candidate is string 
 }
 
 function validTemplateRole(candidate: unknown): candidate is OrganizationTemplateRoleInput {
-  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
-  const role = candidate as Record<string, unknown>;
+  if (!isRecord(candidate)) return false;
+  const role = candidate;
   return Object.keys(role).every(field => field === 'name' || field === 'permissions')
-    && nonEmptyString(role.name)
-    && Array.isArray(role.permissions)
-    && role.permissions.every(nonEmptyString);
+    && nonEmptyString(role["name"])
+    && Array.isArray(role["permissions"])
+    && role["permissions"].every(nonEmptyString);
 }
 
 function validTemplateScope(candidate: unknown): candidate is OrganizationTemplateScopeInput {
-  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
-  const scope = candidate as Record<string, unknown>;
+  if (!isRecord(candidate)) return false;
+  const scope = candidate;
   return Object.keys(scope).every(field => field === 'name' || field === 'description')
-    && nonEmptyString(scope.name)
-    && (!Object.hasOwn(scope, 'description') || typeof scope.description === 'string');
+    && nonEmptyString(scope["name"])
+    && (!Object.hasOwn(scope, 'description') || typeof scope["description"] === 'string');
 }
 
 function assertOrganizationTemplateFields(input: Record<string, unknown>) {
+  const result: Pick<OrganizationTemplateUpdateInput, 'name' | 'description'> = {};
   const unknownField = Object.keys(input).find(field => !ORGANIZATION_TEMPLATE_FIELDS.has(field));
   if (unknownField) throw invalidOrganizationTemplate(unknownField);
-  if (Object.hasOwn(input, 'name') && !validOrganizationTemplateName(input.name)) {
-    throw invalidOrganizationTemplate('name');
+  if (Object.hasOwn(input, 'name')) {
+    const name = input["name"];
+    if (!validOrganizationTemplateName(name)) throw invalidOrganizationTemplate('name');
+    result.name = name;
   }
-  if (Object.hasOwn(input, 'description') && typeof input.description !== 'string') {
-    throw invalidOrganizationTemplate('description');
+  if (Object.hasOwn(input, 'description')) {
+    const description = input["description"];
+    if (typeof description !== 'string') throw invalidOrganizationTemplate('description');
+    result.description = description;
   }
+  return result;
 }
 
 function assertOrganizationTemplateCollections(input: Record<string, unknown>) {
-  if (Object.hasOwn(input, 'template_roles')
-    && (!Array.isArray(input.template_roles) || !input.template_roles.every(validTemplateRole))) {
-    throw invalidOrganizationTemplate('template_roles');
+  const result: Pick<OrganizationTemplateUpdateInput, 'template_roles' | 'template_scopes' | 'is_default'> = {};
+  if (Object.hasOwn(input, 'template_roles')) {
+    const roles = input["template_roles"];
+    if (!Array.isArray(roles) || !roles.every(validTemplateRole)) throw invalidOrganizationTemplate('template_roles');
+    result.template_roles = roles;
   }
-  if (Object.hasOwn(input, 'template_scopes')
-    && (!Array.isArray(input.template_scopes) || !input.template_scopes.every(validTemplateScope))) {
-    throw invalidOrganizationTemplate('template_scopes');
+  if (Object.hasOwn(input, 'template_scopes')) {
+    const scopes = input["template_scopes"];
+    if (!Array.isArray(scopes) || !scopes.every(validTemplateScope)) throw invalidOrganizationTemplate('template_scopes');
+    result.template_scopes = scopes;
   }
-  if (Object.hasOwn(input, 'is_default') && typeof input.is_default !== 'boolean') {
-    throw invalidOrganizationTemplate('is_default');
+  if (Object.hasOwn(input, 'is_default')) {
+    const isDefault = input["is_default"];
+    if (typeof isDefault !== 'boolean') throw invalidOrganizationTemplate('is_default');
+    result.is_default = isDefault;
   }
+  return result;
 }
 
 export function organizationTemplateUpdateInput(body: unknown): OrganizationTemplateUpdateInput {
   const input = organizationTemplateRecord(body);
-  assertOrganizationTemplateFields(input);
-  assertOrganizationTemplateCollections(input);
+  const fields = assertOrganizationTemplateFields(input);
+  const collections = assertOrganizationTemplateCollections(input);
   if (Object.keys(input).length === 0) throw invalidOrganizationTemplate('body');
-  return input as OrganizationTemplateUpdateInput;
+  return { ...fields, ...collections };
 }
 
 export function organizationTemplateCreateInput(body: unknown): OrganizationTemplateCreateInput {
   const input = organizationTemplateUpdateInput(body);
-  if (!Object.hasOwn(input, 'name')) throw invalidOrganizationTemplate('name');
-  return input as OrganizationTemplateCreateInput;
+  const name = input.name;
+  if (name === undefined) throw invalidOrganizationTemplate('name');
+  return { ...input, name };
 }

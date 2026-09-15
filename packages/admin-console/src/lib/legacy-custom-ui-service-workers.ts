@@ -25,7 +25,7 @@ type UnregistrationAttempt = {
 };
 
 function decodeUnreservedPathCharacters(pathname: string): string {
-  return pathname.replace(/%([0-9a-f]{2})/gi, (encodedCharacter, hexByte) => {
+  return pathname.replace(/%([0-9a-f]{2})/gi, (encodedCharacter: string, hexByte: string) => {
     const decodedCharacter = String.fromCharCode(Number.parseInt(hexByte, 16));
     return /^[a-z0-9._~-]$/i.test(decodedCharacter)
       ? decodedCharacter

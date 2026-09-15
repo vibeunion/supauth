@@ -2,17 +2,26 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { GOTRUE_PASSWORD_CHARACTER_POLICIES } from '../utils/password-policy.js';
 
-process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
-process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-32-characters';
-process.env.SUPACLOUD_PROJECT_REF = 'test-project';
-process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
-process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
-process.env.ADMIN_AUTH_MODE = 'token';
+process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
+process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'test-bff-signing-secret-32-characters';
+process.env["SUPACLOUD_PROJECT_REF"] = 'test-project';
+process.env["SUPACLOUD_RUNTIME_URL"] = 'http://runtime.internal';
+process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
+process.env["ADMIN_AUTH_MODE"] = 'token';
 process.env.NODE_ENV = 'test';
 
 const updateAuthConfig = mock(async (_requested: Record<string, unknown>) => ({}));
+const completeAuthConfig = {
+  enable_signup: true,
+  disable_signup: false,
+  enable_confirmations: true,
+  external_anonymous_users_enabled: false,
+  jwt_expiry: 3600,
+  mfa_max_enrolled_factors: 10,
+};
 const getAuthConfig = mock(async (): Promise<Record<string, unknown>> => ({
+  ...completeAuthConfig,
   password_min_length: 12,
   password_required_characters: '',
 }));
@@ -56,6 +65,7 @@ describe('GoTrue auth configuration write-back consistency', () => {
     getAuthConfig.mockClear();
     logAudit.mockClear();
     getAuthConfig.mockImplementation(async () => ({
+      ...completeAuthConfig,
       password_min_length: 12,
       password_required_characters: '',
     }));
@@ -79,6 +89,7 @@ describe('GoTrue auth configuration write-back consistency', () => {
 
   test('returns the authoritative policy and audits only after matching read-back', async () => {
     getAuthConfig.mockImplementation(async () => ({
+      ...completeAuthConfig,
       password_min_length: 12,
       password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.standard,
     }));
@@ -95,6 +106,7 @@ describe('GoTrue auth configuration write-back consistency', () => {
 
   test('accepts and reads back the exact strong GoTrue character policy', async () => {
     getAuthConfig.mockImplementation(async () => ({
+      ...completeAuthConfig,
       password_min_length: 12,
       password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.strong,
     }));
@@ -125,6 +137,19 @@ describe('GoTrue auth configuration write-back consistency', () => {
     });
     expect(updateAuthConfig).not.toHaveBeenCalled();
     expect(getAuthConfig).not.toHaveBeenCalled();
+    expect(logAudit).not.toHaveBeenCalled();
+  });
+
+  test('rejects malformed authoritative configuration without auditing or replaying the write', async () => {
+    getAuthConfig.mockImplementation(async () => ({
+      password_min_length: 12,
+      password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.standard,
+    }));
+    const response = await app.handle(passwordPolicyRequest());
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: { code: 'invalid_upstream_response' } });
+    expect(updateAuthConfig).toHaveBeenCalledTimes(1);
+    expect(getAuthConfig).toHaveBeenCalledTimes(1);
     expect(logAudit).not.toHaveBeenCalled();
   });
 });

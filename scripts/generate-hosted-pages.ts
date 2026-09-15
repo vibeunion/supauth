@@ -1,16 +1,17 @@
 #!/usr/bin/env bun
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { renderHostedPage } from '../packages/admin-console/src/hosted/build.js';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
 const output = resolve(root, 'packages/auth-server/src/generated/hosted-pages.ts');
 const hostedSessionClient = resolve(root, 'packages/admin-console/src/hosted/session-client.ts');
-const authorizeHtml = readFileSync(resolve(root, 'packages/admin-console/static/authorize.html'), 'utf8');
-const claimHtml = readFileSync(resolve(root, 'packages/admin-console/static/claim.html'), 'utf8');
-const changePasswordHtml = readFileSync(resolve(root, 'packages/admin-console/static/change-password.html'), 'utf8');
-const accountHtml = readFileSync(resolve(root, 'packages/admin-console/static/account.html'), 'utf8');
-const logoutHtml = readFileSync(resolve(root, 'packages/admin-console/static/logout.html'), 'utf8');
+const authorizeHtml = await renderHostedPage('authorize');
+const claimHtml = await renderHostedPage('claim');
+const changePasswordHtml = await renderHostedPage('change-password');
+const accountHtml = await renderHostedPage('account');
+const logoutHtml = await renderHostedPage('logout');
 const hostedSessionBuild = await Bun.build({
   entrypoints: [hostedSessionClient],
   target: 'browser',
@@ -24,7 +25,9 @@ if (!hostedSessionBuild.success || hostedSessionBuild.outputs.length !== 1) {
   throw new Error(`Failed to build hosted session client${buildErrors ? `:\n${buildErrors}` : ''}`);
 }
 
-const hostedSessionJs = await hostedSessionBuild.outputs[0].text();
+const hostedSessionOutput = hostedSessionBuild.outputs[0];
+if (!hostedSessionOutput) throw new Error('Hosted session build output is missing');
+const hostedSessionJs = await hostedSessionOutput.text();
 
 mkdirSync(dirname(output), { recursive: true });
 writeFileSync(

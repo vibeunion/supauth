@@ -1,3 +1,5 @@
+import { createFetchMock } from "./tooling-test-values.js";
+import { parseJson } from "../scripts/tooling-values.js";
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import {
@@ -9,7 +11,7 @@ import {
 const PRESET = 'config/third-party-auth/xigu-business.json';
 
 function fetchMock(handler: (url: URL, init?: RequestInit) => Response | Promise<Response>) {
-  return ((input: string | URL | Request, init?: RequestInit) => handler(new URL(input instanceof Request ? input.url : String(input)), init)) as typeof fetch;
+  return createFetchMock(async (input, init) => handler(new URL(input instanceof Request ? input.url : String(input)), init));
 }
 
 function metadataFetch(extra?: (url: URL, init?: RequestInit) => Response | undefined) {
@@ -31,7 +33,7 @@ function metadataFetch(extra?: (url: URL, init?: RequestInit) => Response | unde
 
 describe('Third-party Auth apply tool', () => {
   it('keeps Xigu values in tenant config and validates the current client', () => {
-    const config = extractThirdPartyAuthConfig(JSON.parse(readFileSync(PRESET, 'utf8')));
+    const config = extractThirdPartyAuthConfig(parseJson(readFileSync(PRESET, 'utf8')));
     expect(config.issuer).toBe('https://auth.ai.xigu.team/auth/v1');
     expect(config.client_id).toBe('25cb5b0e-a74a-461e-ba50-61b46aa39c3b');
     expect(config.audience).toBe('authenticated');
@@ -39,7 +41,7 @@ describe('Third-party Auth apply tool', () => {
   });
 
   it('rejects unknown fields, insecure issuers, invalid modes and missing claim mappings', () => {
-    const valid = extractThirdPartyAuthConfig(JSON.parse(readFileSync(PRESET, 'utf8')));
+    const valid = extractThirdPartyAuthConfig(parseJson(readFileSync(PRESET, 'utf8')));
     expect(() => extractThirdPartyAuthConfig({ ...valid, jwt_secret: 'nope' })).toThrow('unknown field');
     expect(() => extractThirdPartyAuthConfig({ third_party_auth: valid, unexpected: true })).toThrow('Config contains unknown field');
     expect(() => extractThirdPartyAuthConfig({ ...valid, issuer: 'http://issuer.example.test' })).toThrow('must use HTTPS');
@@ -48,7 +50,7 @@ describe('Third-party Auth apply tool', () => {
   });
 
   it('requires matching discovery metadata and asymmetric JWKS keys', async () => {
-    const config = extractThirdPartyAuthConfig(JSON.parse(readFileSync(PRESET, 'utf8')));
+    const config = extractThirdPartyAuthConfig(parseJson(readFileSync(PRESET, 'utf8')));
     const validation = await validateIssuerMetadata(config, metadataFetch());
     expect(validation.signing_algorithms).toEqual(['ES256']);
 
@@ -81,7 +83,7 @@ describe('Third-party Auth apply tool', () => {
 
   it('patches the project auth config and verifies read-back', async () => {
     const calls: Array<{ method: string; authorization: string | null; body?: unknown }> = [];
-    const preset = extractThirdPartyAuthConfig(JSON.parse(readFileSync(PRESET, 'utf8')));
+    const preset = extractThirdPartyAuthConfig(parseJson(readFileSync(PRESET, 'utf8')));
     const applied = {
       ...preset,
       jwt_jwks: { keys: [{ kty: 'EC', crv: 'P-256', use: 'sig', alg: 'ES256', kid: 'public-key' }] },
@@ -97,7 +99,7 @@ describe('Third-party Auth apply tool', () => {
         calls.push({
           method: init?.method || 'GET',
           authorization: headers.get('authorization'),
-          body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+          body: typeof init?.body === 'string' ? parseJson(init.body) : undefined,
         });
         return url.pathname.endsWith('/config/auth')
           ? Response.json({ third_party_auth: applied })
@@ -115,7 +117,7 @@ describe('Third-party Auth apply tool', () => {
   });
 
   it('fails when live read-back differs', async () => {
-    const preset = extractThirdPartyAuthConfig(JSON.parse(readFileSync(PRESET, 'utf8')));
+    const preset = extractThirdPartyAuthConfig(parseJson(readFileSync(PRESET, 'utf8')));
     const applied = {
       ...preset,
       jwt_jwks: { keys: [{ kty: 'EC', crv: 'P-256', use: 'sig', alg: 'ES256', kid: 'public-key' }] },

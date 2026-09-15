@@ -1,3 +1,4 @@
+// @ts-check
 const INTEGRITY_STATUS_KEYS = {
   mismatch: "audit.integrityStatus.mismatch",
   legacy_unverified: "audit.integrityStatus.legacyUnverified",
@@ -12,23 +13,27 @@ const EXPORT_STATUS_KEYS = {
   expired: "audit.exportStatus.expired",
 };
 
+/** @param {unknown} status @param {Readonly<Record<string, string>>} statusKeys @param {string} fallbackKey */
 function statusLabelKey(status, statusKeys, fallbackKey) {
   return typeof status === "string" && Object.hasOwn(statusKeys, status)
-    ? statusKeys[status]
+    ? statusKeys[status] ?? fallbackKey
     : fallbackKey;
 }
 
+/** @param {unknown} integrity */
 export function auditIntegrityStatusLabelKey(integrity) {
-  if (integrity?.consistent === true && integrity?.status === "verified") {
+  if (!integrity || typeof integrity !== "object") return "audit.integrityStatus.reviewRequired";
+  if ("consistent" in integrity && integrity.consistent === true && "status" in integrity && integrity.status === "verified") {
     return "audit.integrityStatus.verified";
   }
   return statusLabelKey(
-    integrity?.status,
+    "status" in integrity ? integrity.status : undefined,
     INTEGRITY_STATUS_KEYS,
     "audit.integrityStatus.reviewRequired",
   );
 }
 
+/** @param {unknown} status */
 export function auditExportStatusLabelKey(status) {
   return statusLabelKey(status, EXPORT_STATUS_KEYS, "audit.exportStatus.unknown");
 }

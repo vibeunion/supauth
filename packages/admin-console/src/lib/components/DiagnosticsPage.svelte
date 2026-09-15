@@ -1,15 +1,17 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from '@supauth/shared';
+  import { errorMessage } from '$lib/resource-page.js';
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n.js';
   import { adminAuthModeLabelKey, securityWarningLabelKey } from '$lib/tenant-settings.js';
   import { getProject, getSecurityStatus, reconcileProject } from '$lib/api/client.js';
 
-  let project = $state(null);
-  let security = $state(null);
-  let reconcile = $state(null);
+  let project = $state<AdminEndpointResult<'getProject'> | null>(null);
+  let security = $state<AdminEndpointResult<'getSecurityStatus'> | null>(null);
+  let reconcile = $state<AdminEndpointResult<'reconcileProject'> | null>(null);
   let loading = $state(true);
   let running = $state(false);
-  let error = $state(null);
+  let error = $state<string | null>(null);
 
   async function load() {
     loading = true;
@@ -22,7 +24,7 @@
       project = projectRes;
       security = securityRes;
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     }
     loading = false;
   }
@@ -38,13 +40,13 @@
     try {
       reconcile = await reconcileProject(projectRef);
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     }
     running = false;
   }
 
   // Format raw database/SQL errors into user-friendly localized messages.
-  function formatDiagnosticsError(rawMessage) {
+  function formatDiagnosticsError(rawMessage: unknown) {
     if (!rawMessage) return t('diagnostics.migrationError');
     const msg = String(rawMessage);
     if (msg.includes('Failed query:') || msg.includes('insert into') || msg.includes('supaoauth')) {
@@ -56,7 +58,7 @@
     return msg;
   }
 
-  function provisioningFailureLabel(result) {
+  function provisioningFailureLabel(result: AdminEndpointResult<'reconcileProject'>['results'][number]) {
     if (result?.status !== 'failed') return null;
     const errorCode = result?.details?.error_code || 'provisioning_step_failed';
     const migration = result?.step === 'db_migration' ? result?.details?.migration : null;

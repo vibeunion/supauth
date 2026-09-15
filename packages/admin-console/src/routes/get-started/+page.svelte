@@ -1,6 +1,9 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from '@supauth/shared';
   import { onMount } from 'svelte';
-  import { resolve } from '$app/paths';
+  import { base } from '$app/paths';
+  import { resolveConsolePath } from '$lib/navigation.js';
+  import { collectionItems, errorMessage } from '$lib/resource-page.js';
   import {
     listApplications,
     listConnectors,
@@ -93,12 +96,8 @@
   ];
 
   let loading = $state(true);
-  let error = $state(null);
-  let onboardingSteps = $state([]);
-
-  function listEntries(response) {
-    return response?.items || response?.data || (Array.isArray(response) ? response : []);
-  }
+  let error = $state<string | null>(null);
+  let onboardingSteps = $state<{labelKey: string; complete: boolean; path: string}[]>([]);
 
   onMount(async () => {
     try {
@@ -110,14 +109,14 @@
         resolvePublicSignInExperience(),
       ]);
       onboardingSteps = [
-        { labelKey: 'dashboard.createApplication', complete: listEntries(applications).length > 0, path: '/applications' },
-        { labelKey: 'dashboard.defineResources', complete: listEntries(resources).length > 0, path: '/api-resources' },
-        { labelKey: 'dashboard.createOrganization', complete: listEntries(organizations).length > 0, path: '/organizations' },
-        { labelKey: 'dashboard.configureConnector', complete: listEntries(connectors).some((connector) => connector.enabled), path: '/connectors' },
+        { labelKey: 'dashboard.createApplication', complete: collectionItems(applications).length > 0, path: '/applications' },
+        { labelKey: 'dashboard.defineResources', complete: collectionItems(resources).length > 0, path: '/api-resources' },
+        { labelKey: 'dashboard.createOrganization', complete: collectionItems(organizations).length > 0, path: '/organizations' },
+        { labelKey: 'dashboard.configureConnector', complete: collectionItems<AdminEndpointResult<'listConnectors'>['items'][number]>(connectors).some((connector) => connector.enabled), path: '/connectors' },
         { labelKey: 'dashboard.setSecurityPolicy', complete: Boolean(signInExperience?.password_policy), path: '/security' },
       ];
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
     loading = false;
   });
@@ -136,7 +135,7 @@
 {:else}
   <div class="grid gap-4 lg:grid-cols-2">
     {#each onboardingSteps as onboardingStep, stepIndex (onboardingStep.path)}
-      <a href={resolve(onboardingStep.path)} class="console-card console-card-hover flex items-start gap-4 p-5">
+      <a href={resolveConsolePath(onboardingStep.path, base)} class="console-card console-card-hover flex items-start gap-4 p-5">
         <span class="relative grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold {onboardingStep.complete ? 'bg-emerald-100 text-emerald-700' : 'bg-surface-100 text-surface-500'}">
           {stepIndex + 1}
           {#if onboardingStep.complete}

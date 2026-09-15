@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import DiagnosticsPage from '$lib/components/DiagnosticsPage.svelte';
 </script>
 

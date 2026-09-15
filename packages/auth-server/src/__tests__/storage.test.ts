@@ -1,19 +1,22 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
+import { strictFetch } from './helpers/strict-fetch.js';
+import { strictString } from './helpers/strict-values.js';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 mock.module('../repositories/security-config.js', () => ({
   getSecurityConfig: mock(async () => null),
 }));
 
-process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
-process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
-process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-32-characters';
-process.env.SUPACLOUD_PROJECT_REF = 'test-project';
-process.env.OAUTH_RUNTIME_URL = 'http://runtime.internal';
-process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
-process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
-process.env.ADMIN_AUTH_MODE = 'token';
-process.env.ADMIN_TOKEN = 'storage-route-admin-token';
+process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
+process.env["SUPABASE_SERVICE_ROLE_KEY"] = 'test-storage-token';
+process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'test-bff-signing-secret-32-characters';
+process.env["SUPACLOUD_PROJECT_REF"] = 'test-project';
+process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.internal';
+process.env["SUPACLOUD_RUNTIME_URL"] = 'http://runtime.internal';
+process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
+process.env["ADMIN_AUTH_MODE"] = 'token';
+process.env["ADMIN_TOKEN"] = 'storage-route-admin-token';
 process.env.NODE_ENV = 'test';
 
 const { handleSupAuthRequest } = await import('../index.js');
@@ -25,7 +28,7 @@ afterEach(() => {
 
 async function expectAnonymousStorageRejection(method: string, path: string) {
   const upstreamFetch = mock(async () => Response.json([]));
-  globalThis.fetch = upstreamFetch as unknown as typeof fetch;
+  globalThis.fetch = strictFetch(upstreamFetch);
 
   const response = await handleSupAuthRequest(new Request(`http://supauth.local${path}`, { method }));
 
@@ -40,9 +43,9 @@ async function adminSessionToken() {
     body: JSON.stringify({ token: 'storage-route-admin-token' }),
   }));
   expect(response.status).toBe(200);
-  const payload = await response.json() as { token?: string };
+  const payload = strictDecodeSchema(StrictType.Object({ "token": StrictType.Optional(StrictType.String()) }), await response.json());
   expect(typeof payload.token).toBe('string');
-  return payload.token as string;
+  return strictString(payload.token);
 }
 
 function authenticatedStorageRequest(path: string, token: string) {
@@ -69,14 +72,14 @@ describe('Storage signed URL boundary', () => {
   it('preserves nested Unicode paths and the minimum valid expiry through the real route', async () => {
     const token = await adminSessionToken();
     const upstreamCalls: Array<{ path: string; body: string | null }> = [];
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       upstreamCalls.push({
         path: new URL(url).pathname,
         body: typeof init?.body === 'string' ? init.body : null,
       });
       return Response.json({ signedURL: 'https://storage.test/signed/avatar' });
-    }) as unknown as typeof fetch;
+    }));
 
     const objectPath = '用户 one/folder/avatar #1.png';
     const encodedPath = objectPath.split('/').map(encodeURIComponent).join('/');
@@ -100,7 +103,7 @@ describe('Storage signed URL boundary', () => {
   it('rejects encoded traversal and invalid expiry before Storage without weakening the bucket allowlist', async () => {
     const token = await adminSessionToken();
     const upstreamFetch = mock(async () => Response.json({ signedURL: 'https://storage.test/should-not-run' }));
-    globalThis.fetch = upstreamFetch as unknown as typeof fetch;
+    globalThis.fetch = strictFetch(upstreamFetch);
 
     const rejectedPaths = [
       '/v1/storage/sign-url/avatars/%252e%252e%252fbranding%252flogo.svg',
@@ -222,11 +225,11 @@ describe('Storage constants — validation helpers', () => {
   const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
   function validateBucket(bucketId: string): boolean {
-    return (ALLOWED_BUCKETS as readonly string[]).includes(bucketId);
+    return ALLOWED_BUCKETS.some(bucket => bucket === bucketId);
   }
 
   function validateMimeType(contentType: string): boolean {
-    return (ALLOWED_MIME_TYPES as readonly string[]).includes(contentType);
+    return ALLOWED_MIME_TYPES.some(mimeType => mimeType === contentType);
   }
 
   it('allows avatars bucket', () => {

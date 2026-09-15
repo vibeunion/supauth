@@ -1,45 +1,53 @@
-// @ts-nocheck
+import { readFile } from 'node:fs/promises';
 import { describe, expect, test } from "bun:test";
+import ts from "typescript";
 import { AdminApiError } from "./admin-api.js";
+import { deferredRequest } from "./providers/auth-fixtures.js";
 import {
   completeCursorCollectionItems,
   completeCollectionItems,
   createKeyedSingleFlightTracker,
+  errorMessage,
   mutationOutcomeUnknown,
 } from "./resource-page.js";
 
-function deferredRequest() {
-  let resolveRequest;
-  const promise = new Promise((resolve) => {
-    resolveRequest = resolve;
-  });
-  return { promise, resolve: resolveRequest };
-}
-
+/** @param {string} source @param {string} functionName */
 function functionBody(source, functionName) {
-  const signatureOffset = source.indexOf(`function ${functionName}(`);
-  if (signatureOffset < 0) throw new Error(`Missing ${functionName}`);
-  const bodyStart = source.indexOf("{", signatureOffset);
-  let braceDepth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === "{") braceDepth += 1;
-    if (source[index] === "}") braceDepth -= 1;
-    if (braceDepth === 0) return source.slice(bodyStart + 1, index);
+  const input = source.match(/<script\b[^>]*>([\s\S]*?)<\/script>/)?.[1] || source;
+  const script = ts.transpileModule(input, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
+  }).outputText;
+  const file = ts.createSourceFile("page.ts", script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declaration = file.statements.find((statement) =>
+    ts.isFunctionDeclaration(statement) && statement.name?.text === functionName,
+  );
+  if (!declaration || !ts.isFunctionDeclaration(declaration) || !declaration.body) {
+    throw new Error(`Missing ${functionName}`);
   }
-  throw new Error(`Unclosed ${functionName}`);
+  return script.slice(declaration.body.getStart(file) + 1, declaration.body.end - 1);
 }
 
+/** @param {string} relativePath */
 async function routeSource(relativePath) {
-  return Bun.file(new URL(`../routes/${relativePath}`, import.meta.url)).text();
+  return readFile(new URL(`../routes/${relativePath}`, import.meta.url), 'utf8');
 }
 
+/** @param {string} source @param {string} name @param {string} parameters */
 function extractedFunction(source, name, parameters) {
-  return `function ${name}(${parameters}) {${functionBody(source, name)}}`;
+  return ts.transpileModule(`function ${name}(${parameters}) {${functionBody(source, name)}}`, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
+  }).outputText;
 }
 
+/**
+ * @param {string} source
+ * @param {{deliveryResponses: unknown[], diagnosticsLoaded?: boolean, staleAfterWrite?: boolean}} scenario
+ * @returns {{run: (webhookId: string) => Promise<void>, replayCalls: () => number, lockCount: () => number, diagnosticUpdates: () => {status?: string}[], error: () => string | null}}
+ */
 function createReplayHandlerHarness(source, scenario) {
   return new Function(
     "completeCursorCollectionItems",
+    "errorMessage",
     "deliveryResponses",
     "diagnosticsLoaded",
     "staleAfterWrite",
@@ -107,16 +115,19 @@ function createReplayHandlerHarness(source, scenario) {
     `,
   )(
     completeCursorCollectionItems,
+    errorMessage,
     scenario.deliveryResponses,
     scenario.diagnosticsLoaded ?? true,
     scenario.staleAfterWrite ?? false,
   );
 }
 
+/** @template T @param {T[]} items @param {string | null} [nextCursor] @param {number} [total] */
 function cursorDeliveries(items, nextCursor = null, total = items.length) {
   return { items, total, limit: 100, next_cursor: nextCursor };
 }
 
+/** @param {string} source @param {string} functionName @param {string} mutationCall */
 function expectConfirmedBeforeMutation(source, functionName, mutationCall) {
   const body = functionBody(source, functionName);
   const confirmationOffset = body.indexOf("confirm(");
@@ -238,6 +249,7 @@ describe("high-impact admin mutation safety", () => {
       roleDetail: await routeSource("roles/[roleId]/+page.svelte"),
       organizationDetail: await routeSource("organizations/[orgId]/+page.svelte"),
     };
+    /** @type {[string, string, string][]} */
     const confirmedMutations = [
       [sources.applicationList, "handleRotateSecret", "rotateApplicationSecret("],
       [sources.applicationList, "handleDelete", "deleteApplication("],
@@ -269,6 +281,7 @@ describe("high-impact admin mutation safety", () => {
       ),
     ).toBe(true);
 
+    /** @type {[string, string, string, string][]} */
     const handlerContracts = [
       ["applications/+page.svelte", "handleDelete", "readApplicationList(", "recordApplicationMutationUnknown("],
       ["applications/[appId]/+page.svelte", "unbindApplication", "listApplicationBindings(", "recordApplicationMutationUnknown("],
@@ -288,6 +301,7 @@ describe("high-impact admin mutation safety", () => {
   });
 
   test("stages durable locks before the newly guarded high-impact requests", async () => {
+    /** @type {[string, string, string, string][]} */
     const contracts = [
       ["applications/+page.svelte", "handleCreate", "stageApplicationMutation(", "createApplication("],
       ["applications/+page.svelte", "handleRotateSecret", "stageApplicationMutation(", "rotateApplicationSecret("],
@@ -298,7 +312,7 @@ describe("high-impact admin mutation safety", () => {
       ["applications/[appId]/+page.svelte", "unbindApplication", "stageApplicationMutation(", "deleteApplicationBinding("],
       ["webhooks/+page.svelte", "handleCreate", "stageWebhookMutation(", "createWebhook("],
       ["webhooks/+page.svelte", "handleDelete", "stageWebhookMutation(", "deleteWebhook("],
-      ["webhooks/+page.svelte", "handleToggle", "stageWebhookMutation(", "updateWebhook("],
+      ["webhooks/+page.svelte", "handleToggle", "stageWebhookMutation(", "toggleWebhookCommand("],
       ["webhooks/+page.svelte", "handleRotateSecret", "stageWebhookMutation(", "rotateWebhookSecret("],
       ["webhooks/+page.svelte", "handleTest", "stageWebhookMutation(", "testWebhook("],
       ["webhooks/+page.svelte", "handleReplayLast", "stageWebhookMutation(", "replayWebhookDelivery("],
@@ -386,8 +400,13 @@ describe("high-impact admin mutation safety", () => {
         recordedAt: 43,
       },
     });
+    /** @type {unknown} */
     const reloadedLocks = JSON.parse(serializedLocks);
-    expect(Object.values(reloadedLocks).map((lock) => lock.action)).toEqual([
+    if (!reloadedLocks || typeof reloadedLocks !== "object") throw new Error("Expected persisted locks");
+    expect(Object.values(reloadedLocks).map((/** @type {unknown} */ lock) => {
+      if (!lock || typeof lock !== "object" || !("action" in lock)) throw new Error("Expected lock action");
+      return lock.action;
+    })).toEqual([
       "rotate",
       "replay",
     ]);
@@ -397,16 +416,16 @@ describe("high-impact admin mutation safety", () => {
   test("reads deliveries before and after webhook sends without inventing idempotency", async () => {
     const webhookList = await routeSource("webhooks/+page.svelte");
     const webhookDetail = await routeSource("webhooks/[webhookId]/+page.svelte");
-    const apiClient = await Bun.file(
-      new URL("./api/client.js", import.meta.url),
-    ).text();
+    const apiClient = await readFile(new URL("./api/client.js", import.meta.url), 'utf8');
 
-    for (const [source, functionName, mutationCall] of [
+    /** @type {[string, string, string][]} */
+    const mutations = [
       [webhookList, "handleTest", "testWebhook("],
       [webhookDetail, "sendTestWebhook", "testWebhook("],
       [webhookList, "handleReplayLast", "replayWebhookDelivery("],
       [webhookDetail, "replayDelivery", "replayWebhookDelivery("],
-    ]) {
+    ];
+    for (const [source, functionName, mutationCall] of mutations) {
       const body = functionBody(source, functionName);
       const mutationOffset = body.indexOf(mutationCall);
       expect(body.indexOf("listWebhookDeliveries(")).toBeLessThan(mutationOffset);
@@ -436,10 +455,12 @@ describe("high-impact admin mutation safety", () => {
     expect(createBody).toContain("reconciledCreatedWebhook(");
     expect(createBody).toContain("creationInterrupted");
 
-    for (const [source, functionName] of [
+    /** @type {[string, string][]} */
+    const rotations = [
       [webhookList, "handleRotateSecret"],
       [webhookDetail, "rotateSecret"],
-    ]) {
+    ];
+    for (const [source, functionName] of rotations) {
       const body = functionBody(source, functionName);
       expect(body).toContain("validatedWebhookCommandAck(");
       expect(body).not.toContain("getWebhook(");
@@ -464,12 +485,14 @@ describe("high-impact admin mutation safety", () => {
   });
 
   test("keeps storage failure visible while normal loads clear request errors", async () => {
-    for (const [path, loadFunction, storageErrorName] of [
+    /** @type {[string, string, string][]} */
+    const pages = [
       ["applications/+page.svelte", "load", "mutationStorageError"],
       ["applications/[appId]/+page.svelte", "loadApplicationData", "mutationStorageError"],
       ["webhooks/+page.svelte", "load", "mutationStorageError"],
       ["webhooks/[webhookId]/+page.svelte", "loadWebhookData", "mutationStorageError"],
-    ]) {
+    ];
+    for (const [path, loadFunction, storageErrorName] of pages) {
       const source = await routeSource(path);
       expect(functionBody(source, loadFunction)).not.toContain(
         `${storageErrorName} = null`,

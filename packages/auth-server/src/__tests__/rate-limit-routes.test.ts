@@ -11,10 +11,10 @@ import {
 const getSecurityConfig = mock(async () => null);
 mock.module('../repositories/security-config.js', () => ({ getSecurityConfig }));
 
-process.env.ADMIN_AUTH_MODE = 'token';
-process.env.ADMIN_MAX_LOGIN_ATTEMPTS = '100';
-process.env.ADMIN_RATE_LIMIT_RPM = '1';
-process.env.ADMIN_TOKEN = 'expected-admin-token';
+process.env["ADMIN_AUTH_MODE"] = 'token';
+process.env["ADMIN_MAX_LOGIN_ATTEMPTS"] = '100';
+process.env["ADMIN_RATE_LIMIT_RPM"] = '1';
+process.env["ADMIN_TOKEN"] = 'expected-admin-token';
 process.env.NODE_ENV = 'test';
 
 const { adminAuthGuard, authRoutes } = await import('../auth/index.js');
@@ -79,7 +79,7 @@ describe('client IP normalization and bounded fixed windows', () => {
 });
 
 function configureProxyTrust(trusted: boolean): void {
-  process.env.TRUST_PROXY_HEADERS = String(trusted);
+  process.env["TRUST_PROXY_HEADERS"] = String(trusted);
   loadConfig();
 }
 

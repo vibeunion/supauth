@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["scripts/**/*.ts", "tests/**/*.ts", ".github/scripts/**/*.mjs", "vite.config.js"],
+  "exclude": ["node_modules", "**/dist", ".svelte-kit", "build"]
+}

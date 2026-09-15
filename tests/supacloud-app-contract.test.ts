@@ -37,7 +37,9 @@ describe('SupAuth SupaCloud app contract', () => {
       'cron-process-owned-by-supauth',
     ]));
     expect(manifest.functions).toHaveLength(1);
-    expect(manifest.functions[0].entrypoint).toBe('packages/auth-server/dist/supacloud-function/supacloud-function.js');
+    const appFunction = manifest.functions[0];
+    if (!appFunction) throw new Error('Expected SupAuth Function declaration');
+    expect(appFunction.entrypoint).toBe('packages/auth-server/dist/supacloud-function/supacloud-function.js');
     expect(manifest.required_supacloud_env).toContainEqual(expect.objectContaining({
       name: 'SUPAOAUTH_BFF_SIGNING_SECRET',
       secret: true,
@@ -55,11 +57,14 @@ describe('SupAuth SupaCloud app contract', () => {
       openapiPath: 'openapi.json',
     });
     const envByName = Object.fromEntries(manifest.required_supacloud_env.map((entry) => [entry.name, entry]));
+    const issuer = envByName["ADMIN_SSO_ISSUER"];
+    const clientId = envByName["ADMIN_SSO_CLIENT_ID"];
+    if (!issuer || !clientId) throw new Error('Expected required Admin SSO environment declarations');
 
-    expect(envByName.ADMIN_SSO_ISSUER).toMatchObject({ secret: false });
-    expect(envByName.ADMIN_SSO_ISSUER.optional).not.toBe(true);
-    expect(envByName.ADMIN_SSO_CLIENT_ID).toMatchObject({ secret: false });
-    expect(envByName.ADMIN_SSO_CLIENT_ID.optional).not.toBe(true);
+    expect(issuer).toMatchObject({ secret: false });
+    expect(issuer.optional).not.toBe(true);
+    expect(clientId).toMatchObject({ secret: false });
+    expect(clientId.optional).not.toBe(true);
     for (const name of [
       'ADMIN_SSO_JWKS_URI',
       'ADMIN_SSO_AUDIENCE',
@@ -88,7 +93,9 @@ describe('SupAuth SupaCloud app contract', () => {
       browser_client_secret: 'forbidden',
       required_aal: 'aal2-when-ADMIN_SSO_REQUIRE_AAL2=true',
     });
-    expect(manifest.functions[0].deployment_bundle).toEqual({
+    const appFunction = manifest.functions[0];
+    if (!appFunction) throw new Error('Expected SupAuth Function deployment declaration');
+    expect(appFunction.deployment_bundle).toEqual({
       entrypoint: 'index.ts',
       files: [
         { artifact: 'function_bundle', target: 'index.ts' },
@@ -104,8 +111,8 @@ describe('SupAuth SupaCloud app contract', () => {
       '/admin',
       '/admin/*',
     ]);
-    expect(manifest.functions[0].routes).toContainEqual({ path: '/admin' });
-    expect(manifest.functions[0].routes).toContainEqual({ path: '/custom-ui/*' });
+    expect(appFunction.routes).toContainEqual({ path: '/admin' });
+    expect(appFunction.routes).toContainEqual({ path: '/custom-ui/*' });
   });
 
   it('builds a project-generic console behind the same-origin BFF', () => {
@@ -173,7 +180,11 @@ describe('SupAuth SupaCloud app contract', () => {
 
   it('classifies every supaoauth schema table owner', () => {
     const schema = readFileSync('packages/auth-server/src/db/schema.ts', 'utf8');
-    const tables = [...schema.matchAll(/supaoauth\.table\('([^']+)'/g)].map((match) => match[1]).sort();
+    const tables = [...schema.matchAll(/supaoauth\.table\('([^']+)'/g)].map((match) => {
+      const name = match[1];
+      if (name === undefined) throw new Error('Expected table name capture');
+      return name;
+    }).sort();
     const classified = Object.keys(SUPAOAUTH_TABLE_OWNERSHIP).sort();
 
     expect(classified).toEqual(tables);

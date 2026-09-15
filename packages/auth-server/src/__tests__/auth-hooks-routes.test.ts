@@ -1,3 +1,5 @@
+import { strictProperty } from './helpers/strict-values.js';
+import { strictRecord } from './helpers/strict-values.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
@@ -19,7 +21,10 @@ const verifyAuthHookMessage = mock(async (): Promise<HookMessageVerification> =>
   consumed: true,
   reason_code: null,
 }));
-const getTenantConfig = mock(async () => null);
+const getTenantConfig = mock(async (): Promise<{
+  enabled: boolean; value: { invite_only?: boolean };
+} | null> => null);
+const verifySignupInvitation = mock(async () => ({ valid: true }));
 const logAudit = mock(async () => ({}));
 const getAuthHooks = mock(async () => ({
   custom_access_token_hook: {
@@ -48,7 +53,7 @@ mock.module('../supacloud/adapter.js', () => ({
   getSupaCloudAdapter: () => ({
     verifyAuthHookMessage,
     reconcileOrganizationJitMemberships,
-    verifySignupInvitation: mock(async () => ({ valid: true })),
+    verifySignupInvitation,
     getAuthHooks,
     updateAuthHooks,
     getAuthHookStatus: mock(async () => ({})),
@@ -62,9 +67,9 @@ mock.module('../repositories/security-config.js', () => ({
 }));
 
 const projectRef = 'project-one';
-process.env.PROJECT_REF = projectRef;
-process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
-process.env.SUPAUTH_API_URL = 'https://api.example.test';
+process.env["PROJECT_REF"] = projectRef;
+process.env["SUPAUTH_PUBLIC_URL"] = 'https://auth.example.test';
+process.env["SUPAUTH_API_URL"] = 'https://api.example.test';
 const {
   authHookRoutes,
   authHookAdminRoutes,
@@ -97,7 +102,7 @@ function standardHeaders(body: string) {
 
 function hookRequest(
   hookName: HookName,
-  payload: Record<string, unknown>,
+  payload: unknown,
 ) {
   const body = JSON.stringify(payload);
   const headers = standardHeaders(body);
@@ -120,9 +125,119 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
       truncated: false,
     });
     getTenantConfig.mockClear();
+    verifySignupInvitation.mockClear();
     logAudit.mockClear();
     getAuthHooks.mockClear();
     updateAuthHooks.mockClear();
+  });
+
+  it.each([{ metadata: null }, { metadata: [] }, []].map(payload => ({ payload })))(
+    'preserves verified legacy signup containers without changing the signed bytes: %j',
+    async ({ payload }) => {
+      const events: string[] = [];
+      verifyAuthHookMessage.mockImplementationOnce(async () => {
+        events.push('signature');
+        return { verified: true, consumed: true, reason_code: null };
+      });
+      getTenantConfig.mockImplementationOnce(async () => { events.push('policy'); return null; });
+      logAudit.mockImplementationOnce(async () => { events.push('audit'); return {}; });
+      const response = await hookRequest('before-user-created', payload);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({});
+      expect(verifyAuthHookMessage).toHaveBeenCalledWith('before-user-created', expect.objectContaining({
+        body_base64: Buffer.from(JSON.stringify(payload)).toString('base64'),
+      }));
+      expect(events).toEqual(['signature', 'policy', 'audit']);
+      expect(reconcileOrganizationJitMemberships).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([{ metadata: null }, { metadata: [] }, []].map(payload => ({ payload })))(
+    'does not turn ignored signup metadata into an invitation: %j',
+    async ({ payload }) => {
+      getTenantConfig.mockResolvedValueOnce({ enabled: true, value: { invite_only: true } });
+      const response = await hookRequest('before-user-created', payload);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ error: { http_code: 403, code: 'invitation_required' } });
+      expect(verifySignupInvitation).not.toHaveBeenCalled();
+      expect(logAudit).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('normalizes signed null app_metadata only after JIT and preserves the claims projection', async () => {
+    const events: string[] = [];
+    verifyAuthHookMessage.mockImplementationOnce(async () => {
+      events.push('signature');
+      return { verified: true, consumed: true, reason_code: null };
+    });
+    reconcileOrganizationJitMemberships.mockImplementationOnce(async () => {
+      events.push('jit');
+      return { items: [], total: 0, limit: 50, truncated: false };
+    });
+    logAudit.mockImplementationOnce(async () => { events.push('audit'); return {}; });
+    const response = await hookRequest('custom-access-token', {
+      user_id: 'gotrue-user',
+      claims: { sub: 'gotrue-user', role: 'authenticated', app_metadata: null, custom: { kept: true } },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      claims: {
+        sub: 'gotrue-user', role: 'authenticated', custom: { kept: true },
+        app_metadata: { supaoauth: { schema_version: 2, projects: { [projectRef]: {
+          organization_memberships: [], organization_memberships_total: 0,
+        } } } },
+      },
+    });
+    expect(events).toEqual(['signature', 'jit', 'audit']);
+    expect(reconcileOrganizationJitMemberships).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains invitation proofs in user metadata while normalizing empty top-level metadata', async () => {
+    getTenantConfig.mockResolvedValueOnce({ enabled: true, value: { invite_only: true } });
+    const response = await hookRequest('before-user-created', {
+      metadata: null,
+      user: { email: 'user@example.test', app_metadata: { invitation_id: 'invitation-fixture' } },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({});
+    expect(verifySignupInvitation).toHaveBeenCalledWith({
+      invitation_id: 'invitation-fixture', email: 'user@example.test',
+    });
+    expect(logAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reports invalid claims after the existing JIT call when app_metadata is null', async () => {
+    const response = await hookRequest('custom-access-token', {
+      user_id: 'gotrue-user',
+      claims: { sub: 'gotrue-user', role: 'project_admin', app_metadata: null },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ error: { http_code: 400, code: 'invalid_supabase_role' } });
+    expect(reconcileOrganizationJitMemberships).toHaveBeenCalledTimes(1);
+    expect(logAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects unverified legacy containers before policy, JIT or audit', async () => {
+    for (const hook of ['before-user-created', 'custom-access-token'] as const) {
+      verifyAuthHookMessage.mockResolvedValueOnce({ verified: false, consumed: false, reason_code: 'invalid' });
+      const response = await hookRequest(hook, { user_id: 'gotrue-user', metadata: null, claims: { app_metadata: null } });
+      expect(response.status).toBe(401);
+    }
+    expect(getTenantConfig).not.toHaveBeenCalled();
+    expect(reconcileOrganizationJitMemberships).not.toHaveBeenCalled();
+    expect(logAudit).not.toHaveBeenCalled();
+  });
+
+  it('retains signed payload role and OAuth client validation error codes', async () => {
+    for (const [claims, code] of [
+      [{ sub: 'gotrue-user', role: 'project_admin' }, 'invalid_supabase_role'],
+      [{ sub: 'gotrue-user', role: 'authenticated', client_id: 17 }, 'invalid_oauth_client_id'],
+    ] as const) {
+      const response = await hookRequest('custom-access-token', { user_id: 'gotrue-user', claims });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ error: { http_code: 400, code } });
+      expect(verifyAuthHookMessage).toHaveBeenCalled();
+    }
   });
 
   it('reconciles the signed GoTrue subject and preserves required Supabase claims', async () => {
@@ -155,12 +270,12 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json() as any;
+    const body = strictRecord(await response.json());
     for (const [claim, value] of Object.entries(requiredClaims)) {
-      expect(body.claims[claim]).toEqual(value);
+      expect(strictProperty(body["claims"], claim)).toEqual(value);
     }
-    expect(body.claims.app_metadata.supaoauth.schema_version).toBe(2);
-    expect(body.claims.app_metadata.supaoauth.projects[projectRef]).toMatchObject({
+    expect(strictProperty(body["claims"], "app_metadata", "supaoauth", "schema_version")).toBe(2);
+    expect(strictProperty(body["claims"], "app_metadata", "supaoauth", "projects", projectRef)).toMatchObject({
       roles: ['admin'],
       organization_memberships: [{ organization_id: 'org-one', slug: 'acme', role: 'member' }],
       organization_memberships_total: 1,
@@ -176,9 +291,9 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
       user_id: 'gotrue-user',
       claims: { sub: 'gotrue-user', role: 'authenticated' },
     });
-    const body = await response.json() as any;
+    const body = strictRecord(await response.json());
 
-    expect(body.error).toMatchObject({
+    expect(body["error"]).toMatchObject({
       http_code: 503,
       code: 'organization_jit_reconciliation_failed',
     });
@@ -191,9 +306,9 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
       user_id: 'gotrue-user',
       claims: { sub: 'gotrue-user', role: 'authenticated' },
     });
-    const body = await response.json() as any;
+    const body = strictRecord(await response.json());
 
-    expect(body.error).toMatchObject({
+    expect(body["error"]).toMatchObject({
       http_code: 503,
       code: 'organization_jit_reconciliation_failed',
     });
@@ -406,10 +521,10 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
         project_ref: getConfig().projectRef,
       },
     });
-    const body = await response.json() as any;
+    const body = strictRecord(await response.json());
 
     expect(response.status).toBe(200);
-    expect(body.supaoauth_hook_probe).toMatchObject({
+    expect(body["supaoauth_hook_probe"]).toMatchObject({
       verified: true,
       protocol: 'standard-webhooks-v1',
       hook_name: 'before-user-created',
@@ -432,12 +547,12 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
     const response = await hookRequest('custom-access-token', {
       claims: { sub: 'gotrue-user', role: 'authenticated' },
     });
-    const body = await response.json() as any;
+    const body = strictRecord(await response.json());
 
-    const projection = body.claims.app_metadata.supaoauth.projects[projectRef];
-    expect(projection.organization_memberships).toHaveLength(50);
-    expect(projection.organization_memberships_total).toBe(60);
-    expect(projection.organization_memberships_truncated).toBe(true);
+    const projection = strictProperty(body["claims"], "app_metadata", "supaoauth", "projects", projectRef);
+    expect(strictProperty(projection, 'organization_memberships')).toHaveLength(50);
+    expect(strictProperty(projection, 'organization_memberships_total')).toBe(60);
+    expect(strictProperty(projection, 'organization_memberships_truncated')).toBe(true);
   });
 
   it('fails closed when JIT membership fields exceed the token projection budget', async () => {
@@ -450,9 +565,9 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
     const response = await hookRequest('custom-access-token', {
       claims: { sub: 'gotrue-user', role: 'authenticated' },
     });
-    const body = await response.json() as any;
+    const body = strictRecord(await response.json());
 
-    expect(body.error).toMatchObject({
+    expect(body["error"]).toMatchObject({
       http_code: 500,
       code: 'claim_projection_overflow',
     });

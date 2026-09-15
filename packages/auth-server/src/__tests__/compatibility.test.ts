@@ -1,18 +1,19 @@
+import { strictFetch } from './helpers/strict-fetch.js';
 import { describe, it, expect, beforeEach, mock, afterEach } from 'bun:test';
 import { loadConfig } from '../config/index.js';
 
 function setupConfig() {
-  process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
-  process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
-  process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-  process.env.PROJECT_REF = 'test-ref';
-  process.env.DATABASE_URL = 'postgres://test';
-  process.env.RUNTIME_MODE = 'gotrue';
+  process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.test';
+  process.env["SUPACLOUD_API_URL"] = 'http://localhost:9090';
+  process.env["SUPACLOUD_MASTER_TOKEN"] = 'test-token';
+  process.env["PROJECT_REF"] = 'test-ref';
+  process.env["DATABASE_URL"] = 'postgres://test';
+  process.env["RUNTIME_MODE"] = 'gotrue';
   loadConfig();
 }
 
 function createMockFetch(discoveryOverrides?: Record<string, unknown>) {
-  return mock((_input: string | URL | Request) => {
+  return strictFetch(mock((_input: string | URL | Request) => {
     const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
 
     if (url.includes('/.well-known/openid-configuration')) {
@@ -34,7 +35,7 @@ function createMockFetch(discoveryOverrides?: Record<string, unknown>) {
       return Promise.resolve(new Response(JSON.stringify({ enable_signup: true }), { status: 200 }));
     }
     return Promise.resolve(new Response('not found', { status: 404 }));
-  }) as unknown as typeof fetch;
+  }));
 }
 
 describe('Supabase Compatibility Inspector', () => {
@@ -85,9 +86,9 @@ describe('Supabase Compatibility Inspector', () => {
   });
 
   it('marks discovery fail when unreachable', async () => {
-    globalThis.fetch = mock(() =>
+    globalThis.fetch = strictFetch(mock(() =>
       Promise.reject(new Error('network error'))
-    ) as unknown as typeof fetch;
+    ));
 
     const { runCompatibilityChecks } = await import('../compatibility/supabase.js');
     const results = await runCompatibilityChecks();
@@ -138,7 +139,7 @@ describe('Supabase Compatibility Inspector', () => {
   });
 
   it('marks supacloud fail when auth config throws', async () => {
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url.includes('/v1/projects/test-ref/config/auth')) {
         return Promise.resolve(new Response('unauthorized', { status: 401 }));
@@ -157,7 +158,7 @@ describe('Supabase Compatibility Inspector', () => {
         return Promise.resolve(new Response(JSON.stringify({ keys: [] }), { status: 200 }));
       }
       return Promise.resolve(new Response('not found', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { runCompatibilityChecks } = await import('../compatibility/supabase.js');
     const results = await runCompatibilityChecks();
@@ -188,9 +189,9 @@ describe('Supabase Compatibility Inspector', () => {
   });
 
   it('returns rb-5 and rb-6 as pass (always pass in offline mode)', async () => {
-    globalThis.fetch = mock(() =>
+    globalThis.fetch = strictFetch(mock(() =>
       Promise.reject(new Error('network error'))
-    ) as unknown as typeof fetch;
+    ));
 
     const { runCompatibilityChecks } = await import('../compatibility/supabase.js');
     const results = await runCompatibilityChecks();

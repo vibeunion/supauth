@@ -1,4 +1,5 @@
-// @ts-nocheck
+import { readFile } from 'node:fs/promises';
+// @ts-check
 import { describe, expect, test } from "bun:test";
 import { t } from "./i18n.js";
 import {
@@ -10,27 +11,33 @@ import {
 } from "./mutation-reconciliation.js";
 
 function deferredRequest() {
-  let resolveRequest;
+  /** @type {(value: unknown) => void} */
+  let resolveRequest = () => { throw new Error("Deferred request was not initialized"); };
+  /** @type {Promise<unknown>} */
   const promise = new Promise((resolve) => {
     resolveRequest = resolve;
   });
   return { promise, resolve: resolveRequest };
 }
 
+/** @param {Record<string, string>} initialEntries */
 function memoryStorage(initialEntries = {}) {
   const storedEntries = new Map(Object.entries(initialEntries));
   return {
+    /** @param {string} storageKey */
     getItem(storageKey) {
-      return storedEntries.has(storageKey) ? storedEntries.get(storageKey) : null;
+      return storedEntries.get(storageKey) ?? null;
     },
+    /** @param {string} storageKey @param {string} serializedValue */
     setItem(storageKey, serializedValue) {
       storedEntries.set(storageKey, serializedValue);
     },
   };
 }
 
-function webhookFixture(overrides = {}) {
-  return {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function webhookFixture(overrides) {
+  return fixtureWithOverrides({
     id: "webhook-new",
     url: "https://hooks.example.test/events",
     events: ["user.created", "user.updated"],
@@ -38,23 +45,61 @@ function webhookFixture(overrides = {}) {
     enabled: true,
     created_at: "2026-08-01T00:00:00.000Z",
     updated_at: "2026-08-01T00:00:00.000Z",
-    ...overrides,
-  };
+  }, overrides);
 }
 
-function applicationFixture(overrides = {}) {
-  return {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function applicationFixture(overrides) {
+  return fixtureWithOverrides({
     client_id: "application-new",
     client_name: "New Application",
     redirect_uris: ["https://app.example.test/callback"],
     client_type: "confidential",
     grant_types: ["authorization_code", "refresh_token"],
     token_endpoint_auth_method: "client_secret_basic",
-    ...overrides,
-  };
+  }, overrides);
+}
+
+/** @template {object} Base @template {object} Overrides @overload @param {Base} base @param {Overrides | undefined} overrides @returns {Omit<Base, keyof Overrides> & Overrides} */
+/** @param {object} base @param {object | undefined} overrides */
+function fixtureWithOverrides(base, overrides) {
+  return { ...base, ...overrides };
 }
 
 describe("mutation reconciliation", () => {
+  test("settles synchronous failures and never retries writes after an unknown outcome", async () => {
+    let writes = 0;
+    let reads = 0;
+    const writeError = new TypeError("network outcome unknown");
+    const readError = { code: "request_timeout" };
+    const result = await settleWritesThenReadBack(
+      [() => {
+        writes += 1;
+        throw writeError;
+      }],
+      () => {
+        reads += 1;
+        throw readError;
+      },
+    );
+    expect(writes).toBe(1);
+    expect(reads).toBe(1);
+    expect(result.status).toBe("readback_failure");
+    if (result.status !== "readback_failure") throw new Error("Expected readback failure");
+    expect(result.writeStatus).toBe("write_failure");
+    expect(result.writeErrors).toEqual([writeError]);
+    expect(result.readBackError).toBe(readError);
+  });
+
+  test("keeps the empty command list as a read-only successful reconciliation", async () => {
+    const snapshot = { enabled: true };
+    const result = await settleWritesThenReadBack([], () => snapshot);
+    expect(result.status).toBe("success");
+    if (result.status !== "success") throw new Error("Expected success");
+    expect(result.readBackValue).toBe(snapshot);
+    expect(result.writeErrors).toEqual([]);
+  });
+
   test("stages strict durable locks before reload and clears only the exact action", () => {
     const storageKey = "test.mutation-locks";
     const storage = memoryStorage();
@@ -63,11 +108,11 @@ describe("mutation reconciliation", () => {
       allowedActions: ["delete-scope", "revoke-assignment"],
       storageProvider: () => storage,
     });
-    const descriptor = {
+    const descriptor = /** @type {const} */ ({
       action: "delete-scope",
       ownerId: "resource-one",
       targetId: "scope-one",
-    };
+    });
 
     const stagedLocks = store.stage(store.restore(), descriptor);
     expect(store.isLocked(stagedLocks, descriptor)).toBe(true);
@@ -92,11 +137,11 @@ describe("mutation reconciliation", () => {
 
   test("fails closed on unavailable, corrupt, or non-durable lock storage", () => {
     const storageKey = "test.mutation-locks";
-    const descriptor = {
+    const descriptor = /** @type {const} */ ({
       action: "remove-member",
       ownerId: "organization-one",
       targetId: "user-one",
-    };
+    });
     const unavailableStore = createDurableMutationLockStore({
       storageKey,
       allowedActions: ["remove-member"],
@@ -149,12 +194,12 @@ describe("mutation reconciliation", () => {
       allowedActions: ["delete", "rotate"],
       storageProvider: () => storage,
     });
-    const deletion = {
+    const deletion = /** @type {const} */ ({
       action: "delete",
       ownerId: "applications",
       targetId: "application-one",
-    };
-    const rotation = { ...deletion, action: "rotate" };
+    });
+    const rotation = /** @type {const} */ ({ ...deletion, action: "rotate" });
 
     const deletionLocks = firstTab.stage({}, deletion);
     const mergedLocks = secondTab.stage({}, rotation);
@@ -314,7 +359,9 @@ describe("mutation reconciliation", () => {
         draft: { ...draft, redirect_uris: ["https://other.example.test/cb"] },
       },
     ]) {
-      expect(reconciledCreatedApplication(reconciliation)).toBeNull();
+      /** @type {{beforeApplications: readonly unknown[], afterApplications: readonly unknown[], createResponse: unknown, draft: import("./mutation-reconciliation.js").ApplicationDraft}} */
+      const untrustedReconciliation = reconciliation;
+      expect(reconciledCreatedApplication(untrustedReconciliation)).toBeNull();
     }
   });
 
@@ -430,6 +477,7 @@ describe("mutation reconciliation", () => {
   });
 
   test("reports success only after every write and the read-back succeed", async () => {
+    /** @type {string[]} */
     const events = [];
 
     const reconciliation = await settleWritesThenReadBack(
@@ -444,6 +492,7 @@ describe("mutation reconciliation", () => {
     );
 
     expect(reconciliation.status).toBe("success");
+    if (reconciliation.status !== "success") throw new Error("Expected success");
     expect(reconciliation.readBackValue).toEqual({ enabled: true });
     expect(reconciliation.writeErrors).toEqual([]);
     expect(events.at(-1)).toBe("read-back");
@@ -468,6 +517,7 @@ describe("mutation reconciliation", () => {
 
     expect(readBackCount).toBe(1);
     expect(reconciliation.status).toBe("partial_failure");
+    if (reconciliation.status !== "partial_failure") throw new Error("Expected partial failure");
     expect(reconciliation.writeErrors).toEqual([earlyFailure]);
     expect(reconciliation.readBackValue).toEqual({ enabled: false });
   });
@@ -488,6 +538,7 @@ describe("mutation reconciliation", () => {
 
     expect(readBackCount).toBe(1);
     expect(reconciliation.status).toBe("write_failure");
+    if (reconciliation.status !== "write_failure") throw new Error("Expected write failure");
     expect(reconciliation.writeErrors).toHaveLength(2);
     expect(reconciliation.readBackValue).toEqual({ jwtExpiry: 3600 });
   });
@@ -501,6 +552,7 @@ describe("mutation reconciliation", () => {
     );
 
     expect(reconciliation.status).toBe("readback_failure");
+    if (reconciliation.status !== "readback_failure") throw new Error("Expected readback failure");
     expect(reconciliation.writeStatus).toBe("success");
     expect(reconciliation.readBackError).toBe(readBackFailure);
   });
@@ -508,24 +560,16 @@ describe("mutation reconciliation", () => {
   test("wires affected editors to reconciliation and removes the Sessions ghost setting", async () => {
     const [methodsEditor, securityPage, organizationPage, accountCenterPage] =
       await Promise.all([
-        Bun.file(
-          new URL(
+        readFile(new URL(
             "./components/sign-in-experience/SignInMethodsEditor.svelte",
             import.meta.url,
-          ),
-        ).text(),
-        Bun.file(
-          new URL("../routes/security/+page.svelte", import.meta.url),
-        ).text(),
-        Bun.file(
-          new URL(
+          ), 'utf8'),
+        readFile(new URL("../routes/security/+page.svelte", import.meta.url), 'utf8'),
+        readFile(new URL(
             "../routes/organizations/[orgId]/+page.svelte",
             import.meta.url,
-          ),
-        ).text(),
-        Bun.file(
-          new URL("./components/AccountCenterPage.svelte", import.meta.url),
-        ).text(),
+          ), 'utf8'),
+        readFile(new URL("./components/AccountCenterPage.svelte", import.meta.url), 'utf8'),
       ]);
 
     expect(methodsEditor).toContain("settleAuthoritativeSettingsMutation({");
@@ -581,10 +625,9 @@ describe("mutation reconciliation", () => {
         "This console does not provide a per-session list, revoke-by-ID action, or Sessions setting to save.",
     );
 
-    const previousLocalStorage = globalThis.localStorage;
-    globalThis.localStorage = {
+    const restoreStorage = replaceLocalStorage({
       getItem: () => "zh-CN",
-    };
+    });
     try {
       expect(t("accountCenter.sessionsUnavailableTitle")).toBe(
         "逐会话管理不可用",
@@ -594,40 +637,45 @@ describe("mutation reconciliation", () => {
           "当前控制台不提供逐会话列表、按会话 ID 撤销操作或可保存的 Sessions 开关。",
       );
     } finally {
-      if (previousLocalStorage === undefined) delete globalThis.localStorage;
-      else globalThis.localStorage = previousLocalStorage;
+      restoreStorage();
     }
   });
 
   test("falls back to the browser locale when storage access is blocked", () => {
-    const previousLocalStorage = globalThis.localStorage;
-    globalThis.localStorage = {
+    const restoreStorage = replaceLocalStorage({
       getItem: () => {
         throw new DOMException("blocked", "SecurityError");
       },
-    };
+    });
     try {
       expect(() => t("dashboard.title")).not.toThrow();
       expect(t("dashboard.title")).toBe("Dashboard");
     } finally {
-      if (previousLocalStorage === undefined) delete globalThis.localStorage;
-      else globalThis.localStorage = previousLocalStorage;
+      restoreStorage();
     }
   });
 
   test("does not hide unexpected locale storage failures", () => {
-    const previousLocalStorage = globalThis.localStorage;
     const storageFailure = new Error("storage unavailable");
-    globalThis.localStorage = {
+    const restoreStorage = replaceLocalStorage({
       getItem: () => {
         throw storageFailure;
       },
-    };
+    });
     try {
       expect(() => t("dashboard.title")).toThrow(storageFailure);
     } finally {
-      if (previousLocalStorage === undefined) delete globalThis.localStorage;
-      else globalThis.localStorage = previousLocalStorage;
+      restoreStorage();
     }
   });
 });
+
+/** @param {Pick<Storage, "getItem">} storage */
+function replaceLocalStorage(storage) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
+  return () => {
+    if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  };
+}

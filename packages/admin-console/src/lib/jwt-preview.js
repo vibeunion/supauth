@@ -1,4 +1,9 @@
+// @ts-check
+import { isUnknownArray } from './unknown-value.js';
 import {
+  decodeSchema,
+  Type,
+  SupaOAuthAppMetadataSchema,
   SUPABASE_REQUIRED_CLAIMS,
   SUPAOAUTH_APP_METADATA_SCHEMA_VERSION,
   SUPAOAUTH_CLAIM_KEYS,
@@ -10,6 +15,17 @@ import {
   SUPAOAUTH_ROLE_PROJECTION_LIMIT,
 } from '@supauth/shared';
 
+/** @typedef {'string[]' | 'nonNegativeInteger' | 'boolean' | 'organization[]' | 'record' | 'string'} FieldType */
+/** @typedef {Readonly<Record<string, FieldType>>} FieldTypes */
+/** @typedef {{code: string, params: Record<string, string | number>}} ValidationError */
+/** @typedef {{field: string, countField: string, truncatedField: string, limitField: string, limit: number}} ProjectionRule */
+/** @typedef {Record<string, unknown>} UnvalidatedProjection */
+
+const extensionDraftSchema = Type.Object({
+  app_metadata: Type.Object({ supaoauth: SupaOAuthAppMetadataSchema }),
+});
+
+/** @type {FieldTypes} */
 const PERMISSION_SET_FIELD_TYPES = {
   roles: 'string[]',
   roles_count: 'nonNegativeInteger',
@@ -22,12 +38,14 @@ const PERMISSION_SET_FIELD_TYPES = {
   scopes: 'string[]',
 };
 
+/** @type {FieldTypes} */
 const APPLICATION_FIELD_TYPES = {
   ...PERMISSION_SET_FIELD_TYPES,
   organization_ids: 'string[]',
   organizations: 'record',
 };
 
+/** @type {FieldTypes} */
 export const SUPAOAUTH_FIELD_TYPES = {
   ...PERMISSION_SET_FIELD_TYPES,
   rbac_version: 'nonNegativeInteger',
@@ -50,11 +68,13 @@ export const SUPAOAUTH_FIELD_TYPES = {
   projection_unavailable: 'boolean',
 };
 
+/** @type {ReadonlySet<string>} */
 const blockedTopLevelClaims = new Set([...SUPABASE_REQUIRED_CLAIMS, ...SUPAOAUTH_CLAIM_KEYS]);
 const organizationMembershipFields = new Set(['organization_id', 'slug', 'role']);
 const hookMetadataFields = new Set(['version', 'authentication_method', 'processed_at']);
 const supaoauthRootFields = new Set(['schema_version', 'projects', 'hook']);
 const utf8Encoder = new TextEncoder();
+/** @type {readonly ProjectionRule[]} */
 const projectionRules = [
   {
     field: 'roles',
@@ -72,6 +92,7 @@ const projectionRules = [
   },
 ];
 
+/** @param {string} projectRef @param {import("@supauth/shared").SupaOAuthProjectProjection} projection */
 export function buildJwtExtensionExample(projectRef = "", projection = {}) {
   return JSON.stringify(
     {
@@ -87,20 +108,23 @@ export function buildJwtExtensionExample(projectRef = "", projection = {}) {
   );
 }
 
+/** @param {string} code @param {ValidationError["params"]} params @returns {ValidationError} */
 function validationError(code, params = {}) {
   return { code, params };
 }
 
+/** @param {unknown} candidate @returns {candidate is Record<string, unknown>} */
 function isObjectRecord(candidate) {
   return candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate);
 }
 
+/** @param {unknown} fieldValue @param {FieldType} expectedType */
 function fieldTypeMatches(fieldValue, expectedType) {
   if (expectedType === 'string[]') {
-    return Array.isArray(fieldValue) && fieldValue.every((entry) => typeof entry === 'string');
+    return isUnknownArray(fieldValue) && fieldValue.every((entry) => typeof entry === 'string');
   }
   if (expectedType === 'nonNegativeInteger') {
-    return Number.isInteger(fieldValue) && fieldValue >= 0;
+    return typeof fieldValue === 'number' && Number.isInteger(fieldValue) && fieldValue >= 0;
   }
   if (expectedType === 'organization[]') {
     return Array.isArray(fieldValue) && fieldValue.every(organizationMembershipMatches);
@@ -109,28 +133,33 @@ function fieldTypeMatches(fieldValue, expectedType) {
   return typeof fieldValue === expectedType;
 }
 
+/** @param {unknown} membership */
 function organizationMembershipMatches(membership) {
   if (!isObjectRecord(membership)) return false;
   return Object.keys(membership).every((fieldName) => organizationMembershipFields.has(fieldName))
-    && membershipFieldMatches(membership.organization_id)
-    && membershipFieldMatches(membership.slug)
-    && membershipFieldMatches(membership.role);
+    && membershipFieldMatches(membership["organization_id"])
+    && membershipFieldMatches(membership["slug"])
+    && membershipFieldMatches(membership["role"]);
 }
 
+/** @param {unknown} fieldValue */
 function membershipFieldMatches(fieldValue) {
   return typeof fieldValue === 'string'
     && fieldValue.trim().length > 0
     && fieldValue.length <= SUPAOAUTH_ORGANIZATION_MEMBERSHIP_FIELD_LENGTH_LIMIT;
 }
 
+/** @param {readonly string[]} entries */
 function uniqueNonEmptyStrings(entries) {
   return [...new Set(entries.filter((entry) => entry.length > 0))];
 }
 
+/** @param {UnvalidatedProjection} projectProjection @param {ProjectionRule} projectionRule */
 function validateProjectionList(projectProjection, projectionRule) {
   const entries = projectProjection[projectionRule.field];
-  if (!Array.isArray(entries) || !entries.every((entry) => typeof entry === 'string')) return [];
+  if (!isUnknownArray(entries) || !entries.every((entry) => typeof entry === 'string')) return [];
   const normalizedEntries = uniqueNonEmptyStrings(entries);
+  /** @type {ValidationError[]} */
   const errors = [];
   if (normalizedEntries.length !== entries.length) {
     errors.push(validationError('projectionNormalization', { field: projectionRule.field }));
@@ -144,14 +173,16 @@ function validateProjectionList(projectProjection, projectionRule) {
   return errors;
 }
 
+/** @param {UnvalidatedProjection} projectProjection @param {ProjectionRule} projectionRule */
 function validateTruncatedProjection(projectProjection, projectionRule) {
+  /** @type {ValidationError[]} */
   const errors = [];
   const entries = projectProjection[projectionRule.field];
   const count = projectProjection[projectionRule.countField];
   if (!Array.isArray(entries) || entries.length !== 0) {
     errors.push(validationError('projectionTruncatedArray', { field: projectionRule.field }));
   }
-  if (!Number.isInteger(count) || count <= projectionRule.limit) {
+  if (typeof count !== 'number' || !Number.isInteger(count) || count <= projectionRule.limit) {
     errors.push(validationError('projectionTruncatedCount', {
       countField: projectionRule.countField,
       limit: projectionRule.limit,
@@ -166,12 +197,15 @@ function validateTruncatedProjection(projectProjection, projectionRule) {
   return errors;
 }
 
+/** @param {UnvalidatedProjection} projectProjection @param {ProjectionRule} projectionRule */
 function projectionMarkersPresent(projectProjection, projectionRule) {
   return [projectionRule.countField, projectionRule.truncatedField, projectionRule.limitField]
     .some((fieldName) => projectProjection[fieldName] !== undefined);
 }
 
+/** @param {UnvalidatedProjection} projectProjection @param {ProjectionRule} projectionRule @param {number} normalizedCount */
 function validateActiveProjectionMarkers(projectProjection, projectionRule, normalizedCount) {
+  /** @type {ValidationError[]} */
   const errors = [];
   const declaredCount = projectProjection[projectionRule.countField];
   if (declaredCount !== undefined && declaredCount !== normalizedCount) {
@@ -186,6 +220,7 @@ function validateActiveProjectionMarkers(projectProjection, projectionRule, norm
   return errors;
 }
 
+/** @param {UnvalidatedProjection} projectProjection @param {ProjectionRule} projectionRule */
 function validateActiveProjection(projectProjection, projectionRule) {
   const entries = projectProjection[projectionRule.field];
   if (entries === undefined) {
@@ -193,10 +228,11 @@ function validateActiveProjection(projectProjection, projectionRule) {
       ? [validationError('projectionArrayRequired', { field: projectionRule.field })]
       : [];
   }
-  if (!Array.isArray(entries) || !entries.every((entry) => typeof entry === 'string')) return [];
+  if (!isUnknownArray(entries) || !entries.every((entry) => typeof entry === 'string')) return [];
   return validateActiveProjectionMarkers(projectProjection, projectionRule, uniqueNonEmptyStrings(entries).length);
 }
 
+/** @param {UnvalidatedProjection} projectProjection @param {ProjectionRule} projectionRule */
 function validateProjection(projectProjection, projectionRule) {
   const listErrors = validateProjectionList(projectProjection, projectionRule);
   const stateErrors = projectProjection[projectionRule.truncatedField] === true
@@ -205,6 +241,7 @@ function validateProjection(projectProjection, projectionRule) {
   return [...listErrors, ...stateErrors];
 }
 
+/** @param {UnvalidatedProjection} projection @param {FieldTypes} fieldTypes */
 function validateProjectionFields(projection, fieldTypes) {
   return Object.entries(projection).flatMap(([fieldName, fieldValue]) => {
     if (fieldName === 'org_ids') return [validationError('unsupportedOrgIds')];
@@ -216,6 +253,7 @@ function validateProjectionFields(projection, fieldTypes) {
   });
 }
 
+/** @param {UnvalidatedProjection} permissionSet @param {FieldTypes} fieldTypes */
 function validatePermissionSet(permissionSet, fieldTypes = PERMISSION_SET_FIELD_TYPES) {
   return [
     ...validateProjectionFields(permissionSet, fieldTypes),
@@ -223,16 +261,19 @@ function validatePermissionSet(permissionSet, fieldTypes = PERMISSION_SET_FIELD_
   ];
 }
 
+/** @param {readonly ValidationError[]} errors @param {ValidationError["params"]} context */
 function contextualErrors(errors, context) {
   return errors.map((error) => validationError(error.code, { ...context, ...error.params }));
 }
 
+/** @param {unknown} timestamp */
 function isCanonicalIsoTimestamp(timestamp) {
   if (typeof timestamp !== 'string') return false;
   const epochMilliseconds = Date.parse(timestamp);
   return Number.isFinite(epochMilliseconds) && new Date(epochMilliseconds).toISOString() === timestamp;
 }
 
+/** @param {unknown} permissionSets @param {string} contextField */
 function validatePermissionSetRecord(permissionSets, contextField) {
   if (!isObjectRecord(permissionSets)) return [];
   return Object.entries(permissionSets).flatMap(([entryId, permissionSet]) => {
@@ -243,12 +284,14 @@ function validatePermissionSetRecord(permissionSets, contextField) {
   });
 }
 
+/** @param {UnvalidatedProjection} applicationProjection @param {string} applicationId */
 function validateApplicationProjection(applicationProjection, applicationId) {
   const errors = validatePermissionSet(applicationProjection, APPLICATION_FIELD_TYPES);
-  const organizationErrors = validatePermissionSetRecord(applicationProjection.organizations, 'organizationId');
+  const organizationErrors = validatePermissionSetRecord(applicationProjection["organizations"], 'organizationId');
   return contextualErrors([...errors, ...organizationErrors], { applicationId });
 }
 
+/** @param {unknown} applications */
 function validateApplications(applications) {
   if (!isObjectRecord(applications)) return [];
   return Object.entries(applications).flatMap(([applicationId, applicationProjection]) => (
@@ -258,82 +301,91 @@ function validateApplications(applications) {
   ));
 }
 
+/** @param {unknown} collection */
 function emptyCollection(collection) {
   if (Array.isArray(collection)) return collection.length === 0;
   return isObjectRecord(collection) && Object.keys(collection).length === 0;
 }
 
+/** @param {UnvalidatedProjection} projectProjection */
 function validateUnavailableProjection(projectProjection) {
-  if (projectProjection.projection_unavailable !== true) return [];
+  if (projectProjection["projection_unavailable"] !== true) return [];
   const collectionFields = ['roles', 'permissions', 'scopes', 'organization_ids', 'organizations', 'applications'];
   const countFields = collectionFields.map((fieldName) => `${fieldName}_count`);
   const errors = collectionFields
     .filter((fieldName) => !emptyCollection(projectProjection[fieldName]))
     .map((fieldName) => validationError('unavailableProjectionNotEmpty', { field: fieldName }));
-  if (projectProjection.truncated !== true) errors.push(validationError('unavailableProjectionTruncated'));
-  if (!Number.isInteger(projectProjection.projection_limit) || projectProjection.projection_limit <= 0) {
+  if (projectProjection["truncated"] !== true) errors.push(validationError('unavailableProjectionTruncated'));
+  if (typeof projectProjection["projection_limit"] !== 'number' || !Number.isInteger(projectProjection["projection_limit"]) || projectProjection["projection_limit"] <= 0) {
     errors.push(validationError('unavailableProjectionLimit'));
   }
   for (const fieldName of countFields) {
-    if (!Number.isInteger(projectProjection[fieldName]) || projectProjection[fieldName] < 0) {
+    const count = projectProjection[fieldName];
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
       errors.push(validationError('unavailableProjectionCount', { field: fieldName }));
     }
   }
   return errors;
 }
 
+/** @param {UnvalidatedProjection} projectProjection */
 function validateOrganizationMembershipProjection(projectProjection) {
-  const memberships = projectProjection.organization_memberships;
-  const total = projectProjection.organization_memberships_total;
-  const truncated = projectProjection.organization_memberships_truncated;
+  const memberships = projectProjection["organization_memberships"];
+  const total = projectProjection["organization_memberships_total"];
+  const truncated = projectProjection["organization_memberships_truncated"];
   if (memberships === undefined) {
     return total === undefined && truncated === undefined
       ? []
       : [validationError('organizationMembershipsRequired')];
   }
   if (!Array.isArray(memberships)) return [];
+  /** @type {ValidationError[]} */
   const errors = [];
   if (memberships.length > SUPAOAUTH_ORGANIZATION_MEMBERSHIP_LIMIT) {
     errors.push(validationError('organizationMembershipsOverflow', {
       limit: SUPAOAUTH_ORGANIZATION_MEMBERSHIP_LIMIT,
     }));
   }
-  if (!Number.isInteger(total) || total < memberships.length) {
+  if (typeof total !== 'number' || !Number.isInteger(total) || total < memberships.length) {
     errors.push(validationError('organizationMembershipsTotal'));
   }
-  if (truncated !== (total > memberships.length)) {
+  if (truncated !== (typeof total === 'number' && total > memberships.length)) {
     errors.push(validationError('organizationMembershipsTruncated'));
   }
   return errors;
 }
 
+/** @param {UnvalidatedProjection} projectProjection */
 function validateProjectProjection(projectProjection) {
-  const permissionSetErrors = projectProjection.projection_unavailable === true
+  const permissionSetErrors = projectProjection["projection_unavailable"] === true
     ? validateProjectionFields(projectProjection, SUPAOAUTH_FIELD_TYPES)
     : validatePermissionSet(projectProjection, SUPAOAUTH_FIELD_TYPES);
   return [
     ...permissionSetErrors,
-    ...validatePermissionSetRecord(projectProjection.organizations, 'organizationId'),
-    ...validateApplications(projectProjection.applications),
+    ...validatePermissionSetRecord(projectProjection["organizations"], 'organizationId'),
+    ...validateApplications(projectProjection["applications"]),
     ...validateUnavailableProjection(projectProjection),
     ...validateOrganizationMembershipProjection(projectProjection),
   ];
 }
 
+/** @param {unknown} hookMetadata */
 function validateHookMetadata(hookMetadata) {
   if (!isObjectRecord(hookMetadata)) return [validationError('hookObject')];
   const unknownFields = Object.keys(hookMetadata)
     .filter((fieldName) => !hookMetadataFields.has(fieldName))
     .map((fieldName) => validationError('unknownHookField', { field: fieldName }));
+  /** @type {string[]} */
   const invalidFields = [];
-  if (hookMetadata.version !== 1) invalidFields.push('version');
-  if (typeof hookMetadata.authentication_method !== 'string' || !hookMetadata.authentication_method) {
+  if (hookMetadata["version"] !== 1) invalidFields.push('version');
+  if (typeof hookMetadata["authentication_method"] !== 'string' || !hookMetadata["authentication_method"]) {
     invalidFields.push('authentication_method');
   }
-  if (!isCanonicalIsoTimestamp(hookMetadata.processed_at)) invalidFields.push('processed_at');
+  if (!isCanonicalIsoTimestamp(hookMetadata["processed_at"])) invalidFields.push('processed_at');
   return [...unknownFields, ...invalidFields.map((field) => validationError('invalidHookField', { field }))];
 }
 
+/** @param {unknown} projects */
 function validateProjects(projects) {
   if (!isObjectRecord(projects)) return [validationError('projectsObject')];
   return Object.entries(projects).flatMap(([projectRef, projectProjection]) => {
@@ -353,6 +405,7 @@ function validateProjects(projects) {
   });
 }
 
+/** @param {Record<string, unknown>} supaoauthContainer */
 function validateSupaoauthContainer(supaoauthContainer) {
   const byteLength = utf8Encoder.encode(JSON.stringify(supaoauthContainer)).byteLength;
   const errors = byteLength <= SUPAOAUTH_NAMESPACE_PROJECTION_BYTE_LIMIT
@@ -363,14 +416,15 @@ function validateSupaoauthContainer(supaoauthContainer) {
   errors.push(...Object.keys(supaoauthContainer)
     .filter((fieldName) => !supaoauthRootFields.has(fieldName))
     .map((fieldName) => validationError('unknownRootField', { field: fieldName })));
-  if (supaoauthContainer.schema_version !== SUPAOAUTH_APP_METADATA_SCHEMA_VERSION) {
+  if (supaoauthContainer["schema_version"] !== SUPAOAUTH_APP_METADATA_SCHEMA_VERSION) {
     errors.push(validationError('schemaVersionUnsupported', { expected: SUPAOAUTH_APP_METADATA_SCHEMA_VERSION }));
   }
-  errors.push(...validateProjects(supaoauthContainer.projects));
-  if (supaoauthContainer.hook !== undefined) errors.push(...validateHookMetadata(supaoauthContainer.hook));
+  errors.push(...validateProjects(supaoauthContainer["projects"]));
+  if (supaoauthContainer["hook"] !== undefined) errors.push(...validateHookMetadata(supaoauthContainer["hook"]));
   return errors;
 }
 
+/** @param {Record<string, unknown>} parsedDraft */
 function validateTopLevelClaims(parsedDraft) {
   return Object.keys(parsedDraft).flatMap((claimName) => {
     if (claimName === 'app_metadata') return [];
@@ -379,20 +433,23 @@ function validateTopLevelClaims(parsedDraft) {
   });
 }
 
+/** @param {unknown} appMetadata */
 function validateAppMetadata(appMetadata) {
   if (!isObjectRecord(appMetadata)) return [validationError('appMetadataObject')];
   const errors = Object.keys(appMetadata)
     .filter((metadataKey) => metadataKey !== 'supaoauth')
     .map((metadataKey) => validationError('appMetadataOnlySupaoauth', { key: metadataKey }));
   if (!Object.hasOwn(appMetadata, 'supaoauth')) errors.push(validationError('namespaceRequired'));
-  if (!isObjectRecord(appMetadata.supaoauth)) {
+  if (!isObjectRecord(appMetadata["supaoauth"])) {
     errors.push(validationError('namespaceObject'));
     return errors;
   }
-  return [...errors, ...validateSupaoauthContainer(appMetadata.supaoauth)];
+  return [...errors, ...validateSupaoauthContainer(appMetadata["supaoauth"])];
 }
 
+/** @param {string} rawDraft */
 export function validateExtensionDraft(rawDraft) {
+  /** @type {unknown} */
   let parsedDraft;
   try {
     parsedDraft = JSON.parse(rawDraft);
@@ -403,6 +460,6 @@ export function validateExtensionDraft(rawDraft) {
   if (!isObjectRecord(parsedDraft)) {
     return { value: null, errors: [validationError('extensionObject')] };
   }
-  const errors = [...validateTopLevelClaims(parsedDraft), ...validateAppMetadata(parsedDraft.app_metadata)];
-  return { value: errors.length === 0 ? parsedDraft : null, errors };
+  const errors = [...validateTopLevelClaims(parsedDraft), ...validateAppMetadata(parsedDraft["app_metadata"])];
+  return { value: errors.length === 0 ? decodeSchema(extensionDraftSchema, parsedDraft) : null, errors };
 }

@@ -1,4 +1,8 @@
-<script>
+<script lang="ts">
+  import { decodeSchema, JsonObjectSchema } from "@supauth/shared";
+  import type { AccountCenterRow } from "./account-center-settings.js";
+  import type { MutationReconciliation } from "$lib/mutation-reconciliation.js";
+  import { accountCenterValue } from "./settings-values.js";
   import { onMount } from "svelte";
   import { t } from "$lib/i18n.js";
   import { listTenantConfigs, upsertTenantConfig } from "$lib/api/client.js";
@@ -13,10 +17,10 @@
 
   let loading = $state(true);
   let saving = $state(false);
-  let error = $state(null);
-  let success = $state(null);
-  let reconciliationStatus = $state(null);
-  let deleteAccountUrlError = $state(null);
+  let error = $state<string | null>(null);
+  let success = $state<string | null>(null);
+  let reconciliationStatus = $state<MutationReconciliation<unknown>["status"] | null>(null);
+  let deleteAccountUrlError = $state<string | null>(null);
 
   let form = $state({
     enabled: true,
@@ -32,8 +36,8 @@
     delete_account_url: "",
   });
 
-  function normalizeValue(config) {
-    const value = config?.value || {};
+  function normalizeValue(config: AccountCenterRow | null) {
+    const value = accountCenterValue(config?.value);
     const profile = value.profile || {};
     const security = value.security || {};
     const fields = Array.isArray(profile.fields)
@@ -94,7 +98,7 @@
     };
   }
 
-  function accountCenterValueDraft(deleteAccountUrl) {
+  function accountCenterValueDraft(deleteAccountUrl: string | null) {
     return {
       enabled: form.enabled,
       profile: {
@@ -112,7 +116,7 @@
     };
   }
 
-  function accountCenterMutationDraft(deleteAccountUrl) {
+  function accountCenterMutationDraft(deleteAccountUrl: string | null) {
     const command = {
       enabled: form.enabled,
       value: accountCenterValueDraft(deleteAccountUrl),
@@ -141,7 +145,10 @@
       const reconciliation = await settleAuthoritativeSettingsMutation({
         draft: mutationDraft,
         writeCommands: (configDraft) => [
-          () => upsertTenantConfig("account_center", "default", configDraft),
+          () => upsertTenantConfig("account_center", "default", {
+            enabled: configDraft.enabled,
+            value: decodeSchema(JsonObjectSchema, configDraft.value),
+          }),
         ],
         readSnapshot: () => readAccountCenterConfig(listTenantConfigs),
         authorityFromSnapshot: accountCenterSettingsAuthority,

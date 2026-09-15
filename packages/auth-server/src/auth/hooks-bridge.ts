@@ -1,6 +1,9 @@
 // Supabase Auth Hooks bridge.
 // HTTP endpoints call these helpers to keep hook behavior deterministic and testable.
 
+import { decodeSchema, type Static } from '../../../shared/src/schema.js';
+import { tenantConfigurationValues } from '../../../shared/src/sdk-models.js';
+
 const SUPABASE_RUNTIME_ROLES = ['anon', 'authenticated', 'service_role'] as const;
 const SUPAOAUTH_APP_METADATA_SCHEMA_VERSION = 2 as const;
 const SUPAOAUTH_PROJECT_PROJECTION_BYTE_LIMIT = 16 * 1024;
@@ -43,12 +46,10 @@ export interface BeforeUserCreatedPayload {
   metadata?: Record<string, unknown>;
 }
 
-export interface SignupPolicy {
-  allowed_email_domains?: string[];
-  blocked_email_domains?: string[];
-  blocked_oauth_providers?: string[];
-  allowed_oauth_providers?: string[];
-  invite_only?: boolean;
+export type SignupPolicy = Static<typeof tenantConfigurationValues.auth_hook>;
+
+export function decodeSignupPolicy(value: unknown): SignupPolicy {
+  return decodeSchema(tenantConfigurationValues.auth_hook, value);
 }
 
 export interface SignupContext {
@@ -89,14 +90,14 @@ function getEmailDomain(email?: string | null): string | null {
 }
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  return Array.isArray(value) ? value.filter((item: unknown): item is string => typeof item === 'string') : [];
 }
 
 function getOAuthProvider(payload: BeforeUserCreatedPayload): string | null {
   const metadata = payload.user?.app_metadata || {};
-  const provider = metadata.provider;
+  const provider = metadata["provider"];
   if (typeof provider === 'string') return provider;
-  const providers = asStringArray(metadata.providers);
+  const providers = asStringArray(metadata["providers"]);
   return providers[0] || null;
 }
 
@@ -162,8 +163,8 @@ function removeTopLevelSupaOAuthClaims(claims: Record<string, unknown>): Record<
 }
 
 function schemaV2Projects(container: unknown): Record<string, unknown> {
-  if (!isRecord(container) || container.schema_version !== SUPAOAUTH_APP_METADATA_SCHEMA_VERSION) return {};
-  return isRecord(container.projects) ? container.projects : {};
+  if (!isRecord(container) || container["schema_version"] !== SUPAOAUTH_APP_METADATA_SCHEMA_VERSION) return {};
+  return isRecord(container["projects"]) ? container["projects"] : {};
 }
 
 function projectProjection(projects: Record<string, unknown>, projectRef: string): Record<string, unknown> {
@@ -181,13 +182,13 @@ function permissionProjectionFields(permissionSource: Record<string, unknown>) {
 }
 
 function projectForOAuthClient(currentProject: Record<string, unknown>, applicationId: string) {
-  if (currentProject.projection_unavailable === true) return currentProject;
-  const applications = isRecord(currentProject.applications) ? currentProject.applications : {};
+  if (currentProject["projection_unavailable"] === true) return currentProject;
+  const applications = isRecord(currentProject["applications"]) ? currentProject["applications"] : {};
   const application = isRecord(applications[applicationId]) ? applications[applicationId] : null;
   const permissionSource = application || currentProject;
   const nextProject: Record<string, unknown> = { ...currentProject, application_id: applicationId };
-  delete nextProject.applications;
-  delete nextProject.applications_count;
+  delete nextProject["applications"];
+  delete nextProject["applications_count"];
   for (const field of APPLICATION_PERMISSION_FIELDS) delete nextProject[field];
   return Object.assign(nextProject, permissionProjectionFields(permissionSource));
 }
@@ -231,7 +232,7 @@ function projectWithSafeMemberships(
   currentProject: Record<string, unknown>,
   organizationMemberships: OrganizationMembershipClaims,
 ): Record<string, unknown> | null {
-  if (currentProject.projection_unavailable === true) {
+  if (currentProject["projection_unavailable"] === true) {
     return withinProjectProjectionBudget(currentProject) ? currentProject : null;
   }
   if (!organizationMembershipsValid(organizationMemberships)) return null;
@@ -273,11 +274,11 @@ function customAccessTokenInputError(
   if (!projectRef) {
     return reject(500, 'The project claim context is not configured.', 'invalid_project_claim_context');
   }
-  if (claims.role !== undefined && !SUPABASE_RUNTIME_ROLES.some((runtimeRole) => runtimeRole === claims.role)) {
+  if (claims["role"] !== undefined && !SUPABASE_RUNTIME_ROLES.some((runtimeRole) => runtimeRole === claims["role"])) {
     return reject(400, 'The top-level Supabase role claim is invalid.', 'invalid_supabase_role');
   }
-  if (claims.client_id !== undefined
-    && (typeof claims.client_id !== 'string' || !claims.client_id.trim() || claims.client_id.length > 255)) {
+  if (claims["client_id"] !== undefined
+    && (typeof claims["client_id"] !== 'string' || !claims["client_id"].trim() || claims["client_id"].length > 255)) {
     return reject(400, 'The OAuth client_id claim is invalid.', 'invalid_oauth_client_id');
   }
   return null;
@@ -304,13 +305,13 @@ export function handleCustomAccessToken(
   const claims = removeTopLevelSupaOAuthClaims(isRecord(payload.claims) ? payload.claims : {});
   const inputError = customAccessTokenInputError(claims, projectRef);
   if (inputError) return inputError;
-  const appMetadata = isRecord(claims.app_metadata) ? claims.app_metadata : {};
+  const appMetadata = isRecord(claims["app_metadata"]) ? claims["app_metadata"] : {};
   const supaoauth = customAccessTokenSupaoauth({
-    existingContainer: appMetadata.supaoauth,
+    existingContainer: appMetadata["supaoauth"],
     organizationMemberships,
     projectRef,
     authenticationMethod: payload.authentication_method || 'unknown',
-    applicationId: typeof claims.client_id === 'string' ? claims.client_id : undefined,
+    ...(typeof claims["client_id"] === 'string' ? { applicationId: claims["client_id"] } : {}),
   });
   if (!supaoauth) {
     return reject(500, 'The SupaOAuth claim projection exceeds its safe bounds.', 'claim_projection_overflow');

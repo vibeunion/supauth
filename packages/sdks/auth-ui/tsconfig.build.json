@@ -6,5 +6,6 @@
       "@supauth/shared": ["../../shared/dist/index.d.ts"],
       "@supauth/sdk-typescript": ["../typescript/dist/index.d.ts"]
     }
-  }
+  },
+  "exclude": ["node_modules", "dist", "src/__tests__/**/*.ts", "src/**/*.test.ts"]
 }

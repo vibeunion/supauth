@@ -1,3 +1,4 @@
+import { strictFetch } from './helpers/strict-fetch.js';
 // P0-29: Route/domain integration gate tests
 
 import { describe, it, expect, mock } from 'bun:test';
@@ -8,7 +9,7 @@ describe('P0-29: Route Gate', () => {
   it('runIntegrationGate returns expected structure', async () => {
     // Mock fetch to simulate healthy responses
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes('/auth/v1/health')) {
         return Promise.resolve(new Response('{"code":200,"status":"ok"}', { status: 200 }));
@@ -38,7 +39,7 @@ describe('P0-29: Route Gate', () => {
         return Promise.resolve(new Response('{"error":"unauthorized"}', { status: 401 }));
       }
       return Promise.resolve(new Response('ok', { status: 200 }));
-    }) as unknown as typeof fetch;
+    }));
 
     // Dynamically import to use mocked fetch
     const { runIntegrationGate } = await import('../routes/route-gate.js');
@@ -72,7 +73,7 @@ describe('P0-29: Route Gate', () => {
 
   it('detects upstream failures as conflicts', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes('/auth/v1/health')) {
         return Promise.resolve(new Response('ok', { status: 200 }));
@@ -87,7 +88,7 @@ describe('P0-29: Route Gate', () => {
         return Promise.resolve(new Response('ok', { status: 200 }));
       }
       return Promise.resolve(new Response('ok', { status: 200 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { runIntegrationGate } = await import('../routes/route-gate.js');
 
@@ -109,11 +110,11 @@ describe('P0-29: Route Gate', () => {
   it('normalizes trailing slashes in target URLs', async () => {
     const originalFetch = globalThis.fetch;
     const seenUrls: string[] = [];
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       seenUrls.push(url);
       return Promise.resolve(new Response('ok', { status: url.includes('/v1/applications') ? 401 : 200 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { runIntegrationGate } = await import('../routes/route-gate.js');
     const result = await runIntegrationGate(
@@ -165,9 +166,9 @@ describe('P0-29: Route Gate', () => {
     ] as const;
     const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
     try {
-      process.env.SUPAOAUTH_ROUTE_GATE_ADMIN_URL = 'https://registered-admin.test';
-      process.env.SUPAOAUTH_ROUTE_GATE_RUNTIME_URL = 'https://registered-runtime.test';
-      process.env.SUPAOAUTH_ROUTE_GATE_DOMAINS = 'https://registered-business.test';
+      process.env["SUPAOAUTH_ROUTE_GATE_ADMIN_URL"] = 'https://registered-admin.test';
+      process.env["SUPAOAUTH_ROUTE_GATE_RUNTIME_URL"] = 'https://registered-runtime.test';
+      process.env["SUPAOAUTH_ROUTE_GATE_DOMAINS"] = 'https://registered-business.test';
 
       expect(resolveRouteGateInput({
         supauth_url: 'http://127.0.0.1:9',
@@ -191,14 +192,14 @@ describe('P0-29: Route Gate', () => {
   it('does not follow redirects to private or cross-origin targets', async () => {
     const originalFetch = globalThis.fetch;
     const seenUrls: string[] = [];
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       seenUrls.push(url);
       return Promise.resolve(new Response('', {
         status: 302,
         headers: { location: 'http://169.254.169.254/latest/meta-data/' },
       }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const { runIntegrationGate } = await import('../routes/route-gate.js');

@@ -1,7 +1,7 @@
-<script>
+<script lang="ts">
   import { t } from "$lib/i18n.js";
 
-  let { secret } = $props();
+  let { secret }: { secret: string } = $props();
   let copied = $state(false);
   let copyError = $state("");
 

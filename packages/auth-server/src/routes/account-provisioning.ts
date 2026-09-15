@@ -1,6 +1,9 @@
 // Account provisioning and public self-service account claiming.
 
 import { Elysia } from 'elysia';
+import { decodeUserReadback } from '../utils/upstream-contract.js';
+import { accountContract, accountOutput, readAccountInput, readAccountNormalization } from '../utils/account-contract.js';
+import { definedFields } from '../utils/defined-fields.js';
 import { getConfig } from '../config/index.js';
 import { runtimeEnv } from '../config/platform-env.js';
 import {
@@ -106,20 +109,20 @@ function sanitizePhrases(value: unknown): Record<string, Record<string, string>>
 }
 
 export function sanitizeAccountClaimConfig(config: unknown): AccountClaimConfig {
-  const source = isRecord(config) && isRecord(config.value) ? config.value : config;
+  const source = isRecord(config) && isRecord(config["value"]) ? config["value"] : config;
   const value = isRecord(source) ? source : {};
-  const password = isRecord(value.password) ? value.password : {};
-  const enabled = isRecord(config) && config.enabled === true;
+  const password = isRecord(value["password"]) ? value["password"] : {};
+  const enabled = isRecord(config) && config["enabled"] === true;
 
   return {
     enabled,
-    external_type: typeof value.external_type === 'string' && value.external_type.trim()
-      ? value.external_type.trim()
+    external_type: typeof value["external_type"] === 'string' && value["external_type"].trim()
+      ? value["external_type"].trim()
       : DEFAULT_ACCOUNT_CLAIM_CONFIG.external_type,
     password: {
-      mode: asPasswordMode(password.mode || value.password_mode),
+      mode: asPasswordMode(password["mode"] || value["password_mode"]),
       min_length: asPositiveInt(
-        password.min_length || value.password_min_length,
+        password["min_length"] || value["password_min_length"],
         DEFAULT_ACCOUNT_CLAIM_CONFIG.password.min_length,
         6,
         128,
@@ -129,7 +132,7 @@ export function sanitizeAccountClaimConfig(config: unknown): AccountClaimConfig 
       require_numbers: false,
       require_symbols: false,
     },
-    phrases: sanitizePhrases(value.phrases),
+    phrases: sanitizePhrases(value["phrases"]),
   };
 }
 
@@ -160,18 +163,18 @@ function extractUsers(response: unknown): Record<string, unknown>[] {
 
 function userId(user: Record<string, unknown>): string | null {
   const source = unwrapUser(user);
-  return typeof source?.id === 'string' ? source.id : null;
+  return typeof source?.["id"] === 'string' ? source["id"] : null;
 }
 
 function userEmail(user: Record<string, unknown>): string {
   const source = unwrapUser(user);
-  return typeof source?.email === 'string' ? source.email.toLowerCase() : '';
+  return typeof source?.["email"] === 'string' ? source["email"].toLowerCase() : '';
 }
 
 function unwrapUser(value: Record<string, unknown>): Record<string, unknown> {
   for (const key of ['user', 'data']) {
     const nested = value[key];
-    if (isRecord(nested) && typeof nested.id === 'string') return nested;
+    if (isRecord(nested) && typeof nested["id"] === 'string') return nested;
   }
   return value;
 }
@@ -220,10 +223,10 @@ function isWeakPasswordUpdateError(error: unknown): boolean {
     payload = null;
   }
   const record = isRecord(payload) ? payload : {};
-  const code = String(record.code || record.error_code || '').toLowerCase();
+  const code = String(record["code"] || record["error_code"] || '').toLowerCase();
   if (code === 'weak_password') return true;
 
-  const message = String(record.message || record.msg || record.error_description || record.error || error.body).toLowerCase();
+  const message = String(record["message"] || record["msg"] || record["error_description"] || record["error"] || error.body).toLowerCase();
   return message.includes('weak password')
     || /password (?:should|must) be at least/.test(message)
     || /password (?:must|should) (?:include|contain|have)/.test(message)
@@ -264,7 +267,7 @@ export function mergeUserPayload(
   record: accountProvisioning.AccountProvisioningImportRecord,
   password?: string,
 ) {
-  const userMetadata = isRecord(user.user_metadata) ? user.user_metadata : {};
+  const userMetadata = isRecord(user["user_metadata"]) ? user["user_metadata"] : {};
 
   return {
     ...(password ? { password } : {}),
@@ -330,12 +333,12 @@ export function createPublicAccountClaimRoutes(options?: {
 
   return new Elysia({ prefix: '/v1/public/account-claims' })
     .get('/config', async () => {
-      return { success: true, config: await getSafeEffectiveConfig() };
-    }, {
+      return accountOutput('claimConfig', { success: true, config: await getSafeEffectiveConfig() });
+    }, accountContract('claimConfig', {
       detail: { summary: 'Get public account claim configuration', tags: ['Public', 'Account Provisioning'] },
-    })
-    .post('/claim', async ({ body, headers, set }) => {
-      const ip = requestIp(headers as Record<string, string | undefined>);
+    }))
+    .post('/claim', async ({ body, headers, set, request }) => {
+      const ip = requestIp(headers);
       if (!claimAttempts.consume(ip, CLAIM_LIMIT_MAX)) {
         set.status = 429;
         return { success: false, error: { code: 'too_many_attempts', message: 'Too many attempts. Please try again later.' } };
@@ -347,17 +350,14 @@ export function createPublicAccountClaimRoutes(options?: {
         return { success: false, error: { code: 'account_claim_disabled', message: 'Account claiming is disabled.' } };
       }
 
-      const requestBody = body as {
-        external_id?: string;
-        new_password?: string;
-      };
-      const externalId = String(requestBody?.external_id || '').trim();
+      const requestBody = isRecord(body) ? body : {};
+      const externalId = String(requestBody?.["external_id"] || '').trim();
       if (!externalId) {
         set.status = 400;
         return { success: false, error: { code: 'invalid_request', message: 'External ID is required.' } };
       }
       const passwordMode = config.password.mode;
-      const newPassword = String(requestBody?.new_password || '');
+      const newPassword = String(requestBody?.["new_password"] || '');
       const passwordViolation = passwordMode === 'set_on_claim'
         ? passwordPolicyViolation(newPassword, passwordPolicyFromClaimConfig(config))
         : null;
@@ -372,19 +372,20 @@ export function createPublicAccountClaimRoutes(options?: {
         };
       }
 
-      const headerMap = headers as Record<string, string | undefined>;
+      const input = readAccountNormalization('claim', request, { external_id: externalId, new_password: newPassword });
+      const headerMap = headers;
       let claimOutcome: accountProvisioning.AccountClaimResult;
       try {
-        claimOutcome = await claimAccount({
-          externalId,
+        claimOutcome = await claimAccount(definedFields({
+          externalId: input.external_id,
           externalType: config.external_type,
           ip,
           userAgent: headerMap['user-agent'],
           passwordMode,
-          newPassword: passwordMode === 'set_on_claim' ? newPassword : undefined,
+          newPassword: passwordMode === 'set_on_claim' ? input.new_password : undefined,
           updatePassword: passwordMode === 'set_on_claim' ? updatePassword : undefined,
           isDefinitivePasswordRejection: isWeakPasswordUpdateError,
-        });
+        }));
       } catch (error) {
         if (isWeakPasswordUpdateError(error)) {
           set.status = 400;
@@ -417,27 +418,28 @@ export function createPublicAccountClaimRoutes(options?: {
         };
       }
 
-      return {
+      return accountOutput('claim', {
         success: true,
         status: claimOutcome.status,
         email: claimOutcome.email,
         ...('passwordSet' in claimOutcome ? { password_set: claimOutcome.passwordSet } : { initial_password: claimOutcome.initialPassword }),
-      };
-    }, {
+      });
+    }, accountContract('claim', {
       detail: { summary: 'Claim a pre-provisioned SupaOAuth account', tags: ['Public', 'Account Provisioning'] },
-    });
+    }));
 }
 
 export const publicAccountClaimRoutes = createPublicAccountClaimRoutes();
 
 export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provisioning' })
-  .post('/import', async ({ body }) => {
-    const payload = body as ImportPayload;
+  .post('/import', async ({ body, request }) => {
+    const payload = readAccountInput('import', request, { body }).body;
     const records = Array.isArray(payload.records) ? payload.records : [];
     const createUsers = payload.create_users === true;
     const dryRun = payload.dry_run === true;
     const generateEmails = payload.generate_emails !== false;
     const emailDomain = (payload.email_domain || defaultProvisioningEmailDomain()).replace(/^@/, '').toLowerCase();
+    const errors: Array<{ external_id?: string; email?: string; error: string }> = [];
     const summary = {
       total: records.length,
       eligible: 0,
@@ -448,15 +450,15 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       users_suspended: 0,
       passwords_reset: 0,
       emails_generated: 0,
-      errors: [] as Array<{ external_id?: string; email?: string; error: string }>,
+      errors,
     };
 
     const users = createUsers && !dryRun ? extractUsers(await adapter.listUsers()) : [];
     const byEmail = new Map<string, Record<string, unknown>>(
-      users.map(user => [userEmail(user), user] as [string, Record<string, unknown>]).filter(([email]) => !!email),
+      users.map((user): [string, Record<string, unknown>] => [userEmail(user), user]).filter(([email]) => !!email),
     );
     const byId = new Map<string, Record<string, unknown>>(
-      users.map(user => [userId(user), user] as [string | null, Record<string, unknown>])
+      users.map((user): [string | null, Record<string, unknown>] => [userId(user), user])
         .filter((entry): entry is [string, Record<string, unknown>] => entry[0] !== null),
     );
 
@@ -467,16 +469,19 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       const existingLocals = new Set<string>();
       for (const user of users) {
         const email = userEmail(user);
-        if (email) existingLocals.add(email.split('@')[0]);
+        const local = email.split('@')[0];
+        if (email && local !== undefined) existingLocals.add(local);
       }
       // Also include emails already specified in the import batch
       for (const r of records) {
-        if (r.email?.trim()) existingLocals.add(r.email.trim().toLowerCase().split('@')[0]);
+        const local = r.email?.trim().toLowerCase().split('@')[0];
+        if (r.email?.trim() && local !== undefined) existingLocals.add(local);
       }
       // Also include existing provisioning records
       const existingRecords = await accountProvisioning.listAccountProvisioningRecords(500, 0);
       for (const existingRecord of existingRecords) {
-        if (existingRecord.email) existingLocals.add(existingRecord.email.split('@')[0]);
+        const local = existingRecord.email.split('@')[0];
+        if (existingRecord.email && local !== undefined) existingLocals.add(local);
       }
       generatedEmails = batchGenerateEmails(
         needsEmail.map(r => ({ display_name: r.display_name, external_id: r.external_id || '' })),
@@ -492,8 +497,9 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       const statusIsActive = ['active', '正常'].includes(sourceStatus);
 
       // Auto-generate email if not provided
-      if (!record.email?.trim() && generatedEmails.has(externalId)) {
-        record.email = generatedEmails.get(externalId)!;
+      const generatedEmail = generatedEmails.get(externalId);
+      if (!record.email?.trim() && generatedEmail !== undefined) {
+        record.email = generatedEmail;
       } else if (!record.email?.trim()) {
         record.email = `${nameToPinyinBase(record.display_name)}@${emailDomain}`;
       }
@@ -528,29 +534,31 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
         const existingUser = existingProvisioningRecord?.userId
           ? byId.get(existingProvisioningRecord.userId)
           : byEmail.get(record.email.toLowerCase());
-        const password = resolveProvisioningInitialPassword(record, existingProvisioningRecord);
+        const completeRecord = { ...record, email: record.email };
+        const password = resolveProvisioningInitialPassword(completeRecord, existingProvisioningRecord);
         let userIdForRecord = existingUser ? userId(existingUser) : null;
 
         if (createUsers) {
           if (existingUser && userIdForRecord) {
-            await adapter.updateUser(userIdForRecord, mergeUserPayload(existingUser, { ...record, external_id: externalId }, password));
+            await adapter.updateUser(userIdForRecord, mergeUserPayload(existingUser, { ...completeRecord, external_id: externalId }, password));
             summary.users_updated += 1;
             if (password) summary.passwords_reset += 1;
           } else {
-            const created = await adapter.createUser(buildUserPayload({ ...record, external_id: externalId }, password)) as Record<string, unknown>;
-            userIdForRecord = userId(created);
+            const created = decodeUserReadback(await adapter.createUser(buildUserPayload({ ...completeRecord, external_id: externalId }, password)));
+            userIdForRecord = created.id;
             summary.users_created += 1;
           }
         }
 
-        await accountProvisioning.upsertAccountProvisioningRecord({
+        await accountProvisioning.upsertAccountProvisioningRecord(definedFields({
           ...record,
           external_id: externalId,
           user_id: userIdForRecord,
           initial_password: password,
           generate_initial_password: !!password,
           source_status: sourceStatus,
-        });
+          email: record.email,
+        }));
         summary.upserted += 1;
       } catch (e) {
         summary.errors.push({
@@ -574,53 +582,49 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
       create_users: createUsers,
     });
 
-    return summary;
-  }, {
+    return accountOutput('import', summary);
+  }, accountContract('import', {
     detail: { summary: 'Import or sync account provisioning records and optionally create SupaOAuth users', tags: ['Account Provisioning', 'Users'] },
-  })
-  .get('/records', async ({ query }) => {
+  }))
+  .get('/records', async ({ query: rawQuery, request }) => {
+    const { query } = readAccountInput('records', request, { query: rawQuery });
     const limit = Math.min(Number(query.limit || 100), 500);
     const offset = Number(query.offset || 0);
     const items = await accountProvisioning.listAccountProvisioningRecords(limit, offset);
-    return { items, total: items.length };
-  }, {
+    return accountOutput('records', { items, total: items.length });
+  }, accountContract('records', {
     detail: { summary: 'List account provisioning records without initial passwords', tags: ['Account Provisioning'] },
-  })
-  .post('/sync', async ({ body }) => {
-    const payload = body as {
-      records?: Array<{ external_id: string; source_status: string; display_name?: string; email?: string }>;
-      external_type?: string;
-      suspend_users?: boolean;
-      reactivate_users?: boolean;
-      dry_run?: boolean;
-    };
+  }))
+  .post('/sync', async ({ body, request }) => {
+    const payload = readAccountInput('sync', request, { body }).body;
     if (!Array.isArray(payload.records) || payload.records.length === 0) {
-      return { total: 0, unchanged: 0, updated: 0, suspended: 0, reactivated: 0, errors: [] };
+      return accountOutput('sync', { total: 0, unchanged: 0, updated: 0, suspended: 0, reactivated: 0, errors: [] });
     }
-    return syncEmployeeStatuses({
-      records: payload.records,
+    return accountOutput('sync', await syncEmployeeStatuses(definedFields({
+      records: payload.records.map(record => ({ ...record, source_status: record.source_status || 'active' })),
       external_type: payload.external_type,
       suspend_users: payload.suspend_users,
       reactivate_users: payload.reactivate_users,
       dry_run: payload.dry_run,
-    });
-  }, {
+    })));
+  }, accountContract('sync', {
     detail: { summary: 'Sync employee status changes (suspend/reactivate GoTrue users)', tags: ['Account Provisioning'] },
-  })
-  .post('/sync/reconcile', async ({ body }) => {
-    const payload = body as { external_type?: string; dry_run?: boolean; batch_size?: number };
-    return reconcileAllEmployeeStatuses({
+  }))
+  .post('/sync/reconcile', async ({ body, request }) => {
+    const payload = readAccountInput('reconcile', request, { body }).body;
+    return accountOutput('reconcile', await reconcileAllEmployeeStatuses(definedFields({
       externalType: payload.external_type,
       dryRun: payload.dry_run,
       batchSize: payload.batch_size,
-    });
-  }, {
+    })));
+  }, accountContract('reconcile', {
     detail: { summary: 'Full reconciliation: scan all provisioning records and sync GoTrue user state', tags: ['Account Provisioning'] },
-  })
-  .get('/sync/status', async ({ query }) => {
+  }))
+  .get('/sync/status', async ({ query: rawQuery, request }) => {
+    const { query } = readAccountInput('syncStatus', request, { query: rawQuery });
     const externalType = String(query.external_type || 'employee');
     const counts = await accountProvisioning.countBySourceStatus(externalType);
-    return { external_type: externalType, counts };
-  }, {
+    return accountOutput('syncStatus', { external_type: externalType, counts });
+  }, accountContract('syncStatus', {
     detail: { summary: 'Get employee status distribution counts', tags: ['Account Provisioning'] },
-  });
+  }));

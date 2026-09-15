@@ -130,26 +130,28 @@ export function batchGenerateEmails(
   for (const record of indexed) {
     // If email is already provided, use it
     if (record.email && record.email.trim()) {
-      const localPart = record.email.trim().toLowerCase().split('@')[0];
+      const localPart = record.email.trim().toLowerCase().split('@')[0] ?? '';
       usedLocals.add(localPart);
       result.set(normalizeExtId(record.external_id), record.email.trim().toLowerCase());
       continue;
     }
     const base = nameToPinyinBase(record.display_name);
-    if (!byBase.has(base)) byBase.set(base, []);
-    byBase.get(base)!.push({ display_name: record.display_name, external_id: record.external_id, index: record.index });
+    const group = byBase.get(base) ?? [];
+    group.push({ display_name: record.display_name, external_id: record.external_id, index: record.index });
+    byBase.set(base, group);
   }
 
   for (const [base, group] of byBase) {
-    if (group.length === 1 && !usedLocals.has(base)) {
+    const first = group[0];
+    if (group.length === 1 && first && !usedLocals.has(base)) {
       // Simple case: no collision
       usedLocals.add(base);
-      result.set(normalizeExtId(group[0].external_id), `${base}@${opts.domain}`);
+      result.set(normalizeExtId(first.external_id), `${base}@${opts.domain}`);
     } else {
       // Multiple records with same base, or base already taken
       for (const entry of group) {
         const email = generateUniqueEmail(entry.display_name, usedLocals, entry.external_id, opts);
-        const localPart = email.split('@')[0];
+        const localPart = email.split('@')[0] ?? '';
         usedLocals.add(localPart);
         result.set(normalizeExtId(entry.external_id), email);
       }

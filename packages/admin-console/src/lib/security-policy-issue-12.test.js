@@ -12,6 +12,7 @@ const originalLocalStorage = Object.getOwnPropertyDescriptor(
   "localStorage",
 );
 let locale = "en";
+/** @type {Record<string, [string, string]>} */
 const ISSUE_FACING_COPY = {
   "security.passwordRequiredCharacters": ["Required characters", "必需字符"],
   "security.captchaProvider": ["Provider", "提供商"],
@@ -39,6 +40,7 @@ beforeAll(() => {
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     value: {
+      /** @param {string} key */
       getItem(key) {
         return key === "supaoauth.locale" ? locale : null;
       },
@@ -50,7 +52,7 @@ afterAll(() => {
   if (originalLocalStorage) {
     Object.defineProperty(globalThis, "localStorage", originalLocalStorage);
   } else {
-    delete globalThis.localStorage;
+    Reflect.deleteProperty(globalThis, "localStorage");
   }
 });
 

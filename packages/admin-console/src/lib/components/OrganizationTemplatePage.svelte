@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from "@supauth/shared";
+  import { errorMessage } from "$lib/resource-page.js";
   import { onMount } from "svelte";
   import { t } from "$lib/i18n.js";
   import RequestState from "$lib/components/RequestState.svelte";
@@ -8,12 +10,15 @@
     deleteOrgTemplate,
   } from "$lib/api/client.js";
 
-  let templates = $state([]);
+  type Template = AdminEndpointResult<"listOrgTemplates">["items"][number];
+  type TemplateRole = NonNullable<Template["templateRoles"]>[number];
+  type TemplateScope = NonNullable<Template["templateScopes"]>[number];
+  let templates = $state<Template[]>([]);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let showCreate = $state(false);
-  let deletingTemplateId = $state(null);
-  let expandedTemplateId = $state(null);
+  let deletingTemplateId = $state<string | null>(null);
+  let expandedTemplateId = $state<string | null>(null);
   let form = $state({
     name: "",
     description: "",
@@ -29,7 +34,7 @@
     "Standard organization with owner/admin/member roles";
   const ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH = 255;
 
-  function organizationTemplateItems(response) {
+  function organizationTemplateItems(response: AdminEndpointResult<"listOrgTemplates">) {
     if (
       !response ||
       typeof response !== "object" ||
@@ -41,7 +46,7 @@
     return response.items;
   }
 
-  function validOrganizationTemplate(template) {
+  function validOrganizationTemplate(template: Template) {
     const roles = template?.templateRoles ?? template?.template_roles;
     const scopes = template?.templateScopes ?? template?.template_scopes;
     const defaultFlag = template?.isDefault ?? template?.is_default;
@@ -55,64 +60,65 @@
       typeof defaultFlag === "boolean";
   }
 
-  function validTemplateRole(role) {
-    return Boolean(role &&
+  function validTemplateRole(role: unknown): role is TemplateRole {
+    return !!(role &&
       typeof role === "object" &&
       !Array.isArray(role) &&
       Object.keys(role).every((field) =>
         field === "name" || field === "permissions"
       ) &&
+      "name" in role &&
       typeof role.name === "string" &&
       role.name.trim().length > 0 &&
-      Array.isArray(role.permissions) &&
+      "permissions" in role && Array.isArray(role.permissions) &&
       role.permissions.every((permission) =>
         typeof permission === "string" && permission.trim().length > 0
       ));
   }
 
-  function validTemplateScope(scope) {
-    return Boolean(scope &&
+  function validTemplateScope(scope: unknown): scope is TemplateScope {
+    return !!(scope &&
       typeof scope === "object" &&
       !Array.isArray(scope) &&
       Object.keys(scope).every((field) =>
         field === "name" || field === "description"
       ) &&
-      typeof scope.name === "string" &&
+      "name" in scope && typeof scope.name === "string" &&
       scope.name.trim().length > 0 &&
-      (scope.description === undefined || typeof scope.description === "string"));
+      (!("description" in scope) || scope.description === undefined || typeof scope.description === "string"));
   }
 
-  function templateRoles(template) {
-    return template.templateRoles ?? template.template_roles;
+  function templateRoles(template: Template) {
+    return template.templateRoles ?? template.template_roles ?? [];
   }
 
-  function templateScopes(template) {
-    return template.templateScopes ?? template.template_scopes;
+  function templateScopes(template: Template) {
+    return template.templateScopes ?? template.template_scopes ?? [];
   }
 
-  function isDefaultTemplate(template) {
+  function isDefaultTemplate(template: Template) {
     return template.isDefault ?? template.is_default;
   }
 
-  function templateName(template) {
+  function templateName(template: Template) {
     return isDefaultTemplate(template) && template.name === DEFAULT_TEMPLATE_NAME
       ? t("orgTemplates.defaultName")
       : template.name;
   }
 
-  function templateDescription(template) {
+  function templateDescription(template: Template) {
     return isDefaultTemplate(template) &&
       template.description === DEFAULT_TEMPLATE_DESCRIPTION
       ? t("orgTemplates.defaultDescription")
       : template.description;
   }
 
-  const BUILT_IN_ROLE_KEYS = {
+  const BUILT_IN_ROLE_KEYS: Record<string, string> = {
     owner: "tenant.role.owner",
     admin: "tenant.role.admin",
     member: "tenant.role.member",
   };
-  const BUILT_IN_PERMISSION_KEYS = {
+  const BUILT_IN_PERMISSION_KEYS: Record<string, string> = {
     "organization.manage": "perm.organization.manage.label",
     "organization.members.manage": "perm.organization.members.manage.label",
     "organization.settings.manage": "perm.organization.settings.manage.label",
@@ -120,20 +126,20 @@
     "resource.write": "perm.resource.write.label",
   };
 
-  function localizedBuiltIn(value, keys) {
+  function localizedBuiltIn(value: string, keys: Readonly<Record<string, string>>) {
     const key = keys[value];
     return key ? t(key) : value;
   }
 
-  function localizedScopeDescription(scope) {
+  function localizedScopeDescription(scope: TemplateScope) {
     const key = BUILT_IN_PERMISSION_KEYS[scope.name];
     return key ? t(key.replace(/\.label$/, ".desc")) : scope.description;
   }
 
   function organizationTemplateDraft() {
     const name = form.name.trim();
-    const templateRoles = JSON.parse(form.template_roles || "[]");
-    const templateScopes = JSON.parse(form.template_scopes || "[]");
+    const templateRoles: unknown = JSON.parse(form.template_roles || "[]");
+    const templateScopes: unknown = JSON.parse(form.template_scopes || "[]");
     if (!name ||
       name.length > ORGANIZATION_TEMPLATE_NAME_MAX_LENGTH ||
       !Array.isArray(templateRoles) ||
@@ -158,7 +164,7 @@
       const response = await listOrgTemplates();
       templates = organizationTemplateItems(response);
     } catch (requestError) {
-      error = requestError;
+      error = errorMessage(requestError);
     } finally {
       loading = false;
     }
@@ -179,11 +185,11 @@
       showCreate = false;
       await loadTemplates();
     } catch (requestError) {
-      error = requestError;
+      error = errorMessage(requestError);
     }
   }
 
-  async function deleteOrganizationTemplate(template) {
+  async function deleteOrganizationTemplate(template: Template) {
     if (isDefaultTemplate(template)) {
       error = t("orgTemplates.deleteProtected");
       return;
@@ -195,15 +201,15 @@
       await deleteOrgTemplate(template.id);
       await loadTemplates();
     } catch (requestError) {
-      error = requestError?.code === "default_organization_template_protected"
+      error = requestError && typeof requestError === "object" && "code" in requestError && requestError.code === "default_organization_template_protected"
         ? t("orgTemplates.deleteProtected")
-        : requestError;
+        : errorMessage(requestError);
     } finally {
       deletingTemplateId = null;
     }
   }
 
-  function toggleDetails(templateId) {
+  function toggleDetails(templateId: string) {
     expandedTemplateId = expandedTemplateId === templateId ? null : templateId;
   }
 

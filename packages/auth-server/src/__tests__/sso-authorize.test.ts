@@ -1,3 +1,4 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { describe, expect, it } from 'bun:test';
 import {
   buildGoTrueOAuthAuthorizeUrl,
@@ -35,7 +36,7 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
     ));
 
     expect(response.status).toBe(400);
-    const payload = await response.json() as { error: string; error_description: string };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.String(), "error_description": StrictType.String() }), await response.json());
     expect(payload.error).toBe('invalid_request');
     expect(payload.error_description).toContain('client_id');
   });
@@ -149,7 +150,7 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
     ));
 
     expect(response.status).toBe(400);
-    const payload = await response.json() as { error: string; error_description: string };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.String(), "error_description": StrictType.String() }), await response.json());
     expect(payload.error).toBe('invalid_request');
     expect(payload.error_description).toContain('without a fragment');
   });
@@ -162,7 +163,7 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
 
     expect(response.status).toBe(400);
     expect(response.headers.get('location')).toBeNull();
-    const payload = await response.json() as { error: string };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.String() }), await response.json());
     expect(payload.error).toBe('unsupported_response_type');
   });
 

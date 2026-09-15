@@ -1,9 +1,57 @@
-// @ts-nocheck
+import { readFile } from 'node:fs/promises';
 import { describe, expect, test } from "bun:test";
+import ts from "typescript";
 import { groupCapabilityEntries } from "./capability-view.js";
 
+/** @param {string} relativePath */
 async function source(relativePath) {
-  return Bun.file(new URL(relativePath, import.meta.url)).text();
+  return readFile(new URL(relativePath, import.meta.url), 'utf8');
+}
+
+/** @param {string} source @param {string} method @param {string} path @param {string} endpoint */
+function routeResponse(source, method, path, endpoint) {
+  const file = ts.createSourceFile("routes.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  /** @type {import("typescript").Expression[]} */
+  const responses = [];
+  /** @param {import("typescript").Node} node */
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === method) {
+      const [routePath, handler] = node.arguments;
+      if (routePath && ts.isStringLiteral(routePath) && routePath.text === path &&
+        handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))) {
+        if (ts.isBlock(handler.body)) {
+          for (const statement of handler.body.statements) {
+            if (ts.isReturnStatement(statement) && statement.expression) responses.push(statement.expression);
+          }
+        } else responses.push(handler.body);
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  expect(responses).toHaveLength(1);
+  let response = responses[0];
+  if (!response) throw new Error(`Missing response for ${method} ${path}`);
+  if (ts.isCallExpression(response) && ts.isIdentifier(response.expression) &&
+    response.expression.text === "decodeEndpointResponse") {
+    const [endpointName, decodedValue] = response.arguments;
+    expect(endpointName && ts.isStringLiteral(endpointName) ? endpointName.text : null).toBe(endpoint);
+    if (!decodedValue) throw new Error(`Missing decoded value for ${endpoint}`);
+    response = decodedValue;
+  }
+  return { file, expression: response };
+}
+
+/** @param {ReturnType<typeof routeResponse>} response @param {string} callee */
+function responseCallArgument(response, callee) {
+  const expression = response.expression;
+  expect(ts.isCallExpression(expression) && ts.isIdentifier(expression.expression)
+    ? expression.expression.text : null).toBe(callee);
+  if (!ts.isCallExpression(expression) || !expression.arguments[0]) {
+    throw new Error(`Missing ${callee} argument`);
+  }
+  return { ...response, expression: expression.arguments[0] };
 }
 
 describe("CNB issues 5-9 regressions", () => {
@@ -20,12 +68,24 @@ describe("CNB issues 5-9 regressions", () => {
       gotrue_passkey_ceremony: {
         available: false,
         reason_code: "not_advertised_by_upstream",
+        source: "gotrue",
+        version: null,
+        last_verified_at: "2026-01-01T00:00:00Z",
       },
       custom_reserved_capability: {
         available: false,
         reason_code: "capability_negotiation_unavailable",
+        source: "supaoauth",
+        version: null,
+        last_verified_at: "2026-01-01T00:00:00Z",
       },
-      gotrue_auth_hooks_v1: { available: true, reason_code: null },
+      gotrue_auth_hooks_v1: {
+        available: true,
+        reason_code: null,
+        source: "gotrue",
+        version: null,
+        last_verified_at: "2026-01-01T00:00:00Z",
+      },
     });
     expect(grouped.waiting.map(([name]) => name)).toEqual([
       "gotrue_passkey_ceremony",
@@ -50,7 +110,7 @@ describe("CNB issues 5-9 regressions", () => {
     const oneTimeSecret = await source("./components/OneTimeSecret.svelte");
 
     expect(applicationPage).toContain("<OneTimeSecret secret={revealedSecret}");
-    expect(applicationList).toContain("<OneTimeSecret secret={revealedSecrets[app.client_id]}");
+    expect(applicationList).toContain('<OneTimeSecret secret={revealedSecrets[app.client_id] || ""}');
     expect(oneTimeSecret).toContain("navigator.clipboard.writeText(secret)");
     expect(oneTimeSecret).toContain("$effect(() => {");
     expect(applicationPage).toContain('application.client_type !== "public"');
@@ -59,11 +119,20 @@ describe("CNB issues 5-9 regressions", () => {
     expect(applicationPage).toContain('? ["none"] : confidentialAuthMethods');
     expect(applicationPage).toContain("application.secret.publicClient");
     expect(oneTimeSecret).toContain("application.secret.shownOnce");
-    expect(applicationRoutes).toContain("withoutSecrets(pagedResponse(");
-    expect(applicationRoutes).toContain(".get('/:appId', async ({ params }) => withoutSecrets(");
-    expect(applicationRoutes).toContain("return withoutSecrets(updated);");
-    expect(applicationRoutes).toContain("return created;");
-    expect(applicationRoutes).toContain("return result;");
+    const listed = routeResponse(applicationRoutes, "get", "/", "listApplications");
+    responseCallArgument(responseCallArgument(listed, "withoutSecrets"), "pagedResponse");
+    const detail = responseCallArgument(
+      routeResponse(applicationRoutes, "get", "/:appId", "getApplication"), "withoutSecrets",
+    );
+    expect(detail.expression.getText(detail.file)).toBe("await oauthClientAdapter().getOAuthClient(params.appId)");
+    const updated = responseCallArgument(
+      routeResponse(applicationRoutes, "put", "/:appId", "updateApplication"), "withoutSecrets",
+    );
+    expect(updated.expression.getText(updated.file)).toBe("updated");
+    const created = routeResponse(applicationRoutes, "post", "/", "createApplication");
+    expect(created.expression.getText(created.file)).toBe("created");
+    const rotated = routeResponse(applicationRoutes, "post", "/:appId/rotate-secret", "rotateApplicationSecret");
+    expect(rotated.expression.getText(rotated.file)).toBe("result");
   });
 
   test("validates accessible branding uploads before authoritative read-back", async () => {

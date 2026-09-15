@@ -12,21 +12,23 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { assertStaticCheckoutDoesNotLoadEnv, releaseStaticEnvironment } from './release-static-environment.js';
 
-const releaseId = process.env.RELEASE_ID || `release-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-const artifactDir = process.env.ARTIFACT_DIR || `artifacts/${releaseId}`;
-const runLive = process.env.RUN_LIVE_RELEASE_GATE === '1';
-const runSupabaseRuntimeCompat = process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1';
-const runSupabaseOauth21Compat = process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
-const allowDirty = process.env.ALLOW_DIRTY_RELEASE === '1';
-const allowSkipLive = process.env.ALLOW_SKIP_LIVE_GATE === '1';
-const productionRelease = process.env.RELEASE_ENVIRONMENT === 'production';
+const releaseId = process.env["RELEASE_ID"] || `release-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+const artifactDir = process.env["ARTIFACT_DIR"] || `artifacts/${releaseId}`;
+const runLive = process.env["RUN_LIVE_RELEASE_GATE"] === '1';
+const runSupabaseRuntimeCompat = process.env["RUN_SUPABASE_RUNTIME_COMPAT"] === '1';
+const runSupabaseOauth21Compat = process.env["RUN_SUPABASE_OAUTH21_COMPAT"] === '1';
+const allowDirty = process.env["ALLOW_DIRTY_RELEASE"] === '1';
+const allowSkipLive = process.env["ALLOW_SKIP_LIVE_GATE"] === '1';
+const productionRelease = process.env["RELEASE_ENVIRONMENT"] === 'production';
+const staticEnvironment = releaseStaticEnvironment(process.env);
 
 function run(command: string[], options: { env?: Record<string, string | undefined> } = {}) {
   const result = Bun.spawnSync(command, {
     stdout: 'inherit',
     stderr: 'inherit',
-    env: { ...process.env, ...options.env },
+    env: options.env ?? staticEnvironment,
   });
   if (result.exitCode !== 0) process.exit(result.exitCode);
 }
@@ -69,20 +71,40 @@ if (runLive && (!runSupabaseRuntimeCompat || !runSupabaseOauth21Compat)) {
 
 mkdirSync(artifactDir, { recursive: true });
 
-run(['bunx', 'tsc', '--noEmit']);
+if (runLive) {
+  run(['bun', '--no-env-file', 'run', 'scripts/real-contract-acceptance.ts'], {
+    env: {
+      ...staticEnvironment,
+      ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('REAL_ACCEPTANCE_'))),
+    },
+  });
+  // 旧兼容测试会修改 MFA、会话及存储，必须先补齐本轮独占 fixture 的归属和回收。
+  // 四阶段代表性契约验收不能替代原有 OAuth、Storage、Realtime 发布要求。
+  console.error('Release gate BLOCKED: LEGACY_COMPAT_FIXTURE_OWNERSHIP_REQUIRED (OAuth/MFA/Storage/Realtime).');
+  process.exit(1);
+}
+
+try {
+  assertStaticCheckoutDoesNotLoadEnv(process.cwd());
+} catch {
+  console.error('Release gate BLOCKED: static checks require a dotenv-free checkout with local, verifiable workspace links.');
+  process.exit(1);
+}
+run(['bun', '--no-env-file', '--no-install', 'node_modules/typescript/bin/tsc', '--noEmit']);
 // 全仓测试会修改 process.env；按文件隔离，避免并行测试互相污染认证配置。
-run(['bun', 'test', '--isolate']);
+run(['bun', '--no-env-file', 'test', '--isolate']);
 run(['bun', 'run', 'check']);
-run(['bun', 'run', 'build'], { env: { SUPAUTH_SUPACLOUD_ARTIFACT_DIR: artifactDir } });
+run(['bun', 'run', 'build'], { env: { ...staticEnvironment, SUPAUTH_SUPACLOUD_ARTIFACT_DIR: artifactDir } });
 run(['bun', 'run', 'scripts/verify-supacloud-app-artifact.ts', '--artifact-dir', artifactDir]);
 run(['bun', 'run', 'scripts/verify-openapi-additive.ts', `${artifactDir}/openapi.json`]);
 
 const supacloudAppManifestHash = output(['shasum', '-a', '256', `${artifactDir}/supacloud-app-manifest.json`]).split(/\s+/)[0];
+if (!supacloudAppManifestHash) throw new Error('Missing SupaCloud app manifest hash');
 let supacloudInstalledAppVerification: string | undefined;
 
 if (runLive) {
-  const installedBaseUrl = (process.env.SUPAUTH_PUBLIC_URL || process.env.AUTH_PUBLIC_URL || process.env.SUPAUTH_INSTALLED_BASE_URL)?.replace(/\/+$/, '');
-  const installedRuntimeUrl = process.env.SUPAUTH_INSTALLED_RUNTIME_URL?.replace(/\/+$/, '');
+  const installedBaseUrl = (process.env["SUPAUTH_PUBLIC_URL"] || process.env["AUTH_PUBLIC_URL"] || process.env["SUPAUTH_INSTALLED_BASE_URL"])?.replace(/\/+$/, '');
+  const installedRuntimeUrl = process.env["SUPAUTH_INSTALLED_RUNTIME_URL"]?.replace(/\/+$/, '');
   if (!installedBaseUrl || !installedRuntimeUrl) {
     console.error('RUN_LIVE_RELEASE_GATE=1 requires SUPAUTH_PUBLIC_URL or SUPAUTH_INSTALLED_BASE_URL, plus SUPAUTH_INSTALLED_RUNTIME_URL');
     process.exit(1);
@@ -101,9 +123,9 @@ if (runLive) {
         REQUIRE_SUPABASE_AUTH_COMPAT: '1',
         RUN_SUPABASE_RUNTIME_COMPAT: '1',
         RUN_SUPABASE_FULL_STACK_COMPAT: '1',
-        OAUTH_RUNTIME_URL: process.env.OAUTH_RUNTIME_URL || installedRuntimeUrl,
-        MANAGEMENT_URL: process.env.MANAGEMENT_URL || `${installedBaseUrl}/api`,
-        SUPABASE_FULLSTACK_URL: process.env.SUPABASE_FULLSTACK_URL || installedRuntimeUrl,
+        OAUTH_RUNTIME_URL: process.env["OAUTH_RUNTIME_URL"] || installedRuntimeUrl,
+        MANAGEMENT_URL: process.env["MANAGEMENT_URL"] || `${installedBaseUrl}/api`,
+        SUPABASE_FULLSTACK_URL: process.env["SUPABASE_FULLSTACK_URL"] || installedRuntimeUrl,
       },
     });
   }
@@ -113,7 +135,7 @@ if (runLive) {
       env: {
         REQUIRE_SUPABASE_AUTH_COMPAT: '1',
         RUN_SUPABASE_OAUTH21_COMPAT: '1',
-        OAUTH_RUNTIME_URL: process.env.OAUTH_RUNTIME_URL || installedRuntimeUrl,
+        OAUTH_RUNTIME_URL: process.env["OAUTH_RUNTIME_URL"] || installedRuntimeUrl,
       },
     });
   }

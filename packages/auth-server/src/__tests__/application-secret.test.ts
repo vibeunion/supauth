@@ -5,9 +5,9 @@ describe('Application consent policy — module structure', () => {
     const expectedFns = [
       'getApplicationConsentSettings',
       'upsertApplicationConsentSettings',
-    ];
+    ] as const;
     for (const fn of expectedFns) {
-      expect(typeof (appControl as any)[fn]).toBe('function');
+      expect(typeof appControl[fn]).toBe('function');
     }
   });
 });

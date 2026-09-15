@@ -1,3 +1,4 @@
+import { strictFetch } from './helpers/strict-fetch.js';
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { SupaCloudAdapter, SupaCloudApiError } from '../supacloud/adapter.js';
 import { loadConfig } from '../config/index.js';
@@ -8,21 +9,21 @@ import { loadConfig } from '../config/index.js';
 
 describe('SupaCloudAdapter contract', () => {
   beforeEach(() => {
-    process.env.SUPACLOUD_API_URL = 'http://test-api:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
-    process.env.PROJECT_REF = 'test-ref';
-    process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
-    process.env.DATABASE_URL = 'postgres://test';
-    delete process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE;
-    delete process.env.SUPACLOUD_STORAGE_URL_TEMPLATE;
-    delete process.env.SUPACLOUD_STORAGE_URL;
-    delete process.env.SUPABASE_URL;
-    delete process.env.EDGEFN_SUPAUTH_SUPACLOUD_RUNTIME_URL_TEMPLATE;
-    delete process.env.EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL_TEMPLATE;
-    delete process.env.EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL;
-    delete process.env.EDGEFN_SUPAUTH_SUPABASE_URL;
-    delete process.env.EDGEFN_SUPAUTH_SUPABASE_SERVICE_ROLE_KEY;
+    process.env["SUPACLOUD_API_URL"] = 'http://test-api:9090';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = 'test-token';
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] = 'test-storage-token';
+    process.env["PROJECT_REF"] = 'test-ref';
+    process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.test';
+    process.env["DATABASE_URL"] = 'postgres://test';
+    delete process.env["SUPACLOUD_RUNTIME_URL_TEMPLATE"];
+    delete process.env["SUPACLOUD_STORAGE_URL_TEMPLATE"];
+    delete process.env["SUPACLOUD_STORAGE_URL"];
+    delete process.env["SUPABASE_URL"];
+    delete process.env["EDGEFN_SUPAUTH_SUPACLOUD_RUNTIME_URL_TEMPLATE"];
+    delete process.env["EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL_TEMPLATE"];
+    delete process.env["EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL"];
+    delete process.env["EDGEFN_SUPAUTH_SUPABASE_URL"];
+    delete process.env["EDGEFN_SUPAUTH_SUPABASE_SERVICE_ROLE_KEY"];
     loadConfig();
   });
 
@@ -66,9 +67,9 @@ describe('SupaCloudAdapter contract', () => {
       'listStorageBuckets', 'getStorageBucket', 'createStorageBucket',
       'deleteStorageBucket', 'uploadFile', 'deleteFile', 'downloadFile', 'createSignedUrl', 'getPublicUrl',
       'verifyGatewayRoutes', 'getProjectRef', 'getTargetInfo',
-    ];
+    ] as const;
     for (const method of requiredMethods) {
-      expect(typeof (adapter as any)[method]).toBe('function');
+      expect(typeof adapter[method]).toBe('function');
     }
   });
 
@@ -81,13 +82,13 @@ describe('SupaCloudAdapter contract', () => {
   it('removes the GoTrue API path when Storage falls back to the runtime URL', async () => {
     const originalFetch = globalThis.fetch;
     const storageRequests: string[] = [];
-    process.env.OAUTH_RUNTIME_URL = 'https://runtime.example.test/auth/v1/';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://runtime.example.test/auth/v1/';
     loadConfig();
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       storageRequests.push(url);
-      return Promise.resolve(Response.json({ id: 'branding' }));
-    }) as unknown as typeof fetch;
+      return Promise.resolve(Response.json({ id: 'branding', public: true }));
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -108,14 +109,14 @@ describe('SupaCloudAdapter contract', () => {
   it('prefers the Supabase project API URL when OAuth uses a custom Auth domain', async () => {
     const originalFetch = globalThis.fetch;
     const storageRequests: string[] = [];
-    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
-    process.env.SUPABASE_URL = 'https://project.api.example.test';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://auth.example.test/auth/v1';
+    process.env["SUPABASE_URL"] = 'https://project.api.example.test';
     loadConfig();
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       storageRequests.push(url);
-      return Promise.resolve(Response.json({ id: 'branding' }));
-    }) as unknown as typeof fetch;
+      return Promise.resolve(Response.json({ id: 'branding', public: true }));
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -134,9 +135,9 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('prefers the Supabase project API URL over an OAuth runtime template', () => {
-    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
-    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://auth-{projectRef}.example.test/auth/v1';
-    process.env.SUPABASE_URL = 'https://project.api.example.test';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://auth.example.test/auth/v1';
+    process.env["SUPACLOUD_RUNTIME_URL_TEMPLATE"] = 'https://auth-{projectRef}.example.test/auth/v1';
+    process.env["SUPABASE_URL"] = 'https://project.api.example.test';
     loadConfig();
 
     const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
@@ -149,9 +150,9 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('prefers the function-scoped Supabase project API URL', () => {
-    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
-    process.env.SUPABASE_URL = 'https://legacy-project.api.example.test';
-    process.env.EDGEFN_SUPAUTH_SUPABASE_URL = 'https://function-project.api.example.test';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://auth.example.test/auth/v1';
+    process.env["SUPABASE_URL"] = 'https://legacy-project.api.example.test';
+    process.env["EDGEFN_SUPAUTH_SUPABASE_URL"] = 'https://function-project.api.example.test';
     loadConfig();
 
     const adapter = new SupaCloudAdapter();
@@ -160,10 +161,10 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('preserves an explicitly configured Storage URL', () => {
-    process.env.OAUTH_RUNTIME_URL = 'https://runtime.example.test/auth/v1';
-    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://auth-{projectRef}.example.test/auth/v1';
-    process.env.SUPABASE_URL = 'https://project.api.example.test';
-    process.env.SUPACLOUD_STORAGE_URL = 'https://storage.example.test/gateway';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://runtime.example.test/auth/v1';
+    process.env["SUPACLOUD_RUNTIME_URL_TEMPLATE"] = 'https://auth-{projectRef}.example.test/auth/v1';
+    process.env["SUPABASE_URL"] = 'https://project.api.example.test';
+    process.env["SUPACLOUD_STORAGE_URL"] = 'https://storage.example.test/gateway';
     loadConfig();
 
     const adapter = new SupaCloudAdapter();
@@ -172,10 +173,10 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('prefers a function-scoped Storage URL over project and OAuth runtime URLs', () => {
-    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
-    process.env.SUPABASE_URL = 'https://project.api.example.test';
-    process.env.SUPACLOUD_STORAGE_URL = 'https://legacy-storage.example.test';
-    process.env.EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL = 'https://function-storage.example.test';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://auth.example.test/auth/v1';
+    process.env["SUPABASE_URL"] = 'https://project.api.example.test';
+    process.env["SUPACLOUD_STORAGE_URL"] = 'https://legacy-storage.example.test';
+    process.env["EDGEFN_SUPAUTH_SUPACLOUD_STORAGE_URL"] = 'https://function-storage.example.test';
     loadConfig();
 
     const adapter = new SupaCloudAdapter();
@@ -186,13 +187,13 @@ describe('SupaCloudAdapter contract', () => {
   it('uses the function-scoped service-role key for Storage requests', async () => {
     const originalFetch = globalThis.fetch;
     const authorizations: string[] = [];
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'legacy-storage-token';
-    process.env.EDGEFN_SUPAUTH_SUPABASE_SERVICE_ROLE_KEY = 'function-storage-token';
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] = 'legacy-storage-token';
+    process.env["EDGEFN_SUPAUTH_SUPABASE_SERVICE_ROLE_KEY"] = 'function-storage-token';
     loadConfig();
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       authorizations.push(new Headers(init?.headers).get('authorization') || '');
-      return Promise.resolve(Response.json({ id: 'branding' }));
-    }) as unknown as typeof fetch;
+      return Promise.resolve(Response.json({ id: 'branding', public: true }));
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -208,7 +209,7 @@ describe('SupaCloudAdapter contract', () => {
   it('keeps Management API and all Storage credential domains separate', async () => {
     const originalFetch = globalThis.fetch;
     const requests: Array<{ path: string; authorization: string }> = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       requests.push({
         path: new URL(url).pathname,
@@ -218,8 +219,11 @@ describe('SupaCloudAdapter contract', () => {
         return Promise.resolve(Response.json({ signedURL: 'https://storage.example.test/signed/object' }));
       }
       if (url.includes('/object/authenticated/')) return Promise.resolve(new Response('asset'));
-      return Promise.resolve(Response.json({ id: 'branding', Key: 'branding/logo.png' }));
-    }) as unknown as typeof fetch;
+      if (url.endsWith('/storage/v1/bucket') && (init?.method || 'GET') === 'GET') {
+        return Promise.resolve(Response.json([{ id: 'branding', public: true }]));
+      }
+      return Promise.resolve(Response.json({ id: 'branding', public: true, Key: 'branding/logo.png' }));
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -245,7 +249,7 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('fails closed when the Storage service-role key is unavailable', async () => {
-    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env["SUPABASE_SERVICE_ROLE_KEY"];
     loadConfig();
 
     const adapter = new SupaCloudAdapter();
@@ -266,10 +270,10 @@ describe('SupaCloudAdapter contract', () => {
   it('uses an explicitly project-matched service-role key for a cross-project adapter', async () => {
     const originalFetch = globalThis.fetch;
     const authorizations: string[] = [];
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       authorizations.push(new Headers(init?.headers).get('authorization') || '');
-      return Promise.resolve(Response.json({ id: 'branding' }));
-    }) as unknown as typeof fetch;
+      return Promise.resolve(Response.json({ id: 'branding', public: true }));
+    }));
 
     try {
       const adapter = new SupaCloudAdapter({
@@ -287,11 +291,11 @@ describe('SupaCloudAdapter contract', () => {
 
   it('preserves Storage bucket lookup status in the adapter error contract', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock(async () => new Response('bucket unavailable', { status: 503 })) as unknown as typeof fetch;
+    globalThis.fetch = strictFetch(mock(async () => new Response('bucket unavailable', { status: 503 })));
 
     try {
       const adapter = new SupaCloudAdapter();
-      const lookupFailure = await adapter.getStorageBucket('branding').catch(error => error);
+      const lookupFailure = await adapter.getStorageBucket('branding').catch((error: unknown): unknown => error);
       expect(lookupFailure).toBeInstanceOf(SupaCloudApiError);
       expect(lookupFailure).toMatchObject({
         status: 503,
@@ -305,12 +309,12 @@ describe('SupaCloudAdapter contract', () => {
 
   it('preserves Storage create and upload failures in the adapter error contract', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock(async (input: string | URL | Request) => {
       const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url).pathname;
       return new Response(path.includes('/object/') ? 'upload unavailable' : 'route unavailable', {
         status: path.includes('/object/') ? 503 : 404,
       });
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -332,12 +336,12 @@ describe('SupaCloudAdapter contract', () => {
   it('uses the canonical project auth-hook configuration contract', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ method: string; path: string; body?: string }> = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         method: init?.method || 'GET',
         path: new URL(url).pathname,
-        body: typeof init?.body === 'string' ? init.body : undefined,
+        ...(typeof init?.body === 'string' ? { body: init.body } : {}),
       });
       return Promise.resolve(Response.json({
         custom_access_token_hook: {
@@ -346,7 +350,7 @@ describe('SupaCloudAdapter contract', () => {
           secrets_configured: true,
         },
       }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -376,7 +380,7 @@ describe('SupaCloudAdapter contract', () => {
   it('encodes private Storage object paths for upload, download, and deletion', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ method: string; path: string; authorization: string | null }> = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         method: init?.method || 'GET',
@@ -386,7 +390,7 @@ describe('SupaCloudAdapter contract', () => {
       return Promise.resolve(url.includes('/authenticated/')
         ? new Response('asset')
         : Response.json({ Key: 'stored' }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -411,14 +415,14 @@ describe('SupaCloudAdapter contract', () => {
   it('signs only safe encoded Storage object paths with a positive integer expiry', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ path: string; body: string | null }> = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         path: new URL(url).pathname,
         body: typeof init?.body === 'string' ? init.body : null,
       });
       return Promise.resolve(Response.json({ signedURL: 'https://storage.test/signed/object' }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -490,29 +494,40 @@ describe('SupaCloudAdapter contract', () => {
 
   it('fails closed on malformed signed URL response payloads', async () => {
     const originalFetch = globalThis.fetch;
+    const invalidReceipts = [
+      { payload: {}, schemaRejected: true },
+      { payload: { signedURL: '' }, schemaRejected: true },
+      { payload: { signedURL: '  ' }, schemaRejected: false },
+      { payload: { signedURL: 'relative/object' }, schemaRejected: false },
+      { payload: { signedURL: '//attacker.example/object' }, schemaRejected: false },
+      { payload: { signedURL: 'javascript:alert(1)' }, schemaRejected: false },
+      { payload: { signedURL: 'https://user:password@storage.test/object' }, schemaRejected: false },
+      { payload: { signedURL: 42 }, schemaRejected: true },
+    ];
     const responses: Record<string, unknown>[] = [
       { signedURL: '/object/sign/avatars/plain.png?token=valid' },
-      {},
-      { signedURL: '' },
-      { signedURL: '  ' },
-      { signedURL: 'relative/object' },
-      { signedURL: '//attacker.example/object' },
-      { signedURL: 'javascript:alert(1)' },
-      { signedURL: 'https://user:password@storage.test/object' },
-      { signedURL: 42 },
+      ...invalidReceipts.map(receipt => receipt.payload),
     ];
-    globalThis.fetch = mock(async () => Response.json(responses.shift())) as unknown as typeof fetch;
+    globalThis.fetch = strictFetch(mock(async () => Response.json(responses.shift())));
 
     try {
       const adapter = new SupaCloudAdapter();
       await expect(adapter.createSignedUrl('avatars', 'plain.png')).resolves.toBe(
         '/object/sign/avatars/plain.png?token=valid',
       );
-      while (responses.length > 0) {
-        await expect(adapter.createSignedUrl('avatars', 'plain.png')).rejects.toThrow(
-          'Storage sign URL response did not contain a valid signedURL',
-        );
+      for (const receipt of invalidReceipts) {
+        const result = adapter.createSignedUrl('avatars', 'plain.png');
+        if (receipt.schemaRejected) {
+          await expect(result).rejects.toMatchObject({
+            status: 502,
+            code: 'invalid_upstream_response',
+            message: 'Upstream response does not match its contract',
+          });
+        } else {
+          await expect(result).rejects.toThrow('Storage sign URL response did not contain a valid signedURL');
+        }
       }
+      expect(responses).toHaveLength(0);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -526,7 +541,7 @@ describe('SupaCloudAdapter contract', () => {
   it('uses canonical organization mutation paths and payloads', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ path: string; method: string; body: string | null; authorization: string | null }> = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         path: new URL(url).pathname,
@@ -535,7 +550,7 @@ describe('SupaCloudAdapter contract', () => {
         authorization: new Headers(init?.headers).get('authorization'),
       });
       return Promise.resolve(Response.json({ ok: true }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -569,10 +584,10 @@ describe('SupaCloudAdapter contract', () => {
   it('rejects invitation acceptance without a user bearer before calling SupaCloud', async () => {
     const originalFetch = globalThis.fetch;
     let calls = 0;
-    globalThis.fetch = mock(() => {
+    globalThis.fetch = strictFetch(mock(() => {
       calls += 1;
       return Promise.resolve(Response.json({ ok: true }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -590,7 +605,7 @@ describe('SupaCloudAdapter contract', () => {
 
   it('keeps audit downloads on the BFF and proxies file headers', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url).pathname;
       if (path.endsWith('/download')) {
         return Promise.resolve(new Response('{"event":"one"}\n', {
@@ -598,16 +613,16 @@ describe('SupaCloudAdapter contract', () => {
         }));
       }
       return Promise.resolve(Response.json({ id: 'export-one', status: 'completed', download_url: '/v1/projects/test-ref/audit/exports/export-one/download' }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
-      const created = await adapter.exportAuditLogs({}) as Record<string, unknown>;
-      const status = await adapter.getAuditExport('export-one') as Record<string, unknown>;
+      const created = strictRecord(await adapter.exportAuditLogs({}));
+      const status = strictRecord(await adapter.getAuditExport('export-one'));
       const download = await adapter.downloadAuditExport('export-one');
 
-      expect(created.download_url).toBe('/v1/audit/export/export-one/download');
-      expect(status.download_url).toBe('/v1/audit/export/export-one/download');
+      expect(created["download_url"]).toBe('/v1/audit/export/export-one/download');
+      expect(status["download_url"]).toBe('/v1/audit/export/export-one/download');
       expect(download.headers.get('content-disposition')).toContain('audit.jsonl');
       expect(await download.text()).toBe('{"event":"one"}\n');
     } finally {
@@ -618,11 +633,11 @@ describe('SupaCloudAdapter contract', () => {
   it('encodes OAuth client path segments', async () => {
     const originalFetch = globalThis.fetch;
     const urls: string[] = [];
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       urls.push(url);
       return Promise.resolve(new Response('{}', { status: 200 }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -638,7 +653,7 @@ describe('SupaCloudAdapter contract', () => {
   it('checks OAuth and SAML runtime configuration without a fabricated management endpoint', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ url: string; method: string; body: string | null }> = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         url,
@@ -649,7 +664,7 @@ describe('SupaCloudAdapter contract', () => {
         ? 'https://idp.example.test/saml/login'
         : 'https://idp.example.test/oauth/authorize';
       return Promise.resolve(Response.json({ url: authorizationUrl }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -683,7 +698,7 @@ describe('SupaCloudAdapter contract', () => {
   it('uses typed enterprise OIDC and SAML management endpoints with encoded readback IDs', async () => {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ method: string; path: string; body: string | null }> = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         method: init?.method || 'GET',
@@ -691,7 +706,7 @@ describe('SupaCloudAdapter contract', () => {
         body: typeof init?.body === 'string' ? init.body : null,
       });
       return Promise.resolve(Response.json({ id: 'provider', identifier: 'custom:workos' }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -758,7 +773,7 @@ describe('SupaCloudAdapter contract', () => {
 
   it('rejects unsafe connector preflight URLs returned by the runtime', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock(async () => Response.json({ url: 'javascript:alert(1)' })) as unknown as typeof fetch;
+    globalThis.fetch = strictFetch(mock(async () => Response.json({ url: 'javascript:alert(1)' })));
     try {
       const adapter = new SupaCloudAdapter();
       await expect(adapter.preflightProviderAuthorization('github', 'builtin_oauth'))
@@ -771,11 +786,11 @@ describe('SupaCloudAdapter contract', () => {
   it('does not duplicate the auth/v1 prefix for a prefixed runtime base URL', async () => {
     const originalFetch = globalThis.fetch;
     const urls: string[] = [];
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       urls.push(url);
       return Promise.resolve(Response.json({ url: 'https://idp.example.test/authorize' }));
-    }) as unknown as typeof fetch;
+    }));
     try {
       const adapter = new SupaCloudAdapter({ runtimeUrl: 'http://runtime.test/auth/v1' });
       await adapter.preflightProviderAuthorization('github', 'builtin_oauth');
@@ -788,13 +803,13 @@ describe('SupaCloudAdapter contract', () => {
 
   it('verifyGatewayRoutes fails when Kong returns an upstream error', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url.endsWith('/auth/v1/health')) {
         return Promise.resolve(new Response('{"status":"ok"}', { status: 200 }));
       }
       return Promise.resolve(new Response('{"message":"An invalid response was received from the upstream server"}', { status: 502 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const adapter = new SupaCloudAdapter();
     const verification = await adapter.verifyGatewayRoutes();
@@ -807,7 +822,7 @@ describe('SupaCloudAdapter contract', () => {
 
   it('verifyGatewayRoutes accepts Supabase-compatible unauthenticated runtime statuses', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url.endsWith('/auth/v1/health')) {
         return Promise.resolve(new Response('{"status":"ok"}', { status: 200 }));
@@ -825,7 +840,7 @@ describe('SupaCloudAdapter contract', () => {
         return Promise.resolve(new Response('not found', { status: 404 }));
       }
       return Promise.resolve(new Response('unexpected', { status: 500 }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -846,7 +861,7 @@ describe('SupaCloudAdapter contract', () => {
 
   it('verifyGatewayRoutes rejects missing preserved PostgREST, Storage, and Realtime routes', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url.endsWith('/auth/v1/health')) {
         return Promise.resolve(new Response('{"status":"ok"}', { status: 200 }));
@@ -855,7 +870,7 @@ describe('SupaCloudAdapter contract', () => {
         return Promise.resolve(new Response('not found', { status: 404 }));
       }
       return Promise.resolve(new Response('missing route', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     try {
       const adapter = new SupaCloudAdapter();
@@ -898,8 +913,8 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('derives project-scoped runtime and storage URLs from templates', () => {
-    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test';
-    process.env.SUPACLOUD_STORAGE_URL_TEMPLATE = 'https://{projectRef}.storage.example.test';
+    process.env["SUPACLOUD_RUNTIME_URL_TEMPLATE"] = 'https://{projectRef}.api.example.test';
+    process.env["SUPACLOUD_STORAGE_URL_TEMPLATE"] = 'https://{projectRef}.storage.example.test';
     loadConfig();
 
     const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
@@ -912,7 +927,7 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('removes the GoTrue API path from the runtime template used as the Storage fallback', () => {
-    process.env.SUPACLOUD_RUNTIME_URL_TEMPLATE = 'https://{projectRef}.api.example.test/auth/v1/';
+    process.env["SUPACLOUD_RUNTIME_URL_TEMPLATE"] = 'https://{projectRef}.api.example.test/auth/v1/';
     loadConfig();
 
     const adapter = new SupaCloudAdapter({ projectRef: 'projecttarget1234567890' });
@@ -924,8 +939,8 @@ describe('SupaCloudAdapter contract', () => {
   });
 
   it('marks cross-project runtime/storage as unscoped when URLs cannot be derived', () => {
-    process.env.PROJECT_REF = 'defaultproject1234567890';
-    process.env.OAUTH_RUNTIME_URL = 'https://api.shared.example.test';
+    process.env["PROJECT_REF"] = 'defaultproject1234567890';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://api.shared.example.test';
     loadConfig();
 
     const adapter = new SupaCloudAdapter({ projectRef: 'targetproject1234567890' });
@@ -984,3 +999,4 @@ describe('SupaCloud API response shape expectations', () => {
     expect(expectedShape).toBeDefined();
   });
 });
+import { strictRecord } from './helpers/strict-values.js';

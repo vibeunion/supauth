@@ -15,10 +15,10 @@ export interface RBACCheckResult {
 }
 
 function signingAlgorithmsSupported(discovery: Record<string, unknown>): string[] {
-  const candidates = discovery.id_token_signing_alg_values_supported;
+  const candidates = discovery["id_token_signing_alg_values_supported"];
   if (!Array.isArray(candidates)) return [];
   return [...new Set(candidates
-    .filter((candidate): candidate is string => typeof candidate === 'string')
+    .filter((candidate: unknown): candidate is string => typeof candidate === 'string')
     .map(candidate => candidate.trim())
     .filter(Boolean))];
 }
@@ -28,7 +28,7 @@ export async function runRBACCompatibilityChecks(): Promise<RBACCheckResult[]> {
   // RB-4: Check JWT role claim is not used for business RBAC
   try {
     const disc = await getDiscovery();
-    const discObj = disc as Record<string, unknown>;
+    const discObj = disc;
 
     results.push({
       check_id: 'rb-4-gotrue-jwt-role-safe',

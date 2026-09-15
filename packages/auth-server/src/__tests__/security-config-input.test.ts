@@ -4,6 +4,7 @@ import {
   validatedSecurityConfigUpdate,
 } from '../routes/security-config-input.js';
 import { ApiContractError } from '../utils/api-contract.js';
+import type { ConfigurationSecurityInput } from '../../../shared/src/server-configuration.js';
 
 const productionSsoContext: SecurityConfigValidationContext = {
   currentAdminEmail: 'admin@example.com',
@@ -18,6 +19,19 @@ const developmentTokenContext: SecurityConfigValidationContext = {
 };
 
 describe('security configuration request boundary', () => {
+  it('preserves the legacy trim-only internal-whitespace rule without weakening administrator retention', () => {
+    const update = { adminAllowedEmails: ['admin@example.com', 'other\nemail@example.com'] };
+    expect(validatedSecurityConfigUpdate(update, productionSsoContext)).toEqual(update);
+    for (const email of [' admin@example.com', 'admin@example.com\n', '\nadmin@example.com']) {
+      expect(() => validatedSecurityConfigUpdate({
+        adminAllowedEmails: ['admin@example.com', email],
+      }, productionSsoContext)).toThrow(ApiContractError);
+    }
+    expect(() => validatedSecurityConfigUpdate({
+      adminAllowedEmails: ['other\nemail@example.com'],
+    }, productionSsoContext)).toThrow(ApiContractError);
+  });
+
   it('accepts a complete SSO update with exact emails and cleared legacy domains', () => {
     const update = {
       adminAuthMode: 'sso',
@@ -30,7 +44,7 @@ describe('security configuration request boundary', () => {
       lockoutDurationSec: 900,
       secretRotationReminderDays: 90,
       enforceHttps: true,
-    };
+    } satisfies ConfigurationSecurityInput;
 
     expect(validatedSecurityConfigUpdate(update, {
       ...productionSsoContext,
@@ -60,7 +74,7 @@ describe('security configuration request boundary', () => {
     [{ adminAllowedEmails: ['admin@example.com'] }],
     [{ adminAuthMode: 'auto', adminAllowedEmails: ['ADMIN@example.com'] }],
     [{ adminAuthMode: 'sso', adminAllowedEmails: ['other@example.com', 'Admin@Example.com'] }],
-  ])('retains the current administrator in email replacements', (update) => {
+  ] satisfies [ConfigurationSecurityInput][])('retains the current administrator in email replacements', (update) => {
     expect(validatedSecurityConfigUpdate(update, productionSsoContext)).toEqual(update);
   });
 

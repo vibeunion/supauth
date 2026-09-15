@@ -21,11 +21,13 @@ describe('RLS Migration Assistant', () => {
     expect(result.scanned_policies).toBe(1);
     expect(result.candidate_policies).toBe(1);
     expect(result.wrappers).toHaveLength(1);
-    expect(result.wrappers[0].original_policy).toBe('owner can read');
-    expect(result.wrappers[0].wrapper_policy_name).toBe('owner can read_with_rbac');
-    expect(result.wrappers[0].permission_name).toBe('project.read');
-    expect(result.wrappers[0].wrapper_using).toContain('supaoauth.authorize');
-    expect(result.wrappers[0].wrapper_using).toContain('owner_id = auth.uid()');
+    const wrapper = result.wrappers[0];
+    if (!wrapper) throw new Error('Expected owner policy wrapper');
+    expect(wrapper.original_policy).toBe('owner can read');
+    expect(wrapper.wrapper_policy_name).toBe('owner can read_with_rbac');
+    expect(wrapper.permission_name).toBe('project.read');
+    expect(wrapper.wrapper_using).toContain('supaoauth.authorize');
+    expect(wrapper.wrapper_using).toContain('owner_id = auth.uid()');
     expect(result.migration_sql).toContain('supaoauth.authorize');
   });
 
@@ -87,9 +89,11 @@ describe('RLS Migration Assistant', () => {
     const result = generateWrapperPolicies(policies);
 
     expect(result.wrappers).toHaveLength(1);
-    expect(result.wrappers[0].wrapper_using).toContain('supaoauth.authorize');
-    expect(result.wrappers[0].wrapper_with_check).toContain('supaoauth.authorize');
-    expect(result.wrappers[0].permission_name).toBe('project.update');
+    const wrapper = result.wrappers[0];
+    if (!wrapper) throw new Error('Expected update policy wrapper');
+    expect(wrapper.wrapper_using).toContain('supaoauth.authorize');
+    expect(wrapper.wrapper_with_check).toContain('supaoauth.authorize');
+    expect(wrapper.permission_name).toBe('project.update');
   });
 
   it('generates correct ALL command wrapper', () => {
@@ -109,7 +113,9 @@ describe('RLS Migration Assistant', () => {
     const result = generateWrapperPolicies(policies);
 
     expect(result.wrappers).toHaveLength(1);
-    expect(result.wrappers[0].permission_name).toBe('document.manage');
+    const wrapper = result.wrappers[0];
+    if (!wrapper) throw new Error('Expected ALL command policy wrapper');
+    expect(wrapper.permission_name).toBe('document.manage');
     expect(result.migration_sql).toContain('FOR ALL');
   });
 
@@ -129,7 +135,9 @@ describe('RLS Migration Assistant', () => {
 
     const result = generateWrapperPolicies(policies);
     expect(result.candidate_policies).toBe(1);
-    expect(result.wrappers[0].wrapper_using).toContain('supaoauth.authorize');
+    const wrapper = result.wrappers[0];
+    if (!wrapper) throw new Error('Expected reverse owner policy wrapper');
+    expect(wrapper.wrapper_using).toContain('supaoauth.authorize');
   });
 
   it('returns empty wrappers when no owner patterns match', () => {

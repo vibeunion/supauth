@@ -1,4 +1,5 @@
-// @ts-nocheck
+import { readFile } from 'node:fs/promises';
+// @ts-check
 import { describe, expect, test } from "bun:test";
 import {
   accountCenterSettingsAuthority,
@@ -14,10 +15,13 @@ import {
   passwordPolicySettingsAuthority,
   settleAuthoritativeSettingsMutation,
   signInMethodsSettingsAuthority,
+  AuthoritativeSettingsReadBackError,
+  freezeSettingsDraft,
 } from "./authoritative-settings-readback.js";
 
-function accountCenterConfig(overrides = {}) {
-  return {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function accountCenterConfig(overrides) {
+  return fixtureWithOverrides({
     enabled: true,
     value: {
       enabled: true,
@@ -36,45 +40,45 @@ function accountCenterConfig(overrides = {}) {
       },
       delete_account_url: "https://example.test/account/delete",
     },
-    ...overrides,
-  };
+  }, overrides);
 }
 
-function signInSnapshot(overrides = {}) {
-  return {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function signInSnapshot(overrides) {
+  return fixtureWithOverrides({
     signInExperience: {
       sign_in_methods: ["password", "magic_link"],
       sign_up_enabled: true,
     },
     authConfig: { enable_signup: true, disable_signup: false },
-    ...overrides,
-  };
+  }, overrides);
 }
 
-function brandingSnapshot(overrides = {}) {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function brandingSnapshot(overrides) {
   return {
-    branding: {
+    branding: fixtureWithOverrides({
       page_title: "Example",
       primary_color: "#2563eb",
       background_url: "https://example.test/background.png",
-      ...overrides,
-    },
+    }, overrides),
   };
 }
 
-function captchaConfig(overrides = {}) {
-  return {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function captchaConfig(overrides) {
+  return fixtureWithOverrides({
     enabled: true,
     value: {
       provider: "hcaptcha",
       secret_configured: true,
     },
-    ...overrides,
-  };
+  }, overrides);
 }
 
-function blocklistConfig(overrides = {}) {
-  return {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function blocklistConfig(overrides) {
+  return fixtureWithOverrides({
     enabled: true,
     value: {
       allowed_email_domains: ["example.test", "staff.example.test"],
@@ -83,12 +87,12 @@ function blocklistConfig(overrides = {}) {
       allowed_oauth_providers: ["google", "azure"],
       invite_only: true,
     },
-    ...overrides,
-  };
+  }, overrides);
 }
 
-function generalSecuritySnapshot(overrides = {}) {
-  return {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function generalSecuritySnapshot(overrides) {
+  return fixtureWithOverrides({
     authConfig: {
       jwt_expiry: 3600,
       enable_confirmations: true,
@@ -99,12 +103,12 @@ function generalSecuritySnapshot(overrides = {}) {
       maxLoginAttempts: 8,
       lockoutDurationSec: 900,
     },
-    ...overrides,
-  };
+  }, overrides);
 }
 
-function organizationSnapshot(overrides = {}) {
-  return {
+/** @template {object} [Overrides={}] @param {Overrides} [overrides] */
+function organizationSnapshot(overrides) {
+  return fixtureWithOverrides({
     organizationResponse: {
       id: "org-one",
       name: "Example Org",
@@ -115,10 +119,19 @@ function organizationSnapshot(overrides = {}) {
       enabled: true,
       domains: ["example.test", "staff.example.test"],
     },
-    ...overrides,
-  };
+  }, overrides);
 }
 
+/** @template {object} Base @template {object} Overrides @overload @param {Base} base @param {Overrides | undefined} overrides @returns {Omit<Base, keyof Overrides> & Overrides} */
+/** @param {object} base @param {object | undefined} overrides */
+function fixtureWithOverrides(base, overrides) {
+  return { ...base, ...overrides };
+}
+
+/**
+ * @template Command, Authority
+ * @param {import("./authoritative-settings-readback.js").SettingsMutationDraft<Command, Authority> & {readSnapshot: () => unknown | PromiseLike<unknown>, writeCommands?: () => readonly import("./mutation-reconciliation.js").WriteCommand[]}} options
+ */
 async function reconcile({ command, authority, readSnapshot, writeCommands }) {
   return settleAuthoritativeSettingsMutation({
     draft: { command, authority },
@@ -128,8 +141,13 @@ async function reconcile({ command, authority, readSnapshot, writeCommands }) {
   });
 }
 
+/** @param {import("./mutation-reconciliation.js").MutationReconciliation<unknown>} reconciliation @param {string} expectedField @returns {asserts reconciliation is {status: "readback_failure", writeStatus: import("./mutation-reconciliation.js").WriteStatus, writeErrors: unknown[], readBackError: AuthoritativeSettingsReadBackError}} */
 function expectMismatch(reconciliation, expectedField) {
   expect(reconciliation.status).toBe("readback_failure");
+  if (reconciliation.status !== "readback_failure") throw new Error("Expected readback failure");
+  if (!(reconciliation.readBackError instanceof AuthoritativeSettingsReadBackError)) {
+    throw new Error("Expected authoritative mismatch");
+  }
   expect(reconciliation.readBackError.code).toBe(
     "authoritative_readback_mismatch",
   );
@@ -137,11 +155,146 @@ function expectMismatch(reconciliation, expectedField) {
 }
 
 describe("authoritative settings read-back", () => {
+  test("rejects sparse string arrays instead of claiming a dense string result", () => {
+    /** @type {unknown[]} */
+    const hole = Array(1);
+    /** @type {unknown[]} */
+    const trailingHole = ["password"];
+    trailingHole.length = 2;
+    /** @type {unknown[]} */
+    const inheritedIndex = Array(1);
+    Object.setPrototypeOf(inheritedIndex, { 0: "password" });
+    let getters = 0;
+    /** @type {unknown[]} */
+    const accessorIndex = Object.defineProperty([], "0", {
+      enumerable: true,
+      get() { getters += 1; return "password"; },
+    });
+    for (const canonicalize of [
+      canonicalOrderedStrings, canonicalStringSet, canonicalTrimmedStringSet,
+    ]) {
+      for (const input of [hole, trailingHole, inheritedIndex, accessorIndex]) {
+        expect(() => canonicalize(input, "methods")).toThrow(
+          expect.objectContaining({ fields: ["methods"] }),
+        );
+      }
+    }
+    expect(canonicalOrderedStrings([" password ", "password"], "methods")).toEqual(["password", "password"]);
+    expect(canonicalStringSet([" password ", "password"], "methods").map(value => value.trim())).toEqual(["password", "password"]);
+    expect(canonicalTrimmedStringSet([" password ", "password"], "methods")).toEqual(["password"]);
+    expect(getters).toBe(0);
+  });
+
+  test("rejects prototype fields, accessors and hidden data without invoking getters", () => {
+    let getters = 0;
+    class GetterAuthority {
+      get enabled() { getters += 1; return true; }
+    }
+    class DataAuthority { enabled = true; }
+    const hidden = Object.defineProperty({}, "enabled", { value: true });
+    const accessor = {
+      get enabled() { getters += 1; return true; },
+    };
+    /** @type {unknown[]} */
+    const invalidAuthorities = [
+      new GetterAuthority(), new DataAuthority(),
+      Object.create({ enabled: true }), hidden, accessor,
+      { [Symbol("enabled")]: true }, new Date(), new Map(), new Set(),
+    ];
+    for (const value of invalidAuthorities) {
+      /** @type {unknown} */
+      const untrusted = { authority: value };
+      expect(() => freezeSettingsDraft(untrusted)).toThrow("draft.authority");
+    }
+    expect(getters).toBe(0);
+  });
+
+  test("rejects sparse and decorated draft arrays and cycles", () => {
+    /** @type {unknown[]} */
+    const sparse = Array(1);
+    const decorated = Object.assign(["password"], { enabled: true });
+    /** @type {unknown[]} */
+    const accessor = Object.defineProperty([], "0", {
+      enumerable: true,
+      get() { throw new Error("must not run"); },
+    });
+    /** @type {{self?: unknown}} */
+    const cycle = {};
+    cycle.self = cycle;
+    for (const value of [sparse, decorated, accessor, cycle]) {
+      /** @type {unknown} */
+      const untrusted = value;
+      expect(() => freezeSettingsDraft(untrusted)).toThrow("Settings draft contains an unsupported value");
+    }
+    const shared = { enabled: true };
+    expect(freezeSettingsDraft({ first: shared, second: shared })).toEqual({
+      first: { enabled: true }, second: { enabled: true },
+    });
+  });
+
+  test("rejects an inherited authority before writes or a false-positive read-back", async () => {
+    let writes = 0;
+    let reads = 0;
+    class GetterAuthority {
+      get enabled() { return true; }
+    }
+    await expect(settleAuthoritativeSettingsMutation({
+      draft: { command: { enabled: true }, authority: new GetterAuthority() },
+      writeCommands: () => {
+        writes += 1;
+        return [() => { throw new Error("must not write"); }];
+      },
+      readSnapshot: () => {
+        reads += 1;
+        return { enabled: false };
+      },
+      authorityFromSnapshot: snapshot => snapshot,
+    })).rejects.toThrow("draft.authority");
+    expect(writes).toBe(0);
+    expect(reads).toBe(0);
+  });
+
+  test("rejects unsupported draft data before invoking any write or read", async () => {
+    for (const invalid of [undefined, Number.NaN, Infinity, 1n, () => true]) {
+      /** @type {unknown} */
+      const untrustedDraft = { invalid };
+      expect(() => freezeSettingsDraft(untrustedDraft)).toThrow("draft.invalid");
+    }
+    let writes = 0;
+    let reads = 0;
+    await expect(settleAuthoritativeSettingsMutation({
+      draft: { command: { retryCount: Number.NaN }, authority: { enabled: true } },
+      writeCommands: () => {
+        writes += 1;
+        return [];
+      },
+      readSnapshot: () => {
+        reads += 1;
+        return { enabled: true };
+      },
+      authorityFromSnapshot: (snapshot) => snapshot,
+    })).rejects.toThrow("draft.command.retryCount");
+    expect(writes).toBe(0);
+    expect(reads).toBe(0);
+  });
+
+  test("rejects conflicting runtime aliases and preserves missing fields as undefined", () => {
+    expect(() => generalSecuritySettingsAuthority({
+      authConfig: {},
+      securityConfig: { maxLoginAttempts: 5, max_login_attempts: 6 },
+    })).toThrow(expect.objectContaining({ fields: ["security.max_login_attempts"] }));
+    expect(generalSecuritySettingsAuthority({
+      authConfig: {},
+      securityConfig: {},
+    }).max_login_attempts).toBeUndefined();
+  });
+
   test("freezes a detached command and authority before the write starts", async () => {
     const form = {
       enabled: true,
       methods: ["password", "magic_link"],
     };
+    /** @type {import("./authoritative-settings-readback.js").DeepReadonly<typeof form> | undefined} */
     let receivedCommand;
     const mutation = settleAuthoritativeSettingsMutation({
       draft: {
@@ -169,6 +322,7 @@ describe("authoritative settings read-back", () => {
       methods: ["password", "magic_link"],
     });
     expect(Object.isFrozen(receivedCommand)).toBe(true);
+    if (!receivedCommand) throw new Error("Expected command");
     expect(Object.isFrozen(receivedCommand.methods)).toBe(true);
   });
 
@@ -324,20 +478,18 @@ describe("authoritative settings read-back", () => {
       );
     }
 
-    const missingFieldSnapshot = brandingSnapshot();
-    delete missingFieldSnapshot.branding.page_title;
+    const { page_title, ...remainingBranding } = brandingSnapshot().branding;
+    const missingFieldSnapshot = { branding: remainingBranding };
     expect(() => brandingSettingsAuthority(missingFieldSnapshot)).toThrow(
       expect.objectContaining({ fields: ["branding.page_title"] }),
     );
   });
 
   test("keeps BrandingEditor draft failures inside the saving reset guard", async () => {
-    const brandingEditorSource = await Bun.file(
-      new URL(
+    const brandingEditorSource = await readFile(new URL(
         "./components/sign-in-experience/BrandingEditor.svelte",
         import.meta.url,
-      ),
-    ).text();
+      ), 'utf8');
     const saveStart = brandingEditorSource.indexOf(
       "async function saveBranding()",
     );
@@ -441,8 +593,9 @@ describe("authoritative settings read-back", () => {
       "Account Center profile",
       accountCenterSettingsAuthority(accountCenterConfig()),
       () => {
-        const dropped = accountCenterConfig();
-        delete dropped.value.profile.edit_mode;
+        const original = accountCenterConfig();
+        const { edit_mode, ...profile } = original.value.profile;
+        const dropped = { ...original, value: { ...original.value, profile } };
         return accountCenterSettingsAuthority(dropped);
       },
       "profile.edit_mode",
@@ -451,8 +604,9 @@ describe("authoritative settings read-back", () => {
       "Sign-in GoTrue disable flag",
       signInMethodsSettingsAuthority(signInSnapshot()),
       () => {
-        const dropped = signInSnapshot();
-        delete dropped.authConfig.disable_signup;
+        const original = signInSnapshot();
+        const { disable_signup, ...authConfig } = original.authConfig;
+        const dropped = { ...original, authConfig };
         return signInMethodsSettingsAuthority(dropped);
       },
       "gotrue.disable_signup",
@@ -461,8 +615,9 @@ describe("authoritative settings read-back", () => {
       "Security confirmation flag",
       generalSecuritySettingsAuthority(generalSecuritySnapshot()),
       () => {
-        const dropped = generalSecuritySnapshot();
-        delete dropped.authConfig.enable_confirmations;
+        const original = generalSecuritySnapshot();
+        const { enable_confirmations, ...authConfig } = original.authConfig;
+        const dropped = { ...original, authConfig };
         return generalSecuritySettingsAuthority(dropped);
       },
       "enable_confirmations",
@@ -471,8 +626,9 @@ describe("authoritative settings read-back", () => {
       "Admin login lockout duration",
       generalSecuritySettingsAuthority(generalSecuritySnapshot()),
       () => {
-        const dropped = generalSecuritySnapshot();
-        delete dropped.securityConfig.lockoutDurationSec;
+        const original = generalSecuritySnapshot();
+        const { lockoutDurationSec, ...securityConfig } = original.securityConfig;
+        const dropped = { ...original, securityConfig };
         return generalSecuritySettingsAuthority(dropped);
       },
       "lockout_duration_sec",
@@ -481,8 +637,9 @@ describe("authoritative settings read-back", () => {
       "Organization description",
       organizationSettingsAuthority(organizationSnapshot()),
       () => {
-        const dropped = organizationSnapshot();
-        delete dropped.organizationResponse.description;
+        const original = organizationSnapshot();
+        const { description, ...organizationResponse } = original.organizationResponse;
+        const dropped = { ...original, organizationResponse };
         return organizationSettingsAuthority(dropped);
       },
       "organization.description",
@@ -532,6 +689,7 @@ describe("authoritative settings read-back", () => {
         secret_configured: true,
       },
     });
+    /** @type {import("./authoritative-settings-readback.js").DeepReadonly<typeof captchaCommand> | undefined} */
     let receivedCommand;
     const success = await settleAuthoritativeSettingsMutation({
       draft: {
@@ -547,8 +705,9 @@ describe("authoritative settings read-back", () => {
     });
 
     expect(success.status).toBe("success");
+    if (success.status !== "success" || !receivedCommand) throw new Error("Expected successful command");
     expect(receivedCommand.value.secret).toBe("test-captcha-secret");
-    expect(success.readBackValue.value.secret).toBeUndefined();
+    expect("secret" in success.readBackValue.value).toBe(false);
 
     const missingSecret = await settleAuthoritativeSettingsMutation({
       draft: {
@@ -645,8 +804,11 @@ describe("authoritative settings read-back", () => {
       ),
     ).toThrow(expect.objectContaining({ fields: ["enabled"] }));
 
-    const wrongBlocklist = blocklistConfig();
-    wrongBlocklist.value.invite_only = "true";
+    const originalBlocklist = blocklistConfig();
+    const wrongBlocklist = {
+      ...originalBlocklist,
+      value: { ...originalBlocklist.value, invite_only: "true" },
+    };
     expect(() =>
       assertAuthoritativeSettingsReadBack(
         blocklistSettingsAuthority(blocklistConfig()),

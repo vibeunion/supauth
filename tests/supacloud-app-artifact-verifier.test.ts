@@ -1,3 +1,5 @@
+import { requireRecord } from "../scripts/tooling-values.js";
+import { requireDefined } from "../scripts/tooling-values.js";
 import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,10 +33,28 @@ function createFixture() {
   }));
   writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
-  return { root, manifest };
+  const appFunction = manifest.functions[0];
+  if (!appFunction) throw new Error('Fixture requires a SupAuth Function declaration');
+  return { root, manifest, appFunction };
 }
 
 describe('SupaCloud app artifact verifier', () => {
+  it.each(['null', '[]', '1', '"invalid"', '{'])('rejects malformed manifest file %s without throwing', source => {
+    const { root } = createFixture();
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), source);
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+    expect(result.ok).toBe(false);
+    expect(result.errors).not.toHaveLength(0);
+  });
+
+  it('reports invalid nested authority without throwing', () => {
+    const { root, manifest } = createFixture();
+    writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), JSON.stringify({ ...manifest, authority: [] }));
+    const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
+    expect(result.ok).toBe(false);
+    expect(result.errors).not.toHaveLength(0);
+  });
+
   it('accepts a self-contained SupaCloud Function and Pages artifact', () => {
     const { root } = createFixture();
 
@@ -67,8 +87,8 @@ describe('SupaCloud app artifact verifier', () => {
   );
 
   it('rejects Function routes that collide with preserved Supabase runtime routes', () => {
-    const { root, manifest } = createFixture();
-    manifest.functions[0].routes.push({ path: '/auth/v1/*' });
+    const { root, manifest, appFunction } = createFixture();
+    appFunction.routes.push({ path: '/auth/v1/*' });
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
     const result = verifySupacloudAppArtifact({
@@ -82,7 +102,7 @@ describe('SupaCloud app artifact verifier', () => {
 
   it('requires the exact Admin Console root route as well as nested routes', () => {
     const { root, manifest } = createFixture();
-    const adminPage = manifest.pages.find((page) => page.name === 'supauth-admin')!;
+    const adminPage = requireDefined(manifest.pages.find((page) => page.name === 'supauth-admin'));
     adminPage.routes = ['/admin/*'];
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
@@ -93,8 +113,8 @@ describe('SupaCloud app artifact verifier', () => {
   });
 
   it('requires the exact Admin Console root route on the Function', () => {
-    const { root, manifest } = createFixture();
-    manifest.functions[0].routes = manifest.functions[0].routes.filter((route) => route.path !== '/admin');
+    const { root, manifest, appFunction } = createFixture();
+    appFunction.routes = appFunction.routes.filter((route) => route.path !== '/admin');
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
     const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
@@ -104,8 +124,8 @@ describe('SupaCloud app artifact verifier', () => {
   });
 
   it('requires the Custom UI fallback route on the Function', () => {
-    const { root, manifest } = createFixture();
-    manifest.functions[0].routes = manifest.functions[0].routes.filter((route) => route.path !== '/custom-ui/*');
+    const { root, manifest, appFunction } = createFixture();
+    appFunction.routes = appFunction.routes.filter((route) => route.path !== '/custom-ui/*');
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
     const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
@@ -116,11 +136,11 @@ describe('SupaCloud app artifact verifier', () => {
 
   it('rejects manifests that advertise removed local tables', () => {
     const { root, manifest } = createFixture();
-    const tableOwnership = manifest.supaoauth_table_ownership as Record<string, unknown>;
-    tableOwnership.passkeys = { class: 'legacy-temporary' };
-    tableOwnership.account_sessions = { class: 'legacy-temporary' };
-    tableOwnership.webhooks = { class: 'legacy-temporary' };
-    tableOwnership.webhook_deliveries = { class: 'legacy-temporary' };
+    const tableOwnership = requireRecord(manifest.supaoauth_table_ownership);
+    tableOwnership["passkeys"] = { class: 'legacy-temporary' };
+    tableOwnership["account_sessions"] = { class: 'legacy-temporary' };
+    tableOwnership["webhooks"] = { class: 'legacy-temporary' };
+    tableOwnership["webhook_deliveries"] = { class: 'legacy-temporary' };
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
     const result = verifySupacloudAppArtifact({ root, artifactDir: 'artifact' });
@@ -200,7 +220,7 @@ describe('SupaCloud app artifact verifier', () => {
         'const __require = import.meta.require; const name = "tty"; __require(name);',
         'Function bundle contains computed import.meta.require calls that the artifact verifier cannot prove safe',
       ],
-    ]) {
+    ] satisfies Array<[string, string]>) {
       const { root } = createFixture();
       writeFileSync(join(root, 'function/supacloud-function.js'), loaderSource);
 
@@ -419,7 +439,7 @@ describe('SupaCloud app artifact verifier', () => {
 
   it('requires the BFF signing secret to be declared as a secret', () => {
     const { root, manifest } = createFixture();
-    const bffEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'SUPAOAUTH_BFF_SIGNING_SECRET')!;
+    const bffEnv = requireDefined(manifest.required_supacloud_env.find((entry) => entry.name === 'SUPAOAUTH_BFF_SIGNING_SECRET'));
     bffEnv.secret = false;
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
@@ -444,7 +464,7 @@ describe('SupaCloud app artifact verifier', () => {
 
   it('requires the Storage service-role key to be declared as a secret', () => {
     const { root, manifest } = createFixture();
-    const storageEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'SUPABASE_SERVICE_ROLE_KEY')!;
+    const storageEnv = requireDefined(manifest.required_supacloud_env.find((entry) => entry.name === 'SUPABASE_SERVICE_ROLE_KEY'));
     storageEnv.secret = false;
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
@@ -456,8 +476,8 @@ describe('SupaCloud app artifact verifier', () => {
 
   it('requires exact Admin SSO required, optional, and secret semantics', () => {
     const { root, manifest } = createFixture();
-    const issuerEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'ADMIN_SSO_ISSUER')!;
-    const allowlistEnv = manifest.required_supacloud_env.find((entry) => entry.name === 'ADMIN_SSO_ALLOWED_EMAILS')!;
+    const issuerEnv = requireDefined(manifest.required_supacloud_env.find((entry) => entry.name === 'ADMIN_SSO_ISSUER'));
+    const allowlistEnv = requireDefined(manifest.required_supacloud_env.find((entry) => entry.name === 'ADMIN_SSO_ALLOWED_EMAILS'));
     issuerEnv.optional = true;
     allowlistEnv.secret = false;
     manifest.admin_sso.allowlist.install_rule = 'optional';
@@ -478,8 +498,8 @@ describe('SupaCloud app artifact verifier', () => {
   });
 
   it('requires the self-contained multi-file Admin Function deployment layout', () => {
-    const { root, manifest } = createFixture();
-    manifest.functions[0].deployment_bundle.files = [
+    const { root, manifest, appFunction } = createFixture();
+    appFunction.deployment_bundle.files = [
       { artifact: 'function_bundle', target: 'index.ts' },
     ];
     writeFileSync(join(root, 'artifact', 'supacloud-app-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);

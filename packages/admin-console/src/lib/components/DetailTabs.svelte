@@ -1,11 +1,20 @@
-<script>
-  import { resolve } from "$app/paths";
+<script lang="ts">
+  import { base } from "$app/paths";
   import { t } from "$lib/i18n.js";
+  import { resolveConsolePath } from "$lib/navigation.js";
 
-  let { tabs = [], activeTab = "", basePath = "" } = $props();
+  interface DetailTab {
+    value: string;
+    labelKey: string;
+  }
+  let { tabs = [], activeTab = "", basePath = "" }: {
+    tabs?: readonly DetailTab[];
+    activeTab?: string;
+    basePath?: string;
+  } = $props();
 
-  function tabHref(tab) {
-    return resolve(`${basePath}/${tab.value}`);
+  function tabHref(tab: DetailTab) {
+    return resolveConsolePath(`${basePath}/${tab.value}`, base);
   }
 </script>
 

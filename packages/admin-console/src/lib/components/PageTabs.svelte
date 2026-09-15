@@ -1,11 +1,12 @@
-<script>
-  import { base, resolve } from '$app/paths';
+<script lang="ts">
+  import { base } from '$app/paths';
   import { page } from '$app/state';
   import { t } from '$lib/i18n.js';
+  import { resolveConsolePath } from '$lib/navigation.js';
 
-  let { tabs = [] } = $props();
+  let { tabs = [] }: { tabs?: ReadonlyArray<{ path: string; labelKey: string }> } = $props();
 
-  function tabIsActive(tabPath) {
+  function tabIsActive(tabPath: string) {
     const targetPath = `${base}${tabPath}`.replace(/\/$/, '') || '/';
     const currentPath = page.url.pathname.replace(/\/$/, '') || '/';
     return currentPath === targetPath || currentPath.startsWith(`${targetPath}/`);
@@ -15,7 +16,7 @@
 <nav class="mb-6 flex flex-wrap gap-1 border-b border-surface-200" aria-label={t('common.sectionNavigation')}>
   {#each tabs as tab (tab.path)}
     <a
-      href={resolve(tab.path)}
+      href={resolveConsolePath(tab.path, base)}
       aria-current={tabIsActive(tab.path) ? 'page' : undefined}
       class={[
         'border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',

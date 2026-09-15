@@ -1,3 +1,6 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
+import { strictFetch } from './helpers/strict-fetch.js';
+import { strictRecord } from './helpers/strict-values.js';
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 
@@ -12,13 +15,21 @@ const outboundFetch = mock(async (input: string | URL | Request, init?: RequestI
     : input instanceof URL
       ? input.toString()
       : input.url;
-  const requestBody = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+  const requestBody = typeof init?.body === 'string' ? strictRecord(JSON.parse(init.body)) : null;
   outboundCalls.push({
     method: init?.method || 'GET',
     path: new URL(url).pathname,
     body: requestBody,
   });
-  return Response.json({ id: 'organization-one', ...requestBody });
+  return Response.json({
+    id: 'organization-one',
+    ...organizationFields(),
+    project_ref: 'test-project',
+    jit_domains: [],
+    created_at: '2026-09-08T00:00:00.000Z',
+    updated_at: '2026-09-08T00:00:00.000Z',
+    ...requestBody,
+  });
 });
 
 const testEnvironment = {
@@ -33,7 +44,7 @@ const originalEnvironment = Object.fromEntries(
   Object.keys(testEnvironment).map((name) => [name, process.env[name]]),
 );
 Object.assign(process.env, testEnvironment);
-globalThis.fetch = outboundFetch as unknown as typeof fetch;
+globalThis.fetch = strictFetch(outboundFetch);
 
 mock.module('../repositories/audit.js', () => ({ logAudit }));
 
@@ -119,7 +130,7 @@ describe('organization creation defaults', () => {
     'rejects %s input before platform access',
     async (_inputKind, requestBody) => {
       const response = await app.handle(organizationCreateRequest(requestBody));
-      const payload = await response.json() as { error?: { code?: string } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Optional(StrictType.Object({ "code": StrictType.Optional(StrictType.String()) })) }), await response.json());
 
       expect(response.status).toBe(400);
       expect(payload.error?.code).toBe('invalid_request_body');
@@ -137,7 +148,7 @@ describe('organization creation defaults', () => {
     ['repeated separator', { ...organizationFields(), slug: 'organization--one' }, 'invalid_organization_slug'],
   ] as const)('rejects %s before platform access', async (_scenario, requestBody, code) => {
     const response = await app.handle(organizationCreateRequest(requestBody));
-    const payload = await response.json() as { error?: { code?: string } };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Optional(StrictType.Object({ "code": StrictType.Optional(StrictType.String()) })) }), await response.json());
 
     expect(response.status).toBe(400);
     expect(payload.error?.code).toBe(code);

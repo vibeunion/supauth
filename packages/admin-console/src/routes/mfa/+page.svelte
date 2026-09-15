@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from "@supauth/shared";
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import RequestState from "$lib/components/RequestState.svelte";
@@ -10,12 +11,12 @@
   import { t } from "$lib/i18n.js";
   import { collectionItems } from "$lib/resource-page.js";
 
-  let users = $state([]);
+  let users = $state<AdminEndpointResult<"listUsers">["items"]>([]);
   let maximumEnrolledFactors = $state(10);
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
-  let error = $state(null);
+  let error = $state<unknown>(null);
   let verifiedTotpFactors = $derived(
     users
       .flatMap((user) => user.factors || [])
@@ -33,7 +34,7 @@
     ).length,
   );
 
-  function normalizeFactorLimit(rawLimit) {
+  function normalizeFactorLimit(rawLimit: unknown) {
     const parsedLimit = Number(rawLimit);
     if (!Number.isFinite(parsedLimit)) return 1;
     return Math.min(20, Math.max(1, Math.trunc(parsedLimit)));
@@ -49,7 +50,7 @@
         listUsers({ page: 1, limit: 100 }),
       ]);
       maximumEnrolledFactors = authConfig.mfa_max_enrolled_factors ?? 10;
-      users = collectionItems(userResponse);
+      users = collectionItems<AdminEndpointResult<"listUsers">["items"][number]>(userResponse);
     } catch (requestError) {
       error = requestError;
     }

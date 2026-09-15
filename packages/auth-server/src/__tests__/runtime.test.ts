@@ -1,16 +1,27 @@
+import { strictFetch } from './helpers/strict-fetch.js';
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 import { loadConfig } from '../config/index.js';
+import { decodeSchema, type Static } from '../../../shared/src/schema.js';
+import { DiscoverySchema, OAuthServerStatusSchema } from '../../../shared/src/sdk-models.js';
+
+const validDiscovery = {
+  issuer: 'http://runtime.test/auth/v1',
+  authorization_endpoint: 'http://runtime.test/auth/v1/authorize',
+  token_endpoint: 'http://runtime.test/auth/v1/token',
+  userinfo_endpoint: 'http://runtime.test/auth/v1/userinfo',
+  jwks_uri: 'http://runtime.test/auth/v1/.well-known/jwks.json',
+} satisfies Static<typeof DiscoverySchema>;
 
 function setupConfig() {
-  process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
-  process.env.OAUTH_RUNTIME_INTERNAL_URL = 'http://runtime-internal.test';
-  process.env.SUPAUTH_PUBLIC_URL = 'http://auth.test';
-  process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
-  process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-  process.env.PROJECT_REF = 'test-ref';
-  process.env.DATABASE_URL = 'postgres://test';
-  process.env.RUNTIME_MODE = 'gotrue';
+  process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.test';
+  process.env["OAUTH_RUNTIME_INTERNAL_URL"] = 'http://runtime-internal.test';
+  process.env["SUPAUTH_PUBLIC_URL"] = 'http://auth.test';
+  process.env["SUPACLOUD_API_URL"] = 'http://localhost:9090';
+  process.env["SUPACLOUD_MASTER_TOKEN"] = 'test-token';
+  process.env["PROJECT_REF"] = 'test-ref';
+  process.env["DATABASE_URL"] = 'postgres://test';
+  process.env["RUNTIME_MODE"] = 'gotrue';
   loadConfig();
 }
 
@@ -27,7 +38,7 @@ describe('Runtime health check', () => {
   });
 
   it('returns healthy result when discovery is reachable', async () => {
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url.includes('/.well-known/openid-configuration')) {
         return Promise.resolve(new Response(JSON.stringify({
@@ -44,7 +55,7 @@ describe('Runtime health check', () => {
         return Promise.resolve(new Response(JSON.stringify({ keys: [{ kty: 'EC', crv: 'P-256' }] }), { status: 200 }));
       }
       return Promise.resolve(new Response('not found', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { checkRuntimeHealth } = await import('../runtime/index.js');
     const health = await checkRuntimeHealth();
@@ -59,7 +70,7 @@ describe('Runtime health check', () => {
   });
 
   it('supports direct GoTrue internal runtime without /auth/v1 prefix', async () => {
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (!url.includes('/auth/v1/') && url.endsWith('/.well-known/openid-configuration')) {
         return Promise.resolve(new Response(JSON.stringify({
@@ -75,7 +86,7 @@ describe('Runtime health check', () => {
         return Promise.resolve(new Response(JSON.stringify({ keys: [{ kty: 'RSA' }] }), { status: 200 }));
       }
       return Promise.resolve(new Response('', { status: 200 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { checkRuntimeHealth } = await import('../runtime/index.js');
     const health = await checkRuntimeHealth();
@@ -87,11 +98,11 @@ describe('Runtime health check', () => {
   });
 
   it('reports the unique JWKS signing algorithm instead of the first supported algorithm', async () => {
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url.includes('/.well-known/openid-configuration')) {
         return Promise.resolve(Response.json({
-          issuer: 'http://runtime.test/auth/v1',
+          ...validDiscovery,
           id_token_signing_alg_values_supported: ['RS256', 'HS256', 'ES256'],
         }));
       }
@@ -104,7 +115,7 @@ describe('Runtime health check', () => {
         }));
       }
       return Promise.resolve(new Response('not found', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { checkRuntimeHealth } = await import('../runtime/index.js');
     const health = await checkRuntimeHealth();
@@ -114,11 +125,11 @@ describe('Runtime health check', () => {
   });
 
   it('does not guess a signing algorithm when JWKS contains multiple algorithms', async () => {
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url.includes('/.well-known/openid-configuration')) {
         return Promise.resolve(Response.json({
-          issuer: 'http://runtime.test/auth/v1',
+          ...validDiscovery,
           id_token_signing_alg_values_supported: ['ES256'],
         }));
       }
@@ -131,7 +142,7 @@ describe('Runtime health check', () => {
         }));
       }
       return Promise.resolve(new Response('not found', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { checkRuntimeHealth } = await import('../runtime/index.js');
     const health = await checkRuntimeHealth();
@@ -141,11 +152,11 @@ describe('Runtime health check', () => {
   });
 
   it('falls back to a single discovery algorithm when JWKS has no algorithm metadata', async () => {
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url.includes('/.well-known/openid-configuration')) {
         return Promise.resolve(Response.json({
-          issuer: 'http://runtime.test/auth/v1',
+          ...validDiscovery,
           id_token_signing_alg_values_supported: ['EdDSA'],
         }));
       }
@@ -153,7 +164,7 @@ describe('Runtime health check', () => {
         return Promise.resolve(Response.json({ keys: [{ kty: 'OKP', use: 'sig' }] }));
       }
       return Promise.resolve(new Response('not found', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { checkRuntimeHealth } = await import('../runtime/index.js');
     const health = await checkRuntimeHealth();
@@ -163,7 +174,7 @@ describe('Runtime health check', () => {
   });
 
   it('falls back to the installed public auth gateway when runtime roots are not GoTrue discovery endpoints', async () => {
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url === 'http://auth.test/auth/v1/.well-known/openid-configuration') {
         return Promise.resolve(new Response(JSON.stringify({
@@ -179,7 +190,7 @@ describe('Runtime health check', () => {
         return Promise.resolve(new Response(JSON.stringify({ keys: [{ kty: 'RSA' }] }), { status: 200 }));
       }
       return Promise.resolve(new Response('', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { checkRuntimeHealth } = await import('../runtime/index.js');
     const health = await checkRuntimeHealth();
@@ -190,7 +201,7 @@ describe('Runtime health check', () => {
   });
 
   it('returns all false when fetch throws', async () => {
-    globalThis.fetch = mock(() => Promise.reject(new Error('network error'))) as unknown as typeof fetch;
+    globalThis.fetch = strictFetch(mock(() => Promise.reject(new Error('network error'))));
 
     const { checkRuntimeHealth } = await import('../runtime/index.js');
     const health = await checkRuntimeHealth();
@@ -205,7 +216,7 @@ describe('Runtime health check', () => {
   });
 
   it('returns partial health when discovery returns ok but jwks fails', async () => {
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url.includes('/.well-known/openid-configuration')) {
         return Promise.resolve(new Response(JSON.stringify({
@@ -217,7 +228,7 @@ describe('Runtime health check', () => {
         }), { status: 200 }));
       }
       return Promise.resolve(new Response('error', { status: 500 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { checkRuntimeHealth } = await import('../runtime/index.js');
     const health = await checkRuntimeHealth();
@@ -243,64 +254,64 @@ describe('getDiscovery', () => {
   });
 
   it('returns discovery document on 200', async () => {
-    const doc = { issuer: 'http://test', authorization_endpoint: 'http://test/auth' };
-    globalThis.fetch = mock(() =>
+    const doc = {
+      ...validDiscovery,
+      issuer: 'http://test',
+      authorization_endpoint: 'http://test/auth',
+    } satisfies Static<typeof DiscoverySchema>;
+    globalThis.fetch = strictFetch(mock(() =>
       Promise.resolve(new Response(JSON.stringify(doc), { status: 200 }))
-    ) as unknown as typeof fetch;
+    ));
 
     const { getDiscovery } = await import('../runtime/index.js');
     const result = await getDiscovery();
-    expect(result.issuer).toBe('http://test');
+    expect(result["issuer"]).toBe('http://test');
   });
 
   it('injects end_session_endpoint when GoTrue discovery does not provide one', async () => {
     // GoTrue 不提供 end_session_endpoint，SupaOAuth 需要补上
     const doc = {
-      issuer: 'http://runtime.test/auth/v1',
-      authorization_endpoint: 'http://runtime.test/auth/v1/authorize',
-      token_endpoint: 'http://runtime.test/auth/v1/token',
+      ...validDiscovery,
     };
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url.includes('/.well-known/openid-configuration')) {
         return Promise.resolve(new Response(JSON.stringify(doc), { status: 200 }));
       }
       return Promise.resolve(new Response('not found', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { getDiscovery } = await import('../runtime/index.js');
     const result = await getDiscovery();
-    expect(result.end_session_endpoint).toBeTruthy();
-    expect(typeof result.end_session_endpoint).toBe('string');
+    expect(result["end_session_endpoint"]).toBeTruthy();
+    expect(typeof result["end_session_endpoint"]).toBe('string');
     // 应该指向 GoTrue 的 /logout 端点
-    expect((result.end_session_endpoint as string)).toContain('/logout');
+    expect(result["end_session_endpoint"]).toContain('/logout');
   });
 
   it('replaces a runtime end_session_endpoint with the public hosted endpoint', async () => {
     const originalEndpoint = 'http://runtime.test/auth/v1/session/end';
     const doc = {
-      issuer: 'http://runtime.test/auth/v1',
-      authorization_endpoint: 'http://runtime.test/auth/v1/authorize',
-      token_endpoint: 'http://runtime.test/auth/v1/token',
+      ...validDiscovery,
       end_session_endpoint: originalEndpoint,
     };
-    globalThis.fetch = mock((_input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request) => {
       const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.toString() : _input.url;
       if (url.includes('/.well-known/openid-configuration')) {
         return Promise.resolve(new Response(JSON.stringify(doc), { status: 200 }));
       }
       return Promise.resolve(new Response('not found', { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { getDiscovery } = await import('../runtime/index.js');
     const result = await getDiscovery();
-    expect(result.end_session_endpoint).toBe('http://auth.test/logout');
+    expect(result["end_session_endpoint"]).toBe('http://auth.test/logout');
   });
 
   it('throws on non-2xx response', async () => {
-    globalThis.fetch = mock(() =>
+    globalThis.fetch = strictFetch(mock(() =>
       Promise.resolve(new Response('error', { status: 500 }))
-    ) as unknown as typeof fetch;
+    ));
 
     const { getDiscovery } = await import('../runtime/index.js');
     expect(getDiscovery()).rejects.toThrow('Discovery fetch failed');
@@ -321,19 +332,19 @@ describe('getJWKS', () => {
 
   it('returns JWKS document on 200', async () => {
     const jwks = { keys: [{ kty: 'EC' }] };
-    globalThis.fetch = mock(() =>
+    globalThis.fetch = strictFetch(mock(() =>
       Promise.resolve(new Response(JSON.stringify(jwks), { status: 200 }))
-    ) as unknown as typeof fetch;
+    ));
 
     const { getJWKS } = await import('../runtime/index.js');
     const result = await getJWKS();
-    expect(result.keys).toHaveLength(1);
+    expect(result["keys"]).toHaveLength(1);
   });
 
   it('throws on non-2xx response', async () => {
-    globalThis.fetch = mock(() =>
+    globalThis.fetch = strictFetch(mock(() =>
       Promise.resolve(new Response('error', { status: 503 }))
-    ) as unknown as typeof fetch;
+    ));
 
     const { getJWKS } = await import('../runtime/index.js');
     expect(getJWKS()).rejects.toThrow('JWKS fetch failed');
@@ -343,17 +354,17 @@ describe('getJWKS', () => {
 describe('public admin SSO config', () => {
   beforeEach(() => {
     setupConfig();
-    process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
-    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test';
-    process.env.ADMIN_SSO_ISSUER = 'https://auth.example.test/auth/v1/';
-    process.env.ADMIN_SSO_CLIENT_ID = 'supaoauth-admin-console';
-    delete process.env.ADMIN_SSO_REDIRECT_URI;
-    delete process.env.ADMIN_SSO_POST_LOGOUT_REDIRECT_URI;
-    delete process.env.ADMIN_SSO_AUDIENCE;
-    delete process.env.ADMIN_SSO_REQUIRE_AAL2;
-    delete process.env.ADMIN_SSO_ALLOWED_EMAILS;
-    delete process.env.ADMIN_SSO_ALLOWED_DOMAINS;
-    delete process.env.ADMIN_TOKEN;
+    process.env["SUPAUTH_PUBLIC_URL"] = 'https://auth.example.test';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://auth.example.test';
+    process.env["ADMIN_SSO_ISSUER"] = 'https://auth.example.test/auth/v1/';
+    process.env["ADMIN_SSO_CLIENT_ID"] = 'supaoauth-admin-console';
+    delete process.env["ADMIN_SSO_REDIRECT_URI"];
+    delete process.env["ADMIN_SSO_POST_LOGOUT_REDIRECT_URI"];
+    delete process.env["ADMIN_SSO_AUDIENCE"];
+    delete process.env["ADMIN_SSO_REQUIRE_AAL2"];
+    delete process.env["ADMIN_SSO_ALLOWED_EMAILS"];
+    delete process.env["ADMIN_SSO_ALLOWED_DOMAINS"];
+    delete process.env["ADMIN_TOKEN"];
     loadConfig();
   });
 
@@ -377,7 +388,7 @@ describe('public admin SSO config', () => {
   });
 
   it('reports disabled when server-side admin SSO is incomplete', async () => {
-    delete process.env.ADMIN_SSO_CLIENT_ID;
+    delete process.env["ADMIN_SSO_CLIENT_ID"];
     const { resolvePublicAdminSsoConfig } = await import('../routes/health.js');
     const config = resolvePublicAdminSsoConfig();
 
@@ -393,15 +404,17 @@ describe('runtime OAuth server status', () => {
 
   beforeEach(() => {
     setupConfig();
-    process.env.PROJECT_REF = 'business-project';
-    process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'central-auth-project';
+    process.env["PROJECT_REF"] = 'business-project';
+    process.env["SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF"] = 'central-auth-project';
     loadConfig();
     calls.length = 0;
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url, method: init?.method || 'GET' });
-      return Promise.resolve(Response.json({ enabled: true, project_ref: 'central-auth-project' }));
-    }) as unknown as typeof fetch;
+      return Promise.resolve(Response.json({
+        enabled: true, project_ref: 'central-auth-project', signing_alg: 'ES256', allow_dynamic_registration: false,
+      }));
+    }));
   });
 
   afterEach(() => {
@@ -413,10 +426,13 @@ describe('runtime OAuth server status', () => {
     const app = new Elysia().use(runtimeRoutes);
 
     const response = await app.handle(new Request('http://supauth.local/v1/runtime/oauth-server'));
-    const payload = await response.json() as { enabled: boolean; project_ref: string };
+    const payload: unknown = await response.json();
+    decodeSchema(OAuthServerStatusSchema, payload);
 
     expect(response.status).toBe(200);
-    expect(payload).toEqual({ enabled: true, project_ref: 'central-auth-project' });
+    expect(payload).toEqual({
+      enabled: true, project_ref: 'central-auth-project', signing_alg: 'ES256', allow_dynamic_registration: false,
+    });
     expect(calls.map((call) => [call.method, new URL(call.url).pathname])).toEqual([
       ['GET', '/v1/projects/central-auth-project/auth/oauth-server'],
     ]);

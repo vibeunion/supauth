@@ -1,8 +1,11 @@
-<script>
+<script lang="ts">
+  import type { WebhookView, WebhookDeliveryView, WebhookAction, DurableMutationLocks, KeyedOperation, CollectionPayload, WebhookEventCatalogEntry } from "$lib/management-view-types.js";
+  import type { AdminEndpointResult } from "@supauth/shared";
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import RequestState from "$lib/components/RequestState.svelte";
   import { t } from "$lib/i18n.js";
+  import { toggleWebhookCommand } from "$lib/webhook-toggle-command.js";
   import {
     createDurableMutationLockStore,
     reconciledCreatedWebhook,
@@ -15,6 +18,7 @@
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     mutationOutcomeUnknown,
+    errorMessage,
   } from "$lib/resource-page.js";
   import {
     listWebhooks,
@@ -33,19 +37,26 @@
     webhookEventChoices,
   } from "$lib/webhook-form.js";
 
-  let webhooks = $state([]);
-  let availableEvents = $state([]);
-  let availableEventCatalog = $state([]);
+  type WebhookOperation = KeyedOperation<string, { action: string; webhookId: string }>;
+  type WebhookLocks = DurableMutationLocks<WebhookAction>;
+  type DiagnosticState = {
+    logs: WebhookDeliveryView[]; last: WebhookDeliveryView | null; failures: number;
+    loading: boolean; loaded: boolean; pending: boolean; status: string;
+  };
+  let webhooks = $state<WebhookView[]>([]);
+  let availableEvents = $state<string[]>([]);
+  let availableEventCatalog = $state<WebhookEventCatalogEntry[]>([]);
   let loading = $state(true);
-  let loadError = $state(null);
-  let error = $state(null);
+  let loadError = $state<unknown>(null);
+  let error = $state<string | null>(null);
   let showCreate = $state(false);
-  let newWebhook = $state({ url: "", events: [], enabled: true });
-  let diagnostics = $state({});
-  let webhookMutationLocks = $state({});
+  let newWebhook = $state<{ url: string; events: string[]; enabled: boolean }>({ url: "", events: [], enabled: true });
+  let diagnostics = $state<Record<string, DiagnosticState>>({});
+  let webhookMutationLocks = $state<WebhookLocks>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   let creating = $state(false);
+  let pageDisposed = false;
   let selectableEvents = $derived(
     webhookEventChoices(availableEventCatalog, availableEvents),
   );
@@ -60,7 +71,7 @@
     storageProvider: () => globalThis.localStorage,
     legacyStorageKeys: ["supaoauth.admin.webhook-mutation-locks.v1"],
   });
-  const WEBHOOK_ROW_ACTIONS = ["delete", "rotate", "test", "toggle"];
+  const WEBHOOK_ROW_ACTIONS: WebhookAction[] = ["delete", "rotate", "test", "toggle"];
 
   function mutationStorageFailure() {
     mutationStorageReady = false;
@@ -69,11 +80,11 @@
     );
   }
 
-  function webhookMutationDescriptor(action, targetId) {
+  function webhookMutationDescriptor(action: WebhookAction, targetId: string) {
     return { action, ownerId: WEBHOOK_LOCK_OWNER, targetId };
   }
 
-  function updateWebhookMutationLocks(lockCommand) {
+  function updateWebhookMutationLocks(lockCommand: () => WebhookLocks) {
     try {
       webhookMutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -89,7 +100,7 @@
     updateWebhookMutationLocks(() => webhookMutationLockStore.restore());
   }
 
-  function stageWebhookMutation(action, targetId) {
+  function stageWebhookMutation(action: WebhookAction, targetId: string) {
     return updateWebhookMutationLocks(() =>
       webhookMutationLockStore.stage(
         webhookMutationLocks,
@@ -98,7 +109,7 @@
     );
   }
 
-  function clearWebhookMutationLock(action, targetId) {
+  function clearWebhookMutationLock(action: WebhookAction, targetId: string) {
     return updateWebhookMutationLocks(() =>
       webhookMutationLockStore.clear(
         webhookMutationLocks,
@@ -107,45 +118,45 @@
     );
   }
 
-  function recordWebhookMutationUnknown(action, targetId) {
+  function recordWebhookMutationUnknown(action: WebhookAction, targetId: string) {
     if (webhookMutationLocked(action, targetId)) return true;
     return stageWebhookMutation(action, targetId);
   }
 
-  function webhookMutationLocked(action, targetId) {
+  function webhookMutationLocked(action: WebhookAction, targetId: string) {
     return webhookMutationLockStore.isLocked(
       webhookMutationLocks,
       webhookMutationDescriptor(action, targetId),
     );
   }
 
-  function acknowledgeWebhookMutation(action, resourceId) {
+  function acknowledgeWebhookMutation(action: WebhookAction, resourceId: string) {
     if (!confirm(t("webhooks.confirmReviewedState"))) return;
     if (!confirm(t("webhooks.confirmRetry"))) return;
     clearWebhookMutationLock(action, resourceId);
   }
 
-  function replayResourceId(whId, deliveryId) {
+  function replayResourceId(whId: string, deliveryId: string) {
     return `${whId}:${deliveryId}`;
   }
 
-  function webhookIdentity(webhook) {
+  function webhookIdentity(webhook: Pick<WebhookView, "id"> | null) {
     return typeof webhook?.id === "string" ? webhook.id : "";
   }
 
-  function completeWebhookList(response) {
+  function completeWebhookList(response: CollectionPayload<WebhookView>) {
     const listedWebhooks = completeCollectionItems(response);
     if (listedWebhooks.every((entry) => webhookIdentity(entry))) return listedWebhooks;
     throw new Error("Management API returned a webhook without an identity");
   }
 
-  function deliveryIdentity(delivery) {
+  function deliveryIdentity(delivery: unknown) {
     const identity = getField(delivery, "id", "delivery_id", "deliveryId");
     return typeof identity === "string" ? identity : "";
   }
 
-  function completeDeliveryList(response) {
-    const listedDeliveries = completeCursorCollectionItems(response);
+  function completeDeliveryList(response: AdminEndpointResult<"listWebhookDeliveries">) {
+    const listedDeliveries = completeCursorCollectionItems<WebhookDeliveryView>(response);
     if (listedDeliveries.every((entry) => deliveryIdentity(entry))) {
       return listedDeliveries;
     }
@@ -156,13 +167,15 @@
     const request = webhookListRequests.begin("webhooks");
     try {
       const response = await listWebhooks();
-      return { request, webhooks: completeWebhookList(response), requestError: null };
+      return { request, response, webhooks: completeWebhookList(response), requestError: null };
     } catch (requestError) {
-      return { request, webhooks: [], requestError };
+      return { request, response: null, webhooks: [], requestError };
     }
   }
 
-  function applyWebhookList(readBack) {
+  function applyWebhookList(readBack: Pick<
+    Awaited<ReturnType<typeof readWebhookList>>, "request" | "webhooks" | "requestError"
+  >) {
     if (!webhookListRequests.isCurrent(readBack.request)) return false;
     if (readBack.requestError) throw readBack.requestError;
     webhooks = readBack.webhooks;
@@ -170,7 +183,7 @@
     return true;
   }
 
-  function diagnosticState(whId) {
+  function diagnosticState(whId: string): DiagnosticState {
     return (
       diagnostics[whId] || {
         logs: [],
@@ -184,18 +197,18 @@
     );
   }
 
-  function updateDiagnostic(whId, diagnosticUpdate) {
+  function updateDiagnostic(whId: string, diagnosticUpdate: Partial<DiagnosticState>) {
     diagnostics[whId] = {
       ...diagnosticState(whId),
       ...diagnosticUpdate,
     };
   }
 
-  function webhookPending(whId) {
+  function webhookPending(whId: string) {
     return diagnosticState(whId).pending;
   }
 
-  function beginWebhookOperation(whId, action, operationKey = whId) {
+  function beginWebhookOperation(whId: string, action: string, operationKey = whId) {
     const operation = webhookOperations.begin(operationKey, {
       action,
       webhookId: whId,
@@ -205,7 +218,7 @@
     return operation;
   }
 
-  function finishWebhookOperation(operation) {
+  function finishWebhookOperation(operation: WebhookOperation) {
     if (!webhookOperations.finish(operation)) return;
     const whId = operation.ownerContext.webhookId;
     if (diagnostics[whId]) {
@@ -213,15 +226,15 @@
     }
   }
 
-  function getField(record, ...keys) {
+  function getField(record: unknown, ...keys: string[]): unknown {
     for (const key of keys) {
-      if (record && record[key] !== undefined && record[key] !== null)
-        return record[key];
+      const value: unknown = record && typeof record === "object" ? Reflect.get(record, key) : null;
+      if (value !== undefined && value !== null) return value;
     }
     return null;
   }
 
-  function deliverySucceeded(log) {
+  function deliverySucceeded(log: WebhookDeliveryView) {
     const explicit = getField(log, "success", "ok", "delivered");
     if (typeof explicit === "boolean") return explicit;
     const rawStatus = getField(
@@ -244,7 +257,7 @@
     return !getField(log, "error", "error_message", "errorMessage");
   }
 
-  function deliveryStatus(log) {
+  function deliveryStatus(log: WebhookDeliveryView | null) {
     if (!log) return t("No deliveries");
     const status = getField(
       log,
@@ -258,11 +271,12 @@
     return deliverySucceeded(log) ? t("delivered") : t("failed");
   }
 
-  function formatTime(value) {
-    return value ? new Date(value).toLocaleString() : t("Never delivered");
+  function formatTime(value: unknown) {
+    return value && (typeof value === "string" || typeof value === "number")
+      ? new Date(value).toLocaleString() : t("Never delivered");
   }
 
-  function logSignatureState(log) {
+  function logSignatureState(log: WebhookDeliveryView | null) {
     if (!log) return t("Not reported");
     const state = getField(
       log,
@@ -287,14 +301,14 @@
     return t("Not reported");
   }
 
-  function summarizeDiagnostics(logs) {
+  function summarizeDiagnostics(logs: WebhookDeliveryView[]) {
     const items = Array.isArray(logs) ? logs : [];
     const last = items[0] || null;
     const failures = items.filter((log) => !deliverySucceeded(log)).length;
     return { logs: items, last, failures };
   }
 
-  function signingState(wh) {
+  function signingState(wh: WebhookView) {
     if (
       wh.has_secret === true ||
       wh.hasSecret === true ||
@@ -306,23 +320,23 @@
     return t("Signing not reported");
   }
 
-  function canRetryLast(whId) {
+  function canRetryLast(whId: string) {
     const last = diagnostics[whId]?.last;
     return Boolean(last && !deliverySucceeded(last));
   }
 
-  function replayResourceIdForLast(whId) {
+  function replayResourceIdForLast(whId: string) {
     const last = diagnosticState(whId).last;
     const deliveryId = getField(last, "id", "delivery_id", "deliveryId");
-    return deliveryId ? replayResourceId(whId, deliveryId) : "";
+    return typeof deliveryId === "string" && deliveryId ? replayResourceId(whId, deliveryId) : "";
   }
 
-  function replayLastLocked(whId) {
+  function replayLastLocked(whId: string) {
     const resourceId = replayResourceIdForLast(whId);
     return resourceId ? webhookMutationLocked("replay", resourceId) : false;
   }
 
-  function webhookUnknownLocks(whId) {
+  function webhookUnknownLocks(whId: string) {
     const actionLocks = WEBHOOK_ROW_ACTIONS.filter((action) =>
       webhookMutationLocked(action, whId),
     ).map((action) => ({ action, resourceId: whId }));
@@ -339,11 +353,11 @@
     return actionLocks;
   }
 
-  function webhookStillPresent(whId) {
+  function webhookStillPresent(whId: string) {
     return webhooks.some((webhook) => webhook.id === whId);
   }
 
-  function diagnosticRequestIsCurrent(request, operation) {
+  function diagnosticRequestIsCurrent(request: KeyedOperation<string, null>, operation: WebhookOperation) {
     return (
       diagnosticRequests.isCurrent(request) &&
       webhookOperations.isCurrent(operation) &&
@@ -351,14 +365,14 @@
     );
   }
 
-  async function fetchWebhookDiagnostics(whId, operation) {
+  async function fetchWebhookDiagnostics(whId: string, operation: WebhookOperation) {
     const request = diagnosticRequests.begin(whId);
     updateDiagnostic(whId, { loading: true });
     try {
       const response = await listWebhookLogs(whId, 5);
       if (!diagnosticRequestIsCurrent(request, operation)) return false;
       updateDiagnostic(whId, {
-        ...summarizeDiagnostics(cursorCollectionPage(response).items),
+        ...summarizeDiagnostics(cursorCollectionPage<WebhookDeliveryView>(response).items),
         loaded: true,
         loading: false,
         status:
@@ -369,12 +383,12 @@
       return true;
     } catch (requestError) {
       if (!diagnosticRequestIsCurrent(request, operation)) return false;
-      updateDiagnostic(whId, { loading: false, status: requestError.message });
+      updateDiagnostic(whId, { loading: false, status: errorMessage(requestError) });
       return false;
     }
   }
 
-  async function loadWebhookDiagnostics(whId, parentOperation = null) {
+  async function loadWebhookDiagnostics(whId: string, parentOperation: WebhookOperation | null = null) {
     if (!parentOperation && webhookPending(whId)) return false;
     const operation =
       parentOperation || beginWebhookOperation(whId, "diagnostics");
@@ -502,8 +516,9 @@
       } else {
         clearWebhookMutationLock("create", "new");
         // Show the API error message when available so the user knows why
-        error = requestError?.message
-          ? `${t("webhooks.createFailed")} (${requestError.message})`
+        error = typeof requestError === "object" && requestError !== null &&
+          "message" in requestError && requestError.message
+          ? `${t("webhooks.createFailed")} (${errorMessage(requestError)})`
           : t("webhooks.createFailed");
       }
     } finally {
@@ -511,7 +526,7 @@
     }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(id: string) {
     if (
       webhookPending(id) ||
       !mutationStorageReady ||
@@ -564,72 +579,81 @@
         );
       } else {
         clearWebhookMutationLock("delete", id);
-        error = requestError.message;
+        error = errorMessage(requestError);
       }
     } finally {
       finishWebhookOperation(operation);
     }
   }
 
-  async function handleToggle(wh) {
+  async function handleToggle(wh: WebhookView) {
+    const targetId = wh.id;
+    const expectedEnabled = !wh.enabled;
     if (
-      webhookPending(wh.id) ||
+      pageDisposed ||
+      webhookPending(targetId) ||
       !mutationStorageReady ||
-      webhookMutationLocked("toggle", wh.id)
+      webhookMutationLocked("toggle", targetId)
     )
       return;
-    const operation = beginWebhookOperation(wh.id, "toggle");
+    const operation = beginWebhookOperation(targetId, "toggle");
     if (!operation) return;
-    if (!stageWebhookMutation("toggle", wh.id)) {
+    if (!stageWebhookMutation("toggle", targetId)) {
       finishWebhookOperation(operation);
       return;
     }
-    const expectedEnabled = !wh.enabled;
-    let updateMayHaveCommitted = false;
+    const observation: { readBack: Awaited<ReturnType<typeof readWebhookList>> | null } = { readBack: null };
     try {
-      try {
-        await updateWebhook(wh.id, { enabled: expectedEnabled });
-        updateMayHaveCommitted = true;
-      } catch (requestError) {
-        if (!mutationOutcomeUnknown(requestError)) throw requestError;
-        updateMayHaveCommitted = true;
-      }
-      const readBack = await readWebhookList();
-      if (!webhookOperations.isCurrent(operation)) return;
-      if (readBack.requestError) throw readBack.requestError;
-      const updated = readBack.webhooks.find(
-        (entry) => webhookIdentity(entry) === wh.id,
+      const outcome = await toggleWebhookCommand(
+        { params: { webhookId: targetId }, body: { enabled: expectedEnabled } },
+        {
+          write: ({ id, expectedEnabled }) => updateWebhook(
+            id, { enabled: expectedEnabled }, { authenticationRetry: "never" },
+          ),
+          read: async () => {
+            const readBack = await readWebhookList();
+            observation.readBack = readBack;
+            if (readBack.response === null) throw readBack.requestError;
+            return readBack.response;
+          },
+        },
       );
-      if (updated?.enabled !== expectedEnabled || !applyWebhookList(readBack)) {
-        recordWebhookMutationUnknown("toggle", wh.id);
+      if (pageDisposed || !webhookOperations.isCurrent(operation)) return;
+      const readBack = observation.readBack;
+      if (readBack && !webhookListRequests.isCurrent(readBack.request)) return;
+      if (outcome.kind === "invalid") {
+        clearWebhookMutationLock("toggle", targetId);
+        error = errorMessage(outcome.error);
+        return;
+      }
+      if (outcome.kind !== "confirmed" || !readBack) {
+        recordWebhookMutationUnknown("toggle", targetId);
         error = t(
-          "Webhook status update could not be verified. Reconcile the authoritative list before toggling again.",
+          outcome.kind === "unknown" && outcome.readError !== null
+            ? "Webhook status read-back failed. Reconcile the authoritative list before toggling again."
+            : "Webhook status update could not be verified. Reconcile the authoritative list before toggling again.",
         );
         return;
       }
-      if (!clearWebhookMutationLock("toggle", wh.id)) {
+      if (!applyWebhookList({ ...readBack, webhooks: outcome.authority })) return;
+      if (!clearWebhookMutationLock("toggle", targetId)) {
         error = t(
           "Webhook status was verified but the reconciliation lock could not be cleared. Reconcile storage before trying again.",
         );
         return;
       }
     } catch (requestError) {
-      if (!webhookOperations.isCurrent(operation)) return;
-      if (updateMayHaveCommitted) {
-        recordWebhookMutationUnknown("toggle", wh.id);
-        error = t(
-          "Webhook status read-back failed. Reconcile the authoritative list before toggling again.",
-        );
-      } else {
-        clearWebhookMutationLock("toggle", wh.id);
-        error = requestError.message;
-      }
+      if (pageDisposed || !webhookOperations.isCurrent(operation)) return;
+      recordWebhookMutationUnknown("toggle", targetId);
+      error = t(
+        "Webhook status read-back failed. Reconcile the authoritative list before toggling again.",
+      );
     } finally {
-      finishWebhookOperation(operation);
+      if (!pageDisposed) finishWebhookOperation(operation);
     }
   }
 
-  async function handleRotateSecret(whId) {
+  async function handleRotateSecret(whId: string) {
     if (
       webhookPending(whId) ||
       !mutationStorageReady ||
@@ -687,14 +711,14 @@
         );
       } else {
         clearWebhookMutationLock("rotate", whId);
-        error = requestError.message;
+        error = errorMessage(requestError);
       }
     } finally {
       finishWebhookOperation(operation);
     }
   }
 
-  async function handleTest(whId) {
+  async function handleTest(whId: string) {
     if (
       webhookPending(whId) ||
       !mutationStorageReady ||
@@ -764,7 +788,7 @@
             ? t(
                 "Webhook test read-back failed. Reconcile deliveries before testing again.",
               )
-            : requestError.message,
+            : errorMessage(requestError),
           loading: false,
         });
       }
@@ -773,11 +797,11 @@
     }
   }
 
-  async function handleReplayLast(whId) {
+  async function handleReplayLast(whId: string) {
     if (webhookPending(whId)) return;
     const last = diagnosticState(whId).last;
     const deliveryId = getField(last, "id", "delivery_id", "deliveryId");
-    if (!deliveryId) {
+    if (typeof deliveryId !== "string" || !deliveryId) {
       updateDiagnostic(whId, { status: t("No delivery log to replay") });
       return;
     }
@@ -869,7 +893,7 @@
             ? t(
                 "Webhook replay read-back failed. Reconcile this delivery before allowing another replay.",
               )
-            : requestError.message,
+            : errorMessage(requestError),
           loading: false,
         });
       }
@@ -878,13 +902,16 @@
     }
   }
 
-  async function handleRefreshDiagnostics(whId) {
+  async function handleRefreshDiagnostics(whId: string) {
     await loadWebhookDiagnostics(whId);
   }
 
   onMount(() => {
     restoreWebhookMutationLocks();
     void load();
+    return () => {
+      pageDisposed = true;
+    };
   });
 </script>
 
@@ -1204,9 +1231,9 @@
           >
             <p class="text-xs font-medium text-surface-700">
               {t("Diagnostic:")}
-              {diagnostics[wh.id].status}
+              {diagnosticState(wh.id).status}
             </p>
-            {#each diagnostics[wh.id].logs as log, index (log.id || `${wh.id}-${index}`)}
+            {#each diagnosticState(wh.id).logs as log, index (log.id || `${wh.id}-${index}`)}
               <p class="text-xs text-surface-500 mt-1">
                 {log.eventType ||
                   log.event_type ||

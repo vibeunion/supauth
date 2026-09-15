@@ -1,5 +1,3 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { describe, expect, test } from 'bun:test';
 import { adminCheckFailure } from './admin-auth-result.js';
 

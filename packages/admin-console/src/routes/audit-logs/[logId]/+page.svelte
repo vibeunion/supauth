@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from "@supauth/shared";
+  import type { ResourceLoadContext } from "$lib/resource-page.js";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import AuditLogDetail from "$lib/components/AuditLogDetail.svelte";
@@ -7,13 +9,13 @@
   import { isLatestResourceLoad } from "$lib/resource-page.js";
   import { t } from "$lib/i18n.js";
 
-  let entry = $state(null);
+  let entry = $state<AdminEndpointResult<"getAuditLog"> | null>(null);
   let loading = $state(true);
-  let error = $state(null);
-  let logId = $derived(page.params.logId);
+  let error = $state<unknown>(null);
+  let logId = $derived(page.params.logId ?? "");
   let loadGeneration = 0;
 
-  function isCurrentLoad(loadContext) {
+  function isCurrentLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(loadContext, {
       generation: loadGeneration,
       resourceId: logId,
@@ -22,6 +24,7 @@
   }
 
   async function loadEntry() {
+    if (!logId) return;
     const loadContext = {
       generation: loadGeneration + 1,
       resourceId: logId,

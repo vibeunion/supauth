@@ -1,9 +1,15 @@
-import { SupaOAuthClient } from '@supauth/sdk-typescript';
+import {
+  SupaOAuthClient,
+  SupaOAuthRequestContractError,
+  SupaOAuthResponseContractError,
+  type SupaOAuthFetch,
+} from '@supauth/sdk-typescript';
 import type {
   PublicEffectiveSignInExperience,
   PublicPhraseBundle,
   PublicSignInConnector,
 } from '@supauth/shared';
+import { decodeSchema, Type, type Static, PublicEffectiveSignInExperienceSchema, PublicPhraseBundleSchema } from '@supauth/shared';
 
 const SUPABASE_PROVIDER_IDS = [
   'apple',
@@ -37,7 +43,19 @@ const CREDENTIAL_METHOD_IDS = new Set([
 ]);
 
 export type SupabaseAuthUiProvider = typeof SUPABASE_PROVIDER_IDS[number];
-export type EmbeddedAuthUiView = 'sign_in' | 'sign_up' | 'forgotten_password';
+const EmbeddedAuthUiViewSchema = Type.Union([
+  Type.Literal('sign_in'),
+  Type.Literal('sign_up'),
+  Type.Literal('forgotten_password'),
+]);
+export type EmbeddedAuthUiView = Static<typeof EmbeddedAuthUiViewSchema>;
+
+const BuildSupabaseAuthUiInputSchema = Type.Object({
+  experience: PublicEffectiveSignInExperienceSchema,
+  phrases: Type.Optional(Type.Union([PublicPhraseBundleSchema.properties.phrases, Type.Null()])),
+  view: Type.Optional(EmbeddedAuthUiViewSchema),
+  redirectTo: Type.Optional(Type.String()),
+});
 
 export interface HostedBranding {
   pageTitle?: string;
@@ -89,6 +107,9 @@ export interface ResolveSupabaseAuthUiConfigOptions {
   locale?: string;
   view?: EmbeddedAuthUiView;
   redirectTo?: string;
+  fetch?: SupaOAuthFetch;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface HostedLogoutUrlOptions {
@@ -116,10 +137,16 @@ export function buildHostedLogoutUrl(options: HostedLogoutUrlOptions): string {
   return endpoint.toString();
 }
 
-function compactStrings(values: Record<string, string | undefined>) {
-  return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => typeof value === 'string' && value.trim()),
-  ) as Record<string, string>;
+function compactStrings(values: Record<string, string | undefined>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (typeof value === 'string' && value.trim()) result[key] = value;
+  }
+  return result;
+}
+
+function phraseRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function getPhraseValue(
@@ -133,11 +160,11 @@ function getPhraseValue(
   const segments = dottedKey.split('.');
   let current: unknown = phrases;
   for (const segment of segments) {
-    if (!current || typeof current !== 'object') {
+    if (!phraseRecord(current) || !Object.hasOwn(current, segment)) {
       current = undefined;
       break;
     }
-    current = (current as Record<string, unknown>)[segment];
+    current = current[segment];
   }
   if (typeof current === 'string' && current.trim()) return current;
 
@@ -149,25 +176,25 @@ function getPhraseValue(
 }
 
 function toBranding(experience: PublicEffectiveSignInExperience): HostedBranding {
+  const { branding } = experience;
   return {
-    pageTitle: experience.branding.page_title,
-    logoUrl: experience.branding.logo_url,
-    faviconUrl: experience.branding.favicon_url,
-    backgroundUrl: experience.branding.background_url,
-    primaryColor: experience.branding.primary_color,
-    buttonLabel: experience.branding.button_label,
-    customCss: experience.branding.custom_css,
+    ...(branding.page_title == null ? {} : { pageTitle: branding.page_title }),
+    ...(branding.logo_url == null ? {} : { logoUrl: branding.logo_url }),
+    ...(branding.favicon_url == null ? {} : { faviconUrl: branding.favicon_url }),
+    ...(branding.background_url == null ? {} : { backgroundUrl: branding.background_url }),
+    ...(branding.primary_color == null ? {} : { primaryColor: branding.primary_color }),
+    ...(branding.button_label == null ? {} : { buttonLabel: branding.button_label }),
+    ...(branding.custom_css == null ? {} : { customCss: branding.custom_css }),
   };
 }
 
 export function mapConnectorsToSupabaseProviders(connectors: PublicSignInConnector[] = []) {
   const supportedProviders: SupabaseAuthUiProvider[] = [];
   const unsupportedConnectors: PublicSignInConnector[] = [];
-  const supportedSet = new Set<string>(SUPABASE_PROVIDER_IDS);
-
   for (const connector of connectors) {
-    if (supportedSet.has(connector.id)) {
-      supportedProviders.push(connector.id as SupabaseAuthUiProvider);
+    const provider = SUPABASE_PROVIDER_IDS.find(id => id === connector.id);
+    if (provider !== undefined) {
+      supportedProviders.push(provider);
     } else {
       unsupportedConnectors.push(connector);
     }
@@ -205,8 +232,12 @@ export function buildSupabaseAuthUiConfig(input: {
   view?: EmbeddedAuthUiView;
   redirectTo?: string;
 }) : SupabaseAuthUiBridgeConfig {
-  const { experience, view = 'sign_in', redirectTo } = input;
-  const phrases = input.phrases ?? {};
+  const { experience, phrases: phraseInput, view = 'sign_in', redirectTo } = decodeSchema(
+    BuildSupabaseAuthUiInputSchema,
+    input,
+  );
+  // 保留历史 JavaScript 调用的 null 语言包回退，其他字段仍按契约拒绝。
+  const phrases = phraseInput ?? {};
   const { supportedProviders, unsupportedConnectors } = mapConnectorsToSupabaseProviders(experience.connectors ?? []);
   const branding = toBranding(experience);
   const hasCredentialMethods = experience.sign_in_methods.length === 0
@@ -220,7 +251,7 @@ export function buildSupabaseAuthUiConfig(input: {
       theme: 'default',
       showLinks: true,
       onlyThirdPartyProviders: hasProviders && !hasCredentialMethods,
-      redirectTo,
+      ...(redirectTo === undefined ? {} : { redirectTo }),
       appearance: {
         extend: true,
         variables: {
@@ -277,19 +308,63 @@ export function buildSupabaseAuthUiConfig(input: {
 export async function resolveSupabaseAuthUiConfig(
   options: ResolveSupabaseAuthUiConfigOptions,
 ): Promise<SupabaseAuthUiBridgeConfig> {
-  const client = new SupaOAuthClient({ baseUrl: options.baseUrl });
-  const [experience, phraseBundle] = await Promise.all([
-    client.resolvePublicSignInExperience({
-      application_id: options.applicationId,
-      authorization_id: options.authorizationId,
-    }),
-    options.locale ? client.getPublicPhrases(options.locale).catch(() => null) : Promise.resolve(null),
-  ]);
-
-  return buildSupabaseAuthUiConfig({
-    experience,
-    phrases: phraseBundle?.phrases,
-    view: options.view,
-    redirectTo: options.redirectTo,
+  return runAuthUiRequest(options, async (signal) => {
+    const transport = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+    const client = new SupaOAuthClient({
+      baseUrl: options.baseUrl,
+      fetch: (input, init) => transport(input, { ...init, signal }),
+    });
+    const [experience, phraseBundle] = await Promise.all([
+      client.resolvePublicSignInExperience({
+        ...(options.applicationId === undefined ? {} : { application_id: options.applicationId }),
+        ...(options.authorizationId === undefined ? {} : { authorization_id: options.authorizationId }),
+      }),
+      options.locale ? client.getPublicPhrases(options.locale).catch((error: unknown) => {
+        if (signal.aborted) throw new AuthUiRequestError('request_aborted');
+        // 语言包缺失仍降级；契约错误必须暴露，不能伪装成成功加载。
+        if (error instanceof SupaOAuthResponseContractError || error instanceof SupaOAuthRequestContractError) throw error;
+        return null;
+      }) : Promise.resolve(null),
+    ]);
+    return buildSupabaseAuthUiConfig({
+      experience,
+      ...(phraseBundle === null ? {} : { phrases: phraseBundle.phrases }),
+      ...(options.view === undefined ? {} : { view: options.view }),
+      ...(options.redirectTo === undefined ? {} : { redirectTo: options.redirectTo }),
+    });
   });
+}
+
+export class AuthUiRequestError extends Error {
+  constructor(public readonly code: 'request_aborted' | 'request_timeout') {
+    super(code === 'request_timeout' ? 'Auth UI request timed out' : 'Auth UI request was cancelled');
+    this.name = 'AuthUiRequestError';
+  }
+}
+
+async function runAuthUiRequest<T>(
+  options: Pick<ResolveSupabaseAuthUiConfigOptions, 'signal' | 'timeoutMs'>,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  if (options.signal?.aborted) throw new AuthUiRequestError('request_aborted');
+  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
+    throw new TypeError('timeoutMs must be a positive finite number');
+  }
+  const controller = new AbortController();
+  let rejectInterruption: (error: AuthUiRequestError) => void = () => {};
+  const interrupted = new Promise<never>((_resolve, reject) => { rejectInterruption = reject; });
+  const interrupt = (code: 'request_aborted' | 'request_timeout') => {
+    rejectInterruption(new AuthUiRequestError(code));
+    controller.abort();
+  };
+  const onAbort = () => interrupt('request_aborted');
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+  const timeout = options.timeoutMs === undefined
+    ? undefined : setTimeout(() => interrupt('request_timeout'), options.timeoutMs);
+  try {
+    return await Promise.race([Promise.resolve().then(() => operation(controller.signal)), interrupted]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', onAbort);
+  }
 }

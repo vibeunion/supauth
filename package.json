@@ -4,6 +4,7 @@
   "version": "0.3.0",
   "type": "module",
   "workspaces": [
+    ".github",
     "packages/*",
     "packages/sdks/*"
   ],
@@ -20,13 +21,21 @@
     "check:artifact": "bun run build && bun run verify:artifact",
     "install:supacloud": "bun run scripts/install-supacloud-app.ts",
     "typecheck": "bun run --filter '@supauth/authorization-core' build && bun run --filter '@supauth/authorization-postgres' build && bun run --filter '@supauth/authorization-conformance' build && bun run --filter '@supauth/shared' build && bun run --filter '@supauth/sdk-typescript' build && bun run --filter '@supauth/sdk-auth-ui' build && bun run --filter '@supauth/auth-server' typecheck",
-    "test": "bun run --filter '@supauth/authorization-core' test && bun run --filter '@supauth/authorization-postgres' test && bun run --filter '@supauth/authorization-conformance' test && bun run --filter '@supauth/shared' test && bun run --filter '@supauth/sdk-typescript' test && bun run --filter '@supauth/sdk-auth-ui' test && bun run --filter '@supauth/auth-server' test && bun run --filter '@supauth/admin-console' test && bun run test:contracts",
+    "test": "bun run --filter '@supauth/authorization-core' test && bun run --filter '@supauth/authorization-postgres' test && bun run --filter '@supauth/authorization-conformance' test && bun run --filter '@supauth/shared' test && bun run --filter '@supauth/sdk-typescript' test && bun run --filter '@supauth/sdk-auth-ui' test && bun run --filter '@supauth/auth-server' test && bun run --filter '@supauth/admin-console' test && bun run test:contracts && bun run test:tooling",
     "test:contracts": "bun test --isolate tests/*.test.ts",
+    "test:tooling": "bun test --isolate scripts/*.test.ts",
+    "typecheck:contracts": "bun run --filter '@supauth/authorization-core' typecheck && bun run --filter '@supauth/authorization-postgres' typecheck && bun run --filter '@supauth/authorization-conformance' typecheck && bun run --filter '@supauth/shared' typecheck && bun run --filter '@supauth/sdk-typescript' typecheck && bun run --filter '@supauth/sdk-typescript' typecheck:contracts && bun run --filter '@supauth/sdk-auth-ui' typecheck",
+    "typecheck:tooling": "bunx tsc --noEmit -p tsconfig.tooling.json && bunx tsc --noEmit -p .github/tsconfig.json",
+    "check:contract-coverage": "bun run scripts/check-type-safety.ts",
+    "check:static-safety": "bun run scripts/static-safety-check.ts",
+    "check:inferred-safety": "bun run scripts/inferred-safety-check.ts",
+    "check:type-safety": "bun run typecheck && bun run typecheck:contracts && bun run typecheck:tooling && bun run --filter '@supauth/admin-console' typecheck && bun run check:contract-coverage && bun run check:static-safety && bun run check:inferred-safety",
     "check:openapi-additive": "bun run scripts/verify-openapi-additive.ts",
-    "check": "bun run typecheck && bun run test && bun run check:openapi-additive && bun run --filter '@supauth/admin-console' check && bun run --filter '@supauth/admin-console' build",
+    "check": "bun run check:type-safety && bun run test && bun run check:openapi-additive && bun run --filter '@supauth/admin-console' check && bun run --filter '@supauth/admin-console' build",
     "test:supabase-auth-compat": "REQUIRE_SUPABASE_AUTH_COMPAT=1 RUN_SUPABASE_OAUTH21_COMPAT=1 RUN_SUPABASE_RUNTIME_COMPAT=1 RUN_SUPABASE_FULL_STACK_COMPAT=1 bun --use-system-ca test tests/integration/supabase-compat/oauth21.test.ts tests/integration/supabase-compat/supabase-js.test.ts tests/integration/supabase-compat/full-stack.test.ts tests/integration/supabase-compat/supacloud-js.test.ts",
     "test:supabase-auth-compat:smoke": "bun test tests/integration/supabase-compat/oauth21.test.ts tests/integration/supabase-compat/supabase-js.test.ts tests/integration/supabase-compat/full-stack.test.ts tests/integration/supabase-compat/supacloud-js.test.ts",
-    "release:gate": "bun run scripts/release-gate.ts",
+    "release:gate": "bun --no-env-file run scripts/release-gate.ts",
+    "test:contracts:real": "bun --no-env-file run scripts/real-contract-acceptance.ts",
     "tenant:apply-sign-in": "bun run scripts/apply-sign-in-experience.ts",
     "tenant:apply-third-party-auth": "bun run scripts/apply-third-party-auth.ts",
     "projects:describe": "bun run scripts/describe-live-projects.ts",
@@ -35,16 +44,27 @@
     "capacity:baseline": "bun run scripts/capacity-baseline.ts"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "13.0.0",
     "@supabase/supabase-js": "^2.113.0",
     "@supacloud/js": "^0.23.3",
     "@types/bun": "^1.4.0",
+    "@types/node": "26.5.0",
     "es-module-lexer": "2.3.2",
+    "gel": "2.2.0",
     "jose": "^6.2.10",
+    "mysql2": "3.24.4",
     "pinyin-pro": "^3.29.3",
+    "playwright": "1.63.0",
     "typescript": "^5.8.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "patchedDependencies": {
-    "postgres@3.4.9": "patches/postgres@3.4.9.patch"
+    "@elysiajs/swagger@1.3.1": "patches/@elysiajs%2Fswagger@1.3.1.strict-declarations.patch",
+    "@supabase/auth-js@2.113.0": "patches/@supabase%2Fauth-js@2.113.0.patch",
+    "@tanstack/svelte-query@6.1.48": "patches/@tanstack%2Fsvelte-query@6.1.48.patch",
+    "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.strict-declarations.patch",
+    "elysia@1.4.30": "patches/elysia@1.4.30.strict-declarations.patch",
+    "postgres@3.4.9": "patches/postgres@3.4.9.patch",
+    "@svadmin/core@0.49.0": "patches/@svadmin%2Fcore@0.49.0.patch"
   }
 }

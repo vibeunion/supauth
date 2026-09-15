@@ -1,3 +1,5 @@
+import { isRecord } from './api-contract.js';
+
 const SENSITIVE_KEYS = new Set([
   'secret',
   'client_secret',
@@ -15,27 +17,27 @@ const SENSITIVE_KEYS = new Set([
   'refreshtoken',
 ]);
 
-export function withoutSecrets<T>(input: T): T {
-  if (Array.isArray(input)) return input.map(withoutSecrets) as T;
-  if (!input || typeof input !== 'object') return input;
+export function withoutSecrets(input: unknown): unknown {
+  if (Array.isArray(input)) return input.map(withoutSecrets);
+  if (!isRecord(input)) return input;
 
   const sanitized: Record<string, unknown> = {};
   let secretConfigured = false;
-  for (const [key, field] of Object.entries(input as Record<string, unknown>)) {
+  for (const [key, field] of Object.entries(input)) {
     if (isSensitiveKey(key)) {
       secretConfigured ||= field !== null && field !== undefined && field !== '';
       continue;
     }
     sanitized[key] = withoutSecrets(field);
   }
-  if (secretConfigured) sanitized.secret_configured = true;
-  return sanitized as T;
+  if (secretConfigured) sanitized["secret_configured"] = true;
+  return sanitized;
 }
 
 export function containsSecret(input: unknown): boolean {
   if (Array.isArray(input)) return input.some(containsSecret);
-  if (!input || typeof input !== 'object') return false;
-  return Object.entries(input as Record<string, unknown>).some(([key, field]) =>
+  if (!isRecord(input)) return false;
+  return Object.entries(input).some(([key, field]) =>
     isSensitiveKey(key) || containsSecret(field),
   );
 }

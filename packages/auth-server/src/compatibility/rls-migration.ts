@@ -10,41 +10,13 @@
 //   Wrapper:   USING (owner_id = auth.uid() OR supaoauth.authorize('resource.read'))
 
 import postgres from 'postgres';
+import { Type, decodeSchema } from '../../../shared/src/schema.js';
+import { ExistingPolicySchema, type ExistingPolicy, type WrapperPolicy, type MigrationResult } from '../../../shared/src/sdk-models.js';
 
 // ─── Types ────────────────────────────────────────────────────────────
 
-export interface ExistingPolicy {
-  schemaname: string;
-  tablename: string;
-  policyname: string;
-  policytype: 'permissive' | 'restrictive';
-  cmd: 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE' | 'ALL';
-  qual: string | null; // USING expression
-  with_check: string | null; // WITH CHECK expression
-  roles: string[];
-}
-
-export interface WrapperPolicy {
-  original_policy: string;
-  wrapper_policy_name: string;
-  tablename: string;
-  schemaname: string;
-  cmd: string;
-  original_using: string | null;
-  original_with_check: string | null;
-  wrapper_using: string | null;
-  wrapper_with_check: string | null;
-  sql: string;
-  permission_name: string;
-}
-
-export interface MigrationResult {
-  scanned_policies: number;
-  candidate_policies: number;
-  wrappers: WrapperPolicy[];
-  migration_sql: string;
-  warnings: string[];
-}
+export type { ExistingPolicy, WrapperPolicy, MigrationResult };
+const policyRowsSchema = Type.Array(Type.Object({ ...ExistingPolicySchema.properties, roles: Type.String() }));
 
 // ─── Live Postgres scanning ──────────────────────────────────────────
 
@@ -73,10 +45,10 @@ export async function scanExistingPolicies(databaseUrl: string): Promise<Existin
     const rows = await sql.unsafe(SCAN_POLICIES_SQL);
     // Group by policy name (multiple roles become multiple rows)
     const policyMap = new Map<string, ExistingPolicy>();
-    for (const row of rows as any[]) {
+    for (const row of decodeSchema(policyRowsSchema, Array.from(rows))) {
       const key = `${row.schemaname}.${row.tablename}.${row.policyname}`;
-      if (policyMap.has(key)) {
-        const existing = policyMap.get(key)!;
+      const existing = policyMap.get(key);
+      if (existing) {
         if (!existing.roles.includes(row.roles)) {
           existing.roles.push(row.roles);
         }
@@ -250,7 +222,7 @@ export function generateWrapperPolicies(policies: ExistingPolicy[]): MigrationRe
 // ─── CLI entry point ──────────────────────────────────────────────────
 
 export async function runRLSMigrationAssistant(databaseUrl?: string) {
-  const url = databaseUrl || process.env.DATABASE_URL || '';
+  const url = databaseUrl || process.env["DATABASE_URL"] || '';
 
   if (url) {
     console.log('Scanning existing RLS policies from Postgres...');
@@ -327,7 +299,7 @@ export async function runRLSMigrationAssistant(databaseUrl?: string) {
 
 // CLI usage: bun run src/compatibility/rls-migration.ts
 if (import.meta.main) {
-  runRLSMigrationAssistant().then(() => process.exit(0)).catch(e => {
+  runRLSMigrationAssistant().then(() => process.exit(0)).catch((e: unknown) => {
     console.error(e);
     process.exit(1);
   });

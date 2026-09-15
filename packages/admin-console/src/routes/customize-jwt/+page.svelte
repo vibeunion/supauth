@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import { decodeSchema, JsonObjectSchema, type AdminEndpointResult, type JsonValue } from "@supauth/shared";
+  import { errorMessage } from "$lib/resource-page.js";
   import { onMount } from "svelte";
   import {
     SUPABASE_REQUIRED_CLAIMS,
@@ -41,13 +43,13 @@
     loading: "jwt.hookState.loading",
     unavailable: "state.unavailable",
   };
-  const previewClaimValues = {
+  const previewClaimValues: Record<string, JsonValue> = {
     iss: "https://project.supabase.co/auth/v1",
     aud: "authenticated",
     exp: 1900003600,
     iat: 1900000000,
     sub: "00000000-0000-4000-8000-000000000000",
-    role: SUPABASE_RUNTIME_ROLES[1],
+    role: SUPABASE_RUNTIME_ROLES[1] ?? "authenticated",
     aal: "aal1",
     session_id: "00000000-0000-4000-8000-000000000001",
     email: "user@example.com",
@@ -61,14 +63,14 @@
     ]),
   );
   let extensionDraft = $state(buildJwtExtensionExample());
-  let compatibilityReport = $state(null);
+  let compatibilityReport = $state<AdminEndpointResult<"getCompatibilityReport"> | null>(null);
   let compatibilityLoading = $state(true);
-  let compatibilityError = $state(null);
+  let compatibilityError = $state<string | null>(null);
   let projectLoading = $state(true);
-  let projectError = $state(null);
-  let hookStatus = $state(null);
+  let projectError = $state<string | null>(null);
+  let hookStatus = $state<Pick<AdminEndpointResult<"getCustomAccessTokenHookStatus">, "registered" | "verified" | "reason_code"> | null>(null);
   let hookLoading = $state(true);
-  let hookError = $state(null);
+  let hookError = $state<string | null>(null);
   let hookConfig = $state({
     enabled: false,
     uri: "",
@@ -87,7 +89,7 @@
     validation.errors.map(validationMessage),
   );
   let claimPreview = $derived.by(() => buildClaimPreview(validation.value));
-  let hookState = $derived.by(() => {
+  let hookState = $derived.by<keyof typeof hookStateClasses>(() => {
     if (hookLoading) return "loading";
     if (hookError) return "unavailable";
     return hookStatus?.registered && hookStatus?.verified
@@ -95,17 +97,18 @@
       : "inactive";
   });
 
-  function validationMessage(validationError) {
+  function validationMessage(validationError: {code: string; params: Record<string, string | number>}) {
     const params = { ...validationError.params };
-    if (params.expectedType)
-      params.expectedType = t(`jwt.schemaType.${params.expectedType}`);
+    if (params["expectedType"])
+      params["expectedType"] = t(`jwt.schemaType.${params["expectedType"]}`);
     return t(`jwt.error.${validationError.code}`, params);
   }
 
-  function buildClaimPreview(validExtension) {
+  function buildClaimPreview(validExtension: unknown) {
+    const extension = validExtension ? decodeSchema(JsonObjectSchema, validExtension) : null;
     return {
       ...previewBaseClaims,
-      app_metadata: validExtension?.app_metadata || {},
+      app_metadata: extension?.["app_metadata"] || {},
     };
   }
 
@@ -135,7 +138,7 @@
         current_org_role: "member",
       });
     } catch (requestError) {
-      projectError = requestError.message;
+      projectError = errorMessage(requestError);
     } finally {
       projectLoading = false;
     }
@@ -209,7 +212,7 @@
       await loadHookStatus();
     } catch (requestError) {
       // Show the API error message if available, otherwise a generic message
-      hookConfigError = requestError?.message
+      hookConfigError = requestError instanceof Error && requestError.message
         ? requestError.message
         : t("authHook.error.saveFailed");
       hookConfig = { ...hookConfig, secret: "" };

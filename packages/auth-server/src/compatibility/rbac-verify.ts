@@ -2,13 +2,44 @@
 // Short-lived read-only probe used after SupaCloud hosted migrations are applied.
 
 import postgres from 'postgres';
+import { Type, decodeSchema, type Static, type TSchema } from '../../../shared/src/schema.js';
 
-export interface UnsafePolicyRow {
-  schemaname: string;
-  tablename: string;
-  policyname: string;
-  qual: string | null;
-  with_check: string | null;
+const nullableBoolean = Type.Union([Type.Boolean(), Type.Null()]);
+const HelperStateSchema = Type.Object({
+  authorize_exists: nullableBoolean,
+  has_permission_exists: nullableBoolean,
+  has_org_permission_exists: nullableBoolean,
+  current_project_claims_exists: nullableBoolean,
+  current_permission_claims_exists: nullableBoolean,
+  legacy_webhooks_absent: nullableBoolean,
+  legacy_webhook_deliveries_absent: nullableBoolean,
+  authorize_granted: nullableBoolean,
+  has_permission_granted: nullableBoolean,
+  has_org_permission_granted: nullableBoolean,
+  current_project_claims_granted: nullableBoolean,
+  current_permission_claims_granted: nullableBoolean,
+  current_permission_claims_public_revoked: nullableBoolean,
+  current_permission_claims_anon_revoked: nullableBoolean,
+  current_permission_claims_security_definer: nullableBoolean,
+  current_permission_claims_search_path_hardened: nullableBoolean,
+});
+const UnsafePolicyRowSchema = Type.Object({
+  schemaname: Type.String(),
+  tablename: Type.String(),
+  policyname: Type.String(),
+  qual: Type.Union([Type.String(), Type.Null()]),
+  with_check: Type.Union([Type.String(), Type.Null()]),
+});
+export type UnsafePolicyRow = Static<typeof UnsafePolicyRowSchema>;
+
+function decodeProbeRows<S extends TSchema>(schema: S, value: unknown): Static<S> {
+  try {
+    if (!Array.isArray(value)) throw new Error('Invalid database result container');
+    // postgres Result 自带查询元数据；只归一数组容器，行内容仍须严格解码。
+    return decodeSchema(schema, Array.from(value));
+  } catch {
+    throw new Error('RBAC verification returned an invalid database row');
+  }
 }
 
 export interface RbacDbVerification {
@@ -110,24 +141,7 @@ async function probe(sql: ReturnType<typeof postgres>): Promise<RbacDbVerificati
       current_permission_contract.search_path_hardened AS current_permission_claims_search_path_hardened
     FROM helpers
     LEFT JOIN current_permission_contract ON true`;
-  const helperRow = ((helperState as unknown as Array<{
-    authorize_exists: boolean | null;
-    has_permission_exists: boolean | null;
-    has_org_permission_exists: boolean | null;
-    current_project_claims_exists: boolean | null;
-    current_permission_claims_exists: boolean | null;
-    legacy_webhooks_absent: boolean | null;
-    legacy_webhook_deliveries_absent: boolean | null;
-    authorize_granted: boolean | null;
-    has_permission_granted: boolean | null;
-    has_org_permission_granted: boolean | null;
-    current_project_claims_granted: boolean | null;
-    current_permission_claims_granted: boolean | null;
-    current_permission_claims_public_revoked: boolean | null;
-    current_permission_claims_anon_revoked: boolean | null;
-    current_permission_claims_security_definer: boolean | null;
-    current_permission_claims_search_path_hardened: boolean | null;
-  }>)[0] ?? {
+  const helperRow = decodeProbeRows(Type.Array(HelperStateSchema), helperState)[0] ?? {
     authorize_exists: null,
     has_permission_exists: null,
     has_org_permission_exists: null,
@@ -144,7 +158,7 @@ async function probe(sql: ReturnType<typeof postgres>): Promise<RbacDbVerificati
     current_permission_claims_anon_revoked: null,
     current_permission_claims_security_definer: null,
     current_permission_claims_search_path_hardened: null,
-  });
+  };
   result.authorizeExists = helperRow.authorize_exists === true;
   result.hasPermissionExists = helperRow.has_permission_exists === true;
   result.hasOrgPermissionExists = helperRow.has_org_permission_exists === true;
@@ -168,20 +182,13 @@ async function probe(sql: ReturnType<typeof postgres>): Promise<RbacDbVerificati
     SELECT schemaname, tablename, policyname, qual, with_check
     FROM pg_policies
     WHERE qual ~* ${pattern} OR with_check ~* ${pattern}`;
-  const unsafeRows = unsafe as unknown as Array<Record<string, unknown>>;
-  result.unsafePolicies = unsafeRows.map((row) => ({
-    schemaname: String(row.schemaname ?? ''),
-    tablename: String(row.tablename ?? ''),
-    policyname: String(row.policyname ?? ''),
-    qual: (row.qual as string | null) ?? null,
-    with_check: (row.with_check as string | null) ?? null,
-  }));
+  result.unsafePolicies = decodeProbeRows(Type.Array(UnsafePolicyRowSchema), unsafe);
 
   return result;
 }
 
 export async function verifyRbacAgainstDatabase(databaseUrl?: string): Promise<RbacDbVerification> {
-  const url = databaseUrl || process.env.SUPACLOUD_DATABASE_URL || process.env.SUPABASE_DB_URL || '';
+  const url = databaseUrl || process.env["SUPACLOUD_DATABASE_URL"] || process.env["SUPABASE_DB_URL"] || '';
   if (!url) return { reachable: false };
 
   const sql = postgres(url, {

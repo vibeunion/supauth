@@ -3,7 +3,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWTVerifyG
 import { handleCustomAccessToken } from '../../packages/auth-server/src/auth/hooks-bridge';
 import { AuthorizationForbiddenError, AuthorizationUnavailableError, assertCan, permission, resolveAuthorization } from '../../packages/authorization-core/src/index';
 
-const enabled = process.env.RUN_SUPACLOUD_IDENTITY_CONTRACTS === '1';
+const enabled = process.env["RUN_SUPACLOUD_IDENTITY_CONTRACTS"] === '1';
 const issuer = 'https://identity.example.test/auth/v1';
 const clientId = '00000000-0000-4000-8000-000000000001';
 const projectId = 'fa-project-ref';
@@ -59,7 +59,7 @@ describe.skipIf(!enabled)('SupAuth hook -> signed token -> SupaCloud -> applicat
   let resolver: JWTVerifyGetKey;
 
   beforeAll(async () => {
-    const entry = process.env.SUPACLOUD_ELYSIA_ENTRY;
+    const entry = process.env["SUPACLOUD_ELYSIA_ENTRY"];
     if (!entry) throw new Error('SUPACLOUD_ELYSIA_ENTRY is required; the enabled gate must not skip');
     // 仅加载可信构建目录；不复制或模拟上游令牌验证实现。
     runtime = await import(entry);
@@ -79,9 +79,9 @@ describe.skipIf(!enabled)('SupAuth hook -> signed token -> SupaCloud -> applicat
     };
     const output = handleCustomAccessToken({ claims }, { items: [], total: 0, truncated: false }, projectId);
     if (!('claims' in output)) throw new Error('Hook rejected the fixture before signing');
-    expect(output.claims.client_id).toBe(claims.client_id);
-    expect(output.claims.azp).toBe(patch.azp);
-    expect(output.claims.scope).toBe(claims.scope);
+    expect(output.claims["client_id"]).toBe(claims.client_id);
+    expect(output.claims["azp"]).toBe(patch["azp"]);
+    expect(output.claims["scope"]).toBe(claims.scope);
     // 本地测试密钥代替 GoTrue 签名，不代表已经验证线上签发或刷新流程。
     return new SignJWT(output.claims).setProtectedHeader({ alg: 'ES256', kid: 'local-test' }).sign(keys.privateKey);
   }

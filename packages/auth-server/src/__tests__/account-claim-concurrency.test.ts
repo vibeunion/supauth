@@ -9,12 +9,10 @@ let expectedSelects = 1;
 let selectCount = 0;
 let deactivateBeforeReservation = false;
 let ambiguousExternalIdCandidates = false;
-let accountRecord: Record<string, any>;
+let accountRecord: Record<string, unknown>;
 
 function deferredSignal() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((complete) => { resolve = complete; });
-  return { promise, resolve };
+  return Promise.withResolvers<void>();
 }
 
 function resetSelectBarrier(count: number): void {
@@ -33,32 +31,32 @@ async function waitForSelectBarrier(): Promise<void> {
   });
 }
 
-function applyMutation(values: Record<string, unknown>): Record<string, any>[] {
-  const isReservation = typeof values.claimOperationId === 'string';
+function applyMutation(values: Record<string, unknown>): Record<string, unknown>[] {
+  const isReservation = typeof values["claimOperationId"] === 'string';
   if (isReservation) {
     if (deactivateBeforeReservation) {
-      accountRecord.sourceStatus = 'terminated';
+      accountRecord["sourceStatus"] = 'terminated';
       deactivateBeforeReservation = false;
     }
-    if (!['active', '正常'].includes(accountRecord.sourceStatus)) return [];
-    const leaseActive = accountRecord.claimLeaseExpiresAt instanceof Date
-      && accountRecord.claimLeaseExpiresAt > new Date();
-    if (accountRecord.claimState === 'pending' && values.claimMode === 'set_on_claim') return [];
-    if (accountRecord.claimState !== 'ready' && leaseActive) return [];
+    if (accountRecord['sourceStatus'] !== 'active' && accountRecord['sourceStatus'] !== '正常') return [];
+    const leaseActive = accountRecord["claimLeaseExpiresAt"] instanceof Date
+      && accountRecord["claimLeaseExpiresAt"] > new Date();
+    if (accountRecord["claimState"] === 'pending' && values["claimMode"] === 'set_on_claim') return [];
+    if (accountRecord["claimState"] !== 'ready' && leaseActive) return [];
   }
   Object.assign(accountRecord, values);
   return [{ ...accountRecord }];
 }
 
 function mutationQuery(values: Record<string, unknown>) {
-  let mutationResult: Record<string, any>[] | null = null;
+  let mutationResult: Record<string, unknown>[] | null = null;
   const applyOnce = () => {
     mutationResult ||= applyMutation(values);
     return mutationResult;
   };
   return {
     returning: async () => applyOnce(),
-    then: (resolve: (rows: Record<string, any>[]) => unknown) => Promise.resolve(applyOnce()).then(resolve),
+    then: (resolve: (rows: Record<string, unknown>[]) => unknown) => Promise.resolve(applyOnce()).then(resolve),
   };
 }
 
@@ -95,13 +93,13 @@ function claimInput(passwordMode: 'show_initial_password' | 'set_on_claim', newP
     displayName: '张三',
     claimProof: CLAIM_PROOF,
     passwordMode,
-    newPassword,
+    ...(newPassword === undefined ? {} : { newPassword }),
   };
 }
 
 describe('account claim atomic state machine', () => {
   beforeEach(() => {
-    process.env.ACCOUNT_CLAIM_SECRET = CLAIM_SECRET;
+    process.env["ACCOUNT_CLAIM_SECRET"] = CLAIM_SECRET;
     resetSelectBarrier(1);
     deactivateBeforeReservation = false;
     ambiguousExternalIdCandidates = false;
@@ -145,8 +143,8 @@ describe('account claim atomic state machine', () => {
 
     expect(outcomes.map((outcome) => outcome.status).sort()).toEqual(['claimed', 'unavailable']);
     expect(updatePassword).toHaveBeenCalledTimes(1);
-    expect(accountRecord.initialPasswordClaimed).toBe(true);
-    expect(accountRecord.claimProofHash).toBeNull();
+    expect(accountRecord["initialPasswordClaimed"]).toBe(true);
+    expect(accountRecord["claimProofHash"]).toBeNull();
     expect(JSON.stringify(auditCalls.mock.calls)).not.toContain(CLAIM_PROOF);
   });
 
@@ -172,7 +170,7 @@ describe('account claim atomic state machine', () => {
     });
 
     expect(outcome).toEqual({ status: 'unavailable' });
-    expect(accountRecord.initialPasswordClaimed).toBe(false);
+    expect(accountRecord["initialPasswordClaimed"]).toBe(false);
   });
 
   test('deactivation before the reservation CAS prevents any password update', async () => {
@@ -185,15 +183,15 @@ describe('account claim atomic state machine', () => {
 
     expect(outcome).toEqual({ status: 'unavailable' });
     expect(updatePassword).not.toHaveBeenCalled();
-    expect(accountRecord.initialPasswordClaimed).toBe(false);
-    expect(accountRecord.claimState).toBe('ready');
+    expect(accountRecord["initialPasswordClaimed"]).toBe(false);
+    expect(accountRecord["claimState"]).toBe('ready');
   });
 
   test('deactivation after the reservation still finalizes the authorized claim', async () => {
     const updateStarted = deferredSignal();
     const releaseUpdate = deferredSignal();
     const updatePassword = mock(async () => {
-      accountRecord.sourceStatus = 'terminated';
+      accountRecord["sourceStatus"] = 'terminated';
       updateStarted.resolve();
       await releaseUpdate.promise;
     });
@@ -205,8 +203,8 @@ describe('account claim atomic state machine', () => {
     releaseUpdate.resolve();
 
     await expect(claimPromise).resolves.toMatchObject({ status: 'claimed', passwordSet: true });
-    expect(accountRecord.sourceStatus).toBe('terminated');
-    expect(accountRecord.initialPasswordClaimed).toBe(true);
+    expect(accountRecord["sourceStatus"]).toBe('terminated');
+    expect(accountRecord["initialPasswordClaimed"]).toBe(true);
     expect(updatePassword).toHaveBeenCalledTimes(1);
   });
 
@@ -221,8 +219,8 @@ describe('account claim atomic state machine', () => {
       ...claimInput('set_on_claim', 'FirstPass123!'),
       updatePassword,
     })).rejects.toThrow('upstream timeout');
-    accountRecord.claimLeaseExpiresAt = new Date(Date.now() - 1);
-    expect(accountRecord.claimState).toBe('password_update_unknown');
+    accountRecord["claimLeaseExpiresAt"] = new Date(Date.now() - 1);
+    expect(accountRecord["claimState"]).toBe('password_update_unknown');
 
     const changedPassword = await accountProvisioning.claimAccount({
       ...claimInput('set_on_claim', 'DifferentPass123!'),
@@ -251,7 +249,7 @@ describe('account claim atomic state machine', () => {
       updatePassword,
     });
     await updateStarted.promise;
-    accountRecord.claimLeaseExpiresAt = new Date(Date.now() - 1);
+    accountRecord["claimLeaseExpiresAt"] = new Date(Date.now() - 1);
 
     const secondClaim = await accountProvisioning.claimAccount({
       ...claimInput('set_on_claim', 'FirstPass123!'),
@@ -273,9 +271,9 @@ describe('account claim atomic state machine', () => {
       isDefinitivePasswordRejection: () => true,
     })).rejects.toThrow('weak password');
 
-    expect(accountRecord.claimState).toBe('ready');
-    expect(accountRecord.claimPasswordHash).toBeNull();
-    expect(accountRecord.claimProofHash).not.toBeNull();
+    expect(accountRecord["claimState"]).toBe('ready');
+    expect(accountRecord["claimPasswordHash"]).toBeNull();
+    expect(accountRecord["claimProofHash"]).not.toBeNull();
 
     const acceptedUpdate = mock(async () => {});
     const corrected = await accountProvisioning.claimAccount({

@@ -1,8 +1,9 @@
 import type { AdminPrincipal } from '../auth/admin-permissions.js';
-import type { SecurityConfigRow } from '../repositories/security-config.js';
 import { ApiContractError } from '../utils/api-contract.js';
+import { ConfigurationSecurityInputSchema, type ConfigurationSecurityInput } from '../../../shared/src/server-configuration.js';
+import { decodeSchema } from '../../../shared/src/schema.js';
 
-type SecurityConfigUpdate = Partial<Omit<SecurityConfigRow, 'id'>>;
+type SecurityConfigUpdate = ConfigurationSecurityInput;
 type FieldValidator = (candidate: unknown) => unknown;
 
 export interface SecurityConfigValidationContext {
@@ -36,13 +37,13 @@ function boundedInteger(field: string, maximum: number): FieldValidator {
   };
 }
 
-function boundedStringList(field: string): FieldValidator {
+function boundedStringList(field: string): (candidate: unknown) => string[] {
   return (candidate) => {
-    const entries = Array.isArray(candidate) ? [...candidate] : null;
+    const entries: unknown[] | null = Array.isArray(candidate) ? [...candidate] : null;
     if (
       !entries
       || entries.length > 1000
-      || !entries.every(entry => typeof entry === 'string'
+      || !entries.every((entry): entry is string => typeof entry === 'string'
         && entry.length > 0
         && entry.length <= 320
         && entry.trim() === entry)
@@ -54,7 +55,7 @@ function boundedStringList(field: string): FieldValidator {
 function emptyStringList(field: string): FieldValidator {
   const stringList = boundedStringList(field);
   return (candidate) => {
-    const entries = stringList(candidate) as string[];
+    const entries = stringList(candidate);
     if (entries.length > 0) throw invalidSecurityConfig(field);
     return entries;
   };
@@ -125,13 +126,19 @@ export function validatedSecurityConfigUpdate(
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw invalidSecurityConfig('body');
   }
-  const entries = Object.entries(body as Record<string, unknown>);
+  const entries: ReadonlyArray<[string, unknown]> = Object.entries(body);
   if (entries.length === 0) throw invalidSecurityConfig('body');
-  const update = Object.fromEntries(entries.map(([field, candidate]) => {
+  const validated = Object.fromEntries(entries.map(([field, candidate]): [string, unknown] => {
     const validator = SECURITY_CONFIG_VALIDATORS[field];
     if (!validator) throw invalidSecurityConfig(field);
     return [field, validator(candidate)];
-  })) as SecurityConfigUpdate;
+  }));
+  let update: ConfigurationSecurityInput;
+  try {
+    update = decodeSchema(ConfigurationSecurityInputSchema, validated);
+  } catch {
+    throw invalidSecurityConfig('body');
+  }
   assertSafeAdminAccessUpdate(update, context);
   return update;
 }

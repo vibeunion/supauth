@@ -1,26 +1,56 @@
 #!/usr/bin/env bun
+import { requireNumber } from "./tooling-values.js";
+import { isUnknownArray, parseJson } from "./tooling-values.js";
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { Type, decodeSchema, type Static } from '../packages/shared/src/schema.js';
 
 type JsonObject = Record<string, unknown>;
 
-export type SignInMethod = 'password' | 'magic_link' | 'phone_otp';
-
-interface BrandingContentItem {
-  icon?: string;
-  title?: string;
-  name?: string;
-  desc?: string;
-  description?: string;
-}
-
-interface BrandingContent {
-  layout?: 'features';
-  illustration?: 'security' | 'identity' | 'cloud';
-  items?: BrandingContentItem[];
-  features?: BrandingContentItem[];
-}
+const SignInMethodSchema = Type.Union([
+  Type.Literal('password'), Type.Literal('magic_link'), Type.Literal('phone_otp'),
+]);
+export type SignInMethod = Static<typeof SignInMethodSchema>;
+const BrandingContentItemSchema = Type.Object({
+  icon: Type.Optional(Type.String()),
+  title: Type.Optional(Type.String()),
+  name: Type.Optional(Type.String()),
+  desc: Type.Optional(Type.String()),
+  description: Type.Optional(Type.String()),
+}, { additionalProperties: false });
+const BrandingContentSchema = Type.Object({
+  layout: Type.Optional(Type.Literal('features')),
+  illustration: Type.Optional(Type.Union([
+    Type.Literal('security'), Type.Literal('identity'), Type.Literal('cloud'),
+  ])),
+  items: Type.Optional(Type.Array(BrandingContentItemSchema)),
+  features: Type.Optional(Type.Array(BrandingContentItemSchema)),
+}, { additionalProperties: false });
+const nullableString = Type.Optional(Type.Union([Type.String(), Type.Null()]));
+const SignInExperienceSchema = Type.Object({
+  branding: Type.Optional(Type.Object({
+    logo_url: nullableString,
+    favicon_url: nullableString,
+    primary_color: nullableString,
+    page_title: nullableString,
+    description: nullableString,
+    background_url: nullableString,
+    button_label: nullableString,
+    custom_css: nullableString,
+    content: Type.Optional(Type.Union([BrandingContentSchema, Type.Null()])),
+  }, { additionalProperties: false })),
+  sign_in_methods: Type.Optional(Type.Array(SignInMethodSchema)),
+  sign_up_enabled: Type.Optional(Type.Boolean()),
+  password_policy: Type.Optional(Type.Object({
+    min_length: Type.Optional(Type.Integer({ minimum: 6, maximum: 128 })),
+    require_uppercase: Type.Optional(Type.Boolean()),
+    require_lowercase: Type.Optional(Type.Boolean()),
+    require_numbers: Type.Optional(Type.Boolean()),
+    require_symbols: Type.Optional(Type.Boolean()),
+  }, { additionalProperties: false })),
+}, { additionalProperties: false });
+export type SignInExperiencePayload = Static<typeof SignInExperienceSchema>;
 
 export interface ApplySignInExperienceOptions {
   baseUrl: string;
@@ -35,32 +65,9 @@ export interface ApplySignInExperienceOptions {
   fetchImpl?: typeof fetch;
 }
 
-export interface SignInExperiencePayload {
-  branding?: {
-    logo_url?: string | null;
-    favicon_url?: string | null;
-    primary_color?: string | null;
-    page_title?: string | null;
-    description?: string | null;
-    background_url?: string | null;
-    button_label?: string | null;
-    custom_css?: string | null;
-    content?: BrandingContent | null;
-  };
-  sign_in_methods?: SignInMethod[];
-  sign_up_enabled?: boolean;
-  password_policy?: {
-    min_length?: number;
-    require_uppercase?: boolean;
-    require_lowercase?: boolean;
-    require_numbers?: boolean;
-    require_symbols?: boolean;
-  };
-}
-
 const DEFAULT_ENDPOINT_PATH = '/api/v1/sign-in-experience';
 const REQUEST_TIMEOUT_MS = 15_000;
-const ALLOWED_SIGN_IN_METHODS = new Set<SignInMethod>([
+const ALLOWED_SIGN_IN_METHODS = new Set<string>([
   'password',
   'magic_link',
   'phone_otp',
@@ -120,7 +127,7 @@ export function buildAuthConfigEndpoint(
 }
 
 function isRecord(value: unknown): value is JsonObject {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  return Boolean(value) && typeof value === 'object' && !isUnknownArray(value);
 }
 
 function assertKnownKeys(value: JsonObject, allowed: readonly string[], path: string) {
@@ -150,7 +157,7 @@ function assertOptionalBoolean(value: unknown, path: string) {
 }
 
 function validateStringArray(value: unknown, path: string) {
-  if (!Array.isArray(value)) throw new Error(`${path} must be an array.`);
+  if (!isUnknownArray(value)) throw new Error(`${path} must be an array.`);
   value.forEach((item, index) => {
     if (typeof item !== 'string' || !item.trim()) {
       throw new Error(`${path}[${index}] must be a non-empty string.`);
@@ -163,25 +170,25 @@ function validateBoundary(value: unknown) {
   if (value === undefined) return;
   if (!isRecord(value)) throw new Error('config.boundary must be a JSON object.');
   assertKnownKeys(value, ['supauth_owned', 'tenant_configured'], 'config.boundary');
-  if (value.supauth_owned !== undefined) validateStringArray(value.supauth_owned, 'config.boundary.supauth_owned');
-  if (value.tenant_configured !== undefined) {
-    validateStringArray(value.tenant_configured, 'config.boundary.tenant_configured');
+  if (value["supauth_owned"] !== undefined) validateStringArray(value["supauth_owned"], 'config.boundary.supauth_owned');
+  if (value["tenant_configured"] !== undefined) {
+    validateStringArray(value["tenant_configured"], 'config.boundary.tenant_configured');
   }
 }
 
 function validateContentItem(value: unknown, path: string) {
   if (!isRecord(value)) throw new Error(`${path} must be a JSON object.`);
   assertKnownKeys(value, ['icon', 'title', 'name', 'desc', 'description'], path);
-  assertOptionalString(value.icon, `${path}.icon`, { nonEmpty: true, maxLength: 32 });
-  assertOptionalString(value.title, `${path}.title`, { nonEmpty: true, maxLength: 255 });
-  assertOptionalString(value.name, `${path}.name`, { nonEmpty: true, maxLength: 255 });
-  assertOptionalString(value.desc, `${path}.desc`, { nonEmpty: true, maxLength: 1_000 });
-  assertOptionalString(value.description, `${path}.description`, { nonEmpty: true, maxLength: 1_000 });
+  assertOptionalString(value["icon"], `${path}.icon`, { nonEmpty: true, maxLength: 32 });
+  assertOptionalString(value["title"], `${path}.title`, { nonEmpty: true, maxLength: 255 });
+  assertOptionalString(value["name"], `${path}.name`, { nonEmpty: true, maxLength: 255 });
+  assertOptionalString(value["desc"], `${path}.desc`, { nonEmpty: true, maxLength: 1_000 });
+  assertOptionalString(value["description"], `${path}.description`, { nonEmpty: true, maxLength: 1_000 });
 
-  if (typeof value.icon === 'string' && !ALLOWED_CONTENT_ICONS.has(value.icon)) {
+  if (typeof value["icon"] === 'string' && !ALLOWED_CONTENT_ICONS.has(value["icon"])) {
     throw new Error(`${path}.icon must be one of: ${[...ALLOWED_CONTENT_ICONS].join(', ')}.`);
   }
-  const hasText = [value.title, value.name, value.desc, value.description]
+  const hasText = [value["title"], value["name"], value["desc"], value["description"]]
     .some(item => typeof item === 'string' && item.trim());
   if (!hasText) throw new Error(`${path} must provide title/name or desc/description.`);
 }
@@ -191,23 +198,23 @@ function validateBrandingContent(value: unknown, path: string) {
   if (!isRecord(value)) throw new Error(`${path} must be a JSON object or null.`);
   assertKnownKeys(value, ['layout', 'illustration', 'items', 'features'], path);
 
-  if (value.layout !== undefined && value.layout !== 'features') {
+  if (value["layout"] !== undefined && value["layout"] !== 'features') {
     throw new Error(`${path}.layout must be "features".`);
   }
-  if (value.illustration !== undefined) {
-    if (typeof value.illustration !== 'string' || !ALLOWED_ILLUSTRATIONS.has(value.illustration)) {
+  if (value["illustration"] !== undefined) {
+    if (typeof value["illustration"] !== 'string' || !ALLOWED_ILLUSTRATIONS.has(value["illustration"])) {
       throw new Error(`${path}.illustration must be one of: ${[...ALLOWED_ILLUSTRATIONS].join(', ')}.`);
     }
   }
-  if (value.items !== undefined && value.features !== undefined) {
+  if (value["items"] !== undefined && value["features"] !== undefined) {
     throw new Error(`${path} must not define both items and features.`);
   }
 
-  const entries = value.items ?? value.features;
+  const entries = value["items"] ?? value["features"];
   if (entries === undefined) return;
-  if (!Array.isArray(entries)) throw new Error(`${path}.${value.items !== undefined ? 'items' : 'features'} must be an array.`);
+  if (!isUnknownArray(entries)) throw new Error(`${path}.${value["items"] !== undefined ? 'items' : 'features'} must be an array.`);
   if (entries.length > 8) throw new Error(`${path} supports at most 8 feature items.`);
-  entries.forEach((item, index) => validateContentItem(item, `${path}.${value.items !== undefined ? 'items' : 'features'}[${index}]`));
+  entries.forEach((item, index) => validateContentItem(item, `${path}.${value["items"] !== undefined ? 'items' : 'features'}[${index}]`));
 }
 
 function validateBranding(value: unknown) {
@@ -224,39 +231,39 @@ function validateBranding(value: unknown) {
     'content',
   ], 'sign_in_experience.branding');
 
-  assertOptionalString(value.logo_url, 'sign_in_experience.branding.logo_url', { nullable: true, maxLength: 2_048 });
-  assertOptionalString(value.favicon_url, 'sign_in_experience.branding.favicon_url', { nullable: true, maxLength: 2_048 });
-  assertOptionalString(value.primary_color, 'sign_in_experience.branding.primary_color', { nullable: true, maxLength: 32 });
-  assertOptionalString(value.page_title, 'sign_in_experience.branding.page_title', {
+  assertOptionalString(value["logo_url"], 'sign_in_experience.branding.logo_url', { nullable: true, maxLength: 2_048 });
+  assertOptionalString(value["favicon_url"], 'sign_in_experience.branding.favicon_url', { nullable: true, maxLength: 2_048 });
+  assertOptionalString(value["primary_color"], 'sign_in_experience.branding.primary_color', { nullable: true, maxLength: 32 });
+  assertOptionalString(value["page_title"], 'sign_in_experience.branding.page_title', {
     nullable: false,
     nonEmpty: true,
     maxLength: 255,
   });
-  assertOptionalString(value.description, 'sign_in_experience.branding.description', { nullable: true, maxLength: 5_000 });
-  assertOptionalString(value.background_url, 'sign_in_experience.branding.background_url', { nullable: true, maxLength: 2_048 });
-  assertOptionalString(value.button_label, 'sign_in_experience.branding.button_label', { nullable: true, maxLength: 255 });
-  assertOptionalString(value.custom_css, 'sign_in_experience.branding.custom_css', { nullable: true, maxLength: 100_000 });
+  assertOptionalString(value["description"], 'sign_in_experience.branding.description', { nullable: true, maxLength: 5_000 });
+  assertOptionalString(value["background_url"], 'sign_in_experience.branding.background_url', { nullable: true, maxLength: 2_048 });
+  assertOptionalString(value["button_label"], 'sign_in_experience.branding.button_label', { nullable: true, maxLength: 255 });
+  assertOptionalString(value["custom_css"], 'sign_in_experience.branding.custom_css', { nullable: true, maxLength: 100_000 });
 
   if (
-    typeof value.primary_color === 'string'
-    && !/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value.primary_color)
+    typeof value["primary_color"] === 'string'
+    && !/^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value["primary_color"])
   ) {
     throw new Error('sign_in_experience.branding.primary_color must be a hexadecimal CSS color.');
   }
-  if (typeof value.page_title !== 'string' || !value.page_title.trim()) {
+  if (typeof value["page_title"] !== 'string' || !value["page_title"].trim()) {
     throw new Error('sign_in_experience.branding.page_title is required.');
   }
-  validateBrandingContent(value.content, 'sign_in_experience.branding.content');
+  validateBrandingContent(value["content"], 'sign_in_experience.branding.content');
 }
 
 function validateSignInMethods(value: unknown) {
   if (value === undefined) return;
-  if (!Array.isArray(value) || value.length === 0) {
+  if (!isUnknownArray(value) || value.length === 0) {
     throw new Error('sign_in_experience.sign_in_methods must be a non-empty array.');
   }
   const seen = new Set<string>();
   value.forEach((method, index) => {
-    if (typeof method !== 'string' || !ALLOWED_SIGN_IN_METHODS.has(method as SignInMethod)) {
+    if (typeof method !== 'string' || !ALLOWED_SIGN_IN_METHODS.has(method)) {
       throw new Error(
         `sign_in_experience.sign_in_methods[${index}] must be one of: ${[...ALLOWED_SIGN_IN_METHODS].join(', ')}.`,
       );
@@ -277,15 +284,15 @@ function validatePasswordPolicy(value: unknown) {
     'require_symbols',
   ], 'sign_in_experience.password_policy');
 
-  if (value.min_length !== undefined) {
-    if (!Number.isInteger(value.min_length) || (value.min_length as number) < 6 || (value.min_length as number) > 128) {
+  if (value["min_length"] !== undefined) {
+    if (!Number.isInteger(value["min_length"]) || (requireNumber(value["min_length"])) < 6 || (requireNumber(value["min_length"])) > 128) {
       throw new Error('sign_in_experience.password_policy.min_length must be an integer from 6 to 128.');
     }
   }
-  assertOptionalBoolean(value.require_uppercase, 'sign_in_experience.password_policy.require_uppercase');
-  assertOptionalBoolean(value.require_lowercase, 'sign_in_experience.password_policy.require_lowercase');
-  assertOptionalBoolean(value.require_numbers, 'sign_in_experience.password_policy.require_numbers');
-  assertOptionalBoolean(value.require_symbols, 'sign_in_experience.password_policy.require_symbols');
+  assertOptionalBoolean(value["require_uppercase"], 'sign_in_experience.password_policy.require_uppercase');
+  assertOptionalBoolean(value["require_lowercase"], 'sign_in_experience.password_policy.require_lowercase');
+  assertOptionalBoolean(value["require_numbers"], 'sign_in_experience.password_policy.require_numbers');
+  assertOptionalBoolean(value["require_symbols"], 'sign_in_experience.password_policy.require_symbols');
   mapPasswordRequiredCharacters(value);
 }
 
@@ -321,10 +328,10 @@ function validatePayload(candidate: JsonObject) {
     'sign_up_enabled',
     'password_policy',
   ], 'sign_in_experience');
-  validateBranding(candidate.branding);
-  validateSignInMethods(candidate.sign_in_methods);
-  assertOptionalBoolean(candidate.sign_up_enabled, 'sign_in_experience.sign_up_enabled');
-  validatePasswordPolicy(candidate.password_policy);
+  validateBranding(candidate["branding"]);
+  validateSignInMethods(candidate["sign_in_methods"]);
+  assertOptionalBoolean(candidate["sign_up_enabled"], 'sign_in_experience.sign_up_enabled');
+  validatePasswordPolicy(candidate["password_policy"]);
 }
 
 export function extractSignInExperiencePayload(config: unknown): SignInExperiencePayload {
@@ -334,37 +341,37 @@ export function extractSignInExperiencePayload(config: unknown): SignInExperienc
 
   if (hasEnvelope) {
     assertKnownKeys(config, ['name', 'description', 'boundary', 'sign_in_experience'], 'config');
-    assertOptionalString(config.name, 'config.name', { nonEmpty: true, maxLength: 255 });
-    assertOptionalString(config.description, 'config.description', { nonEmpty: true, maxLength: 5_000 });
-    validateBoundary(config.boundary);
-    if (!isRecord(config.sign_in_experience)) throw new Error('sign_in_experience must be a JSON object.');
-    candidate = config.sign_in_experience;
+    assertOptionalString(config["name"], 'config.name', { nonEmpty: true, maxLength: 255 });
+    assertOptionalString(config["description"], 'config.description', { nonEmpty: true, maxLength: 5_000 });
+    validateBoundary(config["boundary"]);
+    if (!isRecord(config["sign_in_experience"])) throw new Error('sign_in_experience must be a JSON object.');
+    candidate = config["sign_in_experience"];
   } else {
     candidate = config;
   }
 
   validatePayload(candidate);
-  return candidate as SignInExperiencePayload;
+  return decodeSchema(SignInExperienceSchema, candidate);
 }
 
 export function readSignInExperiencePayload(configPath: string) {
   const path = resolve(configPath);
-  const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  const parsed = (parseJson(readFileSync(path, 'utf8')));
   return extractSignInExperiencePayload(parsed);
 }
 
 export function buildAuthConfigPayload(payload: SignInExperiencePayload) {
   const authConfig: JsonObject = {};
   if (payload.sign_up_enabled !== undefined) {
-    authConfig.enable_signup = payload.sign_up_enabled;
-    authConfig.disable_signup = !payload.sign_up_enabled;
+    authConfig["enable_signup"] = payload.sign_up_enabled;
+    authConfig["disable_signup"] = !payload.sign_up_enabled;
   }
   if (payload.password_policy?.min_length !== undefined) {
-    authConfig.password_min_length = payload.password_policy.min_length;
+    authConfig["password_min_length"] = payload.password_policy.min_length;
   }
   const passwordRequiredCharacters = mapPasswordRequiredCharacters(payload.password_policy);
   if (passwordRequiredCharacters !== undefined) {
-    authConfig.password_required_characters = passwordRequiredCharacters;
+    authConfig["password_required_characters"] = passwordRequiredCharacters;
   }
   return authConfig;
 }
@@ -394,7 +401,7 @@ function resolveBearerToken(options: ApplySignInExperienceOptions) {
 function parseResponseBody(text: string): unknown {
   if (!text.trim()) return null;
   try {
-    return JSON.parse(text) as unknown;
+    return (parseJson(text));
   } catch {
     return text;
   }
@@ -430,8 +437,8 @@ function assertReadBackObject(value: unknown, stage: string): JsonObject {
 }
 
 function assertDeepSubset(actual: unknown, expected: unknown, path: string) {
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || actual.length !== expected.length) {
+  if (isUnknownArray(expected)) {
+    if (!isUnknownArray(actual) || actual.length !== expected.length) {
       throw new Error(`${path} read-back mismatch.`);
     }
     expected.forEach((item, index) => assertDeepSubset(actual[index], item, `${path}[${index}]`));
@@ -541,10 +548,10 @@ function parseArgs(argv: string[]) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--dry-run') {
-      args.dryRun = true;
+      args["dryRun"] = true;
       continue;
     }
-    if (!arg.startsWith('--')) continue;
+    if (arg === undefined || !arg.startsWith('--')) continue;
     const key = arg.slice(2);
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`Missing value for --${key}`);
@@ -557,17 +564,17 @@ function parseArgs(argv: string[]) {
 if (import.meta.main) {
   const args = parseArgs(Bun.argv.slice(2));
   const result = await applySignInExperience({
-    baseUrl: String(args['base-url'] || process.env.SUPAUTH_PUBLIC_URL || ''),
-    configPath: String(args.config || ''),
-    endpointPath: typeof args.path === 'string' ? args.path : undefined,
-    authConfigEndpointPath: typeof args['auth-config-path'] === 'string' ? args['auth-config-path'] : undefined,
+    baseUrl: String(args['base-url'] || process.env["SUPAUTH_PUBLIC_URL"] || ''),
+    configPath: String(args["config"] || ''),
+    ...(typeof args["path"] === 'string' ? { endpointPath: args["path"] } : {}),
+    ...(typeof args['auth-config-path'] === 'string' ? { authConfigEndpointPath: args['auth-config-path'] } : {}),
     bearerToken: String(
       args['bearer-token']
-      || args.token
-      || process.env.SUPAUTH_ADMIN_TOKEN
+      || args["token"]
+      || process.env["SUPAUTH_ADMIN_TOKEN"]
       || '',
     ),
-    dryRun: args.dryRun === true,
+    dryRun: args["dryRun"] === true,
   });
   console.log(JSON.stringify(result, null, 2));
 }

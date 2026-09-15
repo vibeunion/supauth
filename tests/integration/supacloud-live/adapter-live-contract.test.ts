@@ -1,3 +1,5 @@
+import { requireRecord } from "../../../scripts/tooling-values.js";
+import { isUnknownArray, requireDefined } from "../../../scripts/tooling-values.js";
 /**
  * P0-25: SupaCloud adapter live contract and response-shape gate
  *
@@ -37,10 +39,10 @@ const PUBLIC_PROJECT_FIELDS = new Set(['id', 'ref', 'project_ref', 'name']);
 const SENSITIVE_PROJECT_FIELD = /(?:config|database|connection|credential|jwt|key|secret|token)/i;
 
 function liveContractGates(environment: Record<string, string | undefined>): LiveContractGates {
-  const contract = environment.RUN_SUPACLOUD_LIVE_CONTRACT === '1';
+  const contract = environment["RUN_SUPACLOUD_LIVE_CONTRACT"] === '1';
   return {
     contract,
-    mutation: contract && environment.RUN_SUPACLOUD_LIVE_MUTATION === '1',
+    mutation: contract && environment["RUN_SUPACLOUD_LIVE_MUTATION"] === '1',
   };
 }
 
@@ -54,9 +56,9 @@ function redactedCapabilityError(failure: unknown): string {
 }
 
 function nestedFieldNames(candidate: unknown): string[] {
-  if (Array.isArray(candidate)) return candidate.flatMap(nestedFieldNames);
+  if (isUnknownArray(candidate)) return candidate.flatMap(nestedFieldNames);
   if (!candidate || typeof candidate !== 'object') return [];
-  return Object.entries(candidate as Record<string, unknown>).flatMap(([field, nested]) => (
+  return Object.entries(requireRecord(candidate)).flatMap(([field, nested]) => (
     [field, ...nestedFieldNames(nested)]
   ));
 }
@@ -72,14 +74,14 @@ let testProjectRef: string;
 
 beforeAll(() => {
   if (!gates.contract) return;
-  process.env.SUPACLOUD_API_URL = process.env.SUPACLOUD_API_URL || '';
-  process.env.SUPACLOUD_MASTER_TOKEN = process.env.SUPACLOUD_MASTER_TOKEN || '';
-  process.env.PROJECT_REF = process.env.PROJECT_REF || '';
-  process.env.OAUTH_RUNTIME_URL = process.env.OAUTH_RUNTIME_URL || '';
-  process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgres://noop';
+  process.env["SUPACLOUD_API_URL"] = process.env["SUPACLOUD_API_URL"] || '';
+  process.env["SUPACLOUD_MASTER_TOKEN"] = process.env["SUPACLOUD_MASTER_TOKEN"] || '';
+  process.env["PROJECT_REF"] = process.env["PROJECT_REF"] || '';
+  process.env["OAUTH_RUNTIME_URL"] = process.env["OAUTH_RUNTIME_URL"] || '';
+  process.env["DATABASE_URL"] = process.env["DATABASE_URL"] || 'postgres://noop';
   loadConfig();
   adapter = new SupaCloudAdapter();
-  testProjectRef = process.env.PROJECT_REF!;
+  testProjectRef = requireDefined(process.env["PROJECT_REF"]);
 });
 
 function recordCapability(path: string, method: string, supported: boolean, failure?: unknown) {
@@ -130,7 +132,7 @@ describeLive('SupaCloud adapter live contract', () => {
   // ─── Project ──────────────────────────────────────────────────
   it('getProject returns project envelope', async () => {
     try {
-      const project = await adapter.getProject() as Record<string, unknown>;
+      const project = requireRecord(await adapter.getProject());
       assertEnvelope(project, ['id']);
       recordCapability('/v1/projects/:ref', 'GET', true);
     } catch (e) {
@@ -143,7 +145,7 @@ describeLive('SupaCloud adapter live contract', () => {
     try {
       const { healthRoutes } = await import('../../../packages/auth-server/src/routes/health.js');
       const response = await healthRoutes.handle(new Request('http://localhost/v1/project'));
-      const project = await response.json() as Record<string, unknown>;
+      const project = requireRecord(await response.json());
       expect(response.status).toBe(200);
       assertEnvelope(project, ['id']);
       expect(Object.keys(project).every((field) => PUBLIC_PROJECT_FIELDS.has(field))).toBe(true);
@@ -158,7 +160,7 @@ describeLive('SupaCloud adapter live contract', () => {
   // ─── Auth config ──────────────────────────────────────────────
   it('getAuthConfig returns auth config envelope', async () => {
     try {
-      const config = await adapter.getAuthConfig() as Record<string, unknown>;
+      const config = requireRecord(await adapter.getAuthConfig());
       // Supabase Management API returns auth config with these fields
       const expectedFields = ['enable_signup', 'enable_confirmations'];
       assertEnvelope(config, expectedFields);
@@ -171,11 +173,11 @@ describeLive('SupaCloud adapter live contract', () => {
 
   itMutation('updateAuthConfig (PATCH) is idempotent', async () => {
     try {
-      const original = await adapter.getAuthConfig() as Record<string, unknown>;
+      const original = requireRecord(await adapter.getAuthConfig());
       // PATCH with same values → should be idempotent
-      const updatedConfig = await adapter.updateAuthConfig({
-        enable_signup: original.enable_signup,
-      }) as Record<string, unknown>;
+      const updatedConfig = requireRecord(await adapter.updateAuthConfig({
+        enable_signup: original["enable_signup"],
+      }));
       expect(updatedConfig).toBeDefined();
       recordCapability('/v1/projects/:ref/config/auth', 'PATCH', true);
     } catch (e) {
@@ -188,7 +190,7 @@ describeLive('SupaCloud adapter live contract', () => {
   it('listOAuthClients returns array envelope', async () => {
     try {
       const clients = await adapter.listOAuthClients();
-      expect(Array.isArray(clients)).toBe(true);
+      expect(isUnknownArray(clients)).toBe(true);
       recordCapability('/v1/projects/:ref/auth/oauth-clients', 'GET', true);
     } catch (e) {
       recordCapability('/v1/projects/:ref/auth/oauth-clients', 'GET', false, e);
@@ -200,27 +202,27 @@ describeLive('SupaCloud adapter live contract', () => {
     const clientName = `supaoauth-live-${randomUUID()}`;
     let clientId = '';
     try {
-      const created = await adapter.createOAuthClient({
+      const created = requireRecord(await adapter.createOAuthClient({
         client_name: clientName,
         client_type: 'confidential',
         redirect_uris: ['https://example.test/callback'],
         grant_types: ['authorization_code'],
-      }) as Record<string, unknown>;
-      clientId = String(created.client_id || created.id || '');
+      }));
+      clientId = String(created["client_id"] || created["id"] || '');
       expect(clientId).toBeTruthy();
-      const masterToken = process.env.SUPACLOUD_MASTER_TOKEN || '___not_set___';
+      const masterToken = process.env["SUPACLOUD_MASTER_TOKEN"] || '___not_set___';
       expect(JSON.stringify(created).includes(masterToken)).toBe(false);
       recordCapability('/v1/projects/:ref/auth/oauth-clients', 'POST', true);
 
-      const fetched = await adapter.getOAuthClient(clientId) as Record<string, unknown>;
+      const fetched = requireRecord(await adapter.getOAuthClient(clientId));
       expect(fetched).toBeDefined();
       recordCapability('/v1/projects/:ref/auth/oauth-clients/:clientId', 'GET', true);
 
-      const updated = await adapter.updateOAuthClient(clientId, {
+      const updated = requireRecord(await adapter.updateOAuthClient(clientId, {
         client_name: `${clientName}-updated`,
         redirect_uris: ['https://example.test/callback'],
         grant_types: ['authorization_code'],
-      }) as Record<string, unknown>;
+      }));
       expect(updated).toBeDefined();
       recordCapability('/v1/projects/:ref/auth/oauth-clients/:clientId', 'PUT', true);
     } finally {
@@ -235,7 +237,7 @@ describeLive('SupaCloud adapter live contract', () => {
   it('listProviders returns array envelope', async () => {
     try {
       const providers = await adapter.listProviders();
-      expect(Array.isArray(providers)).toBe(true);
+      expect(isUnknownArray(providers)).toBe(true);
       recordCapability('/v1/projects/:ref/auth/providers', 'GET', true);
     } catch (e) {
       recordCapability('/v1/projects/:ref/auth/providers', 'GET', false, e);
@@ -259,7 +261,7 @@ describeLive('SupaCloud adapter live contract', () => {
   it('listStorageBuckets returns array', async () => {
     try {
       const buckets = await adapter.listStorageBuckets();
-      expect(Array.isArray(buckets)).toBe(true);
+      expect(isUnknownArray(buckets)).toBe(true);
       recordCapability('/storage/v1/bucket', 'GET', true);
     } catch (e) {
       recordCapability('/storage/v1/bucket', 'GET', false, e);
@@ -298,7 +300,7 @@ describeLive('SupaCloud adapter live contract', () => {
       const verification = await adapter.verifyGatewayRoutes();
       expect(verification).toHaveProperty('ok');
       expect(verification).toHaveProperty('probes');
-      expect(Array.isArray(verification.probes)).toBe(true);
+      expect(isUnknownArray(verification.probes)).toBe(true);
       recordCapability('verifyGatewayRoutes', 'GET', true);
     } catch (e) {
       recordCapability('verifyGatewayRoutes', 'GET', false, e);
@@ -323,9 +325,9 @@ describeLive('SupaCloud adapter live contract', () => {
   });
 
   itMutation('reports optional MFA and domain capabilities when fixture values are provided', async () => {
-    const userId = process.env.SUPACLOUD_LIVE_USER_ID;
-    const factorId = process.env.SUPACLOUD_LIVE_MFA_FACTOR_ID;
-    const domain = process.env.SUPACLOUD_LIVE_DOMAIN;
+    const userId = process.env["SUPACLOUD_LIVE_USER_ID"];
+    const factorId = process.env["SUPACLOUD_LIVE_MFA_FACTOR_ID"];
+    const domain = process.env["SUPACLOUD_LIVE_DOMAIN"];
 
     if (userId && factorId) {
       await adapter.resetUserMfa(userId, factorId);
@@ -350,7 +352,7 @@ describeLive('SupaCloud adapter live contract', () => {
 
   // ─── Redacted fields ──────────────────────────────────────────
   it('master token is never in adapter responses', async () => {
-    const token = process.env.SUPACLOUD_MASTER_TOKEN || '';
+    const token = process.env["SUPACLOUD_MASTER_TOKEN"] || '';
     if (!token) return;
     const responses = await Promise.allSettled([
       adapter.listOAuthClients(),
@@ -365,15 +367,17 @@ describeLive('SupaCloud adapter live contract', () => {
   // ─── Timeout ──────────────────────────────────────────────────
   it('adapter requests timeout within 35s on unreachable host', async () => {
     const start = Date.now();
-    const unreachableAdapter = new SupaCloudAdapter() as unknown as {
-      apiUrl: string;
-      masterToken: string;
-      projectRef: string;
-      getProject: () => Promise<unknown>;
-    };
-    unreachableAdapter.apiUrl = 'http://192.0.2.1:9999';
-    unreachableAdapter.masterToken = 'test';
-    unreachableAdapter.projectRef = 'test';
+    const originalUrl = process.env['SUPACLOUD_API_URL'];
+    let unreachableAdapter: SupaCloudAdapter;
+    try {
+      process.env['SUPACLOUD_API_URL'] = 'http://192.0.2.1:9999';
+      loadConfig();
+      unreachableAdapter = new SupaCloudAdapter({ projectRef: 'test' });
+    } finally {
+      if (originalUrl === undefined) delete process.env['SUPACLOUD_API_URL'];
+      else process.env['SUPACLOUD_API_URL'] = originalUrl;
+      loadConfig();
+    }
     await expect(unreachableAdapter.getProject()).rejects.toBeInstanceOf(Error);
     expect(Date.now() - start).toBeLessThan(35_000);
   }, { timeout: 35_000 });
@@ -386,8 +390,8 @@ describeLive('SupaCloud adapter live contract', () => {
       console.log(`  ${status}: ${entry.method} ${entry.path}${entry.error ? ` — ${entry.error}` : ''}`);
     }
     console.log(`  Total: ${capabilityReport.length} paths tested, ${capabilityReport.filter(e => e.supported).length} supported`);
-    if (process.env.SUPACLOUD_CAPABILITY_REPORT_PATH) {
-      writeFileSync(process.env.SUPACLOUD_CAPABILITY_REPORT_PATH, `${JSON.stringify({
+    if (process.env["SUPACLOUD_CAPABILITY_REPORT_PATH"]) {
+      writeFileSync(process.env["SUPACLOUD_CAPABILITY_REPORT_PATH"], `${JSON.stringify({
         project_ref: testProjectRef,
         generated_at: new Date().toISOString(),
         capabilities: capabilityReport,

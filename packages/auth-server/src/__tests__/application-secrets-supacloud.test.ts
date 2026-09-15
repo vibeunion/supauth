@@ -1,3 +1,6 @@
+import { strictRecord } from './helpers/strict-values.js';
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 import type { AdminPrincipal } from '../auth/admin-permissions.js';
@@ -6,7 +9,7 @@ import { loadConfig } from '../config/index.js';
 
 describe('application secret lifecycle', () => {
   const originalFetch = globalThis.fetch;
-  const originalBffSigningSecret = process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
+  const originalBffSigningSecret = process.env["SUPAOAUTH_BFF_SIGNING_SECRET"];
   const bffSigningSecret = 'test-bff-signing-secret-0123456789abcdef';
   const adminPrincipal: AdminPrincipal = {
     id: 'application-test-admin',
@@ -19,28 +22,28 @@ describe('application secret lifecycle', () => {
   const calls: Array<{ url: string; method: string; body?: string }> = [];
 
   beforeEach(() => {
-    process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-    process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
-    process.env.SUPACLOUD_PROJECT_REF = 'test-project';
-    process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = bffSigningSecret;
-    delete process.env.SUPACLOUD_API_URL;
-    delete process.env.SUPACLOUD_MASTER_TOKEN;
-    delete process.env.PROJECT_REF;
-    delete process.env.OAUTH_RUNTIME_URL;
-    delete process.env.DATABASE_URL;
-    delete process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
+    process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+    process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
+    process.env["SUPACLOUD_PROJECT_REF"] = 'test-project';
+    process.env["SUPACLOUD_RUNTIME_URL"] = 'http://runtime.internal';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = bffSigningSecret;
+    delete process.env["SUPACLOUD_API_URL"];
+    delete process.env["SUPACLOUD_MASTER_TOKEN"];
+    delete process.env["PROJECT_REF"];
+    delete process.env["OAUTH_RUNTIME_URL"];
+    delete process.env["DATABASE_URL"];
+    delete process.env["SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF"];
     loadConfig();
 
     calls.length = 0;
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method || 'GET';
       calls.push({
         url,
         method,
-        body: typeof init?.body === 'string' ? init.body : undefined,
+        ...(typeof init?.body === 'string' ? { body: init.body } : {}),
       });
 
       if (method === 'GET' && new URL(url).pathname.endsWith('/auth/oauth-clients')) {
@@ -75,13 +78,13 @@ describe('application secret lifecycle', () => {
         status: 'active',
         secret: 'secret_once',
       }));
-    }) as unknown as typeof fetch;
+    }));
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    if (originalBffSigningSecret === undefined) delete process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
-    else process.env.SUPAOAUTH_BFF_SIGNING_SECRET = originalBffSigningSecret;
+    if (originalBffSigningSecret === undefined) delete process.env["SUPAOAUTH_BFF_SIGNING_SECRET"];
+    else process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = originalBffSigningSecret;
   });
 
   it('rejects unsupported per-client secret lifecycle operations', async () => {
@@ -113,7 +116,7 @@ describe('application secret lifecycle', () => {
       { requestId: 'application-list-request', principal: adminPrincipal },
       () => app.handle(new Request('http://supauth.local/v1/applications')),
     );
-    const payload = await response.json() as { items: Array<Record<string, unknown>>; total: number };
+    const payload = strictDecodeSchema(StrictType.Object({ "items": StrictType.Array(StrictType.Record(StrictType.String({ pattern: "^[\\s\\S]*$" }), StrictType.Unknown())), "total": StrictType.Number() }), await response.json());
 
     expect(response.status).toBe(200);
     expect(payload.total).toBe(1);
@@ -131,7 +134,7 @@ describe('application secret lifecycle', () => {
     const app = new Elysia().use(applicationRoutes);
 
     const response = await app.handle(new Request('http://supauth.local/v1/applications/client-one'));
-    const payload = await response.json() as Record<string, unknown>;
+    const payload = strictRecord(await response.json());
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ client_id: 'client-one', secret_configured: true });
@@ -150,7 +153,7 @@ describe('application secret lifecycle', () => {
         body: JSON.stringify({ client_name: 'Updated Client' }),
       })),
     );
-    const payload = await response.json() as Record<string, unknown>;
+    const payload = strictRecord(await response.json());
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ client_id: 'client-one', secret_configured: true });
@@ -158,7 +161,7 @@ describe('application secret lifecycle', () => {
   });
 
   it('uses oauthAuthorizationProjectRef for OAuth client management when configured', async () => {
-    process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'central-auth-project';
+    process.env["SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF"] = 'central-auth-project';
     loadConfig();
 
     const { applicationRoutes } = await import('../routes/applications.js');
@@ -182,11 +185,11 @@ describe('application secret lifecycle', () => {
   });
 
   it('does not convert unsupported per-client secret listing to an empty list', async () => {
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url, method: 'GET' });
       return Promise.resolve(new Response(JSON.stringify({ error: 'NOT_FOUND' }), { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { applicationRoutes } = await import('../routes/applications.js');
     const app = new Elysia().use(applicationRoutes);
@@ -195,15 +198,15 @@ describe('application secret lifecycle', () => {
   });
 
   it('returns a clear not-supported response for unsupported per-client secret writes', async () => {
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         url,
         method: init?.method || 'GET',
-        body: typeof init?.body === 'string' ? init.body : undefined,
+        ...(typeof init?.body === 'string' ? { body: init.body } : {}),
       });
       return Promise.resolve(new Response(JSON.stringify({ error: 'NOT_FOUND' }), { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { applicationRoutes } = await import('../routes/applications.js');
     const app = new Elysia().use(applicationRoutes);

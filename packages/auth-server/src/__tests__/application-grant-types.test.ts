@@ -1,3 +1,5 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { loadConfig } from '../config/index.js';
@@ -8,19 +10,19 @@ describe('GoTrue OAuth client grant type boundary', () => {
   const upstreamCalls: string[] = [];
 
   beforeEach(() => {
-    process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-    process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
-    process.env.SUPACLOUD_PROJECT_REF = 'test-project';
-    process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
-    delete process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
+    process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+    process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
+    process.env["SUPACLOUD_PROJECT_REF"] = 'test-project';
+    process.env["SUPACLOUD_RUNTIME_URL"] = 'http://runtime.internal';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
+    delete process.env["SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF"];
     loadConfig();
     upstreamCalls.length = 0;
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       upstreamCalls.push(url);
       return Promise.resolve(Response.json({ client_id: 'unexpected-upstream-call' }));
-    }) as unknown as typeof fetch;
+    }));
   });
 
   afterEach(() => {
@@ -43,9 +45,7 @@ describe('GoTrue OAuth client grant type boundary', () => {
         grant_types: ['authorization_code', grantType],
       }),
     }));
-    const payload = await response.json() as {
-      error?: { code?: string; details?: { allowed_grant_types?: string[]; unsupported_grant_types?: string[] } };
-    };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Optional(StrictType.Object({ "code": StrictType.Optional(StrictType.String()), "details": StrictType.Optional(StrictType.Object({ "allowed_grant_types": StrictType.Optional(StrictType.Array(StrictType.String())), "unsupported_grant_types": StrictType.Optional(StrictType.Array(StrictType.String())) })) })) }), await response.json());
 
     expect(response.status).toBe(400);
     expect(payload.error?.code).toBe('unsupported_grant_type');
@@ -85,7 +85,7 @@ describe('GoTrue OAuth client grant type boundary', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ redirect_uris: [redirectUri, redirectUri] }),
     }));
-    const payload = await response.json() as { error?: { code?: string } };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Optional(StrictType.Object({ "code": StrictType.Optional(StrictType.String()) })) }), await response.json());
 
     expect(response.status).toBe(400);
     expect(payload.error?.code).toBe('invalid_redirect_uris');

@@ -17,10 +17,10 @@
   ],
   "scripts": {
     "clean": "bun -e \"const fs = await import('node:fs/promises'); await fs.rm('dist', { recursive: true, force: true });\"",
-    "build": "bun run clean && bunx tsc -p tsconfig.json",
+    "build": "bun run clean && bunx tsc -p tsconfig.build.json",
     "prepack": "bun run build",
-    "typecheck": "bunx tsc --noEmit",
-    "test": "bun test"
+    "typecheck": "bunx tsc --noEmit && bunx tsc -p tsconfig.consumer-dom.json && bunx tsc -p tsconfig.consumer-worker.json",
+    "test": "bunx tsc --noEmit && bun test"
   },
   "publishConfig": {
     "access": "public",

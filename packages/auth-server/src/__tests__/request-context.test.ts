@@ -1,3 +1,5 @@
+import { strictRecord, strictInvoke, strictProperty, strictString } from './helpers/strict-values.js';
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash, createHmac } from 'node:crypto';
 import { loadConfig } from '../config/index.js';
@@ -71,12 +73,12 @@ describe('admin request context propagation', () => {
       if (process.env[key] !== undefined) originalConfigEnv[key] = process.env[key];
       delete process.env[key];
     }
-    process.env.SUPACLOUD_API_URL = 'http://supacloud.internal';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'master-token';
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = bffSigningSecret;
-    process.env.PROJECT_REF = 'test-project';
-    process.env.OAUTH_RUNTIME_URL = 'http://runtime.internal';
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
+    process.env["SUPACLOUD_API_URL"] = 'http://supacloud.internal';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = 'master-token';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = bffSigningSecret;
+    process.env["PROJECT_REF"] = 'test-project';
+    process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.internal';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
     loadConfig();
   });
 
@@ -91,7 +93,7 @@ describe('admin request context propagation', () => {
 
   it('keeps concurrent actor and request IDs isolated', async () => {
     const delegatedHeaders: Array<Record<string, string | null>> = [];
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       const url = new URL(String(input));
       delegatedHeaders.push({
@@ -106,7 +108,7 @@ describe('admin request context propagation', () => {
       });
       await new Promise(resolve => setTimeout(resolve, headers.get('x-supaoauth-actor-id') === 'admin-a' ? 5 : 0));
       return Response.json({ ok: true });
-    }) as unknown as typeof fetch;
+    }));
 
     const adapter = new SupaCloudAdapter();
     await Promise.all([
@@ -118,40 +120,37 @@ describe('admin request context propagation', () => {
       { actor: 'admin-a', request: 'request-a' },
       { actor: 'admin-b', request: 'request-b' },
     ]) {
-      const observed = delegatedHeaders.find((entry) => entry.actor === expected.actor);
-      expect(observed?.request).toBe(expected.request);
-      expect(observed?.method).toBe('GET');
-      expect(observed?.path).toBe('/v1/projects/test-project');
+      const observed = delegatedHeaders.find((entry) => entry["actor"] === expected.actor);
+      expect(observed?.["request"]).toBe(expected.request);
+      expect(observed?.["method"]).toBe('GET');
+      expect(observed?.["path"]).toBe('/v1/projects/test-project');
       const canonical = [
-        observed?.method,
-        observed?.path,
-        observed?.timestamp,
+        observed?.["method"],
+        observed?.["path"],
+        observed?.["timestamp"],
         expected.request,
         expected.actor,
         'admin',
-        observed?.bodySha256,
-        observed?.nonce,
+        observed?.["bodySha256"],
+        observed?.["nonce"],
       ].join('\n');
-      expect(observed?.bodySha256).toBe(emptyBodySha256);
-      expect(observed?.nonce).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
-      expect(observed?.signature).toBe(`v2=${createHmac('sha256', bffSigningSecret).update(canonical).digest('hex')}`);
+      expect(observed?.["bodySha256"]).toBe(emptyBodySha256);
+      expect(observed?.["nonce"]).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+      expect(observed?.["signature"]).toBe(`v2=${createHmac('sha256', bffSigningSecret).update(canonical).digest('hex')}`);
     }
   });
 
   it('prevents caller headers from replacing master authorization or delegated actor', async () => {
     let observedHeaders = new Headers();
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       observedHeaders = new Headers(init?.headers);
       return Promise.resolve(Response.json({ ok: true }));
-    }) as unknown as typeof fetch;
+    }));
 
-    const adapter = new SupaCloudAdapter() as unknown as {
-      masterToken: string;
-      request(path: string, options: RequestInit): Promise<unknown>;
-    };
-    const trustedAuthorization = `Bearer ${adapter.masterToken}`;
+    const adapter = new SupaCloudAdapter();
+    const trustedAuthorization = `Bearer ${strictString(strictProperty(adapter, 'masterToken'))}`;
     await withAdminRequestContext({ requestId: 'trusted-request', principal: principal('trusted-admin') }, () => (
-      adapter.request('/v1/projects/test-project', {
+      strictInvoke(adapter, 'request', '/v1/projects/test-project', {
         headers: {
           Authorization: 'Bearer attacker',
           'x-request-id': 'attacker-request',
@@ -182,19 +181,17 @@ describe('admin request context propagation', () => {
     let observedUrl = new URL('http://unused.invalid');
     let observedMethod = '';
     let observedHeaders = new Headers();
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       observedUrl = new URL(String(input));
       observedMethod = init?.method || 'GET';
       observedHeaders = new Headers(init?.headers);
       return Promise.resolve(Response.json({ ok: true }));
-    }) as unknown as typeof fetch;
+    }));
 
-    const adapter = new SupaCloudAdapter() as unknown as {
-      request(path: string, options: RequestInit): Promise<unknown>;
-    };
+    const adapter = new SupaCloudAdapter();
     const requestBody = '{"query":"alice bob"}';
     await withAdminRequestContext({ requestId: 'request-query-1', principal: principal('admin-query') }, () => (
-      adapter.request('/v1/projects/test-project/users?query=alice%20bob&limit=10', {
+      strictInvoke(adapter, 'request', '/v1/projects/test-project/users?query=alice%20bob&limit=10', {
         method: 'PATCH',
         body: requestBody,
       })
@@ -225,12 +222,12 @@ describe('admin request context propagation', () => {
     let auditPayload: Record<string, unknown> = {};
     let auditHeaders = new Headers();
     let requestBody = '';
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       requestBody = String(init?.body || '{}');
-      auditPayload = JSON.parse(requestBody) as Record<string, unknown>;
+      auditPayload = strictRecord(JSON.parse(requestBody));
       auditHeaders = new Headers(init?.headers);
       return Promise.resolve(Response.json({ id: 'audit-one' }));
-    }) as unknown as typeof fetch;
+    }));
 
     await withAdminRequestContext(
       { requestId: 'request-audit-1', principal: principal('admin-audit') },
@@ -243,9 +240,9 @@ describe('admin request context propagation', () => {
       }),
     );
 
-    expect(auditPayload.actor_id).toBe('admin-audit');
-    expect(auditPayload.actor_type).toBe('admin');
-    expect(auditPayload.details).toMatchObject({
+    expect(auditPayload["actor_id"]).toBe('admin-audit');
+    expect(auditPayload["actor_type"]).toBe('admin');
+    expect(auditPayload["details"]).toMatchObject({
       request_id: 'request-audit-1',
       project_ref: 'test-project',
     });
@@ -263,11 +260,11 @@ describe('admin request context propagation', () => {
   it('overrides direct audit event body actors with the trusted admin context', async () => {
     let requestBody = '';
     let requestHeaders = new Headers();
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       requestBody = String(init?.body || '{}');
       requestHeaders = new Headers(init?.headers);
       return Promise.resolve(Response.json({ id: 'audit-admin' }));
-    }) as unknown as typeof fetch;
+    }));
 
     const adapter = new SupaCloudAdapter();
     await withAdminRequestContext(
@@ -291,11 +288,11 @@ describe('admin request context propagation', () => {
   it('signs user audit events from a request context without impersonating master', async () => {
     let auditHeaders = new Headers();
     let requestBody = '';
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       auditHeaders = new Headers(init?.headers);
       requestBody = String(init?.body || '{}');
       return Promise.resolve(Response.json({ id: 'audit-user' }));
-    }) as unknown as typeof fetch;
+    }));
 
     await withRequestContext({ requestId: 'request-user-audit' }, () => logAudit({
       eventType: 'my_account.profile.updated',
@@ -305,9 +302,9 @@ describe('admin request context propagation', () => {
       resourceId: 'user-one',
     }));
 
-    const auditPayload = JSON.parse(requestBody) as Record<string, unknown>;
-    expect(auditPayload.actor_id).toBe('user-one');
-    expect(auditPayload.actor_type).toBe('user');
+    const auditPayload = strictRecord(JSON.parse(requestBody));
+    expect(auditPayload["actor_id"]).toBe('user-one');
+    expect(auditPayload["actor_type"]).toBe('user');
     expect(auditHeaders.get('authorization')).toBe('Bearer master-token');
     expect(auditHeaders.get('x-request-id')).toBe('request-user-audit');
     expect(auditHeaders.get('x-supaoauth-actor-id')).toBe('user-one');
@@ -324,11 +321,11 @@ describe('admin request context propagation', () => {
   it('signs background audit events with a stable system actor and safe request ID', async () => {
     let auditHeaders = new Headers();
     let requestBody = '';
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       auditHeaders = new Headers(init?.headers);
       requestBody = String(init?.body || '{}');
       return Promise.resolve(Response.json({ id: 'audit-system' }));
-    }) as unknown as typeof fetch;
+    }));
 
     await logAudit({
       eventType: 'sync.completed',
@@ -338,9 +335,9 @@ describe('admin request context propagation', () => {
       resourceId: 'sync-one',
     });
 
-    const auditPayload = JSON.parse(requestBody) as Record<string, unknown>;
-    expect(auditPayload.actor_id).toBe('supaoauth-system');
-    expect(auditPayload.actor_type).toBe('system');
+    const auditPayload = strictRecord(JSON.parse(requestBody));
+    expect(auditPayload["actor_id"]).toBe('supaoauth-system');
+    expect(auditPayload["actor_type"]).toBe('system');
     expect(auditHeaders.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
     expect(auditHeaders.get('x-supaoauth-actor-id')).toBe('supaoauth-system');
     expect(auditHeaders.get('x-supaoauth-actor-type')).toBe('system');
@@ -355,10 +352,10 @@ describe('admin request context propagation', () => {
 
   it('fails before fetch when user or admin audit actor proof is unavailable', async () => {
     let fetchCalls = 0;
-    globalThis.fetch = mock(() => {
+    globalThis.fetch = strictFetch(mock(() => {
       fetchCalls += 1;
       return Promise.resolve(Response.json({ id: 'unexpected-audit' }));
-    }) as unknown as typeof fetch;
+    }));
 
     await expect(logAudit({
       eventType: 'user.event',
@@ -391,15 +388,13 @@ describe('admin request context propagation', () => {
 
   it('strips delegated actor and proof headers when no trusted context exists', async () => {
     let observedHeaders = new Headers();
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       observedHeaders = new Headers(init?.headers);
       return Promise.resolve(Response.json({ ok: true }));
-    }) as unknown as typeof fetch;
+    }));
 
-    const adapter = new SupaCloudAdapter() as unknown as {
-      request(path: string, options: RequestInit): Promise<unknown>;
-    };
-    await adapter.request('/v1/projects/test-project', {
+    const adapter = new SupaCloudAdapter();
+    await strictInvoke(adapter, 'request', '/v1/projects/test-project', {
       headers: {
         Authorization: 'Bearer attacker',
         'x-request-id': 'attacker-request',
@@ -430,13 +425,13 @@ describe('admin request context propagation', () => {
 
   it('fails before fetch for invalid delegated proof configuration or request IDs', async () => {
     let fetchCalls = 0;
-    globalThis.fetch = mock(() => {
+    globalThis.fetch = strictFetch(mock(() => {
       fetchCalls += 1;
       return Promise.resolve(Response.json({ ok: true }));
-    }) as unknown as typeof fetch;
+    }));
 
     for (const secret of ['', 'short-secret', 'master-token']) {
-      process.env.SUPAOAUTH_BFF_SIGNING_SECRET = secret;
+      process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = secret;
       loadConfig();
       const adapter = new SupaCloudAdapter();
       await expect(withAdminRequestContext(
@@ -445,7 +440,7 @@ describe('admin request context propagation', () => {
       )).rejects.toThrow('SUPAOAUTH_BFF_SIGNING_SECRET');
     }
 
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = bffSigningSecret;
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = bffSigningSecret;
     loadConfig();
     const adapter = new SupaCloudAdapter();
     await expect(withAdminRequestContext(

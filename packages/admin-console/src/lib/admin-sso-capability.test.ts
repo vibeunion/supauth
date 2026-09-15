@@ -1,24 +1,34 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { describe, expect, test } from 'bun:test';
 import { createSSOAuthProvider } from '@svadmin/sso';
 import { requireAdminAuthenticatedFetch } from './admin-sso-capability.js';
+import { runLockOperation } from './providers/auth-fixtures.js';
 
 describe('admin SSO refresh capability', () => {
   test('fails explicitly when the provider cannot refresh and replay requests', () => {
     expect(() => requireAdminAuthenticatedFetch({})).toThrow('createAuthenticatedFetch');
   });
 
-  test('preserves the provider receiver when creating authenticated fetch', () => {
+  test('preserves the provider receiver when creating authenticated fetch', async () => {
+    const response = new Response('verified');
     const provider = {
       marker: 'bound',
       createAuthenticatedFetch(this: { marker: string }) {
         expect(this.marker).toBe('bound');
-        return fetch;
+        return async () => response;
       },
     };
 
-    expect(requireAdminAuthenticatedFetch(provider)).toBe(fetch);
+    expect(await requireAdminAuthenticatedFetch(provider)('https://example.test')).toBe(response);
+  });
+
+  test('rejects a non-callable factory result', () => {
+    expect(() => requireAdminAuthenticatedFetch({ createAuthenticatedFetch: () => 42 }))
+      .toThrow('callable fetch');
+  });
+
+  test('rejects a callable that returns an invalid response', async () => {
+    const fetcher = requireAdminAuthenticatedFetch({ createAuthenticatedFetch: () => async () => ({ ok: true }) });
+    await expect(fetcher('https://example.test')).rejects.toThrow('Response');
   });
 
   test('uses the installed provider capability and migrates its legacy session key', async () => {
@@ -60,17 +70,17 @@ describe('admin SSO refresh capability', () => {
     const browserWindow = {
       document: {},
       navigator: {
-        locks: { request: async (_name, operation) => operation() },
+        locks: { request: runLockOperation },
       },
       location: { href: 'https://admin.example.test/admin' },
       history: { replaceState: () => undefined },
       sessionStorage: {
-        getItem: (key) => storageValues.get(key) ?? null,
-        setItem: (key, value) => storageValues.set(key, value),
-        removeItem: (key) => storageValues.delete(key),
+        getItem: (key: string) => storageValues.get(key) ?? null,
+        setItem: (key: string, value: string) => storageValues.set(key, value),
+        removeItem: (key: string) => storageValues.delete(key),
       },
     };
-    globalThis.window = browserWindow;
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: browserWindow });
     const provider = createSSOAuthProvider({
       issuer: 'https://idp.example.test',
       clientId: 'admin-console',
@@ -82,10 +92,10 @@ describe('admin SSO refresh capability', () => {
         token_endpoint: 'https://idp.example.test/token',
         userinfo_endpoint: 'https://idp.example.test/userinfo',
       },
-      fetcher: async (_input, init) => {
+      fetcher: (async (_input: RequestInfo | URL, init?: RequestInit) => {
         tokenBodies.push(new URLSearchParams(String(init?.body)));
         return Response.json({ access_token: 'access-token', token_type: 'Bearer' });
-      },
+      }),
     });
 
     try {
@@ -98,12 +108,14 @@ describe('admin SSO refresh capability', () => {
       browserWindow.location.href = `https://admin.example.test/admin?code=issued-code&state=${authorizeUrl.searchParams.get('state')}`;
       expect(await provider.check()).toEqual({ authenticated: true });
       expect(tokenBodies).toHaveLength(1);
-      expect(tokenBodies[0].get('grant_type')).toBe('authorization_code');
-      expect(tokenBodies[0].has('code_verifier')).toBe(true);
-      expect(tokenBodies[0].has('client_secret')).toBe(false);
+      const tokenBody = tokenBodies[0];
+      if (!tokenBody) throw new Error('Expected token exchange request');
+      expect(tokenBody.get('grant_type')).toBe('authorization_code');
+      expect(tokenBody.has('code_verifier')).toBe(true);
+      expect(tokenBody.has('client_secret')).toBe(false);
     } finally {
       provider.destroy();
-      globalThis.window = originalWindow;
+      Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: originalWindow });
     }
   });
 });

@@ -1,4 +1,7 @@
-<script>
+<script lang="ts">
+  import { decodeSchema, JsonObjectSchema, type AdminEndpointResult } from '@supauth/shared';
+  import { errorMessage } from '$lib/resource-page.js';
+  type TenantConfig = AdminEndpointResult<'listTenantConfigs'>['items'][number];
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n.js';
   import { parseTenantConfigValue } from '$lib/tenant-settings.js';
@@ -6,12 +9,16 @@
 
   const configTypes = ['captcha', 'email_template', 'sms_template', 'domain', 'phrase', 'profile_field', 'branding_asset', 'account_center', 'account_claim'];
 
-  let configs = $state([]);
+  let configs = $state<TenantConfig[]>([]);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let form = $state({ type: 'captcha', key: 'default', value: '{\n  "provider": "none"\n}', enabled: true });
-  let domainCheck = $state(null);
+  let domainCheck = $state<AdminEndpointResult<'checkTenantDomain'> | {domain: string; status: 'error'; error: string} | null>(null);
   let formValue = $derived(parseTenantConfigValue(form.value));
+
+  function tenantConfigType(config: TenantConfig) {
+    return "configType" in config ? config.configType : config.config_type;
+  }
 
   async function load() {
     loading = true;
@@ -19,7 +26,7 @@
       const res = await listTenantConfigs();
       configs = res.items || [];
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     }
     loading = false;
   }
@@ -32,30 +39,32 @@
     error = null;
     try {
       await upsertTenantConfig(form.type, form.key, {
-        value: formValue.config,
+        value: decodeSchema(JsonObjectSchema, formValue.config),
         enabled: form.enabled,
       });
       await load();
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     }
   }
 
-  async function handleDelete(config) {
+  async function handleDelete(config: TenantConfig) {
     if (!confirm(t('Delete this tenant configuration?'))) return;
     try {
-      await deleteTenantConfig(config.configType || config.config_type, config.key);
+      const configType = tenantConfigType(config);
+      if (!configType) throw new Error(t('tenant.advanced.invalidJson'));
+      await deleteTenantConfig(configType, config.key);
       await load();
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     }
   }
 
-  async function handleDomainCheck(config) {
+  async function handleDomainCheck(config: TenantConfig) {
     try {
       domainCheck = await checkTenantDomain(config.key);
     } catch (e) {
-      domainCheck = { domain: config.key, status: 'error', error: e.message };
+      domainCheck = { domain: config.key, status: 'error', error: errorMessage(e) };
     }
   }
 
@@ -102,12 +111,12 @@
       <div class="bg-white rounded-xl border border-surface-200 p-5">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0 flex-1">
-            <p class="font-semibold text-surface-900">{t(`tenant.configType.${config.configType || config.config_type}`)} / {config.key}</p>
+            <p class="font-semibold text-surface-900">{t(`tenant.configType.${tenantConfigType(config)}`)} / {config.key}</p>
             <pre class="mt-2 max-w-full overflow-auto rounded-lg bg-surface-50 p-3 text-xs">{JSON.stringify(config.value, null, 2)}</pre>
           </div>
           <div class="flex items-center gap-3">
             <span class="text-xs px-2 py-0.5 rounded-full {config.enabled ? 'bg-green-100 text-green-700' : 'bg-surface-100 text-surface-500'}">{config.enabled ? t('Enabled') : t('Disabled')}</span>
-            {#if (config.configType || config.config_type) === 'domain'}
+            {#if tenantConfigType(config) === 'domain'}
               <button onclick={() => handleDomainCheck(config)} class="text-xs text-brand-600 hover:text-brand-800">{t('Check')}</button>
             {/if}
             <button onclick={() => handleDelete(config)} class="text-xs text-red-600 hover:text-red-800">{t('Delete')}</button>

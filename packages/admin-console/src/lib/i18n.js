@@ -3,6 +3,7 @@ import {
   syncDocumentLocale,
 } from "./document-locale.js";
 
+/** @type {Record<string, string>} */
 const en = {
   "auth.checking": "Checking admin session...",
   "auth.requiredTitle": "Admin login required",
@@ -1100,6 +1101,7 @@ const en = {
     "Structured login content must be valid JSON.",
 };
 
+/** @type {Record<string, string>} */
 const zhCN = {
   ...en,
   "auth.checking": "正在检查管理员会话...",
@@ -2475,6 +2477,7 @@ const zhCN = {
     "用于 Better Auth 这类在令牌请求体中发送客户端凭据的客户端。",
 };
 
+/** @type {Record<string, Record<string, string>>} */
 const dictionaries = {
   en,
   "en-US": en,
@@ -2486,12 +2489,13 @@ function storedLocale() {
   try {
     return globalThis.localStorage?.getItem("supaoauth.locale") || null;
   } catch (error) {
-    if (error?.name === "SecurityError") return null;
+    if (typeof error === "object" && error !== null && "name" in error && error.name === "SecurityError") return null;
     throw error;
   }
 }
 
 function localeCandidates() {
+  /** @type {string[]} */
   const candidates = [];
   const stored = storedLocale();
   if (stored) candidates.push(stored);
@@ -2509,6 +2513,10 @@ function preferredLocale() {
   return locale;
 }
 
+/**
+ * @param {string} key
+ * @param {Record<string, string | number | boolean | null | undefined>} [params]
+ */
 export function t(key, params = {}) {
   const locale = preferredLocale();
   const dictionary = dictionaries[locale] || en;

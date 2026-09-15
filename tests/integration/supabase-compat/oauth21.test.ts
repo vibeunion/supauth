@@ -1,3 +1,6 @@
+import { createFetchMock } from "../../tooling-test-values.js";
+import { requireRecord } from "../../../scripts/tooling-values.js";
+import { isUnknownArray, parseJson } from "../../../scripts/tooling-values.js";
 /**
  * Supabase OAuth 2.1 black-box compatibility tests (P0-9)
  *
@@ -40,19 +43,19 @@ import {
   SUPAOAUTH_CLAIM_KEYS,
 } from '../../../packages/shared/src/index.js';
 
-const STRICT_COMPAT = process.env.REQUIRE_SUPABASE_AUTH_COMPAT === '1';
-const RUN_LIVE = STRICT_COMPAT || process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
-const RUNTIME_URL = trimTrailingSlash(process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999');
-const CLIENT_ID = process.env.OAUTH21_CLIENT_ID || '';
-const REDIRECT_URI = process.env.OAUTH21_REDIRECT_URI || 'http://localhost:3000/oauth/callback';
-const ACCESS_TOKEN = process.env.OAUTH21_ACCESS_TOKEN || '';
-const REFRESH_TOKEN = process.env.OAUTH21_REFRESH_TOKEN || '';
-const CLIENT_SECRET = process.env.OAUTH21_CLIENT_SECRET || '';
-const TOKEN_AUTH_METHOD = process.env.OAUTH21_TOKEN_AUTH_METHOD || 'none';
-const LIVE_TIMEOUT_MS = parseInt(process.env.OAUTH21_TEST_TIMEOUT_MS || '30000', 10);
+const STRICT_COMPAT = process.env["REQUIRE_SUPABASE_AUTH_COMPAT"] === '1';
+const RUN_LIVE = STRICT_COMPAT || process.env["RUN_SUPABASE_OAUTH21_COMPAT"] === '1';
+const RUNTIME_URL = trimTrailingSlash(process.env["OAUTH_RUNTIME_URL"] || 'http://localhost:9999');
+const CLIENT_ID = process.env["OAUTH21_CLIENT_ID"] || '';
+const REDIRECT_URI = process.env["OAUTH21_REDIRECT_URI"] || 'http://localhost:3000/oauth/callback';
+const ACCESS_TOKEN = process.env["OAUTH21_ACCESS_TOKEN"] || '';
+const REFRESH_TOKEN = process.env["OAUTH21_REFRESH_TOKEN"] || '';
+const CLIENT_SECRET = process.env["OAUTH21_CLIENT_SECRET"] || '';
+const TOKEN_AUTH_METHOD = process.env["OAUTH21_TOKEN_AUTH_METHOD"] || 'none';
+const LIVE_TIMEOUT_MS = positiveIntegerFromEnv(process.env['OAUTH21_TEST_TIMEOUT_MS'], 30_000, 'OAUTH21_TEST_TIMEOUT_MS');
 const CURRENT_COMPAT_VERSION = 'v2.196.0';
 const SUPPORTED_COMPAT_VERSIONS = new Set(['v2.192.0', CURRENT_COMPAT_VERSION]);
-const EXPECTED_COMPAT_VERSION = process.env.SUPABASE_AUTH_COMPAT_VERSION || CURRENT_COMPAT_VERSION;
+const EXPECTED_COMPAT_VERSION = process.env["SUPABASE_AUTH_COMPAT_VERSION"] || CURRENT_COMPAT_VERSION;
 
 if (STRICT_COMPAT) {
   assertRequiredEnv([
@@ -94,17 +97,18 @@ function assertRequiredEnv(names: string[]) {
 
 type JsonObject = Record<string, unknown>;
 
-interface OAuthMetadata extends JsonObject {
-  issuer: string;
-  authorization_endpoint: string;
-  token_endpoint: string;
-  userinfo_endpoint?: string;
-  jwks_uri: string;
-  response_types_supported?: string[];
-  grant_types_supported?: string[];
-  code_challenge_methods_supported?: string[];
-  scopes_supported?: string[];
-}
+const OAuthMetadataSchema = Type.Object({
+  issuer: Type.String({ minLength: 1 }),
+  authorization_endpoint: Type.String({ minLength: 1 }),
+  token_endpoint: Type.String({ minLength: 1 }),
+  userinfo_endpoint: Type.Optional(Type.String({ minLength: 1 })),
+  jwks_uri: Type.String({ minLength: 1 }),
+  response_types_supported: Type.Optional(Type.Array(Type.String())),
+  grant_types_supported: Type.Optional(Type.Array(Type.String())),
+  code_challenge_methods_supported: Type.Optional(Type.Array(Type.String())),
+  scopes_supported: Type.Optional(Type.Array(Type.String())),
+});
+type OAuthMetadata = Static<typeof OAuthMetadataSchema>;
 
 describe('Supabase OAuth 2.1 compatibility fixture', () => {
   it('rejects a declared matrix version that differs from runtime health', () => {
@@ -122,8 +126,8 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
   });
 
   it('fails the live version boundary on health errors and mismatches', async () => {
-    const unavailableHealth = (() => Promise.resolve(new Response(null, { status: 503 }))) as unknown as typeof fetch;
-    const floorHealth = (() => Promise.resolve(Response.json({ version: 'v2.192.0' }))) as unknown as typeof fetch;
+    const unavailableHealth = createFetchMock(((() => Promise.resolve(new Response(null, { status: 503 })))));
+    const floorHealth = createFetchMock(((() => Promise.resolve(Response.json({ version: 'v2.192.0' })))));
 
     await expect(verifiedRuntimeVersion(unavailableHealth))
       .rejects.toThrow('GoTrue health check failed with status 503');
@@ -171,7 +175,7 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
   liveIt('keeps OIDC discovery aligned with OAuth metadata', async () => {
     const [oauthMetadata, oidcMetadata] = await Promise.all([
       getOAuthMetadata(),
-      getJson<OAuthMetadata>('/auth/v1/.well-known/openid-configuration'),
+      getJson('/auth/v1/.well-known/openid-configuration'),
     ]);
 
     expect(oidcMetadata.issuer).toBe(oauthMetadata.issuer);
@@ -199,8 +203,8 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
 
     expect(response.status).toBe(400);
     expect(response.ok).toBe(false);
-    const body = await response.json() as JsonObject;
-    expect(body.error).toBe('unsupported_grant_type');
+    const body = requireRecord(await response.json());
+    expect(body["error"]).toBe('unsupported_grant_type');
   });
 
   liveIt('does not expose UserInfo without a bearer token', async () => {
@@ -230,12 +234,16 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
   accessTokenLiveIt('OAuth access tokens include Supabase and OAuth client claims', async () => {
     const { header, payload } = decodeJwt(ACCESS_TOKEN);
     const metadata = await getOAuthMetadata();
-    const jwks = await fetch(metadata.jwks_uri).then((res) => res.json()) as { keys?: JsonObject[] };
+    const jwksResponse = await fetch(metadata.jwks_uri);
+    const jwksPayload: unknown = await jwksResponse.json();
+    const jwks = decodeSchema(Type.Object({
+      keys: Type.Array(Type.Record(StringKeySchema, Type.Unknown())),
+    }), jwksPayload);
 
     expectSupabaseOAuthAccessTokenPayload(payload, metadata.issuer);
 
-    if (header.kid && Array.isArray(jwks.keys)) {
-      expect(jwks.keys.some((key) => key.kid === header.kid)).toBe(true);
+    if (header["kid"] && isUnknownArray(jwks.keys)) {
+      expect(jwks.keys.some((key) => key["kid"] === header["kid"])).toBe(true);
     }
   });
 
@@ -250,8 +258,8 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     });
 
     expect(res.ok).toBe(true);
-    const body = await res.json() as JsonObject;
-    expect(body.sub).toBeDefined();
+    const body = requireRecord(await res.json());
+    expect(body["sub"]).toBeDefined();
   });
 
   refreshTokenLiveIt('refresh-token flow returns a bearer access token', async () => {
@@ -264,19 +272,19 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     }, tokenAuthHeaders());
 
     expect(res.ok).toBe(true);
-    const body = await res.json() as JsonObject;
-    expect(body.access_token).toBeDefined();
-    expect(body.token_type).toBe('bearer');
-    expect(body.expires_in).toBeDefined();
-    if (body.scope !== undefined) expectGrantedOAuthScope(body);
+    const body = requireRecord(await res.json());
+    expect(body["access_token"]).toBeDefined();
+    expect(body["token_type"]).toBe('bearer');
+    expect(body["expires_in"]).toBeDefined();
+    if (body["scope"] !== undefined) expectGrantedOAuthScope(body);
 
-    const { payload } = decodeJwt(String(body.access_token));
+    const { payload } = decodeJwt(String(body["access_token"]));
     expectSupabaseOAuthAccessTokenPayload(payload, metadata.issuer);
   });
 });
 
 async function getOAuthMetadata(): Promise<OAuthMetadata> {
-  return getJson<OAuthMetadata>('/auth/v1/.well-known/oauth-authorization-server');
+  return getJson('/auth/v1/.well-known/oauth-authorization-server');
 }
 
 async function verifiedRuntimeVersion(fetchImpl: typeof fetch = fetch): Promise<string> {
@@ -290,10 +298,10 @@ async function verifiedRuntimeVersion(fetchImpl: typeof fetch = fetch): Promise<
 }
 
 function runtimeVersionFromHealth(healthPayload: unknown): string {
-  if (!healthPayload || typeof healthPayload !== 'object' || Array.isArray(healthPayload)) {
+  if (!healthPayload || typeof healthPayload !== 'object' || isUnknownArray(healthPayload)) {
     throw new Error('GoTrue health response has no valid version');
   }
-  const runtimeVersion = (healthPayload as Record<string, unknown>).version;
+  const runtimeVersion = (requireRecord(healthPayload))["version"];
   if (typeof runtimeVersion !== 'string' || !/^v\d+\.\d+\.\d+$/.test(runtimeVersion)) {
     throw new Error('GoTrue health response has no valid version');
   }
@@ -309,13 +317,13 @@ function assertExpectedRuntimeVersion(runtimeVersion: string, expectedVersion: s
   }
 }
 
-async function getJson<T extends JsonObject>(path: string): Promise<T> {
+async function getJson(path: string): Promise<OAuthMetadata> {
   const res = await fetch(`${RUNTIME_URL}${path}`, {
     headers: { accept: 'application/json' },
   });
 
   expect(res.ok).toBe(true);
-  return await res.json() as T;
+  return decodeSchema(OAuthMetadataSchema, await res.json());
 }
 
 async function postForm(
@@ -349,10 +357,10 @@ function tokenAuthHeaders(): HeadersInit {
 }
 
 function expectSupabaseOAuthAccessTokenPayload(payload: JsonObject, issuer: string): void {
-  expect(payload.sub).toBeDefined();
-  expect(SUPABASE_RUNTIME_ROLES).toContain(payload.role as (typeof SUPABASE_RUNTIME_ROLES)[number]);
-  expect(payload.exp).toBeDefined();
-  expect(payload.iss).toBe(issuer);
+  expect(payload["sub"]).toBeDefined();
+  expect(SUPABASE_RUNTIME_ROLES.some(role => role === payload['role'])).toBe(true);
+  expect(payload["exp"]).toBeDefined();
+  expect(payload["iss"]).toBe(issuer);
   for (const claim of SUPABASE_REQUIRED_CLAIMS) {
     expect(payload).toHaveProperty(claim);
   }
@@ -367,18 +375,18 @@ function expectSupabaseOAuthAccessTokenPayload(payload: JsonObject, issuer: stri
   }
 
   if (CLIENT_ID) {
-    expect(payload.client_id).toBe(CLIENT_ID);
+    expect(payload["client_id"]).toBe(CLIENT_ID);
   }
 
   expectGrantedOAuthScope(payload);
 }
 
 function expectGrantedOAuthScope(body: JsonObject): void {
-  expect(typeof body.scope).toBe('string');
-  const grantedScopes = String(body.scope).split(/\s+/).filter(Boolean);
+  expect(typeof body["scope"]).toBe('string');
+  const grantedScopes = String(body["scope"]).split(/\s+/).filter(Boolean);
   expect(grantedScopes.length).toBeGreaterThan(0);
   for (const scope of grantedScopes) {
-    expect(SUPABASE_OAUTH_STANDARD_SCOPES).toContain(scope as (typeof SUPABASE_OAUTH_STANDARD_SCOPES)[number]);
+    expect(SUPABASE_OAUTH_STANDARD_SCOPES.some(knownScope => knownScope === scope)).toBe(true);
   }
 }
 
@@ -386,6 +394,9 @@ function decodeJwt(token: string): { header: JsonObject; payload: JsonObject } {
   const [encodedHeader, encodedPayload] = token.split('.');
   expect(encodedHeader).toBeDefined();
   expect(encodedPayload).toBeDefined();
+  if (encodedHeader === undefined || encodedPayload === undefined) {
+    throw new Error('JWT must contain header and payload segments');
+  }
 
   return {
     header: decodeJwtPart(encodedHeader),
@@ -396,7 +407,7 @@ function decodeJwt(token: string): { header: JsonObject; payload: JsonObject } {
 function decodeJwtPart(value: string): JsonObject {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-  return JSON.parse(atob(padded)) as JsonObject;
+  return requireRecord(parseJson(atob(padded)));
 }
 
 function expectEndpointPath(endpoint: string, expectedPath: string): void {
@@ -407,3 +418,5 @@ function expectEndpointPath(endpoint: string, expectedPath: string): void {
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
+import { Type, StringKeySchema, decodeSchema, type Static } from '../../../packages/shared/src/schema.js';
+import { positiveIntegerFromEnv } from '../../../scripts/tooling-values.js';

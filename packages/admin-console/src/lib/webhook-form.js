@@ -1,9 +1,23 @@
+// @ts-check
+/** @typedef {{type: string, guarantee?: unknown}} WebhookEventChoice */
+/** @param {unknown} candidate @returns {candidate is unknown[]} */
+function isArray(candidate) {
+  return Array.isArray(candidate);
+}
+
+/** @param {unknown} candidate @returns {candidate is WebhookEventChoice} */
+function isEventChoice(candidate) {
+  return candidate !== null && typeof candidate === "object"
+    && "type" in candidate && typeof candidate.type === "string";
+}
+
+/** @param {unknown} selectedEvents @param {unknown} availableEvents @returns {string[] | null} */
 export function normalizedWebhookSelection(selectedEvents, availableEvents) {
-  if (!Array.isArray(selectedEvents) || !Array.isArray(availableEvents)) return null;
+  if (!isArray(selectedEvents) || !isArray(availableEvents)) return null;
   const supportedEvents = new Set(availableEvents);
-  const normalizedEvents = selectedEvents.map((eventName) =>
-    typeof eventName === "string" ? eventName.trim() : ""
-  );
+  const entries = Array.from(selectedEvents);
+  if (!entries.every((eventName) => typeof eventName === "string")) return null;
+  const normalizedEvents = entries.map((eventName) => eventName.trim());
   if (
     normalizedEvents.length === 0 ||
     normalizedEvents.some((eventName) => !supportedEvents.has(eventName)) ||
@@ -12,15 +26,17 @@ export function normalizedWebhookSelection(selectedEvents, availableEvents) {
   return normalizedEvents;
 }
 
+/** @param {unknown} eventCatalog @param {unknown} availableEvents @returns {WebhookEventChoice[]} */
 export function webhookEventChoices(eventCatalog, availableEvents) {
-  const catalog = Array.isArray(eventCatalog) && eventCatalog.length
+  const catalog = isArray(eventCatalog) && eventCatalog.length
     ? eventCatalog
-    : (Array.isArray(availableEvents) ? availableEvents : [])
+    : (isArray(availableEvents) ? availableEvents : [])
       .map((eventType) => ({ type: eventType }));
+  /** @type {WebhookEventChoice[]} */
   const choices = [{ type: "*" }];
   const includedTypes = new Set(["*"]);
   for (const event of catalog) {
-    if (!event || typeof event.type !== "string" || includedTypes.has(event.type)) continue;
+    if (!isEventChoice(event) || includedTypes.has(event.type)) continue;
     includedTypes.add(event.type);
     choices.push(event);
   }

@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
     }
   },
   "files": [
@@ -19,8 +23,8 @@
     "clean": "bun -e \"const fs = await import('node:fs/promises'); await fs.rm('dist', { recursive: true, force: true });\"",
     "build": "bun run clean && bunx tsc -p tsconfig.json",
     "prepack": "bun run build",
-    "typecheck": "bunx tsc --noEmit",
-    "test": "bun test"
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json && bunx tsc -p tsconfig.test.json",
+    "test": "bunx tsc -p tsconfig.test.json && bun test"
   },
   "publishConfig": {
     "access": "public",
@@ -31,6 +35,9 @@
     "type": "git",
     "url": "git+https://github.com/vibeunion/supauth.git",
     "directory": "packages/shared"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.52"
   },
   "devDependencies": {
     "@types/bun": "^1.4.0",

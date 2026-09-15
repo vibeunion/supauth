@@ -23,7 +23,7 @@ function isLiteralLoopbackHttpAuthority(authority: string) {
 function authorityFromUrl(urlInput: string) {
   const schemeSeparator = urlInput.indexOf('://');
   if (schemeSeparator < 0) return '';
-  return urlInput.slice(schemeSeparator + 3).split(/[/?#]/, 1)[0];
+  return urlInput.slice(schemeSeparator + 3).split(/[/?#]/, 1)[0] ?? '';
 }
 
 function isExplicitExternalUrl(candidate: string) {

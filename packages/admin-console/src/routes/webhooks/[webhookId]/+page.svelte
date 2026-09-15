@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { WebhookView, WebhookDeliveryView, WebhookAction, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import type { AdminEndpointResult } from "@supauth/shared";
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
@@ -34,27 +36,28 @@
   ];
   const tabValues = tabs.map((tab) => tab.value);
 
-  let webhook = $state(null);
-  let deliveries = $state([]);
-  let selectedDelivery = $state(null);
+  type WebhookLocks = DurableMutationLocks<WebhookAction>;
+  let webhook = $state<WebhookView | null>(null);
+  let deliveries = $state<WebhookDeliveryView[]>([]);
+  let selectedDelivery = $state<WebhookDeliveryView | null>(null);
   let webhookForm = $state({ url: "", events: "", enabled: true });
   let loading = $state(true);
   let saving = $state(false);
   const mutationTracker = createOperationTracker((pending) => {
     saving = pending;
   });
-  let error = $state(null);
-  let webhookMutationLocks = $state({});
+  let error = $state<unknown>(null);
+  let webhookMutationLocks = $state<WebhookLocks>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   const replayOperations = createKeyedSingleFlightTracker();
-  let webhookId = $derived(page.params.webhookId);
+  let webhookId = $derived(page.params.webhookId || "");
   let activeTab = $derived(
     tabFromRoute(page.params.tab, tabValues, "settings"),
   );
   let loadGeneration = 0;
   let deliveryLoadGeneration = 0;
-  let loadedWebhookContext = $state(null);
+  let loadedWebhookContext = $state<ResourceLoadContext | null>(null);
   const WEBHOOK_LOCK_OWNER = "webhooks";
   const webhookMutationLockStore = createDurableMutationLockStore({
     storageKey: "supaoauth.admin.webhook-mutation-locks.v2",
@@ -70,11 +73,11 @@
     );
   }
 
-  function webhookMutationDescriptor(action, targetId) {
+  function webhookMutationDescriptor(action: WebhookAction, targetId: string) {
     return { action, ownerId: WEBHOOK_LOCK_OWNER, targetId };
   }
 
-  function updateWebhookMutationLocks(lockCommand) {
+  function updateWebhookMutationLocks(lockCommand: () => WebhookLocks) {
     try {
       webhookMutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -90,7 +93,7 @@
     updateWebhookMutationLocks(() => webhookMutationLockStore.restore());
   }
 
-  function stageWebhookMutation(action, targetId) {
+  function stageWebhookMutation(action: WebhookAction, targetId: string) {
     return updateWebhookMutationLocks(() =>
       webhookMutationLockStore.stage(
         webhookMutationLocks,
@@ -99,7 +102,7 @@
     );
   }
 
-  function clearWebhookMutationLock(action, targetId) {
+  function clearWebhookMutationLock(action: WebhookAction, targetId: string) {
     return updateWebhookMutationLocks(() =>
       webhookMutationLockStore.clear(
         webhookMutationLocks,
@@ -108,40 +111,41 @@
     );
   }
 
-  function recordWebhookMutationUnknown(action, targetId) {
+  function recordWebhookMutationUnknown(action: WebhookAction, targetId: string) {
     if (webhookMutationLocked(action, targetId)) return true;
     return stageWebhookMutation(action, targetId);
   }
 
-  function webhookMutationLocked(action, targetId) {
+  function webhookMutationLocked(action: WebhookAction, targetId: string) {
     return webhookMutationLockStore.isLocked(
       webhookMutationLocks,
       webhookMutationDescriptor(action, targetId),
     );
   }
 
-  function acknowledgeWebhookMutation(action, resourceId) {
+  function acknowledgeWebhookMutation(action: WebhookAction, resourceId: string) {
     if (!confirm(t("I have reconciled the authoritative webhook state."))) return;
     if (!confirm(t("Allow this high-impact webhook action to run again?"))) return;
     clearWebhookMutationLock(action, resourceId);
   }
 
-  function replayResourceId(ownerId, deliveryId) {
+  function replayResourceId(ownerId: string, deliveryId: string) {
     return `${ownerId}:${deliveryId}`;
   }
 
-  function webhookIdentity(webhookResponse) {
+  function webhookIdentity(webhookResponse: Pick<WebhookView, "id"> | null) {
     return typeof webhookResponse?.id === "string" ? webhookResponse.id : "";
   }
 
-  function deliveryIdentity(delivery) {
-    const identity =
-      delivery?.id || delivery?.delivery_id || delivery?.deliveryId;
+  function deliveryIdentity(delivery: unknown) {
+    if (!delivery || typeof delivery !== "object") return "";
+    const identity: unknown =
+      Reflect.get(delivery, "id") || Reflect.get(delivery, "delivery_id") || Reflect.get(delivery, "deliveryId");
     return typeof identity === "string" ? identity : "";
   }
 
-  function completeDeliveryList(response) {
-    const listedDeliveries = completeCursorCollectionItems(response);
+  function completeDeliveryList(response: AdminEndpointResult<"listWebhookDeliveries">) {
+    const listedDeliveries = completeCursorCollectionItems<WebhookDeliveryView>(response);
     if (listedDeliveries.every((entry) => deliveryIdentity(entry))) {
       return listedDeliveries;
     }
@@ -158,7 +162,7 @@
       .map((lock) => lock.targetId);
   }
 
-  function timestamp(value) {
+  function timestamp(value: string | null | undefined) {
     return value ? new Date(value).toLocaleString() : t("common.notAvailable");
   }
 
@@ -170,7 +174,7 @@
     };
   }
 
-  function isCurrentLoad(loadContext) {
+  function isCurrentLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(loadContext, currentLoadContext());
   }
 
@@ -180,7 +184,7 @@
       : null;
   }
 
-  function isCurrentMutation(operation) {
+  function isCurrentMutation(operation: Operation<ResourceLoadContext>) {
     return (
       mutationTracker.isCurrent(operation) &&
       isCurrentLoad(operation.ownerContext)
@@ -215,7 +219,7 @@
           { limit: 50 },
         );
         if (!isCurrentLoad(loadContext)) return;
-        deliveries = cursorCollectionPage(deliveryResponse).items;
+        deliveries = cursorCollectionPage<WebhookDeliveryView>(deliveryResponse).items;
       }
       if (!isCurrentLoad(loadContext)) return;
       webhookForm = {
@@ -231,7 +235,7 @@
     }
   }
 
-  async function runMutation(command) {
+  async function runMutation(command: (ownerId: string) => Promise<unknown>) {
     if (saving) return;
     const mutationContext = currentMutationContext();
     if (!mutationContext) return;
@@ -429,7 +433,7 @@
     }
   }
 
-  async function replayDelivery(deliveryId) {
+  async function replayDelivery(deliveryId: string) {
     const mutationContext = currentMutationContext();
     if (!mutationContext) return;
     const mutationResourceId = replayResourceId(
@@ -532,7 +536,7 @@
     }
   }
 
-  async function inspectDelivery(deliveryId) {
+  async function inspectDelivery(deliveryId: string) {
     const mutationContext = currentMutationContext();
     if (!mutationContext) return;
     const inspectGeneration = deliveryLoadGeneration + 1;
@@ -592,7 +596,7 @@
   </div>
 {/if}
 
-{#each ["rotate", "test"] as action (action)}
+{#each (["rotate", "test"] as const) as action (action)}
   {#if webhookMutationLocked(action, webhookId)}
     <div
       class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"

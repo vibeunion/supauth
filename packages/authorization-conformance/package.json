@@ -20,8 +20,8 @@
     "clean": "bun -e \"const fs = await import('node:fs/promises'); await fs.rm('dist', { recursive: true, force: true });\"",
     "build": "bun run clean && bunx tsc -p tsconfig.json",
     "prepack": "bun run build",
-    "typecheck": "bunx tsc --noEmit",
-    "test": "bun test"
+    "typecheck": "bunx tsc --noEmit && bunx tsc -p tsconfig.test.json",
+    "test": "bunx tsc -p tsconfig.test.json && bun test"
   },
   "publishConfig": {
     "access": "public",

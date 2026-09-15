@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from "@supauth/shared";
+  import { errorMessage } from "$lib/resource-page.js";
   import { onMount } from "svelte";
   import {
     getOAuthServerStatus,
@@ -13,24 +15,24 @@
   import { t } from "$lib/i18n.js";
   import { resolve } from "$app/paths";
 
-  let status = $state(null);
-  let discovery = $state(null);
-  let project = $state(null);
-  let compatReport = $state(null);
-  let capabilities = $state({});
+  let status = $state<AdminEndpointResult<"getOAuthServerStatus"> | null>(null);
+  let discovery = $state<AdminEndpointResult<"getDiscovery"> | null>(null);
+  let project = $state<AdminEndpointResult<"getProject"> | null>(null);
+  let compatReport = $state<AdminEndpointResult<"getCompatibilityReport"> | null>(null);
+  let capabilities = $state<AdminEndpointResult<"getCapabilities">["capabilities"]>({});
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let capabilitiesLoading = $state(true);
-  let capabilitiesError = $state(null);
+  let capabilitiesError = $state<unknown>(null);
 
   // Maps low-level migration status values to i18n keys; unknown values
   // fall back to the raw status text.
-  const MIGRATION_STATUS_KEYS = {
+  const MIGRATION_STATUS_KEYS: Record<string, string> = {
     oidc_es256_migrated: "dashboard.migrationStatus.oidcEs256Migrated",
     pending: "dashboard.migrationStatus.pending",
   };
 
-  function migrationStatusLabel(value) {
+  function migrationStatusLabel(value: string | null | undefined) {
     if (!value) return t("common.notAvailable");
     const key = MIGRATION_STATUS_KEYS[value];
     return key ? t(key) : value;
@@ -38,7 +40,7 @@
 
   // Truncates long internal project refs in the middle; the full value
   // stays available via the title tooltip.
-  function formatProjectRef(ref) {
+  function formatProjectRef(ref: string | undefined) {
     if (!ref) return t("common.notAvailable");
     return ref.length > 24 ? `${ref.slice(0, 10)}…${ref.slice(-8)}` : ref;
   }
@@ -61,7 +63,7 @@
       project = projectRes;
       compatReport = compatRes;
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     } finally {
       loading = false;
     }
@@ -114,7 +116,7 @@
     <div class="flex h-full flex-col rounded-xl border border-surface-200 bg-white p-5">
       <p class="text-sm text-surface-500 mb-1">{t("dashboard.issuer")}</p>
       <p class="mb-3 break-all font-mono text-sm text-brand-700">
-        {status?.issuer || t("common.notAvailable")}
+        {(status && "issuer" in status && typeof status.issuer === "string" && status.issuer) || t("common.notAvailable")}
       </p>
       <p class="mt-auto border-t border-surface-100 pt-3 text-xs text-surface-400">
         {t("dashboard.migration")}: {migrationStatusLabel(status?.migration_status)}

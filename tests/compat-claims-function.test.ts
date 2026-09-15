@@ -5,6 +5,17 @@ const compatClaimsFunction = (await import(
 )).default;
 
 describe('compat-claims Function fixture', () => {
+  it.each([null, [], {}, { sub: 17, role: false }, { sub: 'user', role: '' }, { sub: '', role: 'authenticated' }].map(claims => ({ claims })))(
+    'rejects malformed decoded claims %#', async ({ claims }) => {
+      const encoded = Buffer.from(JSON.stringify(claims)).toString('base64url');
+      const response = compatClaimsFunction.fetch(new Request('https://function.example.test', {
+        headers: { authorization: `Bearer header.${encoded}.signature` },
+      }));
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ code: 'invalid_bearer_token' });
+    },
+  );
+
   it('exports an Edge worker fetch handler', () => {
     expect(compatClaimsFunction.fetch).toBeFunction();
   });

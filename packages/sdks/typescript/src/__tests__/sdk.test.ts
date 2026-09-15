@@ -1,31 +1,47 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { SupaOAuthClient, SupaOAuthAPIError } from '../index.js';
+import { SupaOAuthClient, SupaOAuthAPIError, type SupaOAuthFetch } from '../index.js';
+import { health } from './domain-fixtures.js';
 
-// Helper to mock globalThis.fetch without type mismatch
-function mockFetch(fn: (input: string | Request, init?: RequestInit) => Promise<Response>) {
-  const orig = globalThis.fetch;
-  globalThis.fetch = fn as typeof fetch;
-  return () => { globalThis.fetch = orig; };
+let transport: SupaOAuthFetch = async () => { throw new Error('Configure the test transport'); };
+function mockFetch(fn: SupaOAuthFetch) {
+  const orig = transport;
+  transport = fn;
+  return () => { transport = orig; };
 }
 
 describe('SupaOAuthClient', () => {
   let client: SupaOAuthClient;
 
   beforeEach(() => {
-    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'test-token' });
+    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'test-token', fetch: (input, init) => transport(input, init) });
   });
 
-  it('constructs with base URL trimmed', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010///' });
-    expect((c as any).baseUrl).toBe('http://localhost:4010');
+  it('constructs with base URL trimmed', async () => {
+    const seen: string[] = [];
+    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010///', fetch: async input => {
+      seen.push(String(input));
+      return Response.json(health);
+    } });
+    await c.health();
+    expect(seen).toEqual(['http://localhost:4010/v1/health']);
   });
 
-  it('stores access token', () => {
-    expect((client as any).accessToken).toBe('test-token');
-    client.setAccessToken('new-token');
-    expect((client as any).accessToken).toBe('new-token');
-    client.setAccessToken(null);
-    expect((client as any).accessToken).toBeNull();
+  it('stores access token', async () => {
+    const seen: Array<string | null> = [];
+    const restore = mockFetch(async (_input, init) => {
+      seen.push(new Headers(init?.headers).get('authorization'));
+      return Response.json(health);
+    });
+    try {
+      await client.health();
+      client.setAccessToken('new-token');
+      await client.health();
+      client.setAccessToken(null);
+      await client.health();
+      expect(seen).toEqual(['Bearer test-token', 'Bearer new-token', null]);
+    } finally {
+      restore();
+    }
   });
 
   it('throws SupaOAuthAPIError on non-2xx response', async () => {
@@ -33,9 +49,10 @@ describe('SupaOAuthClient', () => {
       Promise.resolve(new Response('not found', { status: 404 }))
     );
     try {
-      const err = await client['request']('/v1/health').catch(e => e);
+      const err: unknown = await client.health().catch((error: unknown) => error);
       expect(err).toBeInstanceOf(SupaOAuthAPIError);
-      expect((err as SupaOAuthAPIError).status).toBe(404);
+      if (!(err instanceof SupaOAuthAPIError)) throw new Error('Expected API error');
+      expect(err.status).toBe(404);
     } finally {
       restore();
     }
@@ -54,29 +71,29 @@ describe('SupaOAuthClient', () => {
   });
 
   it('sends Authorization header when token is set', async () => {
-    let capturedHeaders: Record<string, string> = {};
+    let capturedHeaders = new Headers();
     const restore = mockFetch((_input, init) => {
-      capturedHeaders = (init?.headers || {}) as Record<string, string>;
-      return Promise.resolve(new Response(JSON.stringify({ status: 'ok' }), { status: 200 }));
+      capturedHeaders = new Headers(init?.headers);
+      return Promise.resolve(Response.json(health));
     });
     try {
-      await client['request']('/v1/health');
-      expect(capturedHeaders['Authorization']).toBe('Bearer test-token');
+      await client.health();
+      expect(capturedHeaders.get('Authorization')).toBe('Bearer test-token');
     } finally {
       restore();
     }
   });
 
   it('omits Authorization header when token is null', async () => {
-    let capturedHeaders: Record<string, string> = {};
+    let capturedHeaders = new Headers();
     client.setAccessToken(null);
     const restore = mockFetch((_input, init) => {
-      capturedHeaders = (init?.headers || {}) as Record<string, string>;
-      return Promise.resolve(new Response(JSON.stringify({ status: 'ok' }), { status: 200 }));
+      capturedHeaders = new Headers(init?.headers);
+      return Promise.resolve(Response.json(health));
     });
     try {
-      await client['request']('/v1/health');
-      expect(capturedHeaders['Authorization']).toBeUndefined();
+      await client.health();
+      expect(capturedHeaders.get('Authorization')).toBeNull();
     } finally {
       restore();
     }

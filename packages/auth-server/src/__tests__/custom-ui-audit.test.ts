@@ -1,3 +1,4 @@
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { loadConfig } from '../config/index.js';
 import { withAdminRequestContext } from '../auth/request-context.js';
@@ -53,12 +54,12 @@ describe('Custom UI persisted admin audit delivery', () => {
       if (process.env[key] !== undefined) originalConfig[key] = process.env[key];
       delete process.env[key];
     }
-    process.env.SUPACLOUD_API_URL = 'http://supacloud.internal';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'master-token';
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-0123456789abcdef';
-    process.env.PROJECT_REF = 'test-project';
-    process.env.OAUTH_RUNTIME_URL = 'http://runtime.internal';
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
+    process.env["SUPACLOUD_API_URL"] = 'http://supacloud.internal';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = 'master-token';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'test-bff-signing-secret-0123456789abcdef';
+    process.env["PROJECT_REF"] = 'test-project';
+    process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.internal';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
     loadConfig();
   });
 
@@ -92,11 +93,11 @@ describe('Custom UI persisted admin audit delivery', () => {
   it('replays with the persisted actor even inside another admin request', async () => {
     let requestBody = '';
     let requestHeaders = new Headers();
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       requestBody = String(init?.body || '{}');
       requestHeaders = new Headers(init?.headers);
       return Promise.resolve(Response.json({ id: 'audit-one' }));
-    }) as unknown as typeof fetch;
+    }));
 
     const delivery = await withAdminRequestContext(adminContext('admin-b', 'request-b'), () => (
       logPersistedAdminAudit({
@@ -115,7 +116,7 @@ describe('Custom UI persisted admin audit delivery', () => {
 
   it('rejects an invalid durable idempotency key before transport', async () => {
     const fetchMock = mock(() => Promise.resolve(Response.json({ id: 'unexpected-audit' })));
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = strictFetch(fetchMock);
 
     await expect(logPersistedAdminAudit({
       actorId: 'admin-a',
@@ -127,10 +128,10 @@ describe('Custom UI persisted admin audit delivery', () => {
 
   it('classifies every explicit 4xx response as a rejected delivery', async () => {
     for (const status of [400, 405, 418, 429]) {
-      globalThis.fetch = mock(() => Promise.resolve(Response.json(
+      globalThis.fetch = strictFetch(mock(() => Promise.resolve(Response.json(
         { error: 'audit_rejected' },
         { status },
-      ))) as unknown as typeof fetch;
+      ))));
 
       await expect(deliverPersistedAudit()).resolves.toBe('rejected');
     }
@@ -138,10 +139,10 @@ describe('Custom UI persisted admin audit delivery', () => {
 
   it('preserves unknown delivery outcomes for 5xx responses and transport failures', async () => {
     for (const status of [500, 503]) {
-      globalThis.fetch = mock(() => Promise.resolve(Response.json(
+      globalThis.fetch = strictFetch(mock(() => Promise.resolve(Response.json(
         { error: 'audit_unavailable' },
         { status },
-      ))) as unknown as typeof fetch;
+      ))));
 
       await expect(deliverPersistedAudit()).rejects.toMatchObject({
         name: 'SupaCloudApiError',
@@ -155,7 +156,7 @@ describe('Custom UI persisted admin audit delivery', () => {
       Object.assign(new TypeError('transport rate limited'), { status: 429 }),
     ];
     for (const failure of transportFailures) {
-      globalThis.fetch = mock(() => Promise.reject(failure)) as unknown as typeof fetch;
+      globalThis.fetch = strictFetch(mock(() => Promise.reject(failure)));
       await expect(deliverPersistedAudit()).rejects.toBe(failure);
     }
   });

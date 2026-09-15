@@ -1,3 +1,5 @@
+// @ts-check
+import { isUnknownArray } from './unknown-value.js';
 export const GOTRUE_OAUTH_GRANT_TYPES = Object.freeze([
   "authorization_code",
   "refresh_token",
@@ -5,7 +7,10 @@ export const GOTRUE_OAUTH_GRANT_TYPES = Object.freeze([
 
 const supportedGrantTypes = new Set(GOTRUE_OAUTH_GRANT_TYPES);
 
+/** @param {unknown} grantTypes @returns {string[]} */
 export function supportedOAuthGrantTypes(grantTypes) {
-  if (!Array.isArray(grantTypes)) return [];
-  return grantTypes.filter((grantType) => supportedGrantTypes.has(grantType));
+  if (!isUnknownArray(grantTypes)) return [];
+  return grantTypes.flatMap((grantType) =>
+    typeof grantType === "string" && supportedGrantTypes.has(grantType) ? [grantType] : [],
+  );
 }

@@ -8,9 +8,9 @@ describe('Security config repository — module structure', () => {
       'createSecurityConfig',
       'updateSecurityConfig',
       'isTokenAuthAllowed',
-    ];
+    ] as const;
     for (const fn of expectedFns) {
-      expect(typeof (sec as any)[fn]).toBe('function');
+      expect(typeof sec[fn]).toBe('function');
     }
   });
 });
@@ -30,7 +30,7 @@ describe('Security config — isTokenAuthAllowed logic', () => {
       bruteForceProtection: true, maxLoginAttempts: 10,
       lockoutDurationSec: 900, secretRotationReminderDays: 90,
       enforceHttps: true,
-    } as any)).toBe(false);
+    })).toBe(false);
   });
 
   it('returns true when adminAuthMode is auto', async () => {
@@ -42,7 +42,7 @@ describe('Security config — isTokenAuthAllowed logic', () => {
       bruteForceProtection: true, maxLoginAttempts: 10,
       lockoutDurationSec: 900, secretRotationReminderDays: 90,
       enforceHttps: true,
-    } as any)).toBe(true);
+    })).toBe(true);
   });
 
   it('returns true when adminAuthMode is token', async () => {
@@ -54,6 +54,6 @@ describe('Security config — isTokenAuthAllowed logic', () => {
       bruteForceProtection: true, maxLoginAttempts: 10,
       lockoutDurationSec: 900, secretRotationReminderDays: 90,
       enforceHttps: true,
-    } as any)).toBe(true);
+    })).toBe(true);
   });
 });

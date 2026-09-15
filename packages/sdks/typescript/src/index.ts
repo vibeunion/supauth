@@ -1,318 +1,14 @@
-// @supauth/sdk-typescript — TypeScript SDK for SupaOAuth Management API
 import { assertOAuthSessionGrants, type OAuthApplicationSessionOptions, type CreateOAuthClientInput } from './oauth-session-grants.js';
 export {
   assertOAuthSessionGrants, SupaOAuthSessionConfigurationError,
   type OAuthSessionRequirement, type OAuthApplicationSessionOptions, type CreateOAuthClientInput,
 } from './oauth-session-grants.js';
-import type {
-  Application,
-  CreateApplicationInput,
-  ApiResource,
-  CreateResourceInput,
-  Scope,
-  Connector,
-  Organization,
-  OrganizationMember,
-  Role,
-  Permission,
-  SignInExperience,
-  ApplicationSignInExperience,
-  EffectiveSignInExperience,
-  PublicEffectiveSignInExperience,
-  PublicPhraseBundle,
-  AuditLogEntry,
-  Webhook,
-  CapabilitiesResponse,
-  CompatibilityCheckResult,
-} from '@supauth/shared';
-import {
-  decodeHealth, decodeRuntimeHealth, decodeOAuthServerStatus, decodeDiscovery, decodeJWKS, decodeUserPermissions,
-  SupaOAuthResponseContractError, SupaOAuthRequestContractError, type ResponseDecoder, type RequestContract,
-} from './response-contracts.js';
-export {
-  SupaOAuthResponseContractError, SupaOAuthRequestContractError,
-  type ResponseDecoder, type RequestContract,
-} from './response-contracts.js';
+import { sdkEndpoints, decodeSchema, Type, JsonValueSchema, type SdkEndpoint, type SdkEndpointInput, type Static, type TSchema } from '@supauth/shared';
+export type { ExistingPolicy, WrapperPolicy, MigrationResult, AuthorizationOperation, AuthorizationCompileRequest, AuthorizationCompileResult, SdkEndpointName, SdkEndpointInput, SdkEndpointResult } from '@supauth/shared';
+export { sdkEndpoints } from '@supauth/shared';
+import { SupaOAuthResponseContractError, SupaOAuthRequestContractError, type ResponseDecoder, type RequestContract } from './response-contracts.js';
+export { SupaOAuthResponseContractError, SupaOAuthRequestContractError, type ResponseDecoder, type RequestContract } from './response-contracts.js';
 
-// ─── Response wrappers ──────────────────────────────────
-interface ListResponse<T> {
-  items: T[];
-  total: number;
-  page?: number;
-  limit?: number;
-}
-
-interface CursorListResponse<T> {
-  items: T[];
-  total: number;
-  limit: number;
-  next_cursor: string | null;
-}
-
-interface ProjectResponse {
-  id: string;
-  ref?: string;
-  project_ref?: string;
-  name: string;
-  region?: string;
-}
-
-interface AuthConfigResponse {
-  enable_signup: boolean;
-  enable_confirmations: boolean;
-  external_anonymous_users_enabled: boolean;
-  jwt_expiry: number;
-  password_min_length: number;
-  mfa_max_enrolled_factors: number;
-  [key: string]: unknown;
-}
-
-interface ApplicationBinding {
-  id: string;
-  application_id: string;
-  resource_id: string;
-  scope_id?: string;
-  created_at: string;
-}
-
-interface OAuthApplication {
-  client_id: string;
-  client_name?: string;
-  client_type?: string;
-  redirect_uris?: string[];
-  grant_types?: string[];
-  token_endpoint_auth_method?: string;
-  client_secret?: string;
-  created_at?: string;
-  updated_at?: string;
-  [key: string]: unknown;
-}
-
-interface RoleAssignment {
-  id: string;
-  role_id: string;
-  user_id: string;
-  organization_id?: string;
-  application_id?: string;
-  created_at: string;
-}
-
-interface SyncResult {
-  synced: boolean;
-  warnings?: string[];
-}
-
-interface WebhookEventList {
-  events: string[];
-}
-
-interface WebhookDeliveryLog {
-  id?: string;
-  event?: string;
-  event_type?: string;
-  eventType?: string;
-  status?: string | number;
-  status_code?: number;
-  statusCode?: number;
-  http_status?: number;
-  httpStatus?: number;
-  success?: boolean;
-  ok?: boolean;
-  delivered?: boolean;
-  error?: string;
-  error_message?: string;
-  errorMessage?: string;
-  signature_status?: string;
-  signatureStatus?: string;
-  signature_verified?: boolean;
-  signatureVerified?: boolean;
-  signature_valid?: boolean;
-  signatureValid?: boolean;
-  payload?: Record<string, unknown>;
-  body?: Record<string, unknown>;
-  created_at?: string;
-  createdAt?: string;
-  delivered_at?: string;
-  deliveredAt?: string;
-  [key: string]: unknown;
-}
-
-interface OrganizationTemplate {
-  id: string;
-  name: string;
-  description?: string | null;
-  templateRoles?: Array<{ name: string; permissions: string[] }>;
-  template_roles?: Array<{ name: string; permissions: string[] }>;
-  templateScopes?: Array<{ name: string; description?: string }>;
-  template_scopes?: Array<{ name: string; description?: string }>;
-  isDefault?: boolean;
-  is_default?: boolean;
-}
-
-interface SecurityStatus {
-  admin_auth_mode: string;
-  token_auth_allowed: boolean;
-  rate_limit_rpm: number;
-  brute_force_protection: boolean;
-  enforce_https: boolean;
-  warnings: string[];
-}
-
-interface EnterpriseSSOConfig {
-  id: string;
-  connectorId?: string;
-  connector_id?: string;
-  domains: string[];
-  ssoProtocol?: string;
-  sso_protocol?: string;
-  jitProvisioning?: boolean;
-  jit_provisioning?: boolean;
-  orgMembershipMapping?: Record<string, string>;
-  org_membership_mapping?: Record<string, string>;
-  roleMapping?: Record<string, string>;
-  role_mapping?: Record<string, string>;
-}
-
-interface ApplicationConsentSettings {
-  user_scopes?: string[];
-  organization_scopes?: string[];
-  allowed_organization_ids?: string[];
-  require_explicit_consent?: boolean;
-  custom_data?: Record<string, unknown>;
-}
-
-type ApplicationSignInExperienceInput = Partial<Omit<ApplicationSignInExperience, 'application_id'>>;
-
-interface OrganizationInvitation {
-  id: string;
-  email: string;
-  role: string;
-  status: string;
-  token?: string;
-}
-
-interface OrganizationJitSettings {
-  enabled: boolean;
-  domains: string[];
-}
-
-interface ConnectorFactory {
-  id: string;
-  factoryId?: string;
-  factory_id?: string;
-  name: string;
-  protocol: string;
-  category: string;
-  configSchema?: Record<string, unknown>;
-  config_schema?: Record<string, unknown>;
-  enabled: boolean;
-}
-
-interface TenantConfig {
-  id: string;
-  configType?: string;
-  config_type?: string;
-  key: string;
-  value: Record<string, unknown>;
-  enabled: boolean;
-}
-
-interface AuthHookRegistrationGuide {
-  before_user_created: string;
-  custom_access_token: string;
-  protocol: 'standard-webhooks-v1';
-  required_headers: string[];
-  secret_format: string;
-}
-
-// ─── RLS Migration Assistant types ──────────────────────
-export interface ExistingPolicy {
-  schemaname: string;
-  tablename: string;
-  policyname: string;
-  policytype: 'permissive' | 'restrictive';
-  cmd: 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE' | 'ALL';
-  qual: string | null;
-  with_check: string | null;
-  roles: string[];
-}
-
-export interface WrapperPolicy {
-  original_policy: string;
-  wrapper_policy_name: string;
-  tablename: string;
-  schemaname: string;
-  cmd: string;
-  original_using: string | null;
-  original_with_check: string | null;
-  wrapper_using: string | null;
-  wrapper_with_check: string | null;
-  sql: string;
-  permission_name: string;
-}
-
-export interface MigrationResult {
-  scanned_policies: number;
-  candidate_policies: number;
-  wrappers: WrapperPolicy[];
-  migration_sql: string;
-  warnings: string[];
-}
-
-export type AuthorizationOperation = 'read' | 'create' | 'update' | 'delete' | 'manage';
-
-export interface AuthorizationCompileRequest {
-  tables?: Array<{
-    schema?: string;
-    table: string;
-    permission_prefix?: string;
-    operations?: AuthorizationOperation[];
-    owner_column?: string;
-    organization_column?: string;
-  }>;
-  storage_buckets?: Array<{
-    bucket_id: string;
-    permission_prefix?: string;
-    owner_path_prefix?: string;
-    organization_path_prefix?: string;
-    operations?: AuthorizationOperation[];
-  }>;
-  realtime_channels?: Array<{
-    topic: string;
-    permission: string;
-    organization_claim?: string;
-  }>;
-  edge_functions?: Array<{
-    name: string;
-    permission: string;
-    require_organization?: boolean;
-  }>;
-  include_helper_sql?: boolean;
-}
-
-export interface AuthorizationCompileResult {
-  generated_at: string;
-  assumptions: string[];
-  warnings: string[];
-  permissions: string[];
-  sql: {
-    helpers: string;
-    tables: string;
-    storage: string;
-    realtime: string;
-    rollback: string;
-  };
-  edge_functions: Array<{
-    name: string;
-    permission: string;
-    middleware: string;
-    negative_tests: string[];
-  }>;
-  negative_tests: string[];
-  deploy_checklist: string[];
-}
-
-// ─── Error class ─────────────────────────────────────────
 export class SupaOAuthAPIError extends Error {
   status: number;
   body: string;
@@ -344,14 +40,31 @@ function queryString(params: Record<string, string | number | undefined>): strin
   return encoded ? `?${encoded}` : '';
 }
 
+export type SupaOAuthFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+export interface SupaOAuthClientOptions {
+  baseUrl: string;
+  accessToken?: string;
+  fetch?: SupaOAuthFetch;
+}
+
+// Transport structure only. Every field is first checked against the concrete endpoint input.
+const RequestEnvelopeSchema = Type.Object({
+  params: Type.Optional(Type.Record(Type.String(), Type.String())),
+  query: Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Number()]))),
+  body: Type.Optional(JsonValueSchema),
+  headers: Type.Optional(Type.Record(Type.String(), Type.String())),
+});
+
 // ─── Client ──────────────────────────────────────────────
 export class SupaOAuthClient {
   private baseUrl: string;
   private accessToken: string | null = null;
+  private transport: SupaOAuthFetch;
 
-  constructor(options: { baseUrl: string; accessToken?: string }) {
+  constructor(options: SupaOAuthClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     if (options.accessToken) this.accessToken = options.accessToken;
+    this.transport = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
   }
 
   /** Set or update the access token (e.g. after login) */
@@ -359,19 +72,17 @@ export class SupaOAuthClient {
     this.accessToken = token;
   }
 
-  private requestHeaders(options: RequestInit): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
-    };
+  private requestHeaders(options: RequestInit): Headers {
+    const headers = new Headers(options.headers);
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
+      headers.set('Authorization', `Bearer ${this.accessToken}`);
     }
     return headers;
   }
 
   private async response(path: string, options: RequestInit = {}): Promise<Response> {
-    const res = await fetch(`${this.baseUrl}${path}`, { ...options, headers: this.requestHeaders(options) });
+    const res = await this.transport(`${this.baseUrl}${path}`, { ...options, headers: this.requestHeaders(options) });
     if (!res.ok) {
       const body = await res.text();
       throw new SupaOAuthAPIError(res.status, body, path);
@@ -417,852 +128,617 @@ export class SupaOAuthClient {
     return this.requestDecoded(request.path, contract.result, request.options);
   }
 
-  // 尚未迁移的管理接口保留私有兼容入口；不能当作已通过领域解码的响应。
-  private async request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
-    return (await this.jsonResponse(path, options)).value as T;
+  private endpointRequest<I extends TSchema, R extends TSchema>(
+    contract: SdkEndpoint<I, R>, input: NoInfer<Static<I>>,
+  ): { path: string; options: RequestInit } {
+    try {
+      const validated = decodeSchema(RequestEnvelopeSchema, decodeSchema(contract.input, input));
+      const path = contract.path.replace(/:([A-Za-z][A-Za-z0-9_]*)/g, (_match, name: string) => {
+        const value = validated.params?.[name];
+        if (value === undefined) throw new SupaOAuthRequestContractError();
+        return pathSegment(value);
+      }) + queryString(validated.query ?? {});
+      return {
+        path,
+        options: {
+          ...(contract.method === 'GET' ? {} : { method: contract.method }),
+          ...(validated.body === undefined ? {} : { body: JSON.stringify(validated.body) }),
+          ...(validated.headers === undefined ? {} : { headers: validated.headers }),
+        },
+      };
+    } catch {
+      throw new SupaOAuthRequestContractError();
+    }
   }
 
-  private async requestVoid(path: string, options: RequestInit): Promise<void> {
+  private endpointJson<I extends TSchema, R extends TSchema>(
+    contract: SdkEndpoint<I, R> & { responseKind: 'json' }, input: NoInfer<Static<I>>,
+  ): Promise<Static<R>> {
+    const { path, options } = this.endpointRequest(contract, input);
+    return this.requestDecoded(path, value => decodeSchema(contract.result, value), options);
+  }
+
+  private async endpointVoid<I extends TSchema, R extends TSchema>(
+    contract: SdkEndpoint<I, R> & { responseKind: 'void' }, input: NoInfer<Static<I>>,
+  ): Promise<void> {
+    const { path, options } = this.endpointRequest(contract, input);
     const response = await this.response(path, options);
     await response.body?.cancel();
   }
 
-  private async requestBlob(path: string): Promise<Blob> {
-    return (await this.response(path)).blob();
+  private async endpointBlob<I extends TSchema, R extends TSchema>(
+    contract: SdkEndpoint<I, R> & { responseKind: 'blob' }, input: NoInfer<Static<I>>,
+  ): Promise<Blob> {
+    const { path, options } = this.endpointRequest(contract, input);
+    return (await this.response(path, options)).blob();
   }
 
-  // ─── Health / Project ─────────────────────────────────
   health() {
-    return this.requestDecoded('/v1/health', decodeHealth);
+    return this.endpointJson(sdkEndpoints.health, {}).then(({ status, runtime_mode, project_ref }) => ({ status, runtime_mode, project_ref }));
   }
 
   getProject() {
-    return this.request<ProjectResponse>('/v1/project');
+    return this.endpointJson(sdkEndpoints.getProject, {  });
   }
 
   getCapabilities() {
-    return this.request<CapabilitiesResponse>('/v1/capabilities');
+    return this.endpointJson(sdkEndpoints.getCapabilities, {  });
   }
 
-  // ─── Runtime ──────────────────────────────────────────
   getRuntimeHealth() {
-    return this.requestDecoded('/v1/runtime/health', decodeRuntimeHealth);
+    return this.endpointJson(sdkEndpoints.getRuntimeHealth, {  });
   }
 
   getOAuthServerStatus() {
-    return this.requestDecoded('/v1/runtime/oauth-server', decodeOAuthServerStatus);
+    return this.endpointJson(sdkEndpoints.getOAuthServerStatus, {  });
   }
 
   getDiscovery() {
-    return this.requestDecoded('/v1/runtime/discovery', decodeDiscovery);
+    return this.endpointJson(sdkEndpoints.getDiscovery, {  });
   }
 
   getJWKS() {
-    return this.requestDecoded('/v1/runtime/jwks', decodeJWKS);
+    return this.endpointJson(sdkEndpoints.getJWKS, {  });
   }
 
-  // ─── Applications ──────────────────────────────────────
   listApplications() {
-    return this.request<ListResponse<OAuthApplication>>('/v1/applications');
+    return this.endpointJson(sdkEndpoints.listApplications, {  });
   }
 
-  createApplication(data: CreateApplicationInput | CreateOAuthClientInput, options: OAuthApplicationSessionOptions = {}) {
+  createApplication(data: SdkEndpointInput<'createApplication'>['body'] | CreateOAuthClientInput, options: OAuthApplicationSessionOptions = {}) {
     if (options.sessionRequirement !== undefined) assertOAuthSessionGrants(data, options.sessionRequirement);
-    return this.request<Application>('/v1/applications', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    const body = decodeSchema(sdkEndpoints.createApplication.input, { body: data }).body;
+    return this.endpointJson(sdkEndpoints.createApplication, { body });
   }
 
   getApplication(appId: string) {
-    return this.request<Application>(`/v1/applications/${pathSegment(appId)}`);
+    return this.endpointJson(sdkEndpoints.getApplication, { params: { appId } });
   }
 
-  updateApplication(appId: string, data: Partial<CreateApplicationInput> | Partial<CreateOAuthClientInput>, options: OAuthApplicationSessionOptions = {}) {
+  updateApplication(appId: string, data: SdkEndpointInput<'updateApplication'>['body'] | Partial<CreateOAuthClientInput>, options: OAuthApplicationSessionOptions = {}) {
     if (options.sessionRequirement !== undefined) assertOAuthSessionGrants(data, options.sessionRequirement);
-    return this.request<Application>(`/v1/applications/${pathSegment(appId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+    const body = decodeSchema(sdkEndpoints.updateApplication.input, { params: { appId }, body: data }).body;
+    return this.endpointJson(sdkEndpoints.updateApplication, { params: { appId }, body });
   }
 
   deleteApplication(appId: string) {
-    return this.requestVoid(`/v1/applications/${pathSegment(appId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.deleteApplication, { params: { appId } });
   }
 
   rotateApplicationSecret(appId: string) {
-    return this.request<Application & { client_secret: string }>(
-      `/v1/applications/${pathSegment(appId)}/rotate-secret`,
-      { method: 'POST' },
-    );
+    return this.endpointJson(sdkEndpoints.rotateApplicationSecret, { params: { appId } });
   }
 
   getApplicationConsentSettings(appId: string) {
-    return this.request<ApplicationConsentSettings>(`/v1/applications/${pathSegment(appId)}/consent`);
+    return this.endpointJson(sdkEndpoints.getApplicationConsentSettings, { params: { appId } });
   }
 
-  updateApplicationConsentSettings(appId: string, data: ApplicationConsentSettings) {
-    return this.request<ApplicationConsentSettings>(`/v1/applications/${pathSegment(appId)}/consent`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateApplicationConsentSettings(appId: string, data: SdkEndpointInput<'updateApplicationConsentSettings'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateApplicationConsentSettings, { params: { appId }, body: data });
   }
 
   getApplicationSignInExperience(appId: string) {
-    return this.request<ApplicationSignInExperience>(`/v1/applications/${pathSegment(appId)}/sign-in-experience`);
+    return this.endpointJson(sdkEndpoints.getApplicationSignInExperience, { params: { appId } });
   }
 
-  updateApplicationSignInExperience(appId: string, data: ApplicationSignInExperienceInput) {
-    return this.request<ApplicationSignInExperience>(`/v1/applications/${pathSegment(appId)}/sign-in-experience`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateApplicationSignInExperience(appId: string, data: SdkEndpointInput<'updateApplicationSignInExperience'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateApplicationSignInExperience, { params: { appId }, body: data });
   }
 
   deleteApplicationSignInExperience(appId: string) {
-    return this.requestVoid(`/v1/applications/${pathSegment(appId)}/sign-in-experience`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.deleteApplicationSignInExperience, { params: { appId } });
   }
 
-  // ─── Application bindings ──────────────────────────────
   listApplicationBindings(appId: string) {
-    return this.request<ListResponse<ApplicationBinding>>(`/v1/applications/${pathSegment(appId)}/bindings`);
+    return this.endpointJson(sdkEndpoints.listApplicationBindings, { params: { appId } });
   }
 
-  createApplicationBinding(appId: string, data: { resource_id: string; scope_id?: string }) {
-    return this.request<ApplicationBinding>(`/v1/applications/${pathSegment(appId)}/bindings`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createApplicationBinding(appId: string, data: SdkEndpointInput<'createApplicationBinding'>['body']) {
+    return this.endpointJson(sdkEndpoints.createApplicationBinding, { params: { appId }, body: data });
   }
 
   deleteApplicationBinding(appId: string, bindingId: string) {
-    return this.requestVoid(`/v1/applications/${pathSegment(appId)}/bindings/${pathSegment(bindingId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.deleteApplicationBinding, { params: { appId, bindingId } });
   }
 
   listApplicationScopes(appId: string) {
-    return this.request<ListResponse<Scope>>(`/v1/applications/${pathSegment(appId)}/scopes`);
+    return this.endpointJson(sdkEndpoints.listApplicationScopes, { params: { appId } });
   }
 
   listApplicationRoles(appId: string) {
-    return this.request<ListResponse<RoleAssignment>>(`/v1/applications/${pathSegment(appId)}/roles`);
+    return this.endpointJson(sdkEndpoints.listApplicationRoles, { params: { appId } });
   }
 
-  listApplicationLogs(appId: string, params: { limit?: number; cursor?: string } = {}) {
-    const query = new URLSearchParams();
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.cursor) query.set('cursor', params.cursor);
-    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/applications/${pathSegment(appId)}/logs${query.toString() ? `?${query}` : ''}`);
+  listApplicationLogs(appId: string, params: NonNullable<SdkEndpointInput<'listApplicationLogs'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.listApplicationLogs, { params: { appId }, query: params });
   }
 
   listApplicationOrganizations(appId: string) {
-    return this.request<ListResponse<Organization>>(`/v1/applications/${pathSegment(appId)}/organizations`);
+    return this.endpointJson(sdkEndpoints.listApplicationOrganizations, { params: { appId } });
   }
 
   getApplicationAccessControl(appId: string) {
-    return this.request<ApplicationConsentSettings>(`/v1/applications/${pathSegment(appId)}/access-control`);
+    return this.endpointJson(sdkEndpoints.getApplicationAccessControl, { params: { appId } });
   }
 
-  updateApplicationAccessControl(appId: string, data: ApplicationConsentSettings) {
-    return this.request<ApplicationConsentSettings>(`/v1/applications/${pathSegment(appId)}/access-control`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateApplicationAccessControl(appId: string, data: SdkEndpointInput<'updateApplicationAccessControl'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateApplicationAccessControl, { params: { appId }, body: data });
   }
 
-  // ─── Connectors ───────────────────────────────────────
   listConnectors() {
-    return this.request<unknown[]>('/v1/connectors');
+    return this.endpointJson(sdkEndpoints.listConnectors, {  });
   }
 
   getConnector(connectorId: string) {
-    return this.request<Connector>(`/v1/connectors/${pathSegment(connectorId)}`);
+    return this.endpointJson(sdkEndpoints.getConnector, { params: { connectorId } });
   }
 
-  updateConnector(connectorId: string, data: Partial<Connector>) {
-    return this.request<Connector>(`/v1/connectors/${pathSegment(connectorId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+  updateConnector(connectorId: string, data: SdkEndpointInput<'updateConnector'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateConnector, { params: { connectorId }, body: data });
   }
 
   testConnector(connectorId: string) {
-    return this.request<{ connector_id: string; status: string }>(
-      `/v1/connectors/${pathSegment(connectorId)}/test`,
-      { method: 'POST' },
-    );
+    return this.endpointJson(sdkEndpoints.testConnector, { params: { connectorId } });
   }
 
-  getConnectorAuthorizationUri(connectorId: string, params?: { redirect_uri?: string; state?: string; scope?: string }) {
-    const qs = new URLSearchParams();
-    if (params?.redirect_uri) qs.set('redirect_uri', params.redirect_uri);
-    if (params?.state) qs.set('state', params.state);
-    if (params?.scope) qs.set('scope', params.scope);
-    const query = qs.toString();
-    return this.request<unknown>(`/v1/connectors/${pathSegment(connectorId)}/authorization-uri${query ? `?${query}` : ''}`);
+  getConnectorAuthorizationUri(connectorId: string, params?: NonNullable<SdkEndpointInput<'getConnectorAuthorizationUri'>['query']>) {
+    return this.endpointJson(sdkEndpoints.getConnectorAuthorizationUri, { params: { connectorId }, ...(params === undefined ? {} : { query: params }) });
   }
 
   listConnectorFactories(category?: string) {
-    return this.request<ListResponse<ConnectorFactory>>(`/v1/connectors/factories${queryString({ category })}`);
+    return this.endpointJson(sdkEndpoints.listConnectorFactories, { query: { ...(category === undefined ? {} : { category: category }) } });
   }
 
-  upsertConnectorFactory(factoryId: string, data: {
-    name: string;
-    protocol: string;
-    category: string;
-    config_schema?: Record<string, unknown>;
-    enabled?: boolean;
-  }) {
-    return this.request<ConnectorFactory>(`/v1/connectors/factories/${pathSegment(factoryId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  upsertConnectorFactory(factoryId: string, data: SdkEndpointInput<'upsertConnectorFactory'>['body']) {
+    return this.endpointJson(sdkEndpoints.upsertConnectorFactory, { params: { factoryId }, body: data });
   }
 
-  // ─── API Resources ────────────────────────────────────
   listResources() {
-    return this.request<ListResponse<ApiResource>>('/v1/resources');
+    return this.endpointJson(sdkEndpoints.listResources, {  });
   }
 
-  createResource(data: CreateResourceInput) {
-    return this.request<ApiResource>('/v1/resources', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createResource(data: SdkEndpointInput<'createResource'>['body']) {
+    return this.endpointJson(sdkEndpoints.createResource, { body: data });
   }
 
   getResource(resourceId: string) {
-    return this.request<ApiResource>(`/v1/resources/${pathSegment(resourceId)}`);
+    return this.endpointJson(sdkEndpoints.getResource, { params: { resourceId } });
   }
 
-  updateResource(resourceId: string, data: Partial<CreateResourceInput>) {
-    return this.request<ApiResource>(`/v1/resources/${pathSegment(resourceId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateResource(resourceId: string, data?: SdkEndpointInput<'updateResource'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateResource, { params: { resourceId }, ...(data === undefined ? {} : { body: data }) });
   }
 
   deleteResource(resourceId: string) {
-    return this.requestVoid(`/v1/resources/${pathSegment(resourceId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.deleteResource, { params: { resourceId } });
   }
 
-  // ─── Scopes ───────────────────────────────────────────
-  addScope(resourceId: string, data: { name: string; description?: string }) {
-    return this.request<Scope>(`/v1/resources/${pathSegment(resourceId)}/scopes`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  addScope(resourceId: string, data: SdkEndpointInput<'addScope'>['body']) {
+    return this.endpointJson(sdkEndpoints.addScope, { params: { resourceId }, body: data });
   }
 
-  updateScope(resourceId: string, scopeId: string, data: { name?: string; description?: string }) {
-    return this.request<Scope>(`/v1/resources/${pathSegment(resourceId)}/scopes/${pathSegment(scopeId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateScope(resourceId: string, scopeId: string, data: SdkEndpointInput<'updateScope'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateScope, { params: { resourceId, scopeId }, body: data });
   }
 
   removeScope(resourceId: string, scopeId: string) {
-    return this.requestVoid(`/v1/resources/${pathSegment(resourceId)}/scopes/${pathSegment(scopeId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.removeScope, { params: { resourceId, scopeId } });
   }
 
   listResourceApplications(resourceId: string) {
-    return this.request<ListResponse<ApplicationBinding>>(`/v1/resources/${pathSegment(resourceId)}/applications`);
+    return this.endpointJson(sdkEndpoints.listResourceApplications, { params: { resourceId } });
   }
 
-  // ─── Users ────────────────────────────────────────────
-  listUsers(params: { page?: number; limit?: number; search?: string; email?: string } = {}) {
-    const query = new URLSearchParams();
-    if (params.page) query.set('page', String(params.page));
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.search) query.set('search', params.search);
-    if (params.email) query.set('email', params.email);
-    return this.request<ListResponse<unknown>>(`/v1/users${query.toString() ? `?${query}` : ''}`);
+  listUsers(params: NonNullable<SdkEndpointInput<'listUsers'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.listUsers, { query: params });
   }
 
-  createUser(data: {
-    email?: string;
-    phone?: string;
-    password?: string;
-    email_confirm?: boolean;
-    phone_confirm?: boolean;
-    user_metadata?: Record<string, unknown>;
-  }) {
-    return this.request<unknown>('/v1/users', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createUser(data: SdkEndpointInput<'createUser'>['body']) {
+    return this.endpointJson(sdkEndpoints.createUser, { body: data });
   }
 
   getUser(userId: string) {
-    return this.request<unknown>(`/v1/users/${pathSegment(userId)}`);
+    return this.endpointJson(sdkEndpoints.getUser, { params: { userId } });
   }
 
-  updateUser(userId: string, data: Record<string, unknown>) {
-    return this.request<unknown>(`/v1/users/${pathSegment(userId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateUser(userId: string, data: SdkEndpointInput<'updateUser'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateUser, { params: { userId }, body: data });
   }
 
-  suspendUser(userId: string, data: Record<string, unknown> = {}) {
-    return this.request<unknown>(`/v1/users/${pathSegment(userId)}/suspend`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  suspendUser(userId: string, data: SdkEndpointInput<'suspendUser'>['body'] = {}) {
+    return this.endpointJson(sdkEndpoints.suspendUser, { params: { userId }, body: data });
   }
 
   deleteUser(userId: string) {
-    return this.requestVoid(`/v1/users/${pathSegment(userId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.deleteUser, { params: { userId } });
   }
 
   resetUserMfa(userId: string, factorId: string) {
-    return this.request<unknown>(`/v1/users/${pathSegment(userId)}/mfa/${pathSegment(factorId)}/reset`, { method: 'POST' });
+    return this.endpointJson(sdkEndpoints.resetUserMfa, { params: { userId, factorId } });
   }
 
-  listUserLogs(userId: string, params: { limit?: number; cursor?: string } = {}) {
-    const query = new URLSearchParams();
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.cursor) query.set('cursor', params.cursor);
-    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/users/${pathSegment(userId)}/logs${query.toString() ? `?${query}` : ''}`);
+  listUserLogs(userId: string, params: NonNullable<SdkEndpointInput<'listUserLogs'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.listUserLogs, { params: { userId }, query: params });
   }
 
   listUserOrganizations(userId: string) {
-    return this.request<ListResponse<Organization>>(`/v1/users/${pathSegment(userId)}/organizations`);
+    return this.endpointJson(sdkEndpoints.listUserOrganizations, { params: { userId } });
   }
 
-  getUserPermissions(userId: string, orgId?: string) {
-    return this.requestDecoded(`/v1/users/${pathSegment(userId)}/permissions${queryString({ org_id: orgId })}`, decodeUserPermissions);
+  getUserPermissions(userId: string, orgId?: string, applicationId?: string) {
+    return this.endpointJson(sdkEndpoints.getUserPermissions, { params: { userId }, query: { ...(orgId === undefined ? {} : { org_id: orgId }), ...(applicationId === undefined ? {} : { application_id: applicationId }) } });
   }
 
-  getUserRoles(userId: string) {
-    return this.request<ListResponse<RoleAssignment>>(`/v1/users/${pathSegment(userId)}/roles`);
+  getUserRoles(userId: string, applicationId?: string) {
+    return this.endpointJson(sdkEndpoints.getUserRoles, { params: { userId }, query: { ...(applicationId === undefined ? {} : { application_id: applicationId }) } });
   }
 
-  // ─── Organizations ────────────────────────────────────
-  listOrganizations(params: { page?: number; limit?: number; search?: string; application_id?: string } = {}) {
-    const query = new URLSearchParams();
-    if (params.page) query.set('page', String(params.page));
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.search) query.set('search', params.search);
-    if (params.application_id) query.set('application_id', params.application_id);
-    return this.request<ListResponse<Organization>>(`/v1/organizations${query.toString() ? `?${query}` : ''}`);
+  listOrganizations(params: NonNullable<SdkEndpointInput<'listOrganizations'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.listOrganizations, { query: params });
   }
 
-  createOrganization(data: { name: string; description?: string }) {
-    return this.request<Organization>('/v1/organizations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createOrganization(data: SdkEndpointInput<'createOrganization'>['body']) {
+    return this.endpointJson(sdkEndpoints.createOrganization, { body: data });
   }
 
   getOrganization(orgId: string) {
-    return this.request<Organization>(`/v1/organizations/${pathSegment(orgId)}`);
+    return this.endpointJson(sdkEndpoints.getOrganization, { params: { orgId } });
   }
 
-  updateOrganization(orgId: string, data: { name?: string; description?: string }) {
-    return this.request<Organization>(`/v1/organizations/${pathSegment(orgId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateOrganization(orgId: string, data: SdkEndpointInput<'updateOrganization'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateOrganization, { params: { orgId }, body: data });
   }
 
   deleteOrganization(orgId: string) {
-    return this.requestVoid(`/v1/organizations/${pathSegment(orgId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.deleteOrganization, { params: { orgId } });
   }
 
-  addOrganizationMember(orgId: string, data: { user_id: string; role?: string }) {
-    return this.request<OrganizationMember>(`/v1/organizations/${pathSegment(orgId)}/members`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  addOrganizationMember(orgId: string, data: SdkEndpointInput<'addOrganizationMember'>['body']) {
+    return this.endpointJson(sdkEndpoints.addOrganizationMember, { params: { orgId }, body: data });
   }
 
-  listOrganizationMembers(orgId: string, params: { page?: number; limit?: number; search?: string } = {}) {
-    const query = new URLSearchParams();
-    if (params.page) query.set('page', String(params.page));
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.search) query.set('search', params.search);
-    return this.request<ListResponse<OrganizationMember>>(`/v1/organizations/${pathSegment(orgId)}/members${query.toString() ? `?${query}` : ''}`);
+  listOrganizationMembers(orgId: string, params: NonNullable<SdkEndpointInput<'listOrganizationMembers'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.listOrganizationMembers, { params: { orgId }, query: params });
   }
 
   removeOrganizationMember(orgId: string, userId: string) {
-    return this.requestVoid(`/v1/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.removeOrganizationMember, { params: { orgId, userId } });
   }
 
-  updateOrganizationMemberRole(orgId: string, userId: string, data: { role: string }) {
-    return this.request<OrganizationMember>(`/v1/organizations/${pathSegment(orgId)}/members/${pathSegment(userId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+  updateOrganizationMemberRole(orgId: string, userId: string, data: SdkEndpointInput<'updateOrganizationMemberRole'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateOrganizationMemberRole, { params: { orgId, userId }, body: data });
   }
 
   listOrganizationInvitations(orgId: string) {
-    return this.request<ListResponse<OrganizationInvitation>>(`/v1/organizations/${pathSegment(orgId)}/invitations`);
+    return this.endpointJson(sdkEndpoints.listOrganizationInvitations, { params: { orgId } });
   }
 
-  createOrganizationInvitation(orgId: string, data: { email: string; role?: string; ttl_hours?: number }) {
-    return this.request<OrganizationInvitation>(`/v1/organizations/${pathSegment(orgId)}/invitations`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createOrganizationInvitation(orgId: string, data: SdkEndpointInput<'createOrganizationInvitation'>['body']) {
+    return this.endpointJson(sdkEndpoints.createOrganizationInvitation, { params: { orgId }, body: data });
   }
 
-  acceptOrganizationInvitation(orgId: string, invitationId: string, data: { token: string }) {
-    return this.request<OrganizationInvitation>(`/v1/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}/accept`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  acceptOrganizationInvitation(orgId: string, invitationId: string, data: SdkEndpointInput<'acceptOrganizationInvitation'>['body']) {
+    return this.endpointJson(sdkEndpoints.acceptOrganizationInvitation, { params: { orgId, invitationId }, body: data });
   }
 
   revokeOrganizationInvitation(orgId: string, invitationId: string) {
-    return this.request<OrganizationInvitation>(`/v1/organizations/${pathSegment(orgId)}/invitations/${pathSegment(invitationId)}`, { method: 'DELETE' });
+    return this.endpointJson(sdkEndpoints.revokeOrganizationInvitation, { params: { orgId, invitationId } });
   }
 
   getOrganizationJitSettings(orgId: string) {
-    return this.request<OrganizationJitSettings>(`/v1/organizations/${pathSegment(orgId)}/jit`);
+    return this.endpointJson(sdkEndpoints.getOrganizationJitSettings, { params: { orgId } });
   }
 
-  updateOrganizationJitSettings(orgId: string, data: OrganizationJitSettings) {
-    return this.request<OrganizationJitSettings>(`/v1/organizations/${pathSegment(orgId)}/jit`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateOrganizationJitSettings(orgId: string, data: SdkEndpointInput<'updateOrganizationJitSettings'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateOrganizationJitSettings, { params: { orgId }, body: data });
   }
 
   listOrganizationApplications(orgId: string) {
-    return this.request<ListResponse<unknown>>(`/v1/organizations/${pathSegment(orgId)}/applications`);
+    return this.endpointJson(sdkEndpoints.listOrganizationApplications, { params: { orgId } });
   }
 
   bindOrganizationApplication(orgId: string, appId: string) {
-    return this.request<unknown>(`/v1/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, {
-      method: 'PUT',
-      body: '{}',
-    });
+    return this.endpointJson(sdkEndpoints.bindOrganizationApplication, { params: { orgId, appId }, body: {} });
   }
 
   removeOrganizationApplication(orgId: string, appId: string) {
-    return this.request<unknown>(`/v1/organizations/${pathSegment(orgId)}/applications/${pathSegment(appId)}`, { method: 'DELETE' });
+    return this.endpointJson(sdkEndpoints.removeOrganizationApplication, { params: { orgId, appId } });
   }
 
   getOrganizationBranding(orgId: string) {
-    return this.request<Record<string, unknown>>(`/v1/organizations/${pathSegment(orgId)}/branding`);
+    return this.endpointJson(sdkEndpoints.getOrganizationBranding, { params: { orgId } });
   }
 
-  updateOrganizationBranding(orgId: string, data: Record<string, unknown>) {
-    return this.request<Record<string, unknown>>(`/v1/organizations/${pathSegment(orgId)}/branding`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateOrganizationBranding(orgId: string, data: SdkEndpointInput<'updateOrganizationBranding'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateOrganizationBranding, { params: { orgId }, body: data });
   }
 
-  // ─── Roles ────────────────────────────────────────────
   listRoles() {
-    return this.request<ListResponse<Role>>('/v1/roles');
+    return this.endpointJson(sdkEndpoints.listRoles, {  });
   }
 
-  createRole(data: { name: string; description?: string }) {
-    return this.request<Role>('/v1/roles', { method: 'POST', body: JSON.stringify(data) });
+  createRole(data: SdkEndpointInput<'createRole'>['body']) {
+    return this.endpointJson(sdkEndpoints.createRole, { body: data });
   }
 
   getRole(roleId: string) {
-    return this.request<Role>(`/v1/roles/${pathSegment(roleId)}`);
+    return this.endpointJson(sdkEndpoints.getRole, { params: { roleId } });
   }
 
-  updateRole(roleId: string, data: { name?: string; description?: string }) {
-    return this.request<Role>(`/v1/roles/${pathSegment(roleId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateRole(roleId: string, data: SdkEndpointInput<'updateRole'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateRole, { params: { roleId }, body: data });
   }
 
   deleteRole(roleId: string) {
-    return this.requestVoid(`/v1/roles/${pathSegment(roleId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.deleteRole, { params: { roleId } });
   }
 
-  // ─── Permissions ──────────────────────────────────────
   listRolePermissions(roleId: string) {
-    return this.request<ListResponse<Permission>>(`/v1/roles/${pathSegment(roleId)}/permissions`);
+    return this.endpointJson(sdkEndpoints.listRolePermissions, { params: { roleId } });
   }
 
-  createRolePermission(
-    roleId: string,
-    data: { name: string; description?: string; scope_id?: string },
-  ) {
-    return this.request<Permission>(`/v1/roles/${pathSegment(roleId)}/permissions`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createRolePermission(roleId: string, data: SdkEndpointInput<'createRolePermission'>['body']) {
+    return this.endpointJson(sdkEndpoints.createRolePermission, { params: { roleId }, body: data });
   }
 
   deleteRolePermission(roleId: string, permissionId: string) {
-    return this.requestVoid(`/v1/roles/${pathSegment(roleId)}/permissions/${pathSegment(permissionId)}`, {
-      method: 'DELETE',
-    });
+    return this.endpointVoid(sdkEndpoints.deleteRolePermission, { params: { roleId, permissionId } });
   }
 
-  // ─── Role assignments ─────────────────────────────────
-  assignRole(
-    roleId: string,
-    data: { user_id?: string; organization_id?: string; application_id?: string },
-  ) {
-    return this.request<RoleAssignment>(`/v1/roles/${pathSegment(roleId)}/assign`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  assignRole(roleId: string, data: SdkEndpointInput<'assignRole'>['body']) {
+    return this.endpointJson(sdkEndpoints.assignRole, { params: { roleId }, body: data });
   }
 
   listRoleAssignments(roleId: string) {
-    return this.request<ListResponse<RoleAssignment>>(`/v1/roles/${pathSegment(roleId)}/assign`);
+    return this.endpointJson(sdkEndpoints.listRoleAssignments, { params: { roleId } });
   }
 
   revokeRole(roleId: string, assignmentId: string) {
-    return this.requestVoid(`/v1/roles/${pathSegment(roleId)}/assign/${pathSegment(assignmentId)}`, {
-      method: 'DELETE',
-    });
+    return this.endpointVoid(sdkEndpoints.revokeRole, { params: { roleId, assignmentId } });
   }
 
   getOrgRoleAssignments(orgId: string) {
-    return this.request<ListResponse<RoleAssignment>>(`/v1/organizations/${pathSegment(orgId)}/roles`);
+    return this.endpointJson(sdkEndpoints.getOrgRoleAssignments, { params: { orgId } });
   }
 
-  // ─── Sign-in Experience ───────────────────────────────
   getSignInExperience() {
-    return this.request<SignInExperience>('/v1/sign-in-experience');
+    return this.endpointJson(sdkEndpoints.getSignInExperience, {  });
   }
 
   resolveSignInExperience(applicationId?: string) {
-    return this.request<EffectiveSignInExperience>(`/v1/sign-in-experience/resolve${queryString({ application_id: applicationId })}`);
+    return this.endpointJson(sdkEndpoints.resolveSignInExperience, { query: { ...(applicationId === undefined ? {} : { application_id: applicationId }) } });
   }
 
-  resolvePublicSignInExperience(params: { application_id?: string; authorization_id?: string } = {}) {
-    const qs = new URLSearchParams();
-    if (params.application_id) qs.set('application_id', params.application_id);
-    if (params.authorization_id) qs.set('authorization_id', params.authorization_id);
-    const suffix = qs.toString() ? `?${qs.toString()}` : '';
-    return this.request<PublicEffectiveSignInExperience>(`/v1/public/sign-in-experience/resolve${suffix}`);
+  resolvePublicSignInExperience(params: NonNullable<SdkEndpointInput<'resolvePublicSignInExperience'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.resolvePublicSignInExperience, { query: params });
   }
 
   getPublicPhrases(languageTag: string) {
-    return this.request<PublicPhraseBundle>(`/v1/public/phrases/${pathSegment(languageTag)}`);
+    return this.endpointJson(sdkEndpoints.getPublicPhrases, { params: { languageTag } });
   }
 
-  updateSignInExperience(data: Partial<SignInExperience>) {
-    return this.request<SignInExperience>('/v1/sign-in-experience', {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateSignInExperience(data: SdkEndpointInput<'updateSignInExperience'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateSignInExperience, { body: data });
   }
 
-  // ─── Auth Config ──────────────────────────────────────
   getAuthConfig() {
-    return this.request<AuthConfigResponse>('/v1/auth-config');
+    return this.endpointJson(sdkEndpoints.getAuthConfig, {  });
   }
 
-  updateAuthConfig(data: Partial<AuthConfigResponse>) {
-    return this.request<AuthConfigResponse>('/v1/auth-config', {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+  updateAuthConfig(data: SdkEndpointInput<'updateAuthConfig'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateAuthConfig, { body: data });
   }
 
-  // ─── Compatibility ────────────────────────────────────
   getCompatibilityReport() {
-    return this.request<{ checks: CompatibilityCheckResult[]; total: number; passed: number }>('/v1/compatibility/supabase');
+    return this.endpointJson(sdkEndpoints.getCompatibilityReport, {  });
   }
 
-  // ─── Tenant Config ────────────────────────────────────
   listTenantConfigs(type?: string) {
-    return this.request<ListResponse<TenantConfig>>(`/v1/tenant-config${queryString({ type })}`);
+    return this.endpointJson(sdkEndpoints.listTenantConfigs, { query: { ...(type === undefined ? {} : { type: type }) } });
   }
 
   getTenantConfig(type: string, key: string) {
-    return this.request<TenantConfig>(`/v1/tenant-config/${pathSegment(type)}/${pathSegment(key)}`);
+    return this.endpointJson(sdkEndpoints.getTenantConfig, { params: { type, key } });
   }
 
-  upsertTenantConfig(type: string, key: string, data: { value?: Record<string, unknown>; enabled?: boolean }) {
-    return this.request<TenantConfig>(`/v1/tenant-config/${pathSegment(type)}/${pathSegment(key)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  upsertTenantConfig(type: string, key: string, data: SdkEndpointInput<'upsertTenantConfig'>['body']) {
+    return this.endpointJson(sdkEndpoints.upsertTenantConfig, { params: { type, key }, body: data });
   }
 
   deleteTenantConfig(type: string, key: string) {
-    return this.request<TenantConfig>(`/v1/tenant-config/${pathSegment(type)}/${pathSegment(key)}`, {
-      method: 'DELETE',
-    });
+    return this.endpointJson(sdkEndpoints.deleteTenantConfig, { params: { type, key } });
   }
 
   checkTenantDomain(domain: string) {
-    return this.request<unknown>(`/v1/tenant-config/domain/${pathSegment(domain)}/check`, { method: 'POST' });
+    return this.endpointJson(sdkEndpoints.checkTenantDomain, { params: { domain } });
   }
 
-  // ─── Auth Hooks ───────────────────────────────────────
   getAuthHookRegistrationGuide() {
-    return this.request<AuthHookRegistrationGuide>('/v1/auth-hooks/registration-guide');
+    return this.endpointJson(sdkEndpoints.getAuthHookRegistrationGuide, {  });
   }
 
   getAuthHookStatus() {
-    return this.request<Record<string, unknown>>('/v1/auth-hooks/custom-access-token/status');
+    return this.endpointJson(sdkEndpoints.getAuthHookStatus, {  });
   }
 
   verifyAuthHook() {
-    return this.request<Record<string, unknown>>('/v1/auth-hooks/custom-access-token/verify', { method: 'POST' });
+    return this.endpointJson(sdkEndpoints.verifyAuthHook, {  });
   }
 
   getBeforeUserCreatedHookStatus() {
-    return this.request<Record<string, unknown>>('/v1/auth-hooks/before-user-created/status');
+    return this.endpointJson(sdkEndpoints.getBeforeUserCreatedHookStatus, {  });
   }
 
   verifyBeforeUserCreatedHook() {
-    return this.request<Record<string, unknown>>('/v1/auth-hooks/before-user-created/verify', { method: 'POST' });
+    return this.endpointJson(sdkEndpoints.verifyBeforeUserCreatedHook, {  });
   }
 
-  listTenantMembers(params: { page?: number; limit?: number; search?: string } = {}) {
-    const query = new URLSearchParams();
-    if (params.page) query.set('page', String(params.page));
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.search) query.set('search', params.search);
-    return this.request<ListResponse<Record<string, unknown>>>(`/v1/tenant/members${query.toString() ? `?${query}` : ''}`);
+  listTenantMembers(params: NonNullable<SdkEndpointInput<'listTenantMembers'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.listTenantMembers, { query: params });
   }
 
-  updateTenantMember(memberId: string, data: Record<string, unknown>) {
-    return this.request<Record<string, unknown>>(`/v1/tenant/members/${pathSegment(memberId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+  updateTenantMember(memberId: string, data: SdkEndpointInput<'updateTenantMember'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateTenantMember, { params: { memberId }, body: data });
   }
 
   removeTenantMember(memberId: string) {
-    return this.requestVoid(`/v1/tenant/members/${pathSegment(memberId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.removeTenantMember, { params: { memberId } });
   }
 
-  listTenantInvitations(params: { page?: number; limit?: number; status?: string } = {}) {
-    const query = new URLSearchParams();
-    if (params.page) query.set('page', String(params.page));
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.status) query.set('status', params.status);
-    return this.request<ListResponse<Record<string, unknown>>>(`/v1/tenant/invitations${query.toString() ? `?${query}` : ''}`);
+  listTenantInvitations(params: NonNullable<SdkEndpointInput<'listTenantInvitations'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.listTenantInvitations, { query: params });
   }
 
-  createTenantInvitation(data: Record<string, unknown>) {
-    return this.request<Record<string, unknown>>('/v1/tenant/invitations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createTenantInvitation(data: SdkEndpointInput<'createTenantInvitation'>['body']) {
+    return this.endpointJson(sdkEndpoints.createTenantInvitation, { body: data });
   }
 
-  // ─── Webhooks ─────────────────────────────────────────
   listWebhooks() {
-    return this.request<ListResponse<Webhook>>('/v1/webhooks');
+    return this.endpointJson(sdkEndpoints.listWebhooks, {  });
   }
 
-  createWebhook(data: { url: string; events: string[]; enabled?: boolean }) {
-    return this.request<Webhook>('/v1/webhooks', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createWebhook(data: SdkEndpointInput<'createWebhook'>['body']) {
+    return this.endpointJson(sdkEndpoints.createWebhook, { body: data });
   }
 
   getWebhook(webhookId: string) {
-    return this.request<Webhook>(`/v1/webhooks/${pathSegment(webhookId)}`);
+    return this.endpointJson(sdkEndpoints.getWebhook, { params: { webhookId } });
   }
 
-  updateWebhook(webhookId: string, data: Partial<{ url: string; events: string[]; enabled: boolean }>) {
-    return this.request<Webhook>(`/v1/webhooks/${pathSegment(webhookId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  updateWebhook(webhookId: string, data: SdkEndpointInput<'updateWebhook'>['body']) {
+    return this.endpointJson(sdkEndpoints.updateWebhook, { params: { webhookId }, body: data });
   }
 
   deleteWebhook(webhookId: string) {
-    return this.requestVoid(`/v1/webhooks/${pathSegment(webhookId)}`, { method: 'DELETE' });
+    return this.endpointVoid(sdkEndpoints.deleteWebhook, { params: { webhookId } });
   }
 
   rotateWebhookSecret(webhookId: string) {
-    return this.request<Webhook>(`/v1/webhooks/${pathSegment(webhookId)}/rotate-secret`, {
-      method: 'POST',
-    });
+    return this.endpointJson(sdkEndpoints.rotateWebhookSecret, { params: { webhookId } });
   }
 
   listWebhookLogs(webhookId: string, limit?: number) {
-    return this.request<ListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${pathSegment(webhookId)}/logs${queryString({ limit })}`);
+    return this.endpointJson(sdkEndpoints.listWebhookLogs, { params: { webhookId }, query: { ...(limit === undefined ? {} : { limit: limit }) } });
   }
 
   testWebhook(webhookId: string) {
-    return this.request<{ ok: boolean; status?: number; error?: string }>(`/v1/webhooks/${pathSegment(webhookId)}/test`, {
-      method: 'POST',
-      body: '{}',
-    });
+    return this.endpointJson(sdkEndpoints.testWebhook, { params: { webhookId }, body: {} });
   }
 
   listWebhookEvents() {
-    return this.request<WebhookEventList>('/v1/webhooks/events');
+    return this.endpointJson(sdkEndpoints.listWebhookEvents, {  });
   }
 
-  listWebhookDeliveries(webhookId: string, params: { limit?: number; cursor?: string; status?: string } = {}) {
-    const query = new URLSearchParams();
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.cursor) query.set('cursor', params.cursor);
-    if (params.status) query.set('status', params.status);
-    return this.request<CursorListResponse<WebhookDeliveryLog>>(`/v1/webhooks/${pathSegment(webhookId)}/deliveries${query.toString() ? `?${query}` : ''}`);
+  listWebhookDeliveries(webhookId: string, params: NonNullable<SdkEndpointInput<'listWebhookDeliveries'>['query']> = {}) {
+    return this.endpointJson(sdkEndpoints.listWebhookDeliveries, { params: { webhookId }, query: params });
   }
 
   getWebhookDelivery(webhookId: string, deliveryId: string) {
-    return this.request<WebhookDeliveryLog>(`/v1/webhooks/${pathSegment(webhookId)}/deliveries/${pathSegment(deliveryId)}`);
+    return this.endpointJson(sdkEndpoints.getWebhookDelivery, { params: { webhookId, deliveryId } });
   }
 
   replayWebhookDelivery(webhookId: string, deliveryId: string) {
-    return this.request<WebhookDeliveryLog>(`/v1/webhooks/${pathSegment(webhookId)}/deliveries/${pathSegment(deliveryId)}/replay`, {
-      method: 'POST',
-    });
+    return this.endpointJson(sdkEndpoints.replayWebhookDelivery, { params: { webhookId, deliveryId } });
   }
 
-  // ─── Metadata sync ────────────────────────────────────
   syncUserMetadata(userId: string, orgId?: string) {
-    return this.request<SyncResult>(`/v1/sync/user/${pathSegment(userId)}${queryString({ org_id: orgId })}`, { method: 'POST' });
+    return this.endpointJson(sdkEndpoints.syncUserMetadata, { params: { userId }, query: { ...(orgId === undefined ? {} : { org_id: orgId }) } });
   }
 
   syncOrgMetadata(orgId: string) {
-    return this.request<{ results: SyncResult[]; total: number; failed: number }>(
-      `/v1/sync/org/${pathSegment(orgId)}`,
-      { method: 'POST' },
-    );
+    return this.endpointJson(sdkEndpoints.syncOrgMetadata, { params: { orgId } });
   }
 
-  // ─── Audit ────────────────────────────────────────────
-  listAuditLogs(params?: {
-    event_type?: string;
-    resource_type?: string;
-    resource_id?: string;
-    actor_id?: string;
-    status?: number;
-    method?: string;
-    limit?: number;
-    offset?: number;
-    from?: string;
-    to?: string;
-    cursor?: string;
-  }) {
-    const qs = new URLSearchParams();
-    if (params?.event_type) qs.set('event_type', params.event_type);
-    if (params?.resource_type) qs.set('resource_type', params.resource_type);
-    if (params?.resource_id) qs.set('resource_id', params.resource_id);
-    if (params?.actor_id) qs.set('actor_id', params.actor_id);
-    if (params?.status) qs.set('status', String(params.status));
-    if (params?.method) qs.set('method', params.method);
-    if (params?.limit) qs.set('limit', String(params.limit));
-    if (params?.offset) qs.set('offset', String(params.offset));
-    if (params?.from) qs.set('from', params.from);
-    if (params?.to) qs.set('to', params.to);
-    if (params?.cursor) qs.set('cursor', params.cursor);
-    const query = qs.toString();
-    return this.request<CursorListResponse<AuditLogEntry>>(`/v1/audit${query ? `?${query}` : ''}`);
+  listAuditLogs(params?: NonNullable<SdkEndpointInput<'listAuditLogs'>['query']>) {
+    return this.endpointJson(sdkEndpoints.listAuditLogs, { ...(params === undefined ? {} : { query: params }) });
   }
 
   getAuditLog(logId: string) {
-    return this.request<AuditLogEntry>(`/v1/audit/${pathSegment(logId)}`);
+    return this.endpointJson(sdkEndpoints.getAuditLog, { params: { logId } });
   }
 
-  createAuditExport(params: Record<string, unknown> = {}) {
-    return this.request<Record<string, unknown>>('/v1/audit/export', {
-      method: 'POST',
-      body: JSON.stringify(params),
-    });
+  createAuditExport(params: SdkEndpointInput<'createAuditExport'>['body'] = {}) {
+    return this.endpointJson(sdkEndpoints.createAuditExport, { body: params });
   }
 
   getAuditExport(exportId: string) {
-    return this.request<Record<string, unknown>>(`/v1/audit/export/${pathSegment(exportId)}`);
+    return this.endpointJson(sdkEndpoints.getAuditExport, { params: { exportId } });
   }
 
   getAuditExportDownload(exportId: string) {
-    return this.requestBlob(`/v1/audit/export/${pathSegment(exportId)}/download`);
+    return this.endpointBlob(sdkEndpoints.getAuditExportDownload, { params: { exportId } });
   }
 
   getAuditIntegrity() {
-    return this.request<Record<string, unknown>>('/v1/audit/integrity');
+    return this.endpointJson(sdkEndpoints.getAuditIntegrity, {  });
   }
 
-  // ─── RLS Migration Assistant ──────────────────────────
-  compileAuthorizationPlan(data: AuthorizationCompileRequest) {
-    return this.request<AuthorizationCompileResult>('/v1/admin-tools/authorization-compiler', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  compileAuthorizationPlan(data: SdkEndpointInput<'compileAuthorizationPlan'>['body']) {
+    return this.endpointJson(sdkEndpoints.compileAuthorizationPlan, { body: data });
   }
 
   getAuthorizationCompilerDemo() {
-    return this.request<AuthorizationCompileResult>('/v1/admin-tools/authorization-compiler/demo');
+    return this.endpointJson(sdkEndpoints.getAuthorizationCompilerDemo, {  });
   }
 
-  generateRLSMigration(policies: ExistingPolicy[]) {
-    return this.request<MigrationResult>('/v1/admin-tools/rls-migration', {
-      method: 'POST',
-      body: JSON.stringify({ policies }),
-    });
+  generateRLSMigration(policies: SdkEndpointInput<'generateRLSMigration'>['body']['policies']) {
+    return this.endpointJson(sdkEndpoints.generateRLSMigration, { body: { policies } });
   }
 
   getRLSMigrationDemo() {
-    return this.request<MigrationResult>('/v1/admin-tools/rls-migration/demo');
+    return this.endpointJson(sdkEndpoints.getRLSMigrationDemo, {  });
   }
 
-  // ─── Organization templates ───────────────────────────
   listOrgTemplates() {
-    return this.request<ListResponse<OrganizationTemplate>>('/v1/org-templates');
+    return this.endpointJson(sdkEndpoints.listOrgTemplates, {  });
   }
 
-  createOrgTemplate(data: {
-    name: string;
-    description?: string;
-    template_roles?: Array<{ name: string; permissions: string[] }>;
-    template_scopes?: Array<{ name: string; description?: string }>;
-    is_default?: boolean;
-  }) {
-    return this.request<OrganizationTemplate>('/v1/org-templates', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createOrgTemplate(data: SdkEndpointInput<'createOrgTemplate'>['body']) {
+    return this.endpointJson(sdkEndpoints.createOrgTemplate, { body: data });
   }
 
-  instantiateOrgTemplate(
-    templateId: string,
-    data: { name: string; description?: string; creator_user_id: string },
-    idempotencyKey = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  ) {
-    return this.request<unknown>(`/v1/org-templates/${pathSegment(templateId)}/instantiate`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify(data),
-    });
+  instantiateOrgTemplate(templateId: string, data: SdkEndpointInput<'instantiateOrgTemplate'>['body'], idempotencyKey: string = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`) {
+    return this.endpointJson(sdkEndpoints.instantiateOrgTemplate, { params: { templateId }, body: data, headers: { 'Idempotency-Key': idempotencyKey } });
   }
 
-  // ─── Security and provisioning ────────────────────────
   getSecurityStatus() {
-    return this.request<SecurityStatus>('/v1/security-config/status');
+    return this.endpointJson(sdkEndpoints.getSecurityStatus, {  });
   }
 
   getProvisioningStatus(projectRef: string) {
-    return this.request<unknown>(`/v1/provisioning/${pathSegment(projectRef)}`);
+    return this.endpointJson(sdkEndpoints.getProvisioningStatus, { params: { projectRef } });
   }
 
   reconcileProject(projectRef: string) {
-    return this.request<unknown>(`/v1/provisioning/${pathSegment(projectRef)}/reconcile`, { method: 'POST' });
+    return this.endpointJson(sdkEndpoints.reconcileProject, { params: { projectRef } });
   }
 
-  // ─── Enterprise SSO ───────────────────────────────────
   listEnterpriseSSOConfigs() {
-    return this.request<ListResponse<EnterpriseSSOConfig>>('/v1/enterprise-sso');
+    return this.endpointJson(sdkEndpoints.listEnterpriseSSOConfigs, {  });
   }
 
-  createEnterpriseSSOConfig(data: {
-    connector_id: string;
-    domains: string[];
-    sso_protocol?: string;
-    jit_provisioning?: boolean;
-    org_membership_mapping?: Record<string, string>;
-    role_mapping?: Record<string, string>;
-  }) {
-    return this.request<EnterpriseSSOConfig>('/v1/enterprise-sso', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  createEnterpriseSSOConfig(data: SdkEndpointInput<'createEnterpriseSSOConfig'>['body']) {
+    return this.endpointJson(sdkEndpoints.createEnterpriseSSOConfig, { body: data });
   }
+
 }

@@ -1,3 +1,5 @@
+import { strictRecord } from './helpers/strict-values.js';
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 
@@ -7,9 +9,9 @@ const logAudit = mock(async () => undefined);
 mock.module('../repositories/consents.js', () => ({ recordOAuthConsentDecision }));
 mock.module('../repositories/audit.js', () => ({ logAudit }));
 
-process.env.OAUTH_RUNTIME_URL = 'https://gotrue.example.test';
-process.env.OAUTH_RUNTIME_INTERNAL_URL = 'https://gotrue.example.test';
-process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
+process.env["OAUTH_RUNTIME_URL"] = 'https://gotrue.example.test';
+process.env["OAUTH_RUNTIME_INTERNAL_URL"] = 'https://gotrue.example.test';
+process.env["SUPAUTH_PUBLIC_URL"] = 'https://auth.example.test';
 
 const originalFetch = globalThis.fetch;
 const { loadConfig } = await import('../config/index.js');
@@ -46,7 +48,7 @@ describe('stock GoTrue OAuth consent BFF', () => {
 
   it('loads details before submitting and records a successful explicit approval', async () => {
     const calls: Array<{ path: string; method: string; body: string }> = [];
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(String(input));
       calls.push({
         path: url.pathname,
@@ -62,7 +64,7 @@ describe('stock GoTrue OAuth consent BFF', () => {
         user: { id: '22222222-2222-4222-8222-222222222222' },
         scope: 'openid profile',
       });
-    }) as unknown as typeof fetch;
+    }));
 
     const response = await oauthRequest('/authorizations/authorization-one/consent', {
       method: 'POST',
@@ -95,12 +97,12 @@ describe('stock GoTrue OAuth consent BFF', () => {
 
   it('returns GoTrue auto-approval without posting another consent decision', async () => {
     const methods: string[] = [];
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       methods.push(init?.method || 'GET');
       return Promise.resolve(Response.json({
         redirect_url: 'https://client.example.test/callback?code=existing',
       }));
-    }) as unknown as typeof fetch;
+    }));
 
     const response = await oauthRequest('/authorizations/authorization-existing/consent', {
       method: 'POST',
@@ -116,7 +118,7 @@ describe('stock GoTrue OAuth consent BFF', () => {
   it('forwards denial and preserves an upstream not-found response', async () => {
     let mode: 'deny' | 'missing' = 'deny';
     const bodies: string[] = [];
-    globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
       if (mode === 'missing') {
         return Promise.resolve(Response.json(
           { code: 'oauth_authorization_not_found', message: 'authorization not found' },
@@ -132,7 +134,7 @@ describe('stock GoTrue OAuth consent BFF', () => {
         user: { id: '44444444-4444-4444-8444-444444444444' },
         scope: 'openid',
       }));
-    }) as unknown as typeof fetch;
+    }));
 
     const denied = await oauthRequest('/authorizations/authorization-denied/consent', {
       method: 'POST',
@@ -164,7 +166,7 @@ describe('stock GoTrue OAuth consent BFF', () => {
 
     for (const operation of ['lookup', 'consent'] as const) {
       for (const failureCase of failureCases) {
-        globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+        globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
           if (operation === 'consent' && init?.method !== 'POST') {
             return Promise.resolve(Response.json({
               client: { id: 'client-one' },
@@ -176,7 +178,7 @@ describe('stock GoTrue OAuth consent BFF', () => {
             code: 'private_upstream_code',
             message: 'postgres://secret@auth.internal:5432/private',
           }, { status: failureCase.status }));
-        }) as unknown as typeof fetch;
+        }));
 
         const response = operation === 'lookup'
           ? await oauthRequest('/authorizations/matrix-lookup')
@@ -185,10 +187,10 @@ describe('stock GoTrue OAuth consent BFF', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'approve' }),
           });
-        const body = await response.json() as Record<string, unknown>;
+        const body = strictRecord(await response.json());
 
         expect(response.status).toBe(failureCase.expectedStatus);
-        expect(body.error).toBe(operation === 'lookup' ? failureCase.lookupCode : failureCase.consentCode);
+        expect(body["error"]).toBe(operation === 'lookup' ? failureCase.lookupCode : failureCase.consentCode);
         expect(JSON.stringify(body)).not.toContain('auth.internal');
         expect(JSON.stringify(body)).not.toContain('secret');
         expect(JSON.stringify(body)).not.toContain('private_upstream_code');
@@ -212,7 +214,7 @@ describe('stock GoTrue OAuth consent BFF', () => {
 
     for (const operation of ['lookup', 'consent'] as const) {
       for (const transportCase of transportCases) {
-        globalThis.fetch = mock((_input: string | URL | Request, init?: RequestInit) => {
+        globalThis.fetch = strictFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
           if (operation === 'consent' && init?.method !== 'POST') {
             return Promise.resolve(Response.json({
               client: { id: 'client-one' },
@@ -221,7 +223,7 @@ describe('stock GoTrue OAuth consent BFF', () => {
             }));
           }
           return Promise.reject(transportCase.error);
-        }) as unknown as typeof fetch;
+        }));
 
         const response = operation === 'lookup'
           ? await oauthRequest('/authorizations/transport-lookup')
@@ -230,10 +232,10 @@ describe('stock GoTrue OAuth consent BFF', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'approve' }),
           });
-        const body = await response.json() as Record<string, unknown>;
+        const body = strictRecord(await response.json());
 
         expect(response.status).toBe(transportCase.status);
-        expect(body.error).toBe(transportCase.code);
+        expect(body["error"]).toBe(transportCase.code);
         expect(JSON.stringify(body)).not.toContain('auth.internal');
         expect(JSON.stringify(body)).not.toContain('secret');
       }
@@ -241,15 +243,15 @@ describe('stock GoTrue OAuth consent BFF', () => {
   });
 
   it('maps a response-body timeout to the same sanitized timeout contract', async () => {
-    globalThis.fetch = mock(async () => responseWithBodyError(
+    globalThis.fetch = strictFetch(mock(async () => responseWithBodyError(
       new DOMException('auth.internal private body detail', 'TimeoutError'),
-    )) as unknown as typeof fetch;
+    )));
 
     const response = await oauthRequest('/authorizations/body-timeout');
-    const body = await response.json() as Record<string, unknown>;
+    const body = strictRecord(await response.json());
 
     expect(response.status).toBe(504);
-    expect(body.error).toBe('runtime_timeout');
+    expect(body["error"]).toBe('runtime_timeout');
     expect(JSON.stringify(body)).not.toContain('auth.internal');
     expect(JSON.stringify(body)).not.toContain('private');
   });

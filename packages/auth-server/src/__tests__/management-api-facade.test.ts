@@ -1,13 +1,18 @@
+import { strictProperty } from './helpers/strict-values.js';
+import { strictRecord } from './helpers/strict-values.js';
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 import { readFileSync } from 'node:fs';
 import type { AdminPrincipal } from '../auth/admin-permissions.js';
 import { withAdminRequestContext } from '../auth/request-context.js';
 import { loadConfig } from '../config/index.js';
+import { fixtureTime, fixtureUser, managementReadFixture } from './management-contract-fixtures.js';
 
 describe('SupaCloud Management API facade routes', () => {
   const originalFetch = globalThis.fetch;
-  const originalBffSigningSecret = process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
+  const originalBffSigningSecret = process.env["SUPAOAUTH_BFF_SIGNING_SECRET"];
   const bffSigningSecret = 'test-bff-signing-secret-0123456789abcdef';
   const adminPrincipal: AdminPrincipal = {
     id: 'facade-test-admin',
@@ -17,8 +22,8 @@ describe('SupaCloud Management API facade routes', () => {
     permissions: ['*'],
     authorization_source: 'rbac_projection',
   };
-  const calls: Array<{ url: string; method: string; body?: string }> = [];
-  const queuedTestPayload = { queued: true, outbox_id: 'outbox-test' };
+  const calls: Array<{ url: string; method: string; body?: string | undefined }> = [];
+  const queuedTestPayload = { queued: true, outbox_id: 'outbox-test', event_id: 'event-test' };
   const queuedReplayPayload = {
     queued: true,
     outbox_id: 'outbox-replay',
@@ -27,21 +32,21 @@ describe('SupaCloud Management API facade routes', () => {
   };
 
   beforeEach(() => {
-    process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-    process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
-    process.env.SUPACLOUD_PROJECT_REF = 'test-project';
-    process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = bffSigningSecret;
-    delete process.env.SUPACLOUD_API_URL;
-    delete process.env.SUPACLOUD_MASTER_TOKEN;
-    delete process.env.PROJECT_REF;
-    delete process.env.OAUTH_RUNTIME_URL;
-    delete process.env.DATABASE_URL;
+    process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+    process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
+    process.env["SUPACLOUD_PROJECT_REF"] = 'test-project';
+    process.env["SUPACLOUD_RUNTIME_URL"] = 'http://runtime.internal';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = bffSigningSecret;
+    delete process.env["SUPACLOUD_API_URL"];
+    delete process.env["SUPACLOUD_MASTER_TOKEN"];
+    delete process.env["PROJECT_REF"];
+    delete process.env["OAUTH_RUNTIME_URL"];
+    delete process.env["DATABASE_URL"];
     loadConfig();
 
     calls.length = 0;
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         url,
@@ -55,14 +60,14 @@ describe('SupaCloud Management API facade routes', () => {
       if (path.endsWith('/webhooks/wh-one/deliveries/delivery-one/replay')) {
         return Promise.resolve(Response.json(queuedReplayPayload, { status: 202 }));
       }
-      return Promise.resolve(Response.json({ items: [{ id: 'one' }], total: 1, id: 'one' }));
-    }) as unknown as typeof fetch;
+      return Promise.resolve(Response.json(managementReadFixture(path, init?.method || 'GET')));
+    }));
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    if (originalBffSigningSecret === undefined) delete process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
-    else process.env.SUPAOAUTH_BFF_SIGNING_SECRET = originalBffSigningSecret;
+    if (originalBffSigningSecret === undefined) delete process.env["SUPAOAUTH_BFF_SIGNING_SECRET"];
+    else process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = originalBffSigningSecret;
   });
 
   it('leaves organization and RBAC mutation webhooks to the SupaCloud transactional outbox', () => {
@@ -125,7 +130,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('accepts an organization invitation with only the authenticated GoTrue bearer and token', async () => {
     const observed: Array<{ path: string; authorization: string | null; body: string | null }> = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       observed.push({
         path: new URL(url).pathname,
@@ -133,10 +138,13 @@ describe('SupaCloud Management API facade routes', () => {
         body: typeof init?.body === 'string' ? init.body : null,
       });
       if (new URL(url).pathname.endsWith('/invitations/invite-one/accept')) {
-        return Promise.resolve(Response.json({ id: 'member-one', user_id: 'gotrue-user' }));
+        return Promise.resolve(Response.json({
+          id: 'member-one', user_id: 'gotrue-user', organization_id: 'org-one', role: 'member',
+          created_at: fixtureTime, updated_at: fixtureTime,
+        }));
       }
       return Promise.resolve(Response.json({ ok: true }));
-    }) as unknown as typeof fetch;
+    }));
 
     const [{ publicOrganizationRoutes }, { observabilityMiddleware }] = await Promise.all([
       import('../routes/organizations.js'),
@@ -181,8 +189,8 @@ describe('SupaCloud Management API facade routes', () => {
     ));
 
     expect(response.status).toBe(401);
-    const body = await response.json() as any;
-    expect(body.error.code).toBe('gotrue_access_token_required');
+    const body = strictRecord(await response.json());
+    expect(strictProperty(body["error"], "code")).toBe('gotrue_access_token_required');
     expect(calls).toHaveLength(0);
   });
 
@@ -205,7 +213,7 @@ describe('SupaCloud Management API facade routes', () => {
   });
 
   it('proxies safe user profile updates while preserving SupaOAuth metadata', async () => {
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         url,
@@ -222,8 +230,8 @@ describe('SupaCloud Management API facade routes', () => {
           },
         }));
       }
-      return Promise.resolve(Response.json({ id: 'one' }));
-    }) as unknown as typeof fetch;
+      return Promise.resolve(Response.json(fixtureUser()));
+    }));
 
     const { userRoutes } = await import('../routes/users.js');
     const app = new Elysia().use(userRoutes);
@@ -308,10 +316,7 @@ describe('SupaCloud Management API facade routes', () => {
     const app = new Elysia().use(webhookRoutes);
 
     const response = await app.handle(new Request('http://supauth.local/v1/webhooks/events'));
-    const body = await response.json() as {
-      events: string[];
-      catalog: Array<{ type: string; guarantee: string }>;
-    };
+    const body = strictDecodeSchema(StrictType.Object({ "events": StrictType.Array(StrictType.String()), "catalog": StrictType.Array(StrictType.Object({ "type": StrictType.String(), "guarantee": StrictType.String() })) }), await response.json());
 
     expect(response.status).toBe(200);
     expect(body.events).toContain('organization.created');
@@ -361,7 +366,7 @@ describe('SupaCloud Management API facade routes', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ url, events: ['user.created'] }),
     }));
-    const payload = await response.json() as { error?: { code?: string } };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Optional(StrictType.Object({ "code": StrictType.Optional(StrictType.String()) })) }), await response.json());
 
     expect(response.status).toBe(400);
     expect(payload.error?.code).toBe('invalid_webhook_url');
@@ -420,7 +425,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('creates inline role permissions through authoritative mutations and readback', async () => {
     const longPermission = 'p'.repeat(255);
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const pathname = new URL(url).pathname;
       calls.push({
@@ -432,7 +437,7 @@ describe('SupaCloud Management API facade routes', () => {
         return Promise.resolve(Response.json({ id: 'role-one', name: 'Custom role', permissions: [] }));
       }
       if (init?.method === 'POST' && pathname.endsWith('/rbac/roles/role-one/permissions')) {
-        const permission = JSON.parse(String(init.body)) as { name: string };
+        const permission = strictDecodeSchema(StrictType.Object({ "name": StrictType.String() }), JSON.parse(String(init.body)));
         return Promise.resolve(Response.json({ id: `permission-${permission.name.length}`, name: permission.name }));
       }
       if ((init?.method || 'GET') === 'GET' && pathname.endsWith('/rbac/roles/role-one')) {
@@ -443,7 +448,7 @@ describe('SupaCloud Management API facade routes', () => {
         }));
       }
       return Promise.resolve(Response.json({ id: 'audit-one' }));
-    }) as unknown as typeof fetch;
+    }));
     const [{ roleRoutes }, { observabilityMiddleware }] = await Promise.all([
       import('../routes/roles.js'),
       import('../middleware/index.js'),
@@ -465,7 +470,7 @@ describe('SupaCloud Management API facade routes', () => {
     );
 
     expect(response.status).toBe(200);
-    expect((await response.json() as { permissions: Array<{ name: string }> }).permissions.map(permission => permission.name))
+    expect((strictDecodeSchema(StrictType.Object({ "permissions": StrictType.Array(StrictType.Object({ "name": StrictType.String() })) }), await response.json())).permissions.map(permission => permission.name))
       .toEqual([longPermission, 'custom.manage']);
     expect(calls.map(call => [call.method, new URL(call.url).pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')]))
       .toEqual([
@@ -487,7 +492,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('keeps role creation without permissions compatible and applies the 255-character name boundary to updates', async () => {
     const boundaryName = 'r'.repeat(255);
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         url,
@@ -499,7 +504,7 @@ describe('SupaCloud Management API facade routes', () => {
         return Promise.resolve(Response.json({ id: 'role-one', name: boundaryName, permissions: [] }));
       }
       return Promise.resolve(Response.json({ id: 'audit-one' }));
-    }) as unknown as typeof fetch;
+    }));
     const { roleRoutes } = await import('../routes/roles.js');
     const app = new Elysia().use(roleRoutes);
 
@@ -548,7 +553,7 @@ describe('SupaCloud Management API facade routes', () => {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(name === undefined ? {} : { name }),
         }));
-        const payload = await response.json() as { error: { code: string; details: { field: string } } };
+        const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String(), "details": StrictType.Object({ "field": StrictType.String() }) }) }), await response.json());
 
         expect(response.status).toBe(400);
         expect(payload.error.code).toBe('invalid_role_input');
@@ -580,7 +585,7 @@ describe('SupaCloud Management API facade routes', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: 'Reader', permissions }),
       }));
-      const payload = await response.json() as { error: { code: string; details: { field: string } } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String(), "details": StrictType.Object({ "field": StrictType.String() }) }) }), await response.json());
 
       expect(response.status).toBe(400);
       expect(payload.error.code).toBe('invalid_role_input');
@@ -591,7 +596,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('deletes a newly-created role when an inline permission write fails', async () => {
     let permissionWrites = 0;
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const pathname = new URL(url).pathname;
       calls.push({ url, method: init?.method || 'GET', body: typeof init?.body === 'string' ? init.body : undefined });
@@ -606,7 +611,7 @@ describe('SupaCloud Management API facade routes', () => {
         return Promise.resolve(Response.json({ id: 'permission-one', name: 'users.read' }));
       }
       return Promise.resolve(Response.json({ deleted: true }));
-    }) as unknown as typeof fetch;
+    }));
     const [{ roleRoutes }, { observabilityMiddleware }] = await Promise.all([
       import('../routes/roles.js'),
       import('../middleware/index.js'),
@@ -618,7 +623,7 @@ describe('SupaCloud Management API facade routes', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Reader', permissions: ['users.read', 'users.write'] }),
     }));
-    const payload = await response.json() as { error: { code: string } };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String() }) }), await response.json());
 
     expect(response.status).toBe(409);
     expect(payload.error.code).toBe('supacloud_upstream_error');
@@ -629,7 +634,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('fails closed on role permission readback mismatch and reports an unknown outcome when rollback fails', async () => {
     let rollbackFails = false;
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const pathname = new URL(url).pathname;
       calls.push({ url, method: init?.method || 'GET', body: typeof init?.body === 'string' ? init.body : undefined });
@@ -646,7 +651,7 @@ describe('SupaCloud Management API facade routes', () => {
         return Promise.resolve(new Response(JSON.stringify({ code: 'delete_unavailable' }), { status: 503 }));
       }
       return Promise.resolve(Response.json({ deleted: true }));
-    }) as unknown as typeof fetch;
+    }));
     const [{ roleRoutes }, { observabilityMiddleware }] = await Promise.all([
       import('../routes/roles.js'),
       import('../middleware/index.js'),
@@ -664,7 +669,7 @@ describe('SupaCloud Management API facade routes', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: 'Reader', permissions: ['users.read'] }),
       }));
-      const payload = await response.json() as { error: { code: string } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String() }) }), await response.json());
 
       expect(response.status).toBe(expected.status);
       expect(payload.error.code).toBe(expected.code);
@@ -692,10 +697,7 @@ describe('SupaCloud Management API facade routes', () => {
         },
       }),
     }));
-    const payload = await response.json() as {
-      success: boolean;
-      error: { code: string; fields?: string[] };
-    };
+    const payload = strictDecodeSchema(StrictType.Object({ "success": StrictType.Boolean(), "error": StrictType.Object({ "code": StrictType.String(), "fields": StrictType.Optional(StrictType.Array(StrictType.String())) }) }), await response.json());
 
     expect(response.status).toBe(400);
     expect(payload.success).toBe(false);
@@ -721,7 +723,7 @@ describe('SupaCloud Management API facade routes', () => {
         },
       }),
     }));
-    const payload = await response.json() as { error: { code: string; fields: string[] } };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String(), "fields": StrictType.Array(StrictType.String()) }) }), await response.json());
 
     expect(response.status).toBe(400);
     expect(payload.error.code).toBe('reserved_user_create_field');
@@ -754,10 +756,7 @@ describe('SupaCloud Management API facade routes', () => {
     for (const query of invalidQueries) {
       calls.length = 0;
       const response = await app.handle(new Request(`http://supauth.local/v1/users?${query}`));
-      const payload = await response.json() as {
-        success: boolean;
-        error: { code: string; details: { field: string; minimum: number; maximum: number } };
-      };
+      const payload = strictDecodeSchema(StrictType.Object({ "success": StrictType.Boolean(), "error": StrictType.Object({ "code": StrictType.String(), "details": StrictType.Object({ "field": StrictType.String(), "minimum": StrictType.Number(), "maximum": StrictType.Number() }) }) }), await response.json());
 
       expect(response.status).toBe(400);
       expect(payload.success).toBe(false);
@@ -779,7 +778,7 @@ describe('SupaCloud Management API facade routes', () => {
     for (const testCase of cases) {
       calls.length = 0;
       const response = await app.handle(new Request(`http://supauth.local/v1/users${testCase.query}`));
-      const payload = await response.json() as { page: number; limit: number };
+      const payload = strictDecodeSchema(StrictType.Object({ "page": StrictType.Number(), "limit": StrictType.Number() }), await response.json());
 
       expect(response.status).toBe(200);
       expect(payload.page).toBe(testCase.page);
@@ -801,14 +800,14 @@ describe('SupaCloud Management API facade routes', () => {
       import('../middleware/index.js'),
       import('../utils/password-policy.js'),
     ]);
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url, method: init?.method || 'GET' });
       return Promise.resolve(Response.json({
         password_min_length: 12,
         password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.strong,
       }));
-    }) as unknown as typeof fetch;
+    }));
     const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
     const invalidPasswords = [
       { password: 'Short1!', code: 'password_too_short' },
@@ -824,7 +823,7 @@ describe('SupaCloud Management API facade routes', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'new-user@example.test', password: testCase.password }),
       }));
-      const payload = await response.json() as { error: { code: string } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String() }) }), await response.json());
 
       expect(response.status).toBe(400);
       expect(payload.error.code).toBe(testCase.code);
@@ -837,7 +836,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('fails closed when the administrator user password policy cannot be read or parsed', async () => {
     let configResponse: 'malformed' | 'unavailable' = 'malformed';
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url, method: init?.method || 'GET' });
       if (configResponse === 'unavailable') {
@@ -847,7 +846,7 @@ describe('SupaCloud Management API facade routes', () => {
         password_min_length: 5,
         password_required_characters: '',
       }));
-    }) as unknown as typeof fetch;
+    }));
     const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
       import('../routes/users.js'),
       import('../middleware/index.js'),
@@ -862,7 +861,7 @@ describe('SupaCloud Management API facade routes', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'new-user@example.test', password: 'Abcdefghi1!x' }),
       }));
-      const payload = await response.json() as { error: { code: string } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String() }) }), await response.json());
 
       expect(response.status).toBe(503);
       expect(payload.error.code).toBe('password_policy_unavailable');
@@ -874,7 +873,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('creates users at the configured password boundary and skips policy reads without a password', async () => {
     const configPaths: string[] = [];
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method || 'GET';
       const pathname = new URL(url).pathname;
@@ -887,10 +886,10 @@ describe('SupaCloud Management API facade routes', () => {
         }));
       }
       if (method === 'POST' && pathname.endsWith('/auth/users')) {
-        return Promise.resolve(Response.json({ id: 'created-user' }));
+        return Promise.resolve(Response.json(fixtureUser('created-user')));
       }
       return Promise.resolve(Response.json({ ok: true }));
-    }) as unknown as typeof fetch;
+    }));
     const { userRoutes } = await import('../routes/users.js');
     const app = new Elysia().use(userRoutes);
 
@@ -926,14 +925,14 @@ describe('SupaCloud Management API facade routes', () => {
   it('looks up a user before deletion and maps only exact missing-user errors to 404', async () => {
     let upstreamStatus = 400;
     let upstreamBody: unknown = { code: 'user_not_found' };
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url, method: init?.method || 'GET' });
       return Promise.resolve(new Response(JSON.stringify(upstreamBody), {
         status: upstreamStatus,
         headers: { 'content-type': 'application/json' },
       }));
-    }) as unknown as typeof fetch;
+    }));
     const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
       import('../routes/users.js'),
       import('../middleware/index.js'),
@@ -952,7 +951,7 @@ describe('SupaCloud Management API facade routes', () => {
       const response = await app.handle(new Request('http://supauth.local/v1/users/missing-user', {
         method: 'DELETE',
       }));
-      const payload = await response.json() as { error: { code: string } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String() }) }), await response.json());
 
       expect(response.status).toBe(404);
       expect(payload.error.code).toBe('not_found');
@@ -976,7 +975,7 @@ describe('SupaCloud Management API facade routes', () => {
       const response = await app.handle(new Request('http://supauth.local/v1/users/missing-user', {
         method: 'DELETE',
       }));
-      const payload = await response.json() as { error: { code: string } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String() }) }), await response.json());
 
       expect(response.status).toBe(testCase.expectedStatus);
       expect(payload.error.code).toBe(testCase.expectedCode);
@@ -986,14 +985,14 @@ describe('SupaCloud Management API facade routes', () => {
   });
 
   it('keeps missing-user update and delete responses aligned at 404', async () => {
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url, method: init?.method || 'GET' });
       return Promise.resolve(new Response(JSON.stringify({ code: 'user_not_found' }), {
         status: init?.method === 'DELETE' ? 400 : 404,
         headers: { 'content-type': 'application/json' },
       }));
-    }) as unknown as typeof fetch;
+    }));
     const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
       import('../routes/users.js'),
       import('../middleware/index.js'),
@@ -1013,14 +1012,14 @@ describe('SupaCloud Management API facade routes', () => {
   });
 
   it('deletes an existing user only after the preflight lookup succeeds', async () => {
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method || 'GET';
       calls.push({ url, method });
       return Promise.resolve(Response.json(method === 'GET'
         ? { id: 'existing-user' }
         : { id: 'existing-user', deleted: true }));
-    }) as unknown as typeof fetch;
+    }));
     const [{ userRoutes }, { observabilityMiddleware }] = await Promise.all([
       import('../routes/users.js'),
       import('../middleware/index.js'),
@@ -1075,14 +1074,14 @@ describe('SupaCloud Management API facade routes', () => {
 
     expect(responses.map((response) => response.status)).toEqual([501, 501, 501, 501, 501]);
     for (const response of responses) {
-      const payload = await response.json() as { error: { code: string } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String() }) }), await response.json());
       expect(payload.error.code).toBe('capability_unavailable');
     }
     expect(calls).toEqual([]);
   });
 
   it('lists authoritative GoTrue grants without forwarding unrelated query parameters', async () => {
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url, method: init?.method || 'GET' });
       return Promise.resolve(Response.json({
@@ -1090,7 +1089,7 @@ describe('SupaCloud Management API facade routes', () => {
         total: 1,
         source: 'gotrue',
       }));
-    }) as unknown as typeof fetch;
+    }));
     const { userRoutes } = await import('../routes/users.js');
     const app = new Elysia().use(userRoutes);
 
@@ -1153,7 +1152,7 @@ describe('SupaCloud Management API facade routes', () => {
   });
 
   it('does not fall back to global platform organizations when project organizations are absent', async () => {
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         url,
@@ -1168,7 +1167,7 @@ describe('SupaCloud Management API facade routes', () => {
         return Promise.resolve(Response.json([{ id: 'global-one', name: 'Global One', slug: 'global-one' }]));
       }
       return Promise.resolve(Response.json({ items: [], total: 0 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { SupaCloudAdapter, SupaCloudApiError } = await import('../supacloud/adapter.js');
     const adapter = new SupaCloudAdapter();
@@ -1180,14 +1179,15 @@ describe('SupaCloud Management API facade routes', () => {
     }
 
     expect(failure).toBeInstanceOf(SupaCloudApiError);
-    expect((failure as InstanceType<typeof SupaCloudApiError>).status).toBe(404);
+    if (!(failure instanceof SupaCloudApiError)) throw new Error('Expected a SupaCloud API failure');
+    expect(failure.status).toBe(404);
     expect(calls.map((call) => new URL(call.url).pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}'))).toEqual([
       '/v1/projects/{projectRef}/organizations',
     ]);
   });
 
   it('preserves missing audit and webhook facade errors instead of returning empty lists', async () => {
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         url,
@@ -1195,7 +1195,7 @@ describe('SupaCloud Management API facade routes', () => {
         body: typeof init?.body === 'string' ? init.body : undefined,
       });
       return Promise.resolve(new Response(JSON.stringify({ message: 'Route not found', code: '404' }), { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { SupaCloudAdapter, SupaCloudApiError } = await import('../supacloud/adapter.js');
     const adapter = new SupaCloudAdapter();
@@ -1212,7 +1212,8 @@ describe('SupaCloud Management API facade routes', () => {
         failure = error;
       }
       expect(failure).toBeInstanceOf(SupaCloudApiError);
-      expect((failure as InstanceType<typeof SupaCloudApiError>).status).toBe(404);
+      if (!(failure instanceof SupaCloudApiError)) throw new Error('Expected a SupaCloud API failure');
+      expect(failure.status).toBe(404);
     }
     expect(calls.map((call) => new URL(call.url).pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}'))).toEqual([
       '/v1/projects/{projectRef}/audit',

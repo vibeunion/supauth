@@ -44,7 +44,7 @@ describe('live clock skew prerequisite', () => {
   it('bypasses caches for every GoTrue health request', async () => {
     const requests: Array<{ init?: RequestInit; url: URL }> = [];
     const fetchImpl: NonNullable<LiveClockCheckOptions['fetchImpl']> = async (input, init) => {
-      requests.push({ init, url: new URL(input instanceof Request ? input.url : input.toString()) });
+      requests.push({ ...(init === undefined ? {} : { init }), url: new URL(input instanceof Request ? input.url : input.toString()) });
       return new Response(null, { headers: { date: new Date(BASE_TIME_MS).toUTCString() } });
     };
     const options = { fetchImpl, now: () => BASE_TIME_MS, runtimeUrl: 'https://auth.example.test' };
@@ -60,7 +60,9 @@ describe('live clock skew prerequisite', () => {
       expect(request.init?.cache).toBe('no-store');
       expect(request.init?.signal).toBeInstanceOf(AbortSignal);
     }
-    expect(requests[0].url.search).not.toBe(requests[1].url.search);
+    const [first, second] = requests;
+    if (!first || !second) throw new Error('Expected two uncached clock requests');
+    expect(first.url.search).not.toBe(second.url.search);
   });
 
   it('runs before both strict live compatibility suites', () => {

@@ -1,20 +1,20 @@
-<script>
+<script lang="ts">
   import { afterNavigate, beforeNavigate } from '$app/navigation';
-  import { base, resolve } from '$app/paths';
+  import { base } from '$app/paths';
   import { page } from '$app/state';
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, type Snippet } from 'svelte';
   import { t } from '$lib/i18n.js';
   import { createAdminLogoutController } from '$lib/admin-logout.js';
   import { brand, loadBrand } from '$lib/brand.svelte.js';
-  import { navigationSections, isNavigationEntryActive } from '$lib/navigation.js';
+  import { navigationSections, isNavigationEntryActive, resolveConsolePath } from '$lib/navigation.js';
   import { initializeAdminAuthProvider, supaoauthAuthProvider } from '$lib/providers/auth.js';
 
-  let { children } = $props();
+  let { children }: { children: Snippet } = $props();
   let loggingOut = $state(false);
   let logoutError = $state('');
   let mobileNavigationOpen = $state(false);
-  let mobileNavigationTrigger = $state();
-  let mobileNavigationCloseButton = $state();
+  let mobileNavigationTrigger = $state<HTMLButtonElement>();
+  let mobileNavigationCloseButton = $state<HTMLButtonElement>();
   let restoreFocusAfterNavigation = false;
 
   // 启动时拉取系统品牌名（sign-in-experience.page_title）
@@ -57,7 +57,7 @@
       .filter((target) => target instanceof HTMLElement);
   }
 
-  function handleMobileNavigationKeydown(event) {
+  function handleMobileNavigationKeydown(event: KeyboardEvent) {
     if (!mobileNavigationOpen) return;
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -69,7 +69,7 @@
     const firstTarget = focusTargets[0];
     const lastTarget = focusTargets.at(-1);
     if (!firstTarget || !lastTarget) return;
-    if (!focusTargets.includes(document.activeElement)) {
+    if (!(document.activeElement instanceof HTMLElement) || !focusTargets.includes(document.activeElement)) {
       event.preventDefault();
       (event.shiftKey ? lastTarget : firstTarget).focus();
       return;
@@ -106,7 +106,7 @@
 
   onMount(() => {
     const desktopQuery = window.matchMedia('(min-width: 768px)');
-    const handleBreakpointChange = (event) => {
+    const handleBreakpointChange = (event: MediaQueryListEvent) => {
       if (event.matches) void closeMobileNavigationForDesktop();
     };
     desktopQuery.addEventListener('change', handleBreakpointChange);
@@ -116,7 +116,7 @@
 
 <svelte:window onkeydown={handleMobileNavigationKeydown} />
 
-{#snippet navigationPanel(sectionIdPrefix)}
+{#snippet navigationPanel(sectionIdPrefix: string)}
   <div class="flex h-[70px] shrink-0 flex-col justify-center border-b border-surface-100 px-6">
     <div class="flex items-center gap-2">
       <span aria-hidden="true" class="select-none text-xl font-bold leading-none text-brand-600">✦</span>
@@ -138,7 +138,7 @@
           {#each navigationSection.entries as navigationEntry (navigationEntry.path)}
             {@const isActive = isNavigationEntryActive(page.url.pathname, base, navigationEntry.path)}
             <a
-              href={resolve(navigationEntry.path)}
+              href={resolveConsolePath(navigationEntry.path, base)}
               aria-current={isActive ? 'page' : undefined}
               class={[
                 'group flex items-center gap-3 rounded-lg px-3 py-2 text-[14px] font-medium transition-colors duration-150',

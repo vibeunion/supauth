@@ -1,3 +1,4 @@
+import { strictProperty, strictRecord } from './helpers/strict-values.js';
 import { describe, expect, it } from 'bun:test';
 import {
   AUTH_HOOK_TOP_LEVEL_SUPAOAUTH_CLAIM_KEYS,
@@ -61,11 +62,11 @@ describe('Auth Hooks bridge', () => {
     }, noOrganizationMemberships, projectRef);
 
     const claims = claimsResult(result).claims;
-    expect(claims.role).toBe('authenticated');
-    expect((claims.app_metadata as any).provider).toBe('email');
-    expect((claims.app_metadata as any).supaoauth.schema_version).toBe(2);
-    expect((claims.app_metadata as any).supaoauth.projects[projectRef].roles).toEqual(['admin']);
-    expect((claims.app_metadata as any).supaoauth.hook.version).toBe(1);
+    expect(claims["role"]).toBe('authenticated');
+    expect(strictProperty(claims["app_metadata"], "provider")).toBe('email');
+    expect(strictProperty(claims["app_metadata"], "supaoauth", "schema_version")).toBe(2);
+    expect(strictProperty(claims["app_metadata"], "supaoauth", "projects", projectRef, "roles")).toEqual(['admin']);
+    expect(strictProperty(claims["app_metadata"], "supaoauth", "hook", "version")).toBe(1);
   });
 
   it('preserves Supabase required access token claims', () => {
@@ -95,8 +96,8 @@ describe('Auth Hooks bridge', () => {
     for (const [claim, value] of Object.entries(requiredClaims)) {
       expect(claimsResult(result).claims[claim]).toEqual(value);
     }
-    expect((claimsResult(result).claims.app_metadata as any).supaoauth.hook.authentication_method).toBe('oauth_provider/authorization_code');
-    expect((claimsResult(result).claims.user_metadata as any).name).toBe('Example User');
+    expect(strictProperty(claimsResult(result).claims["app_metadata"], "supaoauth", "hook", "authentication_method")).toBe('oauth_provider/authorization_code');
+    expect(strictProperty(claimsResult(result).claims["user_metadata"], "name")).toBe('Example User');
   });
 
   it('keeps enterprise RBAC metadata under the current schema v2 project', () => {
@@ -121,10 +122,10 @@ describe('Auth Hooks bridge', () => {
     }, noOrganizationMemberships, projectRef);
 
     const claims = claimsResult(result).claims;
-    expect(claims.role).toBe('authenticated');
-    expect(claims.supaoauth).toBeUndefined();
-    expect((claims.app_metadata as any).supaoauth.projects[projectRef].roles).toEqual(['xgic_admin']);
-    expect((claims.app_metadata as any).supaoauth.projects[projectRef].permissions_version).toBe(3);
+    expect(claims["role"]).toBe('authenticated');
+    expect(claims["supaoauth"]).toBeUndefined();
+    expect(strictProperty(claims["app_metadata"], "supaoauth", "projects", projectRef, "roles")).toEqual(['xgic_admin']);
+    expect(strictProperty(claims["app_metadata"], "supaoauth", "projects", projectRef, "permissions_version")).toBe(3);
   });
 
   it('narrows OAuth tokens to the matching application without replacing OAuth scope', () => {
@@ -172,12 +173,12 @@ describe('Auth Hooks bridge', () => {
     }, noOrganizationMemberships, projectRef);
 
     const claims = claimsResult(result).claims;
-    const supaoauth = (claims.app_metadata as any).supaoauth;
-    const projection = supaoauth.projects[projectRef];
-    expect(claims.client_id).toBe('app-a');
-    expect(claims.scope).toBe('openid email');
-    expect((claims.app_metadata as any).provider).toBe('email');
-    expect(supaoauth.projects['project-two']).toEqual(otherProject);
+    const supaoauth = strictProperty(claims["app_metadata"], "supaoauth");
+    const projection = strictProperty(supaoauth, "projects", projectRef);
+    expect(claims["client_id"]).toBe('app-a');
+    expect(claims["scope"]).toBe('openid email');
+    expect(strictProperty(claims["app_metadata"], "provider")).toBe('email');
+    expect(strictProperty(supaoauth, "projects", 'project-two')).toEqual(otherProject);
     expect(projection).toMatchObject({
       application_id: 'app-a',
       roles: ['app-a-role', 'global'],
@@ -186,13 +187,13 @@ describe('Auth Hooks bridge', () => {
       organization_ids: ['org-a'],
       organization_memberships: [],
     });
-    expect(projection.organizations['org-a'].permissions).toEqual([
+    expect(strictProperty(projection, 'organizations', 'org-a', 'permissions')).toEqual([
       'app-a.org.approve',
       'app-a.read',
       'global.read',
       'org-a.read',
     ]);
-    expect(projection.applications).toBeUndefined();
+    expect(strictProperty(projection, 'applications')).toBeUndefined();
     expect(JSON.stringify(projection)).not.toContain('app-b.read');
   });
 
@@ -223,15 +224,15 @@ describe('Auth Hooks bridge', () => {
       },
     }, noOrganizationMemberships, projectRef);
 
-    const projection = (claimsResult(result).claims.app_metadata as any).supaoauth.projects[projectRef];
+    const projection = strictProperty(claimsResult(result).claims["app_metadata"], "supaoauth", "projects", projectRef);
     expect(projection).toMatchObject({
       application_id: 'unknown-app',
       roles: ['global'],
       permissions: ['global.read'],
       scopes: ['global-scope'],
     });
-    expect(projection.organizations['org-a'].permissions).toEqual(['global.read', 'org-a.read']);
-    expect(projection.applications).toBeUndefined();
+    expect(strictProperty(projection, "organizations", 'org-a', "permissions")).toEqual(['global.read', 'org-a.read']);
+    expect(strictProperty(projection, "applications")).toBeUndefined();
     expect(JSON.stringify(projection)).not.toContain('app-a.read');
   });
 
@@ -261,9 +262,9 @@ describe('Auth Hooks bridge', () => {
       },
     }, noOrganizationMemberships, projectRef);
 
-    const projection = (claimsResult(result).claims.app_metadata as any).supaoauth.projects[projectRef];
-    expect(projection.application_id).toBeUndefined();
-    expect(projection.applications).toEqual({ 'app-a': applicationProjection });
+    const projection = strictProperty(claimsResult(result).claims["app_metadata"], "supaoauth", "projects", projectRef);
+    expect(strictProperty(projection, "application_id")).toBeUndefined();
+    expect(strictProperty(projection, "applications")).toEqual({ 'app-a': applicationProjection });
   });
 
   it('removes legacy top-level and root v1 SupaOAuth claims from custom access token output', () => {
@@ -303,19 +304,19 @@ describe('Auth Hooks bridge', () => {
     }
 
     const claims = claimsResult(result).claims;
-    const appMetadata = claims.app_metadata as Record<string, unknown>;
-    const supaoauth = appMetadata.supaoauth as Record<string, unknown>;
-    expect(claims.role).toBe('authenticated');
-    expect(claims.session_id).toBe('session-1');
-    expect(supaoauth.schema_version).toBe(2);
-    expect(supaoauth.roles).toBeUndefined();
-    expect(supaoauth.permissions).toBeUndefined();
-    expect((supaoauth.projects as Record<string, unknown>)[projectRef]).toMatchObject({
+    const appMetadata = strictRecord(claims["app_metadata"]);
+    const supaoauth = strictRecord(appMetadata["supaoauth"]);
+    expect(claims["role"]).toBe('authenticated');
+    expect(claims["session_id"]).toBe('session-1');
+    expect(supaoauth["schema_version"]).toBe(2);
+    expect(supaoauth["roles"]).toBeUndefined();
+    expect(supaoauth["permissions"]).toBeUndefined();
+    expect(strictProperty(supaoauth["projects"], projectRef)).toMatchObject({
       organization_memberships: [],
       organization_memberships_total: 0,
       organization_memberships_truncated: false,
     });
-    expect((claims.user_metadata as Record<string, unknown>).name).toBe('Example User');
+    expect(strictProperty(claims["user_metadata"], 'name')).toBe('Example User');
   });
 
   it('updates only the current project and preserves other schema v2 projects', () => {
@@ -340,13 +341,13 @@ describe('Auth Hooks bridge', () => {
       },
     }, noOrganizationMemberships, projectRef);
 
-    const supaoauth = (claimsResult(result).claims.app_metadata as any).supaoauth;
-    expect(supaoauth.projects['project-two']).toEqual(otherProject);
-    expect(supaoauth.projects[projectRef]).toMatchObject({
+    const supaoauth = strictProperty(claimsResult(result).claims["app_metadata"], "supaoauth");
+    expect(strictProperty(supaoauth, "projects", 'project-two')).toEqual(otherProject);
+    expect(strictProperty(supaoauth, "projects", projectRef)).toMatchObject({
       roles: ['member'],
       organization_memberships: [],
     });
-    expect(supaoauth.projects[projectRef].organizations).toEqual({
+    expect(strictProperty(supaoauth, "projects", projectRef, "organizations")).toEqual({
       'org-one': { roles: ['member'], permissions: ['documents.read'], scopes: [] },
     });
   });
@@ -447,9 +448,9 @@ describe('Auth Hooks bridge', () => {
       truncated: false,
     }, projectRef);
 
-    const projection = (claimsResult(result).claims.app_metadata as any).supaoauth.projects[projectRef];
-    expect(projection.projection_unavailable).toBe(true);
-    expect(projection.organization_memberships).toBeUndefined();
+    const projection = strictProperty(claimsResult(result).claims["app_metadata"], "supaoauth", "projects", projectRef);
+    expect(strictProperty(projection, "projection_unavailable")).toBe(true);
+    expect(strictProperty(projection, "organization_memberships")).toBeUndefined();
   });
 
   it('builds hook registration URLs', () => {

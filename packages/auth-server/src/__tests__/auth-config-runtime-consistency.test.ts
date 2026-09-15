@@ -1,16 +1,17 @@
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { loadConfig } from "../config/index.js";
 
 function setupConfig() {
-  delete process.env.SUPAUTH_PUBLIC_URL;
-  delete process.env.AUTH_PUBLIC_URL;
-  process.env.OAUTH_RUNTIME_URL = "http://runtime.test";
-  process.env.OAUTH_RUNTIME_INTERNAL_URL = "http://runtime-internal.test";
-  process.env.SUPACLOUD_API_URL = "http://localhost:9090";
-  process.env.SUPACLOUD_MASTER_TOKEN = "test-token";
-  process.env.PROJECT_REF = "test-ref";
-  process.env.DATABASE_URL = "postgres://test";
-  process.env.RUNTIME_MODE = "gotrue";
+  delete process.env["SUPAUTH_PUBLIC_URL"];
+  delete process.env["AUTH_PUBLIC_URL"];
+  process.env["OAUTH_RUNTIME_URL"] = "http://runtime.test";
+  process.env["OAUTH_RUNTIME_INTERNAL_URL"] = "http://runtime-internal.test";
+  process.env["SUPACLOUD_API_URL"] = "http://localhost:9090";
+  process.env["SUPACLOUD_MASTER_TOKEN"] = "test-token";
+  process.env["PROJECT_REF"] = "test-ref";
+  process.env["DATABASE_URL"] = "postgres://test";
+  process.env["RUNTIME_MODE"] = "gotrue";
   loadConfig();
 }
 
@@ -27,7 +28,7 @@ describe("auth config runtime consistency", () => {
   });
 
   it("detects signup drift when desired config is closed but runtime settings still allow signup", async () => {
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url.includes("/v1/projects/test-ref/config/auth")) {
@@ -37,14 +38,14 @@ describe("auth config runtime consistency", () => {
         }), { status: 200 }));
       }
 
-      if (url.endsWith("/auth/v1/settings")) {
+      if (url.endsWith("/auth/v1/settings") || url === "http://runtime-internal.test/settings") {
         return Promise.resolve(new Response(JSON.stringify({
           disable_signup: false,
         }), { status: 200 }));
       }
 
       return Promise.resolve(new Response("not found", { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { getAuthConfigRuntimeConsistency } = await import("../routes/sign-in-experience.js");
     const result = await getAuthConfigRuntimeConsistency(globalThis.fetch);
@@ -55,7 +56,7 @@ describe("auth config runtime consistency", () => {
   });
 
   it("treats runtime signup as closed when /settings reports disable_signup=true", async () => {
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url.includes("/v1/projects/test-ref/config/auth")) {
@@ -64,14 +65,14 @@ describe("auth config runtime consistency", () => {
         }), { status: 200 }));
       }
 
-      if (url.endsWith("/auth/v1/settings")) {
+      if (url.endsWith("/auth/v1/settings") || url === "http://runtime-internal.test/settings") {
         return Promise.resolve(new Response(JSON.stringify({
           disable_signup: true,
         }), { status: 200 }));
       }
 
       return Promise.resolve(new Response("not found", { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { getAuthConfigRuntimeConsistency } = await import("../routes/sign-in-experience.js");
     const result = await getAuthConfigRuntimeConsistency(globalThis.fetch);
@@ -82,7 +83,7 @@ describe("auth config runtime consistency", () => {
   });
 
   it("falls back to the public runtime settings endpoint when the internal runtime is unreachable", async () => {
-    globalThis.fetch = mock((input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url.includes("/v1/projects/test-ref/config/auth")) {
@@ -91,7 +92,7 @@ describe("auth config runtime consistency", () => {
         }), { status: 200 }));
       }
 
-      if (url.startsWith("http://runtime-internal.test/auth/v1/settings")) {
+      if (url.startsWith("http://runtime-internal.test/")) {
         return Promise.reject(new Error("Unable to connect. Is the computer able to access the url?"));
       }
 
@@ -102,7 +103,7 @@ describe("auth config runtime consistency", () => {
       }
 
       return Promise.resolve(new Response("not found", { status: 404 }));
-    }) as unknown as typeof fetch;
+    }));
 
     const { getAuthConfigRuntimeConsistency } = await import("../routes/sign-in-experience.js");
     const result = await getAuthConfigRuntimeConsistency(globalThis.fetch);

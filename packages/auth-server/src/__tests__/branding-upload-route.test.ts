@@ -1,3 +1,4 @@
+import { strictRecord, strictString } from './helpers/strict-values.js';
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 
@@ -88,22 +89,67 @@ beforeEach(() => {
 });
 
 describe('branding upload route', () => {
+  test.each(['IMAGE/PNG', 'image/png; charset=utf-8', ' Image/PNG ; charset=UTF-8 '])(
+    'normalizes legacy branding media type %s before uploading',
+    async (contentType) => {
+      const response = await app.handle(new Request('http://supauth.local/v1/storage/branding/logo', {
+        method: 'POST', headers: { 'content-type': contentType }, body: pngBytes,
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ assetType: 'logo', content_type: 'image/png' });
+      expect(uploadFile).toHaveBeenCalledTimes(1);
+      const upload = uploadFile.mock.calls[0];
+      if (!upload) throw new Error('Expected a branding image upload');
+      expect(upload[3]).toBe('image/png');
+      expect(new Uint8Array(await upload[2].arrayBuffer())).toEqual(pngBytes);
+      expect(updateSignInExperience).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test.each(['application/octet-stream', 'image/png-invalid', 'image/png, image/jpeg', ''])(
+    'rejects unsupported branding media type %s before storage or metadata writes',
+    async (contentType) => {
+      const response = await app.handle(new Request('http://supauth.local/v1/storage/branding/logo', {
+        method: 'POST', headers: contentType ? { 'content-type': contentType } : {}, body: pngBytes,
+      }));
+      expect(response.status).toBe(400);
+      expect(getStorageBucket).not.toHaveBeenCalled();
+      expect(uploadFile).not.toHaveBeenCalled();
+      expect(updateSignInExperience).not.toHaveBeenCalled();
+      expect(logAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  test('still verifies image bytes after normalizing a parameterized branding media type', async () => {
+    const response = await app.handle(new Request('http://supauth.local/v1/storage/branding/logo', {
+      method: 'POST', headers: { 'content-type': 'IMAGE/PNG; charset=utf-8' },
+      body: new TextEncoder().encode('not an image'),
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'branding_image_signature_mismatch' });
+    expect(uploadFile).not.toHaveBeenCalled();
+    expect(updateSignInExperience).not.toHaveBeenCalled();
+    expect(logAudit).not.toHaveBeenCalled();
+  });
+
   test('reads image media bodies and persists the versioned authoritative URL', async () => {
     const response = await app.handle(brandingUploadRequest('logo'));
-    const payload = await response.json() as Record<string, unknown>;
+    const payload = strictRecord(await response.json());
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ assetType: 'logo', content_type: 'image/png' });
     expect(uploadFile).toHaveBeenCalledTimes(1);
-    const [bucket, path, file, contentType] = uploadFile.mock.calls[0];
+    const upload = uploadFile.mock.calls[0];
+    if (!upload) throw new Error('Expected a branding image upload');
+    const [bucket, path, file, contentType] = upload;
     expect(bucket).toBe('branding');
     expect(path).toMatch(/^logo\/[a-f0-9]{24}\.png$/);
     expect(file).toBeInstanceOf(Blob);
     expect(contentType).toBe('image/png');
-    expect(payload.url).toBe(
+    expect(payload["url"]).toBe(
       `https://assets.example.test/storage/v1/object/public/branding/${path}`,
     );
-    expect(brandingSnapshot?.branding.logo_url).toBe(payload.url as string);
+    expect(brandingSnapshot?.branding.logo_url).toBe(strictString(payload["url"]));
     expect(getSignInExperience).toHaveBeenCalledTimes(2);
     expect(logAudit).toHaveBeenCalledTimes(1);
   });
@@ -123,7 +169,7 @@ describe('branding upload route', () => {
     brandingSnapshot = null;
 
     const response = await app.handle(brandingUploadRequest('apple_touch_icon'));
-    const payload = await response.json() as Record<string, unknown>;
+    const payload = strictRecord(await response.json());
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ assetType: 'apple_touch_icon' });

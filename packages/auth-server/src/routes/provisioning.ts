@@ -7,6 +7,7 @@ import { getSupaCloudAdapterForProject, isSupaCloudApiError } from '../supacloud
 import * as provRepo from '../repositories/provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
 import { HOSTED_MIGRATIONS } from '../db/migrate.js';
+import { operationContract, operationOutput } from '../utils/operation-contract.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -40,7 +41,7 @@ async function recordStepSafely(
     await provRepo.recordStep(projectRef, {
       step: result.step,
       status: result.status,
-      details: result.details,
+      ...(result.details === undefined ? {} : { details: result.details }),
     });
     return result;
   } catch {
@@ -84,19 +85,19 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
   .get('/:projectRef', async ({ params }) => {
     const projectRef = params.projectRef;
     if (!isValidProjectRef(projectRef)) {
-      return { error: 'Invalid project ref format', project_ref: projectRef };
+      return operationOutput('getProvisioningStatus', { error: 'Invalid project ref format', project_ref: projectRef });
     }
     const steps = await provRepo.getProjectProvisioning(projectRef);
     const fullyProvisioned = await provRepo.isProjectFullyProvisioned(projectRef);
-    return { project_ref: projectRef, steps, fully_provisioned: fullyProvisioned };
-  }, {
+    return operationOutput('getProvisioningStatus', { project_ref: projectRef, steps, fully_provisioned: fullyProvisioned });
+  }, operationContract('getProvisioningStatus', {
     detail: { summary: 'Get provisioning status for a project', tags: ['Provisioning'] },
-  })
+  }))
 
   .post('/:projectRef/reconcile', async ({ params }) => {
     const projectRef = params.projectRef;
     if (!isValidProjectRef(projectRef)) {
-      return { error: 'Invalid project ref format', project_ref: projectRef, results: [], fully_provisioned: false };
+      return operationOutput('reconcileProject', { error: 'Invalid project ref format', project_ref: projectRef, results: [], fully_provisioned: false });
     }
 
     // P0-26: Create adapter explicitly bound to the requested projectRef
@@ -109,11 +110,11 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       await audit('provisioning.reconcile_ref_mismatch', 'project', projectRef, {
         error: `Adapter ref ${adapterRef} != request ref ${projectRef}`,
       });
-      return {
+      return operationOutput('reconcileProject', {
         project_ref: projectRef,
         results: [{ step: 'safety_check', status: 'failed', details: { error: 'projectRef mismatch — aborting reconcile' } }],
         fully_provisioned: false,
-      };
+      });
     }
 
     const results: ProvisioningResult[] = [];
@@ -171,23 +172,23 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
     } catch {
       fullyProvisioned = false;
     }
-    return { project_ref: projectRef, results, fully_provisioned: fullyProvisioned };
-  }, {
+    return operationOutput('reconcileProject', { project_ref: projectRef, results, fully_provisioned: fullyProvisioned });
+  }, operationContract('reconcileProject', {
     detail: {
       summary: 'Idempotent provision/reconcile for a project (scoped to path projectRef)',
       description: 'Runs SupaCloud-hosted DB migrations, verifies GoTrue config, SupaCloud gateway routes, and storage buckets — all scoped to the requested projectRef. Repeated execution does not drift. P0-26: adapter is project-scoped, not process-scoped.',
       tags: ['Provisioning'],
     },
-  })
+  }))
 
   .post('/:projectRef/rollback', async ({ params }) => {
     const projectRef = params.projectRef;
     if (!isValidProjectRef(projectRef)) {
-      return { error: 'Invalid project ref format', project_ref: projectRef };
+      return operationOutput('rollbackProvisioning', { error: 'Invalid project ref format', project_ref: projectRef });
     }
     await provRepo.resetProjectProvisioning(projectRef);
     await audit('provisioning.rollback', 'project', projectRef);
-    return { project_ref: projectRef, status: 'provisioning_records_reset' };
-  }, {
+    return operationOutput('rollbackProvisioning', { project_ref: projectRef, status: 'provisioning_records_reset' });
+  }, operationContract('rollbackProvisioning', {
     detail: { summary: 'Reset provisioning records for rollback', tags: ['Provisioning'] },
-  });
+  }));

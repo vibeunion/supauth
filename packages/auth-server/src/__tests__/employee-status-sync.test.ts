@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { strictRecord } from './helpers/strict-values.js';
 import { Elysia } from 'elysia';
 import { accountProvisioningRoutes } from '../routes/account-provisioning.js';
 
@@ -10,10 +11,10 @@ describe('employee status sync', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ records: [] }),
     }));
-    const body = await response.json();
+    const body = strictRecord(await response.json());
     expect(response.status).toBe(200);
-    expect(body.total).toBe(0);
-    expect(body.updated).toBe(0);
+    expect(body["total"]).toBe(0);
+    expect(body["updated"]).toBe(0);
   });
 
   test('sync/status endpoint returns counts by status', async () => {

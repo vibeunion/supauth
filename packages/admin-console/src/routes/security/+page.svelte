@@ -1,4 +1,10 @@
-<script>
+<script lang="ts">
+  import { decodeSchema, JsonObjectSchema, type AdminEndpointResult } from "@supauth/shared";
+  import type { SettingsMutationOptions } from "$lib/authoritative-settings-readback.js";
+  import type { MutationReconciliation } from "$lib/mutation-reconciliation.js";
+  import { captchaValue, blocklistValue } from "$lib/components/settings-values.js";
+  type SecuritySnapshot = Awaited<ReturnType<typeof fetchSecuritySnapshot>>;
+  type TenantConfig = AdminEndpointResult<"listTenantConfigs">["items"][number];
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import DetailTabs from "$lib/components/DetailTabs.svelte";
@@ -36,8 +42,8 @@
     "abcdefghijklmnopqrstuvwxyz:ABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789";
   const strongCharacterPolicy = `${standardCharacterPolicy}:!@#$%^&*()_+-=[]{};'\\\\:"|<>?,./\`~`;
 
-  let authConfig = $state(null);
-  let runtimeConsistency = $state(null);
+  let authConfig = $state<AdminEndpointResult<"getAuthConfig"> | null>(null);
+  let runtimeConsistency = $state<AdminEndpointResult<"getAuthConfigRuntimeConsistency"> | null>(null);
   let passwordForm = $state({
     password_min_length: 8,
     character_policy: "none",
@@ -48,7 +54,12 @@
     secret: "",
     secret_configured: false,
   });
-  let blocklistForm = $state({
+  let blocklistForm = $state<{
+    allowed_email_domains: string; blocked_email_domains: string;
+    blocked_oauth_providers: string; allowed_oauth_providers: string;
+    invite_only: boolean; hook_registered: boolean; hook_verified: boolean;
+    hook_reason_code: string | null;
+  }>({
     allowed_email_domains: "",
     blocked_email_domains: "",
     blocked_oauth_providers: "",
@@ -69,8 +80,8 @@
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
-  let reconciliationStatus = $state(null);
-  let error = $state(null);
+  let reconciliationStatus = $state<MutationReconciliation<SecuritySnapshot>["status"] | null>(null);
+  let error = $state<unknown>(null);
   let activeTab = $derived(
     tabFromRoute(page.params.tab, tabValues, "password"),
   );
@@ -84,6 +95,7 @@
   }
 
   function initializePasswordForm() {
+    if (!authConfig) throw new Error("Auth configuration has not been loaded");
     const required = authConfig.password_required_characters || "";
     passwordForm = {
       password_min_length: authConfig.password_min_length ?? 8,
@@ -96,7 +108,8 @@
     };
   }
 
-  function initializeGeneralForm(securityConfig) {
+  function initializeGeneralForm(securityConfig: AdminEndpointResult<"getSecurityConfig">) {
+    if (!authConfig) throw new Error("Auth configuration has not been loaded");
     generalForm = {
       jwt_expiry: authConfig.jwt_expiry ?? 3600,
       enable_confirmations: authConfig.enable_confirmations ?? false,
@@ -104,56 +117,57 @@
         authConfig.external_anonymous_users_enabled ?? false,
       brute_force_protection:
         securityConfig.bruteForceProtection ??
-        securityConfig.brute_force_protection ??
+        ("brute_force_protection" in securityConfig && typeof securityConfig.brute_force_protection === "boolean" ? securityConfig.brute_force_protection : undefined) ??
         true,
       max_login_attempts:
         securityConfig.maxLoginAttempts ??
-        securityConfig.max_login_attempts ??
+        ("max_login_attempts" in securityConfig && typeof securityConfig.max_login_attempts === "number" ? securityConfig.max_login_attempts : undefined) ??
         10,
       lockout_duration_sec:
         securityConfig.lockoutDurationSec ??
-        securityConfig.lockout_duration_sec ??
+        ("lockout_duration_sec" in securityConfig && typeof securityConfig.lockout_duration_sec === "number" ? securityConfig.lockout_duration_sec : undefined) ??
         900,
     };
   }
 
-  function initializeBlocklistForm(authHookConfig, hookStatus) {
+  function initializeBlocklistForm(authHookConfig: TenantConfig | undefined, hookStatus: AdminEndpointResult<"getBeforeUserCreatedHookStatus">) {
+    const value = blocklistValue(authHookConfig?.value);
     blocklistForm = {
       allowed_email_domains: (
-        authHookConfig?.value?.allowed_email_domains || []
+        value.allowed_email_domains || []
       ).join(", "),
       blocked_email_domains: (
-        authHookConfig?.value?.blocked_email_domains || []
+        value.blocked_email_domains || []
       ).join(", "),
       blocked_oauth_providers: (
-        authHookConfig?.value?.blocked_oauth_providers || []
+        value.blocked_oauth_providers || []
       ).join(", "),
       allowed_oauth_providers: (
-        authHookConfig?.value?.allowed_oauth_providers || []
+        value.allowed_oauth_providers || []
       ).join(", "),
-      invite_only: authHookConfig?.value?.invite_only === true,
+      invite_only: value.invite_only === true,
       hook_registered: hookStatus?.registered === true,
       hook_verified: hookStatus?.verified === true,
       hook_reason_code: hookStatus?.reason_code || null,
     };
   }
 
-  function initializeCaptchaForm(captchaConfig) {
+  function initializeCaptchaForm(captchaConfig: TenantConfig | undefined) {
     captchaForm = {
       provider: "none",
       secret: "",
       secret_configured: false,
-      ...(captchaConfig?.value || {}),
+      ...captchaValue(captchaConfig?.value),
       enabled: captchaConfig?.enabled ?? false,
     };
     captchaForm.secret = "";
   }
 
   function initializeForms(
-    securityConfig,
-    captchaConfig,
-    authHookConfig,
-    beforeUserCreatedHookStatus,
+    securityConfig: AdminEndpointResult<"getSecurityConfig">,
+    captchaConfig: TenantConfig | undefined,
+    authHookConfig: TenantConfig | undefined,
+    beforeUserCreatedHookStatus: AdminEndpointResult<"getBeforeUserCreatedHookStatus">,
   ) {
     initializePasswordForm();
     initializeGeneralForm(securityConfig);
@@ -188,19 +202,19 @@
     };
   }
 
-  function defaultCaptchaConfig(securitySnapshot) {
-    return collectionItems(securitySnapshot.captchaConfigs).find(
+  function defaultCaptchaConfig(securitySnapshot: SecuritySnapshot) {
+    return collectionItems<TenantConfig>(securitySnapshot.captchaConfigs).find(
       (config) => config.key === "default",
     );
   }
 
-  function signupPolicyConfig(securitySnapshot) {
-    return collectionItems(securitySnapshot.authHookConfigs).find(
+  function signupPolicyConfig(securitySnapshot: SecuritySnapshot) {
+    return collectionItems<TenantConfig>(securitySnapshot.authHookConfigs).find(
       (config) => config.key === "signup_policy",
     );
   }
 
-  function applySecuritySnapshot(securitySnapshot) {
+  function applySecuritySnapshot(securitySnapshot: SecuritySnapshot) {
     authConfig = securitySnapshot.authConfig;
     runtimeConsistency = securitySnapshot.runtimeConsistency;
     initializeForms(
@@ -229,7 +243,9 @@
     }
   }
 
-  async function saveCommand(settingsMutation) {
+  async function saveCommand<Command, Authority>(
+    settingsMutation: Omit<SettingsMutationOptions<Command, Authority, SecuritySnapshot>, "readSnapshot">,
+  ) {
     saving = true;
     saved = false;
     reconciliationStatus = null;
@@ -249,7 +265,7 @@
     }
   }
 
-  function commaSeparatedValues(fieldDraft) {
+  function commaSeparatedValues(fieldDraft: string) {
     return fieldDraft
       .split(",")
       .map((entry) => entry.trim())
@@ -283,9 +299,8 @@
       : captchaForm.secret_configured === true;
     const captchaConfig = {
       enabled: captchaForm.enabled === true && provider !== "none",
-      value: { provider, secret_configured: secretConfigured },
+      value: { provider, secret_configured: secretConfigured, ...(secret ? { secret } : {}) },
     };
-    if (secret) captchaConfig.value.secret = secret;
     const command = { captchaConfig };
     return saveCommand({
       draft: {
@@ -297,7 +312,10 @@
           upsertTenantConfig(
             "captcha",
             "default",
-            frozenCommand.captchaConfig,
+            {
+              enabled: frozenCommand.captchaConfig.enabled,
+              value: decodeSchema(JsonObjectSchema, frozenCommand.captchaConfig.value),
+            },
           ),
       ],
       authorityFromSnapshot: (snapshot) =>
@@ -343,7 +361,10 @@
           upsertTenantConfig(
             "auth_hook",
             "signup_policy",
-            frozenCommand.authHookConfig,
+            {
+              enabled: frozenCommand.authHookConfig.enabled,
+              value: decodeSchema(JsonObjectSchema, frozenCommand.authHookConfig.value),
+            },
           ),
       ],
       authorityFromSnapshot: (snapshot) =>

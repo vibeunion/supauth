@@ -1,0 +1,437 @@
+diff --git a/dist/context.d.ts b/dist/context.d.ts
+index 0587731..99d6f07 100644
+--- a/dist/context.d.ts
++++ b/dist/context.d.ts
+@@ -37,7 +37,7 @@ export type ErrorContext<in out Route extends RouteSchema = {}, in out Singleton
+          */
+         cookie?: Record<string, ElysiaCookie>;
+     };
+-    status: {} extends Route['response'] ? typeof status : <const Code extends keyof Route['response'] | InvertedStatusMap[Extract<InvertedStatusMapKey, keyof Route['response']>], T extends Code extends keyof Route['response'] ? Route['response'][Code] : Code extends keyof StatusMap ? Route['response'][StatusMap[Code]] : never>(code: Code, response: CheckExcessProps<T, Code extends keyof Route['response'] ? Route['response'][Code] : Code extends keyof StatusMap ? Route['response'][StatusMap[Code]] : never>) => ElysiaCustomStatusResponse<Code, T>;
++    status: {} extends Route['response'] ? typeof status : SelectiveStatus<Route['response']>;
+     /**
+      * Path extracted from incoming URL
+      *
+diff --git a/dist/cookies.d.ts b/dist/cookies.d.ts
+index 68ab7cb..562482a 100644
+--- a/dist/cookies.d.ts
++++ b/dist/cookies.d.ts
+@@ -113,7 +113,10 @@ export type ElysiaCookie = Prettify<CookieOptions & {
+     value?: unknown;
+ }>;
+ type Updater<T> = T | ((value: T) => T);
+-export declare class Cookie<T> implements ElysiaCookie {
++type CookieState = Omit<ElysiaCookie, 'secrets'> & {
++    secrets: CookieOptions['secrets'];
++};
++export declare class Cookie<T> implements CookieState {
+     private name;
+     private jar;
+     private initial;
+diff --git a/dist/error.d.ts b/dist/error.d.ts
+index 78935c4..86a1268 100644
+--- a/dist/error.d.ts
++++ b/dist/error.d.ts
+@@ -12,7 +12,11 @@ type CheckExcessProps<T, U> = 0 extends 1 & T ? T : U extends U ? Exclude<keyof
+ } & {
+     [K in Exclude<keyof T, keyof U>]: never;
+ } : never;
+-export type SelectiveStatus<in out Res> = <const Code extends keyof Res | InvertedStatusMap[Extract<keyof InvertedStatusMap, keyof Res>], T extends Code extends keyof Res ? Res[Code] : Code extends keyof StatusMap ? Res[StatusMap[Code]] : never>(code: Code, response: CheckExcessProps<T, Code extends keyof Res ? Res[Code] : Code extends keyof StatusMap ? Res[StatusMap[Code]] : never>) => ElysiaCustomStatusResponse<Code, T>;
++type NumericResponse<Res> = {
++    [K in keyof Res as K extends number ? K : K extends `${infer Code extends number}` ? `${Code}` extends K ? Code : never : never]: Res[K];
++};
++export type SelectiveStatus<in out Res> = SelectiveStatusByCode<NumericResponse<Res>>;
++type SelectiveStatusByCode<Res> = <const Code extends Extract<keyof Res, number | keyof StatusMap> | InvertedStatusMap[Extract<keyof InvertedStatusMap, keyof Res>], T extends Code extends keyof Res ? Res[Code] : Code extends keyof StatusMap ? StatusMap[Code] extends keyof Res ? Res[StatusMap[Code]] : never : never>(code: Code, response: CheckExcessProps<T, Code extends keyof Res ? Res[Code] : Code extends keyof StatusMap ? StatusMap[Code] extends keyof Res ? Res[StatusMap[Code]] : never : never>) => ElysiaCustomStatusResponse<Code, T>;
+ export declare class ElysiaCustomStatusResponse<const in out Code extends number | keyof StatusMap, T = Code extends keyof InvertedStatusMap ? InvertedStatusMap[Code] : Code, const in out Status extends Code extends keyof StatusMap ? StatusMap[Code] : Code = Code extends keyof StatusMap ? StatusMap[Code] : Code> {
+     code: Status;
+     response: T;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index f8df4aa..59f167e 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,3 +1,4 @@
++import type { EmptyMacroContext } from './types';
+ import { type TObject, type TSchema, type TModule, type TRef, type TAnySchema } from '@sinclair/typebox';
+ import type { Context } from './context';
+ import { type Sucrose } from './sucrose';
+@@ -1282,7 +1283,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+         parser: Metadata['parser'];
+         response: Metadata['response'];
+     }, {}, Ephemeral, Volatile>) => NewElysia): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & NewElysia['~Routes'], Ephemeral, Volatile>;
+-    group<const Prefix extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Prefix>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>> & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const BeforeHandle extends MaybeArray<OptionalHandler<Schema, Singleton>>, const AfterHandle extends MaybeArray<AfterHandler<Schema, Singleton>>, const ErrorHandle extends MaybeArray<ErrorHandler<Definitions['error'], Schema, Singleton>>, const NewElysia extends AnyElysia>(prefix: Prefix, schema: GuardLocalHook<Input, Schema & MacroContext, Singleton & {
++    group<const Prefix extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Prefix>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>> & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const BeforeHandle extends MaybeArray<OptionalHandler<Schema, Singleton>>, const AfterHandle extends MaybeArray<AfterHandler<Schema, Singleton>>, const ErrorHandle extends MaybeArray<ErrorHandler<Definitions['error'], Schema, Singleton>>, const NewElysia extends AnyElysia>(prefix: Prefix, schema: GuardLocalHook<Input, Schema & MacroContext, Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'] & MacroContext['response'];
+     }, keyof Metadata['parser'], BeforeHandle, AfterHandle, ErrorHandle>, run: (group: Elysia<JoinPath<BasePath, Prefix>, {
+@@ -1368,7 +1369,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+         standaloneSchema: SimplifyToSchema<MacroContext> & ({} extends PickIfExists<Input, keyof InputSchema> ? Ephemeral['standaloneSchema'] : Ephemeral['standaloneSchema'] & UnwrapRoute<Input, Definitions['typebox']>);
+         response: Ephemeral['response'] & ElysiaHandlerToResponseSchemaAmbiguous<BeforeHandle> & ElysiaHandlerToResponseSchemaAmbiguous<AfterHandle> & ElysiaHandlerToResponseSchemaAmbiguous<ErrorHandle> & MacroContext['return'];
+     }, Volatile>;
+-    guard<const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends MergeSchema<UnwrapRoute<Input, Definitions['typebox'], BasePath>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>> & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey | 'as'>, Definitions['typebox']>, const BeforeHandle extends MaybeArray<OptionalHandler<Schema, Singleton>>, const AfterHandle extends MaybeArray<AfterHandler<Schema, Singleton>>, const ErrorHandle extends MaybeArray<ErrorHandler<any, Schema, Singleton>>, const NewElysia extends AnyElysia>(schema: GuardLocalHook<Input, Schema & MacroContext, Singleton & {
++    guard<const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends MergeSchema<UnwrapRoute<Input, Definitions['typebox'], BasePath>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>> & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey | 'as'>, Definitions['typebox']>, const BeforeHandle extends MaybeArray<OptionalHandler<Schema, Singleton>>, const AfterHandle extends MaybeArray<AfterHandler<Schema, Singleton>>, const ErrorHandle extends MaybeArray<ErrorHandler<any, Schema, Singleton>>, const NewElysia extends AnyElysia>(schema: GuardLocalHook<Input, Schema & MacroContext, Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+     }, keyof Metadata['parser'], BeforeHandle, AfterHandle, ErrorHandle>, run: (group: Elysia<BasePath, {
+@@ -1469,7 +1470,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     }> | undefined | false): this;
+     private propagatePromiseModules;
+     private _use;
+-    macro<const Name extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends MergeSchema<UnwrapRoute<Input, Definitions['typebox'], BasePath>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>> & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Property extends MaybeValueOrVoidFunction<MacroProperty<Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string> & {
++    macro<const Name extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends MergeSchema<UnwrapRoute<Input, Definitions['typebox'], BasePath>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>> & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Property extends MaybeValueOrVoidFunction<MacroProperty<Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string> & {
+         [name in Name]?: boolean;
+     }, Schema & MacroContext, Singleton & {
+         derive: Partial<Ephemeral['derive'] & Volatile['derive']>;
+@@ -1497,7 +1498,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+         parser: Metadata['parser'];
+         response: Metadata['response'];
+     }, Routes, Ephemeral, Volatile>;
+-    macro<const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const NewMacro extends MaybeFunction<Macro<Input, IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], BasePath>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, Singleton & {
++    macro<const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const NewMacro extends MaybeFunction<Macro<Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, Input, IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], BasePath>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, Singleton & {
+         derive: Partial<Ephemeral['derive'] & Volatile['derive']>;
+         resolve: Partial<Ephemeral['resolve'] & Volatile['resolve']>;
+     }, Definitions['error']>>>(macro: NewMacro): Elysia<BasePath, Singleton, Definitions, {
+@@ -1534,7 +1535,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     get<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends {} extends MacroContext ? InlineHandlerNonMacro<NoInfer<Schema>, NoInfer<Decorator>> : InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends EmptyMacroContext extends MacroContext ? InlineHandlerNonMacro<NoInfer<Schema>, NoInfer<Decorator>> : InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         get: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1556,7 +1557,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     post<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends {} extends MacroContext ? InlineHandlerNonMacro<NoInfer<Schema>, NoInfer<Decorator>> : InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends EmptyMacroContext extends MacroContext ? InlineHandlerNonMacro<NoInfer<Schema>, NoInfer<Decorator>> : InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         post: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1578,7 +1579,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     put<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends {} extends MacroContext ? InlineHandlerNonMacro<NoInfer<Schema>, NoInfer<Decorator>> : InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends EmptyMacroContext extends MacroContext ? InlineHandlerNonMacro<NoInfer<Schema>, NoInfer<Decorator>> : InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         put: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1600,7 +1601,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     patch<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         patch: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1622,7 +1623,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     delete<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         delete: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1644,7 +1645,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     options<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         options: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1666,7 +1667,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     all<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         [method in string]: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1688,7 +1689,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     head<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         head: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1710,7 +1711,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     connect<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']>): Elysia<BasePath, Singleton, Definitions, Metadata, Routes & CreateEden<JoinPath<BasePath, Path>, {
+         connect: CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<Schema & MacroContext & Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema'], Handle, UnionResponseStatus<Metadata['response'], UnionResponseStatus<Ephemeral['response'], UnionResponseStatus<Volatile['response'], MacroContext['return'] & {}>>>>>;
+     }>, Ephemeral, Volatile>;
+     /**
+@@ -1732,7 +1733,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+     route<const Method extends HTTPMethod, const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>>, Metadata['standaloneSchema'] & Ephemeral['standaloneSchema'] & Volatile['standaloneSchema']>, const Decorator extends Singleton & {
+         derive: Ephemeral['derive'] & Volatile['derive'];
+         resolve: Ephemeral['resolve'] & Volatile['resolve'];
+-    }, const MacroContext extends {} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(method: Method, path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']> & {
++    }, const MacroContext extends {} extends Metadata['macroFn'] ? EmptyMacroContext : MacroToContext<Metadata['macroFn'], Omit<Input, NonResolvableMacroKey>, Definitions['typebox']>, const Handle extends InlineHandler<NoInfer<Schema>, NoInfer<Decorator>, MacroContext>>(method: Method, path: Path, handler: Handle, hook?: LocalHook<Input, Schema & MacroContext, Decorator, Definitions['error'], keyof Metadata['parser']> & {
+         config?: {
+             allowMeta?: boolean;
+             mount?: Function;
+@@ -2039,7 +2040,7 @@ export default class Elysia<const in out BasePath extends string = '', const in
+         [Name in keyof Models]: Models[Name] extends TSchema ? TRef<Name & string> : Models[Name];
+     } : {}) => NewType): Elysia<BasePath, Singleton, {
+         typebox: {
+-            [Name in keyof NewType]: NewType[Name] extends TRef<Name & string> ? Definitions['typebox'][Name] : NewType[Name];
++            [Name in keyof NewType]: NewType[Name] extends TRef<Name & string> ? Name extends keyof Definitions['typebox'] ? Definitions['typebox'][Name] : NewType[Name] : NewType[Name];
+         };
+         error: Definitions['error'];
+     }, Metadata, Routes, Ephemeral, Volatile>;
+diff --git a/dist/types.d.ts b/dist/types.d.ts
+index bb0fa0a..04c61cd 100644
+--- a/dist/types.d.ts
++++ b/dist/types.d.ts
+@@ -21,7 +21,7 @@ import type { DynamicHandler } from './dynamic-handle';
+ export type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? true : false;
+ export type IsNever<T> = [T] extends [never] ? true : false;
+ export type PickIfExists<T, K extends string> = {} extends T ? {} : {
+-    [P in K as P extends keyof T ? P : never]: T[P];
++    [P in Extract<K, keyof T>]: T[P];
+ };
+ export interface StandardSchemaV1Like<in out Input = unknown, in out Output = Input> {
+     readonly '~standard': {
+@@ -255,19 +255,19 @@ type IsClass<V> = V extends abstract new (...args: any) => any ? true : false;
+ export type Reconcile<A extends Object, B extends Object, Override extends boolean = false, Stack extends number[] = []> = Stack['length'] extends 16 ? A : Override extends true ? {
+     [key in keyof A as key extends keyof B ? never : key]: A[key];
+ } extends infer Collision ? {} extends Collision ? {
+-    [key in keyof B]: IsBothObject<A[key], B[key]> extends true ? Reconcile<A[key], B[key], Override, [
++    [key in keyof B]: key extends keyof A ? IsBothObject<A[key], B[key]> extends true ? Reconcile<Extract<A[key], Object>, Extract<B[key], Object>, Override, [
+         0,
+         ...Stack
+-    ]> : B[key];
++    ]> : B[key] : B[key];
+ } : Prettify<Collision & {
+     [key in keyof B]: B[key];
+ }> : never : {
+     [key in keyof B as key extends keyof A ? never : key]: B[key];
+ } extends infer Collision ? {} extends Collision ? {
+-    [key in keyof A]: IsBothObject<A[key], B[key]> extends true ? Reconcile<A[key], B[key], Override, [
++    [key in keyof A]: key extends keyof B ? IsBothObject<A[key], B[key]> extends true ? Reconcile<Extract<A[key], Object>, Extract<B[key], Object>, Override, [
+         0,
+         ...Stack
+-    ]> : A[key];
++    ]> : A[key] : A[key];
+ } : Prettify<{
+     [key in keyof A]: A[key];
+ } & Collision> : never;
+@@ -311,16 +311,20 @@ export interface RouteSchema {
+ interface OptionalField {
+     [OptionalKind]: 'Optional';
+ }
+-export type UnwrapSchema<Schema extends AnySchema | string | undefined, Definitions extends DefinitionBase['typebox'] = {}> = Schema extends undefined ? unknown : Schema extends TSchema ? Schema extends OptionalField ? Partial<TImport<Definitions & {
++type TypeBoxDefinitions<Definitions extends DefinitionBase['typebox']> = {
++    [K in keyof Definitions as Definitions[K] extends TSchema ? K : never]: Extract<Definitions[K], TSchema>;
++};
++type StandardOutput<Schema> = Schema extends StandardSchemaV1Like ? NonNullable<Schema['~standard']['types']>['output'] : never;
++export type UnwrapSchema<Schema extends AnySchema | string | undefined, Definitions extends DefinitionBase['typebox'] = {}> = Schema extends undefined ? unknown : Schema extends TSchema ? Schema extends OptionalField ? Partial<TImport<TypeBoxDefinitions<Definitions> & {
+     readonly __elysia: Schema;
+-}, '__elysia'>['static']> : TImport<Definitions & {
++}, '__elysia'>['static']> : TImport<TypeBoxDefinitions<Definitions> & {
+     readonly __elysia: Schema;
+-}, '__elysia'>['static'] : Schema extends FastStandardSchemaV1Like ? NonNullable<Schema['~standard']['types']>['output'] : Schema extends string ? Schema extends keyof Definitions ? Definitions[Schema] extends TAnySchema ? TImport<Definitions, Schema>['static'] : NonNullable<Definitions[Schema]['~standard']['types']>['output'] : unknown : unknown;
+-export type UnwrapBodySchema<Schema extends AnySchema | string | undefined, Definitions extends DefinitionBase['typebox'] = {}> = undefined extends Schema ? unknown : Schema extends TSchema ? Schema extends OptionalField ? Partial<TImport<Definitions & {
++}, '__elysia'>['static'] : Schema extends FastStandardSchemaV1Like ? StandardOutput<Schema> : Schema extends string ? Schema extends keyof Definitions ? Definitions[Schema] extends TAnySchema ? TImport<TypeBoxDefinitions<Definitions>, Extract<Schema, keyof TypeBoxDefinitions<Definitions>>>['static'] : StandardOutput<Definitions[Schema]> : unknown : unknown;
++export type UnwrapBodySchema<Schema extends AnySchema | string | undefined, Definitions extends DefinitionBase['typebox'] = {}> = undefined extends Schema ? unknown : Schema extends TSchema ? Schema extends OptionalField ? Partial<TImport<TypeBoxDefinitions<Definitions> & {
+     readonly __elysia: Schema;
+-}, '__elysia'>['static']> | null : TImport<Definitions & {
++}, '__elysia'>['static']> | null : TImport<TypeBoxDefinitions<Definitions> & {
+     readonly __elysia: Schema;
+-}, '__elysia'>['static'] : Schema extends FastStandardSchemaV1Like ? NonNullable<Schema['~standard']['types']>['output'] : Schema extends string ? Schema extends keyof Definitions ? Definitions[Schema] extends TAnySchema ? TImport<Definitions, Schema>['static'] : NonNullable<Definitions[Schema]['~standard']['types']>['output'] : unknown : unknown;
++}, '__elysia'>['static'] : Schema extends FastStandardSchemaV1Like ? StandardOutput<Schema> : Schema extends string ? Schema extends keyof Definitions ? Definitions[Schema] extends TAnySchema ? TImport<TypeBoxDefinitions<Definitions>, Extract<Schema, keyof TypeBoxDefinitions<Definitions>>>['static'] : StandardOutput<Definitions[Schema]> : unknown : unknown;
+ export interface UnwrapRoute<in out Schema extends InputSchema<any>, in out Definitions extends DefinitionBase['typebox'] = {}, in out Path extends string = ''> {
+     body: UnwrapBodySchema<Schema['body'], Definitions>;
+     headers: UnwrapSchema<Schema['headers'], Definitions>;
+@@ -428,16 +432,24 @@ export type CoExist<Original, Target, With> = IsAny<Target> extends true ? Origi
+ export type MacroContextBlacklistKey = 'type' | 'detail' | 'parse' | 'transform' | 'resolve' | 'beforeHandle' | 'afterHandle' | 'mapResponse' | 'afterResponse' | 'error' | 'tags' | keyof RouteSchema;
+ type ReturnTypeIfPossible<T, Enabled = true> = false extends Enabled ? {} : T extends (...a: any) => infer R ? R : T;
+ type AnyElysiaCustomStatusResponse = ElysiaCustomStatusResponse<any, any, any>;
+-type FunctionArrayReturnType<T> = any[] extends T ? never : T extends any[] ? _FunctionArrayReturnType<T> : Awaited<ReturnType<T>>;
++type CallableReturn<T> = T extends (...args: never[]) => infer R ? R : never;
++type MacroField<T, K extends PropertyKey> = T extends object ? K extends keyof T ? T[K] : never : never;
++type MacroReturn<T> = T extends object ? 'return' extends keyof T ? T['return'] : {} : {};
++export type EmptyMacroContext = {
++    resolve: {};
++    response: {};
++    return: {};
++};
++type FunctionArrayReturnType<T> = any[] extends T ? never : T extends any[] ? _FunctionArrayReturnType<T> : Awaited<CallableReturn<T>>;
+ type _FunctionArrayReturnType<T, Carry = undefined> = T extends [
+     infer Fn,
+     ...infer Rest
+-] ? _FunctionArrayReturnType<Rest, Awaited<ReturnType<Fn>> extends infer A ? IsNever<A> extends true ? Carry : A | Carry : Carry> : Carry;
+-type FunctionArrayReturnTypeNonNullable<T> = any[] extends T ? never : T extends any[] ? _FunctionArrayReturnTypeNonNullable<T> : NonNullable<Awaited<ReturnType<T>>>;
++] ? _FunctionArrayReturnType<Rest, Awaited<CallableReturn<Fn>> extends infer A ? IsNever<A> extends true ? Carry : A | Carry : Carry> : Carry;
++type FunctionArrayReturnTypeNonNullable<T> = any[] extends T ? never : T extends any[] ? _FunctionArrayReturnTypeNonNullable<T> : NonNullable<Awaited<CallableReturn<T>>>;
+ type _FunctionArrayReturnTypeNonNullable<T, Carry = undefined> = T extends [
+     infer Fn,
+     ...infer Rest
+-] ? _FunctionArrayReturnTypeNonNullable<Rest, NonNullable<Awaited<ReturnType<Fn>>> extends infer A ? IsNever<A> extends true ? Carry : A | Carry : Carry> : Carry;
++] ? _FunctionArrayReturnTypeNonNullable<Rest, NonNullable<Awaited<CallableReturn<Fn>>> extends infer A ? IsNever<A> extends true ? Carry : A | Carry : Carry> : Carry;
+ type ExtractResolveFromMacro<A> = IsNever<A> extends true ? {} : A extends AnyElysiaCustomStatusResponse ? A : Exclude<A, AnyElysiaCustomStatusResponse> extends infer A ? IsAny<A> extends true ? {} : A : {};
+ type ExtractOnlyResponseFromMacro<A> = IsNever<A> extends true ? {} : Extract<A, AnyElysiaCustomStatusResponse> extends infer A ? IsNever<A> extends true ? {} : {
+     return: MergeResponseStatus<A>;
+@@ -445,9 +457,9 @@ type ExtractOnlyResponseFromMacro<A> = IsNever<A> extends true ? {} : Extract<A,
+ type MergeResponseStatus<A> = {
+     [status in keyof UnionToIntersect<A extends ElysiaCustomStatusResponse<any, any, infer Status> ? {
+         [A in Status]: 1;
+-    } : never>]: Extract<A, {
++    } : never>]: MacroField<Extract<A, {
+         code: status;
+-    }>['response'] extends infer Value ? IsAny<Value> extends true ? InvertedStatusMap[status] : Value : never;
++    }>, 'response'> extends infer Value ? IsAny<Value> extends true ? status extends keyof InvertedStatusMap ? InvertedStatusMap[status] : status : Value : never;
+ };
+ type MergeAllStatus<T> = {
+     [K in T extends any ? keyof T : never]: T extends Record<K, infer V> ? V : never;
+@@ -465,30 +477,33 @@ type UnionMacroContext<A> = UnionToIntersect<{
+     [K in Exclude<keyof A, 'return'>]: A[K];
+ }> & {
+     return: {
+-        _: A['return'];
++        _: MacroReturn<A>;
+     };
+ };
+-export type MacroToContext<in out MacroFn extends Macro = {}, in out SelectedMacro extends BaseMacro = {}, in out Definitions extends DefinitionBase['typebox'] = {}, in out R extends 1[] = []> = Prettify<InnerMacroToContext<MacroFn, Pick<SelectedMacro, Extract<keyof MacroFn, keyof SelectedMacro>>, Definitions, R> extends infer A ? {
++export type MacroToContext<in out MacroFn extends Macro = {}, in out SelectedMacro extends BaseMacro = {}, in out Definitions extends DefinitionBase['typebox'] = {}, in out R extends 1[] = []> = Prettify<(InnerMacroToContext<MacroFn, Pick<SelectedMacro, Extract<keyof MacroFn, keyof SelectedMacro>>, Definitions, R> extends infer A ? {
+     [K in Exclude<keyof A, 'return'>]: UnionToIntersect<A[K]>;
+ } & Prettify<{
+-    return: FlattenMacroResponse<A['return']>;
+-}> : {}>;
+-type InnerMacroToContext<MacroFn extends Macro = {}, SelectedMacro extends BaseMacro = {}, Definitions extends DefinitionBase['typebox'] = {}, R extends 1[] = []> = {} extends SelectedMacro ? {} : R['length'] extends 15 ? {} : UnionMacroContext<{
+-    [key in keyof SelectedMacro]: ReturnTypeIfPossible<MacroFn[key], SelectedMacro[key]> extends infer Value ? {
+-        resolve: ExtractResolveFromMacro<Extract<Exclude<FunctionArrayReturnType<Value['resolve']>, AnyElysiaCustomStatusResponse>, Record<any, unknown>>>;
+-    } & UnwrapMacroSchema<Value, Definitions> & ExtractAllResponseFromMacro<FunctionArrayReturnTypeNonNullable<Value['beforeHandle']>> & ExtractAllResponseFromMacro<FunctionArrayReturnTypeNonNullable<Value['afterHandle']>> & ExtractAllResponseFromMacro<FunctionArrayReturnType<Value['error']>> & ExtractOnlyResponseFromMacro<FunctionArrayReturnTypeNonNullable<Value['resolve']>> & InnerMacroToContext<MacroFn, Pick<Value, Extract<keyof MacroFn, keyof Value>>, Definitions, [
++    return: FlattenMacroResponse<MacroReturn<A>>;
++}> : EmptyMacroContext) & EmptyMacroContext>;
++type InnerMacroToContext<MacroFn extends Macro = {}, SelectedMacro extends BaseMacro = {}, Definitions extends DefinitionBase['typebox'] = {}, R extends 1[] = []> = {} extends SelectedMacro ? EmptyMacroContext : R['length'] extends 15 ? EmptyMacroContext : UnionMacroContext<{
++    [key in keyof SelectedMacro]: ReturnTypeIfPossible<MacroFn[key], SelectedMacro[key]> extends infer Value ? Value extends object ? {
++        resolve: ExtractResolveFromMacro<Extract<Exclude<FunctionArrayReturnType<MacroField<Value, 'resolve'>>, AnyElysiaCustomStatusResponse>, Record<string, unknown>>>;
++    } & UnwrapMacroSchema<Value, Definitions> & ExtractAllResponseFromMacro<FunctionArrayReturnTypeNonNullable<MacroField<Value, 'beforeHandle'>>> & ExtractAllResponseFromMacro<FunctionArrayReturnTypeNonNullable<MacroField<Value, 'afterHandle'>>> & ExtractAllResponseFromMacro<FunctionArrayReturnType<MacroField<Value, 'error'>>> & ExtractOnlyResponseFromMacro<FunctionArrayReturnTypeNonNullable<MacroField<Value, 'resolve'>>> & InnerMacroToContext<MacroFn, Pick<Value, Extract<keyof MacroFn, keyof Value>> extends infer Next extends BaseMacro ? Next : never, Definitions, [
+         ...R,
+         1
+-    ]> : {};
++    ]> : EmptyMacroContext : EmptyMacroContext;
+ }[keyof SelectedMacro]>;
+-type UnwrapMacroSchema<T extends Partial<InputSchema<any>>, Definitions extends DefinitionBase['typebox'] = {}> = UnwrapRoute<{
+-    body: 'body' extends keyof T ? T['body'] : undefined;
+-    headers: 'headers' extends keyof T ? T['headers'] : undefined;
+-    query: 'query' extends keyof T ? T['query'] : undefined;
+-    params: 'params' extends keyof T ? T['params'] : undefined;
+-    cookie: 'cookie' extends keyof T ? T['cookie'] : undefined;
+-    response: 'response' extends keyof T ? T['response'] : undefined;
+-}, Definitions>;
++type MacroSchemaField<T, K extends keyof InputSchema> = K extends keyof T ? Extract<T[K], InputSchema[K]> : undefined;
++type UnwrapMacroSchema<T, Definitions extends DefinitionBase['typebox'] = {}> = Omit<UnwrapRoute<{
++    body: MacroSchemaField<T, 'body'>;
++    headers: MacroSchemaField<T, 'headers'>;
++    query: MacroSchemaField<T, 'query'>;
++    params: MacroSchemaField<T, 'params'>;
++    cookie: MacroSchemaField<T, 'cookie'>;
++    response: MacroSchemaField<T, 'response'>;
++}, Definitions>, 'response'> & {
++    response: 'response' extends keyof T ? UnwrapRoute<{ response: MacroSchemaField<T, 'response'> }, Definitions>['response'] : {};
++};
+ export type SimplifyToSchema<T extends InputSchema<any>> = IsUnknown<T['body']> extends false ? _SimplifyToSchema<T> : IsUnknown<T['headers']> extends false ? _SimplifyToSchema<T> : IsUnknown<T['query']> extends false ? _SimplifyToSchema<T> : IsUnknown<T['params']> extends false ? _SimplifyToSchema<T> : IsUnknown<T['cookie']> extends false ? _SimplifyToSchema<T> : IsUnknown<T['response']> extends false ? _SimplifyToSchema<T> : {};
+ export type _SimplifyToSchema<T extends InputSchema<any>> = Omit<{
+     body: T['body'];
+@@ -498,9 +513,13 @@ export type _SimplifyToSchema<T extends InputSchema<any>> = Omit<{
+     cookie: T['cookie'];
+     response: T['response'];
+ }, ('body' extends keyof T ? never : 'body') | ('headers' extends keyof T ? never : 'headers') | ('query' extends keyof T ? never : 'query') | ('params' extends keyof T ? never : 'params') | ('cookie' extends keyof T ? never : 'cookie') | ('response' extends keyof T ? never : 'response')>;
++type NumericStatus<Status> = Status extends number ? Status : Status extends `${infer Code extends number}` ? `${Code}` extends Status ? Code : never : never;
++type NumericResponse<Response> = {
++    [K in keyof Response as NumericStatus<K>]: Response[K];
++};
+ type InlineHandlerResponse<Route extends RouteSchema['response']> = {
+-    [Status in keyof Route]: ElysiaCustomStatusResponse<Status, Route[Status], Status>;
+-}[keyof Route];
++    [Status in Extract<keyof Route, number | `${number}`>]: ElysiaCustomStatusResponse<NumericStatus<Status>, Route[Status]>;
++}[Extract<keyof Route, number | `${number}`>];
+ type InlineResponse = string | number | boolean | Record<any, unknown> | Response | AnyElysiaCustomStatusResponse | ElysiaFile | Record<any, unknown> | BunHTMLBundlelike;
+ type LastOf<T> = UnionToIntersect<T extends any ? () => T : never> extends () => infer R ? R : never;
+ type Push<T extends any[], V> = [...T, V];
+@@ -702,7 +721,7 @@ T> : Exclude<Awaited<ReturnType<T>>, AnyElysiaCustomStatusResponse> extends infe
+ type _ResolveReturnTypeArray<T, Carry = {}> = T extends [
+     infer Fn,
+     ...infer Rest
+-] ? Exclude<Awaited<ReturnType<Fn>>, AnyElysiaCustomStatusResponse> extends infer Value extends Record<any, unknown> ? _ResolveReturnTypeArray<Rest, Value & Carry> : _ResolveReturnTypeArray<Rest, Carry & {}> : Prettify<Carry>;
++] ? Exclude<Awaited<CallableReturn<Fn>>, AnyElysiaCustomStatusResponse> extends infer Value extends Record<any, unknown> ? _ResolveReturnTypeArray<Rest, Value & Carry> : _ResolveReturnTypeArray<Rest, Carry & {}> : Prettify<Carry>;
+ export type AnyLocalHook = LocalHook<any, any, any, any, any>;
+ export interface BaseHookLifeCycle<in out Schema extends RouteSchema, in out Singleton extends SingletonBase, in out Errors extends {
+     [key in string]: Error;
+@@ -1025,12 +1044,12 @@ export type ValueToResponseSchema<Value> = ExtractErrorFromHandle<Value> & (Extr
+ } : {});
+ export type ValueOrFunctionToResponseSchema<T> = T extends (...a: any) => MaybePromise<infer R> ? ValueToResponseSchema<R> : ValueToResponseSchema<T>;
+ export type ElysiaHandlerToResponseSchema<in out Handle extends Function> = Prettify<Handle extends (...a: any) => MaybePromise<infer R> ? ValueToResponseSchema<Exclude<R, undefined>> : {}>;
+-export type ElysiaHandlerToResponseSchemas<Handle extends Function[], Carry extends PossibleResponse = {}> = Handle extends [infer Current, ...infer Rest] ? ElysiaHandlerToResponseSchemas<Rest, UnionResponseStatus<ElysiaHandlerToResponseSchema<Current>, Carry>> : Prettify<Carry>;
++export type ElysiaHandlerToResponseSchemas<Handle extends Function[], Carry extends PossibleResponse = {}> = Handle extends [infer Current extends Function, ...infer Rest extends Function[]] ? ElysiaHandlerToResponseSchemas<Rest, UnionResponseStatus<ElysiaHandlerToResponseSchema<Current>, Carry>> : Prettify<Carry>;
+ export type ElysiaHandlerToResponseSchemaAmbiguous<Schemas extends MaybeArray<Function>> = MaybeArray<(...a: any) => any> extends Schemas ? {} : Schemas extends Function ? ElysiaHandlerToResponseSchema<Schemas> : Schemas extends Function[] ? ElysiaHandlerToResponseSchemas<Schemas> : {};
+ type ReconcileStatus<in out A extends Record<number, unknown>, in out B extends Record<number, unknown>> = {
+-    [K in keyof A | keyof B]: K extends keyof A ? A[K] : B[K];
++    [K in keyof NumericResponse<A> | keyof NumericResponse<B>]: K extends keyof NumericResponse<A> ? NumericResponse<A>[K] : K extends keyof NumericResponse<B> ? NumericResponse<B>[K] : never;
+ };
+-export type ComposeElysiaResponse<Schema extends RouteSchema, Handle, Possibility extends PossibleResponse> = ReconcileStatus<Schema['response'], UnionResponseStatus<ValueOrFunctionToResponseSchema<Handle>, Possibility & (EmptyRouteSchema extends Pick<Schema, keyof EmptyRouteSchema> ? {} : {
++export type ComposeElysiaResponse<Schema extends RouteSchema, Handle, Possibility extends PossibleResponse> = ReconcileStatus<Pick<Schema['response'], Extract<keyof Schema['response'], number | `${number}`>>, UnionResponseStatus<ValueOrFunctionToResponseSchema<Handle>, Possibility & (EmptyRouteSchema extends Pick<Schema, keyof EmptyRouteSchema> ? {} : {
+     422: {
+         type: 'validation';
+         on: string;
+@@ -1102,20 +1121,7 @@ export type InferHandler<T extends AnyElysia, Path extends string = T['~Prefix']
+ export interface ModelValidatorError extends ValueError {
+     summary: string;
+ }
+-export interface ModelValidator<T> extends TypeCheck<T> {
+-    schema: T;
+-    parse(a: T): T;
+-    safeParse(a: T): {
+-        success: true;
+-        data: T;
+-        error: null;
+-    } | {
+-        success: true;
+-        data: null;
+-        error: string;
+-        errors: ModelValidatorError[];
+-    };
+-}
++export type ModelValidator<T extends AnySchema> = ElysiaTypeCheck<T>;
+ export type UnionToIntersect<U> = (U extends unknown ? (arg: U) => 0 : never) extends (arg: infer I) => 0 ? I : never;
+ export type ContextAppendType = 'append' | 'override';
+ export type HigherOrderFunction<T extends (...arg: unknown[]) => Function = (...arg: unknown[]) => Function> = (fn: T, request: Request) => ReturnType<T>;
+diff --git a/dist/utils.d.ts b/dist/utils.d.ts
+index 85bbb10..7a36b3a 100644
+--- a/dist/utils.d.ts
++++ b/dist/utils.d.ts
+@@ -145,7 +145,7 @@ export type ELYSIA_FORM_DATA = typeof ELYSIA_FORM_DATA;
+ type IsTuple<T> = T extends readonly any[] ? number extends T['length'] ? false : true : false;
+ export type ElysiaFormData<T extends Record<keyof any, unknown>> = FormData & {
+     [ELYSIA_FORM_DATA]: Replace<T, Blob | ElysiaFile, File> extends infer A ? {
+-        [key in keyof A]: IsTuple<A[key]> extends true ? A[key][number] extends Blob | ElysiaFile ? File[] : A[key] : A[key];
++        [key in keyof A]: IsTuple<A[key]> extends true ? A[key] extends readonly (infer Item)[] ? [Item] extends [Blob | ElysiaFile] ? File[] : A[key] : A[key] : A[key];
+     } : T;
+ };
+ export declare const ELYSIA_REQUEST_ID: unique symbol;
+diff --git a/dist/ws/index.d.ts b/dist/ws/index.d.ts
+index 1499321..adb9234 100644
+--- a/dist/ws/index.d.ts
++++ b/dist/ws/index.d.ts
+@@ -5,7 +5,9 @@ import type { ElysiaTypeCheck } from '../schema';
+ import type { FlattenResponse, WSParseHandler } from './types';
+ import type { MaybeArray, Prettify, RouteSchema } from '../types';
+ export declare const websocket: WebSocketHandler<any>;
+-type ElysiaServerWebSocket = Omit<ServerWebSocket<unknown>, 'send' | 'ping' | 'pong' | 'publish'>;
++type ElysiaServerWebSocket = Omit<ServerWebSocket<unknown>, 'send' | 'ping' | 'pong' | 'publish' | 'binaryType'> & {
++    binaryType: ServerWebSocket['binaryType'];
++};
+ export declare class ElysiaWS<Context = unknown, Route extends RouteSchema = {}> implements ElysiaServerWebSocket {
+     raw: ServerWebSocket<{
+         id?: string;

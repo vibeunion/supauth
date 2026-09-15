@@ -1,3 +1,4 @@
+import { createFetchMock } from "./tooling-test-values.js";
 import { describe, expect, it } from 'bun:test';
 import {
   requiredSupabaseAdminKey,
@@ -140,7 +141,7 @@ describe('Supabase compatibility key selection', () => {
       'admin-key',
       'POST',
       { email: 'compat@example.test' },
-      fetchImpl as typeof fetch,
+      createFetchMock(fetchImpl),
     );
 
     expect(response.ok).toBe(true);

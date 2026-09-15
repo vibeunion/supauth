@@ -19,6 +19,12 @@ export async function getAdminAccessToken(): Promise<string | null> {
   return localStorage.getItem(ADMIN_TOKEN_KEY);
 }
 
+export async function getCurrentAdminAccessToken(): Promise<string | null> {
+  // 已配置的身份源为空时必须保持未登录，不能回退到旧身份凭据。
+  if (accessTokenProvider) return accessTokenProvider();
+  return getAdminAccessToken();
+}
+
 export function setStoredAdminToken(token: string): void {
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(ADMIN_TOKEN_KEY, token);

@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 import { describe, expect, test } from "bun:test";
 import { AdminApiError } from "../admin-api.js";
 import { settleWritesThenReadBack } from "../mutation-reconciliation.js";
@@ -10,6 +10,7 @@ import {
 const INVALID_READ_BACK_MESSAGE =
   "Account Center read-back has an invalid tenant-config payload";
 
+/** @param {Record<string, unknown>} rowOverrides */
 function validTenantConfigRow(rowOverrides = {}) {
   return {
     configType: "account_center",
@@ -20,6 +21,7 @@ function validTenantConfigRow(rowOverrides = {}) {
   };
 }
 
+/** @type {[string, unknown][]} */
 const invalidEnvelopeCases = [
   ["2xx text", "accepted"],
   ["null", null],
@@ -50,6 +52,7 @@ const invalidEnvelopeCases = [
   ],
 ];
 
+/** @type {[string, string, string, string | null][]} */
 const acceptedDeleteUrlCases = [
   ["empty built-in flow", "", "production", null],
   [
@@ -78,6 +81,7 @@ const acceptedDeleteUrlCases = [
   ],
 ];
 
+/** @type {[string, string, string][]} */
 const rejectedDeleteUrlCases = [
   ["credentials", "https://user:secret@example.test/delete", "production"],
   ["fragment", "https://example.test/delete#confirm", "production"],
@@ -113,27 +117,30 @@ describe("Account Center read-back contract", () => {
   );
 
   test("accepts an empty strict collection envelope", async () => {
-    let requestedType;
+    /** @type {string[]} */
+    const requestedTypes = [];
     const config = await readAccountCenterConfig(async (configType) => {
-      requestedType = configType;
+      requestedTypes.push(configType);
       return { items: [] };
     });
 
-    expect(requestedType).toBe("account_center");
+    expect(requestedTypes).toEqual(["account_center"]);
     expect(config).toBeNull();
   });
 
   test("returns the validated default row", async () => {
-    const defaultRow = validTenantConfigRow({
+    /** @satisfies {import("./account-center-settings.js").AccountCenterRow} */
+    const defaultRow = {
+      configType: "account_center",
+      key: "default",
       enabled: false,
       value: { security: { password_change: false } },
-    });
+    };
 
-    await expect(
-      readAccountCenterConfig(async () => ({
+    const config = await readAccountCenterConfig(async () => ({
         items: [validTenantConfigRow({ key: "other" }), defaultRow],
-      })),
-    ).resolves.toEqual(defaultRow);
+      }));
+    expect(config).toEqual(defaultRow);
   });
 
   test.each(invalidEnvelopeCases)(
@@ -154,7 +161,9 @@ describe("Account Center read-back contract", () => {
       );
 
       expect(reconciliation.status).toBe("readback_failure");
+      if (reconciliation.status !== "readback_failure") throw new Error("Expected readback failure");
       expect(reconciliation.writeStatus).toBe("success");
+      if (!(reconciliation.readBackError instanceof Error)) throw new Error("Expected Error");
       expect(reconciliation.readBackError.message).toBe(
         INVALID_READ_BACK_MESSAGE,
       );
@@ -177,6 +186,7 @@ describe("Account Center read-back contract", () => {
       );
 
       expect(reconciliation.status).toBe("readback_failure");
+      if (reconciliation.status !== "readback_failure") throw new Error("Expected readback failure");
       expect(reconciliation.readBackError).toBe(requestFailure);
     },
   );

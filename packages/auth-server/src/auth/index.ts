@@ -11,17 +11,20 @@ import { getConfig } from '../config/index.js';
 import { BoundedExpiringMap, BoundedFixedWindowLimiter, resolveClientIp } from '../utils/rate-limit.js';
 import * as secRepo from '../repositories/security-config.js';
 import type { SecurityConfigRow } from '../repositories/security-config.js';
+import { isRecord } from '../utils/api-contract.js';
 import { resolveGoTrueLogoutUrl } from './gotrue-logout-url.js';
 import { principalHasAction, requiredAdminAction, type AdminPrincipal } from './admin-permissions.js';
 import { enterAdminRequestContext } from './request-context.js';
 import { parseAdminSsoRequireAal2 } from './admin-sso-aal2-policy.js';
+import { AdminLoginInputSchema } from '../../../shared/src/server-hosted.js';
+import { hostedContract, hostedInput } from '../utils/hosted-contract.js';
 
 // Env-var fallbacks: used before migration has run, or when DB is unreachable.
 const ENV_ADMIN_AUTH_MODE = (runtimeEnv('ADMIN_AUTH_MODE') || 'auto').toLowerCase();
 const ENV_SSO_ISSUER = trimTrailingSlash(runtimeEnv('ADMIN_SSO_ISSUER') || '');
 const ENV_SSO_CLIENT_ID = runtimeEnv('ADMIN_SSO_CLIENT_ID') || '';
 const ENV_SSO_AUDIENCES = resolveSsoAudiences({
-  configuredAudience: runtimeEnv('ADMIN_SSO_AUDIENCE'),
+  ...(runtimeEnv('ADMIN_SSO_AUDIENCE') === undefined ? {} : { configuredAudience: runtimeEnv('ADMIN_SSO_AUDIENCE') ?? '' }),
   clientId: ENV_SSO_CLIENT_ID,
   issuer: ENV_SSO_ISSUER,
 });
@@ -183,7 +186,7 @@ export function resolveSsoAudiences(input: {
 }
 
 function bearerToken(headers: Record<string, string | undefined>): string | null {
-  const authHeader = headers.authorization;
+  const authHeader = headers["authorization"];
   return authHeader?.match(/^Bearer +([^\s]+)$/i)?.[1] || null;
 }
 
@@ -234,12 +237,12 @@ function clearLoginFailures(ip: string): void {
 }
 
 export function adminSessionFromPayload(payload: JWTPayload): AdminSession {
-  const email = typeof payload.email === 'string' ? payload.email : '';
+  const email = typeof payload["email"] === 'string' ? payload["email"] : '';
   const roles = projectedAdminClaimStrings(payload, 'roles');
   const permissions = projectedAdminClaimStrings(payload, 'permissions');
   const name =
-    (typeof payload.name === 'string' && payload.name) ||
-    (typeof payload.preferred_username === 'string' && payload.preferred_username) ||
+    (typeof payload["name"] === 'string' && payload["name"]) ||
+    (typeof payload["preferred_username"] === 'string' && payload["preferred_username"]) ||
     email ||
     String(payload.sub || 'admin');
 
@@ -256,22 +259,20 @@ export function adminSessionFromPayload(payload: JWTPayload): AdminSession {
 }
 
 function hasSupaoauthNamespace(payload: JWTPayload): boolean {
-  const appMetadata = claimRecord(payload.app_metadata);
+  const appMetadata = claimRecord(payload["app_metadata"]);
   return Boolean(appMetadata && Object.hasOwn(appMetadata, 'supaoauth'));
 }
 
 function claimRecord(claim: unknown): Record<string, unknown> | null {
-  return claim && typeof claim === 'object' && !Array.isArray(claim)
-    ? claim as Record<string, unknown>
-    : null;
+  return isRecord(claim) ? claim : null;
 }
 
 function configuredProjectProjection(payload: JWTPayload): Record<string, unknown> | null {
-  const appMetadata = claimRecord(payload.app_metadata);
-  const supaoauth = claimRecord(appMetadata?.supaoauth);
+  const appMetadata = claimRecord(payload["app_metadata"]);
+  const supaoauth = claimRecord(appMetadata?.["supaoauth"]);
   if (!supaoauth) return null;
-  if (supaoauth.schema_version !== 2) return null;
-  const projects = claimRecord(supaoauth.projects);
+  if (supaoauth["schema_version"] !== 2) return null;
+  const projects = claimRecord(supaoauth["projects"]);
   if (!projects) return null;
   const projectRef = getConfig().projectRef;
   return Object.hasOwn(projects, projectRef) ? claimRecord(projects[projectRef]) : null;
@@ -279,7 +280,7 @@ function configuredProjectProjection(payload: JWTPayload): Record<string, unknow
 
 function boundedProjectedStrings(values: unknown, field: 'roles' | 'permissions'): string[] {
   if (!Array.isArray(values)) return [];
-  if (!values.every((entry): entry is string => typeof entry === 'string' && entry.length > 0)) return [];
+  if (!values.every((entry: unknown): entry is string => typeof entry === 'string' && entry.length > 0)) return [];
   if (new Set(values).size !== values.length) return [];
   return values.length <= ADMIN_CLAIM_PROJECTION_LIMITS[field] ? values : [];
 }
@@ -290,7 +291,7 @@ export function projectedAdminClaimStrings(
 ): string[] {
   const projectProjection = configuredProjectProjection(payload);
   if (!projectProjection) return [];
-  if (projectProjection.projection_unavailable === true) return [];
+  if (projectProjection["projection_unavailable"] === true) return [];
   if (projectProjection[`${field}_truncated`] === true) return [];
   return boundedProjectedStrings(projectProjection[field], field);
 }
@@ -316,7 +317,7 @@ export function resolveSsoAdminAccess(
 ): AdminBearerAccess {
   const email = session.email.toLowerCase();
   if (!allowlist.emails.includes(email)) return { status: 'forbidden', reason: 'admin_access_forbidden' };
-  if (policy.requireAal2 && payload.aal !== 'aal2') return { status: 'forbidden', reason: 'admin_mfa_required' };
+  if (policy.requireAal2 && payload["aal"] !== 'aal2') return { status: 'forbidden', reason: 'admin_mfa_required' };
   return { status: 'authenticated', session };
 }
 
@@ -325,7 +326,7 @@ async function verifiedSsoPayload(token: string): Promise<JWTPayload | null> {
   try {
     const verified = await jwtVerify(token, jwks, {
       issuer: ENV_SSO_ISSUER,
-      audience: ENV_SSO_AUDIENCES.length > 0 ? ENV_SSO_AUDIENCES : undefined,
+      ...(ENV_SSO_AUDIENCES.length > 0 ? { audience: ENV_SSO_AUDIENCES } : {}),
       algorithms: ['ES256', 'RS256'],
     });
     return verified.payload;
@@ -345,7 +346,7 @@ async function verifySsoToken(token: string): Promise<AdminBearerAccess> {
 
 export interface AdminLogoutDependencies {
   logoutUrl: string;
-  fetchImpl: typeof fetch;
+  fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   verifyToken: (token: string) => Promise<JWTPayload | null>;
 }
 
@@ -399,7 +400,7 @@ export async function logoutAdminSession(
   }
   const payload = await dependencies.verifyToken(token);
   if (!payload) return logoutFailure(401, 'invalid_bearer_token', 'Bearer token 无效或已过期。');
-  if (typeof payload.session_id !== 'string' || !payload.session_id) {
+  if (typeof payload["session_id"] !== 'string' || !payload["session_id"]) {
     return logoutFailure(422, 'session_id_required', '当前 token 无法安全执行 local scope 退出。');
   }
   return revokeGoTrueSession(token, dependencies);
@@ -468,7 +469,7 @@ export const adminAuthGuard = new Elysia()
     if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) {
       return { adminAccess: null, adminPrincipal: null, adminCorrelationId };
     }
-    const adminAccess = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    const adminAccess = await verifyAdminBearer(headers);
     return {
       adminAccess,
       adminPrincipal: adminAccess.status === 'authenticated' ? adminPrincipalFromSession(adminAccess.session) : null,
@@ -483,7 +484,7 @@ export const adminAuthGuard = new Elysia()
     adminCorrelationId,
   }) => {
     const pathname = new URL(request.url).pathname;
-    const ip = requestIp(headers as Record<string, string | undefined>);
+    const ip = requestIp(headers);
     const allowed = await consumeRateLimit(ip);
     if (!allowed) {
       return new Response('Too Many Requests', { status: 429 });
@@ -516,8 +517,8 @@ export function adminPermissionFailureResponse(requiredAction: string, correlati
 
 export const authRoutes = new Elysia({ prefix: '/v1/auth' })
   .post('/login', async ({ body, headers }) => {
-    const { token } = body as Record<string, string>;
-    const ip = requestIp(headers as Record<string, string | undefined>);
+    const { token } = hostedInput(AdminLoginInputSchema, body);
+    const ip = requestIp(headers);
 
     if (await loginLocked(ip)) {
       return new Response('Too Many Requests', { status: 429 });
@@ -546,12 +547,12 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
       return new Response('Too Many Requests', { status: 429 });
     }
     return { success: false, error: { message: await ssoMessage() || 'Invalid credentials' } };
-  })
+  }, hostedContract('adminLogin'))
   .post('/logout', ({ headers }) => (
-    logoutAdminSession(headers as Record<string, string | undefined>)
-  ))
+    logoutAdminSession(headers)
+  ), hostedContract('adminLogout'))
   .get('/identity', async ({ headers }) => {
-    const access = await verifyAdminBearer(headers as Record<string, string | undefined>);
+    const access = await verifyAdminBearer(headers);
     if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access);
     const { session } = access;
     const principal = adminPrincipalFromSession(session);
@@ -559,8 +560,8 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
       ...principal,
       avatar: null,
     };
-  })
-  .get('/health', () => ({ status: 'ok' }));
+  }, hostedContract('adminIdentity'))
+  .get('/health', () => ({ status: 'ok' }), hostedContract('adminHealth'));
 
 async function ssoMessage(): Promise<string | null> {
   const configurationError = await effectiveSsoAllowlistConfigurationError();

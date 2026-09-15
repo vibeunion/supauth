@@ -3,7 +3,10 @@
 import { Elysia } from 'elysia';
 import { enterRequestContext, getCurrentRequestId } from '../auth/request-context.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
-import { ApiContractError } from '../utils/api-contract.js';
+import { ApiContractError, isRecord } from '../utils/api-contract.js';
+import { jsonWireValue } from '../utils/server-contract.js';
+import { decodeSchema, type Static } from '../../../shared/src/schema.js';
+import { ServerErrorSchema } from '../../../shared/src/server-contracts.js';
 import { runtimeEnv } from '../config/platform-env.js';
 
 const securityResponseHeaders = {
@@ -63,7 +66,7 @@ export const observabilityMiddleware = new Elysia({ name: 'observability' })
   .onAfterHandle({ as: 'global' }, ({ requestId, startTime, request, response, set }) => {
     const duration = performance.now() - (startTime ?? 0);
     applySecurityResponseHeaders(set.headers);
-    set.headers['x-request-id'] = requestId;
+    set.headers['x-request-id'] = requestId || request.headers.get('x-request-id') || 'unknown';
 
     if (runtimeEnv('LOG_LEVEL') === 'debug') {
       console.log(JSON.stringify({
@@ -77,33 +80,37 @@ export const observabilityMiddleware = new Elysia({ name: 'observability' })
     }
     if (response instanceof Response) return protectRawResponse(response, requestId);
   })
-  .onError({ as: 'global' }, ({ requestId, startTime, request, error, set }) => {
+  .onError({ as: 'global' }, ({ requestId, startTime, request, error, code, set }) => {
     const duration = performance.now() - (startTime ?? 0);
     applySecurityResponseHeaders(set.headers);
-    set.headers['x-request-id'] = requestId;
+    set.headers['x-request-id'] = requestId || request.headers.get('x-request-id') || 'unknown';
 
+    const correlationId = requestId || request.headers.get('x-request-id') || 'unknown';
+    let normalizedError: NormalizedApiError;
+    try {
+      normalizedError = normalizeApiError(error, correlationId, code);
+    } catch {
+      normalizedError = errorBody({
+        status: 500, code: 'internal_server_error', message: 'Internal server error', correlationId,
+      });
+    }
     console.error(JSON.stringify({
       level: 'error',
       msg: 'request_error',
       request_id: requestId,
       method: request.method,
       url: safeRequestUrl(request),
-      error: (error as Error).message,
+      error: normalizedError.body.error.code,
       duration_ms: Math.round(duration),
     }));
 
-    const normalizedError = normalizeApiError(
-      error,
-      requestId || request.headers.get('x-request-id') || 'unknown',
-    );
-    if (!normalizedError) return;
     set.status = normalizedError.status;
     return normalizedError.body;
   });
 
 interface NormalizedApiError {
   status: number;
-  body: Record<string, unknown>;
+  body: Static<typeof ServerErrorSchema>;
 }
 
 interface ApiErrorContract {
@@ -114,19 +121,25 @@ interface ApiErrorContract {
   details?: Record<string, unknown>;
 }
 
-function normalizeApiError(error: unknown, correlationId: string): NormalizedApiError | null {
+function normalizeApiError(error: unknown, correlationId: string, frameworkCode: string | number): NormalizedApiError {
   if (error instanceof ApiContractError) {
     return errorBody({
       status: error.status,
       code: error.code,
       message: error.message,
       correlationId,
-      details: error.details,
+      ...(error.details === undefined ? {} : { details: error.details }),
     });
   }
-  return error instanceof SupaCloudApiError
-    ? normalizeSupaCloudApiError(error, correlationId)
-    : null;
+  if (error instanceof SupaCloudApiError) return normalizeSupaCloudApiError(error, correlationId);
+  const fallback = frameworkCode === 'NOT_FOUND'
+    ? { status: 404, code: 'not_found', message: 'Route not found' }
+    : frameworkCode === 'PARSE' || frameworkCode === 'INVALID_COOKIE_SIGNATURE'
+      ? { status: 400, code: 'invalid_request', message: 'Invalid request' }
+      : frameworkCode === 'VALIDATION'
+        ? { status: 422, code: 'validation_error', message: 'Request validation failed' }
+        : { status: 500, code: 'internal_server_error', message: 'Internal server error' };
+  return errorBody({ ...fallback, correlationId });
 }
 
 function normalizeSupaCloudApiError(
@@ -164,20 +177,15 @@ function parsedErrorRecord(body: string): Record<string, unknown> | null {
     if (parseError instanceof SyntaxError) return null;
     throw parseError;
   }
-  return payload && typeof payload === 'object' && !Array.isArray(payload)
-    ? payload as Record<string, unknown>
-    : null;
+  return isRecord(payload) ? payload : null;
 }
 
 function isStructuredValidationError(error: SupaCloudApiError): boolean {
   if (error.status !== 400 && error.status !== 422) return false;
   const payload = parsedErrorRecord(error.body);
   if (!payload) return false;
-  const nestedError = payload.error && typeof payload.error === 'object'
-    && !Array.isArray(payload.error)
-    ? payload.error as Record<string, unknown>
-    : null;
-  return [payload.code, nestedError?.code].some(
+  const nestedError = isRecord(payload["error"]) ? payload["error"] : null;
+  return [payload["code"], nestedError?.["code"]].some(
     code => typeof code === 'string' && code.toLowerCase() === 'validation_error',
   );
 }
@@ -185,7 +193,7 @@ function isStructuredValidationError(error: SupaCloudApiError): boolean {
 function errorBody(contract: ApiErrorContract): NormalizedApiError {
   return {
     status: contract.status,
-    body: {
+    body: decodeSchema(ServerErrorSchema, jsonWireValue({
       success: false,
       error: {
         code: contract.code,
@@ -193,7 +201,7 @@ function errorBody(contract: ApiErrorContract): NormalizedApiError {
         correlation_id: contract.correlationId,
         ...(contract.details ? { details: contract.details } : {}),
       },
-    },
+    })),
   };
 }
 

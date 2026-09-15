@@ -39,10 +39,10 @@ export function isInvalidCredentialsResponse(status: number, payload: unknown) {
 export function isWeakPasswordResponse(status: number, payload: unknown) {
   if (status !== 400 && status !== 422) return false;
   if (!isRecord(payload)) return false;
-  const codes = [payload.code, payload.error_code]
+  const codes = [payload["code"], payload["error_code"]]
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim().toLowerCase());
-  return codes.includes('weak_password') || isRecord(payload.weak_password);
+  return codes.includes('weak_password') || isRecord(payload["weak_password"]);
 }
 
 export function upstreamResponseFailure(
@@ -80,12 +80,12 @@ export function upstreamResponseFailure(
 function isUserBannedResponse(status: number, payload: unknown) {
   return status === 403
     && isRecord(payload)
-    && (payload.code === 'user_banned' || payload.error_code === 'user_banned');
+    && (payload["code"] === 'user_banned' || payload["error_code"] === 'user_banned');
 }
 
 function isTimeoutError(error: unknown) {
   if (!isRecord(error)) return false;
-  return error.name === 'TimeoutError' || error.name === 'AbortError';
+  return error["name"] === 'TimeoutError' || error["name"] === 'AbortError';
 }
 
 export function upstreamNetworkFailure(error: unknown): PublicUpstreamFailure {

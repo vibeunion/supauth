@@ -2,7 +2,10 @@
 
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
+import { requiredRow } from '../utils/defined-fields.js';
+import { isRecord } from '../utils/api-contract.js';
 import { applicationSignInExperience, signInExperience } from '../db/schema.js';
+import type { JsonValue } from '../../../shared/src/schema.js';
 
 export interface SignInExperienceInput {
   branding?: {
@@ -14,7 +17,7 @@ export interface SignInExperienceInput {
     background_url?: string | null;
     button_label?: string | null;
     custom_css?: string | null;
-    content?: Record<string, unknown> | null;
+    content?: JsonValue;
   };
   sign_in_methods?: string[];
   sign_up_enabled?: boolean;
@@ -34,6 +37,10 @@ export interface ApplicationSignInExperienceInput {
 
 type Branding = NonNullable<SignInExperienceInput['branding']>;
 type StringBrandingKey = Exclude<keyof Branding, 'content'>;
+const STRING_BRANDING_KEYS = [
+  'logo_url', 'favicon_url', 'primary_color', 'page_title',
+  'description', 'background_url', 'button_label', 'custom_css',
+] as const satisfies readonly StringBrandingKey[];
 
 export interface SupaCloudSignInExperienceSource {
   project?: Record<string, unknown> | null;
@@ -106,8 +113,8 @@ function stringValue(value: unknown) {
 function readPath(source: Record<string, unknown> | null | undefined, path: string[]) {
   let current: unknown = source;
   for (const key of path) {
-    if (!current || typeof current !== 'object') return null;
-    current = (current as Record<string, unknown>)[key];
+    if (!isRecord(current)) return null;
+    current = current[key];
   }
   return stringValue(current);
 }
@@ -160,8 +167,8 @@ function applicationBrandingDefaults(application?: Record<string, unknown> | nul
 
 function applyProjectFallback(branding: Branding, fallback: Branding) {
   const next = { ...branding };
-  const entries = Object.entries(fallback).filter(([key]) => key !== 'content') as Array<[StringBrandingKey, string | null | undefined]>;
-  for (const [key, value] of entries) {
+  for (const key of STRING_BRANDING_KEYS) {
+    const value = fallback[key];
     if (!value) continue;
     if (key === 'page_title') {
       if (!next.page_title || STOCK_PAGE_TITLES.has(next.page_title)) next.page_title = value;
@@ -174,8 +181,8 @@ function applyProjectFallback(branding: Branding, fallback: Branding) {
 
 function applyApplicationFallback(branding: Branding, fallback: Branding) {
   const next = { ...branding };
-  const entries = Object.entries(fallback).filter(([key]) => key !== 'content') as Array<[StringBrandingKey, string | null | undefined]>;
-  for (const [key, value] of entries) {
+  for (const key of STRING_BRANDING_KEYS) {
+    const value = fallback[key];
     if (!value) continue;
     if (key === 'custom_css' || key === 'background_url' || key === 'button_label') continue;
     // 系统名（page_title）：仅在全局未显式设置或仍为 stock 值时，才用 OAuth client 名回填。
@@ -216,34 +223,34 @@ export async function updateSignInExperience(data: SignInExperienceInput) {
   const update: Record<string, unknown> = { updatedAt: new Date() };
 
   if (data.branding) {
-    if (data.branding.logo_url !== undefined) update.logoUrl = data.branding.logo_url;
-    if (data.branding.favicon_url !== undefined) update.faviconUrl = data.branding.favicon_url;
-    if (data.branding.primary_color !== undefined) update.primaryColor = data.branding.primary_color;
-    if (data.branding.page_title !== undefined) update.pageTitle = data.branding.page_title;
+    if (data.branding.logo_url !== undefined) update["logoUrl"] = data.branding.logo_url;
+    if (data.branding.favicon_url !== undefined) update["faviconUrl"] = data.branding.favicon_url;
+    if (data.branding.primary_color !== undefined) update["primaryColor"] = data.branding.primary_color;
+    if (data.branding.page_title !== undefined) update["pageTitle"] = data.branding.page_title;
     if (data.branding.description !== undefined) {
-      update.description = typeof data.branding.description === 'string'
+      update["description"] = typeof data.branding.description === 'string'
         ? data.branding.description.trim() || null
         : data.branding.description;
     }
-    if (data.branding.background_url !== undefined) update.backgroundUrl = data.branding.background_url;
-    if (data.branding.button_label !== undefined) update.buttonLabel = data.branding.button_label;
-    if (data.branding.custom_css !== undefined) update.customCss = data.branding.custom_css;
-    if (data.branding.content !== undefined) update.content = data.branding.content;
+    if (data.branding.background_url !== undefined) update["backgroundUrl"] = data.branding.background_url;
+    if (data.branding.button_label !== undefined) update["buttonLabel"] = data.branding.button_label;
+    if (data.branding.custom_css !== undefined) update["customCss"] = data.branding.custom_css;
+    if (data.branding.content !== undefined) update["content"] = data.branding.content;
   }
-  if (data.sign_in_methods !== undefined) update.signInMethods = data.sign_in_methods;
-  if (data.sign_up_enabled !== undefined) update.signUpEnabled = data.sign_up_enabled;
+  if (data.sign_in_methods !== undefined) update["signInMethods"] = data.sign_in_methods;
+  if (data.sign_up_enabled !== undefined) update["signUpEnabled"] = data.sign_up_enabled;
   if (data.password_policy) {
-    if (data.password_policy.min_length !== undefined) update.passwordMinLength = data.password_policy.min_length;
-    if (data.password_policy.require_uppercase !== undefined) update.passwordRequireUppercase = data.password_policy.require_uppercase;
-    if (data.password_policy.require_lowercase !== undefined) update.passwordRequireLowercase = data.password_policy.require_lowercase;
-    if (data.password_policy.require_numbers !== undefined) update.passwordRequireNumbers = data.password_policy.require_numbers;
-    if (data.password_policy.require_symbols !== undefined) update.passwordRequireSymbols = data.password_policy.require_symbols;
+    if (data.password_policy.min_length !== undefined) update["passwordMinLength"] = data.password_policy.min_length;
+    if (data.password_policy.require_uppercase !== undefined) update["passwordRequireUppercase"] = data.password_policy.require_uppercase;
+    if (data.password_policy.require_lowercase !== undefined) update["passwordRequireLowercase"] = data.password_policy.require_lowercase;
+    if (data.password_policy.require_numbers !== undefined) update["passwordRequireNumbers"] = data.password_policy.require_numbers;
+    if (data.password_policy.require_symbols !== undefined) update["passwordRequireSymbols"] = data.password_policy.require_symbols;
   }
 
   const [updated] = await db.update(signInExperience).set(update)
     .where(eq(signInExperience.id, current.id))
     .returning();
-  return updated;
+  return requiredRow(updated);
 }
 
 export async function getApplicationSignInExperience(applicationId: string) {
@@ -294,7 +301,7 @@ export async function upsertApplicationSignInExperience(applicationId: string, d
       content: data.branding?.content ?? null,
     }).returning();
 
-  return appToResponse(saved);
+  return appToResponse(requiredRow(saved));
 }
 
 export async function deleteApplicationSignInExperience(applicationId: string) {

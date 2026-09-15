@@ -1,3 +1,5 @@
+import { parseJson, parseJsonRecord, requireArray, requireRecord, requireDefined, requireString } from '../scripts/tooling-values.js';
+import { Type, StringKeySchema, decodeSchema } from '../packages/shared/src/schema.js';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,8 +10,26 @@ import { installSupacloudApp, SupacloudClient } from '../scripts/install-supaclo
 const REQUIRED_ADMIN_PAGES = ['index.html', 'authorize.html', 'claim.html', 'change-password.html', 'account.html', 'logout.html'];
 const SYSTEM_MANAGED_SECRET_PREFIXES = ['ADMIN_SSO_', 'SUPABASE_', 'SUPACLOUD_', 'SUPAOAUTH_'] as const;
 
-function expectNoSystemManagedProjectSecrets(secrets: Array<{ name: string }>) {
-  const reservedNames = secrets
+const SecretEntriesSchema = Type.Array(Type.Object({ name: Type.String(), value: Type.String() }));
+const GatewayRouteSchema = Type.Object({
+  id: Type.String(),
+  path: Type.Union([Type.String(), Type.Array(Type.String())]),
+  hosts: Type.Array(Type.String()),
+  upstream: Type.Optional(Type.String()),
+  protocol: Type.Optional(Type.String()),
+  headers: Type.Optional(Type.Record(StringKeySchema, Type.String())),
+});
+
+function decodeSecretEntries(value: unknown) {
+  return decodeSchema(SecretEntriesSchema, value);
+}
+
+function decodeGatewayRoute(value: unknown) {
+  return decodeSchema(GatewayRouteSchema, value);
+}
+
+function expectNoSystemManagedProjectSecrets(secrets: unknown) {
+  const reservedNames = decodeSecretEntries(secrets)
     .map(({ name }) => name)
     .filter((name) => SYSTEM_MANAGED_SECRET_PREFIXES.some((prefix) => name.startsWith(prefix)));
   expect(reservedNames).toEqual([]);
@@ -194,7 +214,7 @@ describe('SupaCloud app installer', () => {
         const url = new URL(String(input));
         calls.push(`${init?.method || 'GET'} ${url.pathname}`);
         if (init?.method === 'PATCH') {
-          siteUrl = (JSON.parse(String(init.body)) as { site_url: string }).site_url;
+          siteUrl = requireString(parseJsonRecord(String(init.body))["site_url"]);
           return Response.json({ site_url: siteUrl });
         }
         return Response.json({ site_url: siteUrl });
@@ -230,7 +250,7 @@ describe('SupaCloud app installer', () => {
       fetchImpl: async (_input, init) => {
         if (init?.method === 'PATCH') {
           patches += 1;
-          siteUrl = (JSON.parse(String(init.body)) as { site_url: string }).site_url;
+          siteUrl = requireString(parseJsonRecord(String(init.body))["site_url"]);
         }
         return Response.json({ site_url: siteUrl });
       },
@@ -288,20 +308,20 @@ describe('SupaCloud app installer', () => {
 
   it('requires explicit Admin SSO issuer and client id in dry-run mode', async () => {
     const { root, artifactDir } = createFixture();
+    const { adminSsoIssuer: _issuer, ...withoutIssuer } = requiredOptions;
+    const { adminSsoClientId: _clientId, ...withoutClientId } = requiredOptions;
 
     await expect(installSupacloudApp({
       root,
       artifactDir,
-      ...requiredOptions,
-      adminSsoIssuer: undefined,
+      ...withoutIssuer,
       dryRun: true,
     })).rejects.toThrow('ADMIN_SSO_ISSUER');
 
     await expect(installSupacloudApp({
       root,
       artifactDir,
-      ...requiredOptions,
-      adminSsoClientId: undefined,
+      ...withoutClientId,
       dryRun: true,
     })).rejects.toThrow('ADMIN_SSO_CLIENT_ID');
   });
@@ -346,25 +366,25 @@ describe('SupaCloud app installer', () => {
       'ADMIN_SSO_REQUIRE_AAL2=false',
       'ADMIN_SSO_ALLOWED_EMAILS=file@example.test',
     ].join('\n'));
-    process.env.ADMIN_SSO_ISSUER = 'http://issuer.from-process.test';
-    process.env.ADMIN_SSO_CLIENT_ID = 'process-client';
+    process.env["ADMIN_SSO_ISSUER"] = 'http://issuer.from-process.test';
+    process.env["ADMIN_SSO_CLIENT_ID"] = 'process-client';
 
     const seenFunctionSecrets: Array<{ name: string; value: string }> = [];
+    const { adminSsoAllowedDomains: _domains, ...withoutDomains } = requiredOptions;
     await installSupacloudApp({
       root,
       artifactDir,
       envFile,
-      ...requiredOptions,
+      ...withoutDomains,
       adminSsoIssuer: 'https://issuer.from-cli.test',
       adminSsoClientId: 'cli-client',
       adminSsoAllowedEmails: 'cli@example.test',
-      adminSsoAllowedDomains: undefined,
       skipMigration: true,
       skipFunctionDeploy: true,
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
         if (new URL(String(input)).pathname.endsWith('/functions/supauth/secrets')) {
-          seenFunctionSecrets.push(...JSON.parse(String(init?.body)));
+          seenFunctionSecrets.push(...decodeSecretEntries(parseJson(String(init?.body))));
         }
         return new Response('{}', { status: 200 });
       },
@@ -398,7 +418,7 @@ describe('SupaCloud app installer', () => {
       skipDirectVerify: true,
       fetchImpl: async (input, init) => {
         if (new URL(String(input)).pathname.endsWith('/functions/supauth/secrets')) {
-          seenFunctionSecrets.push(...JSON.parse(String(init?.body)));
+          seenFunctionSecrets.push(...decodeSecretEntries(parseJson(String(init?.body))));
         }
         return new Response('{}', { status: 200 });
       },
@@ -497,13 +517,13 @@ describe('SupaCloud app installer', () => {
   it('reads back the dedicated Admin public client from the authority project and verifies PKCE S256', async () => {
     const { root, artifactDir } = createFixture();
     const requestedUrls: string[] = [];
+    const { adminSsoOAuthClientVerifier: _verifier, ...withoutVerifier } = requiredOptions;
 
     const result = await installSupacloudApp({
       root,
       artifactDir,
-      ...requiredOptions,
+      ...withoutVerifier,
       oauthAuthorizationProjectRef: 'central_idp',
-      adminSsoOAuthClientVerifier: undefined,
       skipMigration: true,
       skipMigrationVerify: true,
       skipSecrets: true,
@@ -531,12 +551,12 @@ describe('SupaCloud app installer', () => {
 
   it('rejects a shared Admin client or issuer without PKCE S256', async () => {
     const { root, artifactDir } = createFixture();
+    const { adminSsoOAuthClientVerifier: _verifier, ...withoutVerifier } = requiredOptions;
 
     const installWith = (oauthClient: Record<string, unknown>, pkceMethods: string[]) => installSupacloudApp({
       root,
       artifactDir,
-      ...requiredOptions,
-      adminSsoOAuthClientVerifier: undefined,
+      ...withoutVerifier,
       skipMigration: true,
       skipMigrationVerify: true,
       skipSecrets: true,
@@ -561,12 +581,12 @@ describe('SupaCloud app installer', () => {
     ['non-exact grants', validAdminOAuthClient({ grant_types: ['authorization_code'] }), 'grant_types must contain only'],
   ])('rejects Admin OAuth client read-back with %s', async (_label, oauthClient, expectedError) => {
     const { root, artifactDir } = createFixture();
+    const { adminSsoOAuthClientVerifier: _verifier, ...withoutVerifier } = requiredOptions;
 
     await expect(installSupacloudApp({
       root,
       artifactDir,
-      ...requiredOptions,
-      adminSsoOAuthClientVerifier: undefined,
+      ...withoutVerifier,
       skipMigration: true,
       skipMigrationVerify: true,
       skipSecrets: true,
@@ -719,21 +739,21 @@ describe('SupaCloud app installer', () => {
         }
 
         if (url.pathname === '/v1/projects/project_123/database/sql') {
-          const body = JSON.parse(String(init?.body));
-          expect(body.mode).toBe('admin');
-          expect(body.admin).toBe(true);
+          const body = parseJsonRecord(String(init?.body));
+          expect(body["mode"]).toBe('admin');
+          expect(body["admin"]).toBe(true);
           return new Response(JSON.stringify({ command: 'OK' }), { status: 200 });
         }
 
         if (url.pathname === '/v1/projects/project_123/secrets') {
-          const body = JSON.parse(String(init?.body));
+          const body = parseJson(String(init?.body));
           expectNoSystemManagedProjectSecrets(body);
           expect(body).toEqual([{ name: 'CORS_ORIGINS', value: 'https://app.example.test' }]);
           return new Response('{}', { status: 200 });
         }
 
         if (url.pathname === '/v1/projects/project_123/functions/supauth/secrets') {
-          const body = JSON.parse(String(init?.body));
+          const body = parseJson(String(init?.body));
           expect(body).toEqual(expect.arrayContaining([
             { name: 'ADMIN_SSO_ISSUER', value: 'https://auth.example.test/auth/v1' },
             { name: 'ADMIN_SSO_CLIENT_ID', value: 'admin-client' },
@@ -748,12 +768,12 @@ describe('SupaCloud app installer', () => {
         }
 
         if (url.pathname === '/v1/projects/project_123/functions/supauth/bundle') {
-          const body = JSON.parse(String(init?.body));
-          expect(body.entrypoint).toBe('index.ts');
-          expect(body.expected_active_version).toBe('44');
-          expect(body.expected_activation_id).toBe('legacy');
-          expect(body.verify_jwt).toBe(false);
-          expect(Object.keys(body.files)).toEqual([
+          const body = parseJsonRecord(String(init?.body));
+          expect(body["entrypoint"]).toBe('index.ts');
+          expect(body["expected_active_version"]).toBe('44');
+          expect(body["expected_activation_id"]).toBe('legacy');
+          expect(body["verify_jwt"]).toBe(false);
+          expect(Object.keys(requireRecord(body["files"]))).toEqual([
             'index.ts',
             'admin-console/build/_app/immutable/admin.css',
             'admin-console/build/_app/immutable/admin.js',
@@ -764,7 +784,7 @@ describe('SupaCloud app installer', () => {
             'admin-console/build/index.html',
             'admin-console/build/logout.html',
           ]);
-          expect(body.files['admin-console/build/_app/immutable/admin.js']).toBe('export const admin = true;');
+          expect(requireRecord(body["files"])['admin-console/build/_app/immutable/admin.js']).toBe('export const admin = true;');
         }
 
         return new Response('{}', { status: 200 });
@@ -836,7 +856,7 @@ describe('SupaCloud app installer', () => {
         calls.push(`${init?.method || 'GET'} ${pathname}`);
         if (pathname === '/v1/projects/project_123/functions') return Response.json([]);
         if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
-          bundleBody = JSON.parse(String(init?.body));
+          bundleBody = parseJsonRecord(String(init?.body));
           return Response.json({ active_version: 1 });
         }
         throw new Error(`Unexpected request: ${pathname}`);
@@ -875,7 +895,7 @@ describe('SupaCloud app installer', () => {
           return Response.json([{ slug: 'supauth', version: 44, activation_id: activationId }]);
         }
         if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
-          bundleBody = JSON.parse(String(init?.body));
+          bundleBody = parseJsonRecord(String(init?.body));
           return Response.json({ active_version: 45, activation_id: '223e4567-e89b-42d3-a456-426614174000' });
         }
         throw new Error(`Unexpected request: ${pathname}`);
@@ -906,8 +926,8 @@ describe('SupaCloud app installer', () => {
           return Response.json([{ slug: 'supauth', version: 44 }]);
         }
         if (pathname === '/v1/projects/project_123/functions/supauth/bundle') {
-          const body = JSON.parse(String(init?.body));
-          bundleBodies.push(body);
+          const body = parseJson(String(init?.body));
+          bundleBodies.push(requireRecord(body));
           if (bundleBodies.length === 1) {
             return Response.json(
               { message: 'unknown property expected_activation_id', code: 'VALIDATION_ERROR' },
@@ -1193,9 +1213,9 @@ describe('SupaCloud app installer', () => {
     writeAdminPages(join(outsideRoot, 'admin'));
     symlinkSync(outsideRoot, join(root, 'linked-static-root'), 'dir');
     const manifestPath = join(root, artifactDir, 'supacloud-app-manifest.json');
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    manifest.artifacts.admin_static_dir = 'linked-static-root/admin';
-    manifest.pages[0].source_dir = 'linked-static-root/admin';
+    const manifest = parseJsonRecord(readFileSync(manifestPath, 'utf8'));
+    requireRecord(manifest['artifacts'])['admin_static_dir'] = 'linked-static-root/admin';
+    requireRecord(requireArray(manifest['pages'])[0])['source_dir'] = 'linked-static-root/admin';
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
     await expect(installSupacloudApp({
@@ -1240,9 +1260,9 @@ describe('SupaCloud app installer', () => {
     const outsideAdminDir = mkdtempSync(join(tmpdir(), 'supauth-outside-admin-'));
     writeAdminPages(outsideAdminDir);
     const manifestPath = join(root, artifactDir, 'supacloud-app-manifest.json');
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    manifest.artifacts.admin_static_dir = outsideAdminDir;
-    manifest.pages[0].source_dir = outsideAdminDir;
+    const manifest = parseJsonRecord(readFileSync(manifestPath, 'utf8'));
+    requireRecord(manifest['artifacts'])['admin_static_dir'] = outsideAdminDir;
+    requireRecord(requireArray(manifest['pages'])[0])['source_dir'] = outsideAdminDir;
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
     await expect(installSupacloudApp({
@@ -1268,8 +1288,8 @@ describe('SupaCloud app installer', () => {
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
         if (url.pathname === '/v1/projects/project_123/database/sql') {
-          const requestBody = JSON.parse(String(init?.body)) as { sql: string };
-          submittedStatements.push(requestBody.sql);
+          const requestBody = parseJsonRecord(String(init?.body));
+          submittedStatements.push(requireString(requestBody["sql"]));
         }
         return new Response('{}', { status: 200 });
       },
@@ -1332,10 +1352,10 @@ describe('SupaCloud app installer', () => {
       fetchImpl: async (input, init) => {
         const url = new URL(String(input));
         if (url.pathname === '/v1/projects/project_123/secrets') {
-          seenProjectSecrets.push(...JSON.parse(String(init?.body)));
+          seenProjectSecrets.push(...decodeSecretEntries(parseJson(String(init?.body))));
         }
         if (url.pathname === '/v1/projects/project_123/functions/supauth/secrets') {
-          seenFunctionSecrets.push(...JSON.parse(String(init?.body)));
+          seenFunctionSecrets.push(...decodeSecretEntries(parseJson(String(init?.body))));
         }
         return new Response('{}', { status: 200 });
       },
@@ -1369,8 +1389,8 @@ describe('SupaCloud app installer', () => {
       'ADMIN_SSO_ALLOWED_EMAILS=admin@file.example.test',
     ].join('\n'));
 
-    const previousDatabaseUrl = process.env.DATABASE_URL;
-    process.env.DATABASE_URL = 'postgres://stale-local-db';
+    const previousDatabaseUrl = process.env["DATABASE_URL"];
+    process.env["DATABASE_URL"] = 'postgres://stale-local-db';
     try {
       const seenProjectSecrets: Array<{ name: string; value: string }> = [];
       const seenFunctionSecrets: Array<{ name: string; value: string }> = [];
@@ -1394,13 +1414,13 @@ describe('SupaCloud app installer', () => {
             return Response.json({ site_url: 'https://auth.from-file.test' });
           }
           if (url.pathname === '/v1/projects/project_from_file/secrets') {
-            seenProjectSecrets.push(...JSON.parse(String(init?.body)));
+            seenProjectSecrets.push(...decodeSecretEntries(parseJson(String(init?.body))));
           }
           if (url.pathname === '/v1/projects/project_from_file/functions/supauth/secrets') {
-            seenFunctionSecrets.push(...JSON.parse(String(init?.body)));
+            seenFunctionSecrets.push(...decodeSecretEntries(parseJson(String(init?.body))));
           }
           if (url.pathname === '/v1/projects/project_from_file/gateway/routes') {
-            routeIds.push(JSON.parse(String(init?.body)).id);
+            routeIds.push(requireString(parseJsonRecord(String(init?.body))["id"]));
           }
           return new Response('{}', { status: 200 });
         },
@@ -1433,15 +1453,15 @@ describe('SupaCloud app installer', () => {
       ]);
       expect(new Set(routeIds.slice(5)).size).toBe(3);
     } finally {
-      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-      else process.env.DATABASE_URL = previousDatabaseUrl;
+      if (previousDatabaseUrl === undefined) delete process.env["DATABASE_URL"];
+      else process.env["DATABASE_URL"] = previousDatabaseUrl;
     }
   });
 
   it('does not accept generic DATABASE_URL as the SupaCloud Function database URL', async () => {
     const { root, artifactDir } = createFixture();
-    const previousDatabaseUrl = process.env.DATABASE_URL;
-    process.env.DATABASE_URL = 'postgres://stale-local-db';
+    const previousDatabaseUrl = process.env["DATABASE_URL"];
+    process.env["DATABASE_URL"] = 'postgres://stale-local-db';
     try {
       await expect(installSupacloudApp({
         root,
@@ -1453,19 +1473,19 @@ describe('SupaCloud app installer', () => {
         dryRun: true,
       })).rejects.toThrow('SUPACLOUD_DATABASE_URL');
     } finally {
-      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-      else process.env.DATABASE_URL = previousDatabaseUrl;
+      if (previousDatabaseUrl === undefined) delete process.env["DATABASE_URL"];
+      else process.env["DATABASE_URL"] = previousDatabaseUrl;
     }
   });
 
   it('requires an explicit independent BFF signing secret without generating one', async () => {
     const { root, artifactDir } = createFixture();
+    const { bffSigningSecret: _secret, ...withoutSigningSecret } = requiredOptions;
 
     await expect(installSupacloudApp({
       root,
       artifactDir,
-      ...requiredOptions,
-      bffSigningSecret: undefined,
+      ...withoutSigningSecret,
       dryRun: true,
     })).rejects.toThrow('SUPAOAUTH_BFF_SIGNING_SECRET');
 
@@ -1585,7 +1605,7 @@ describe('SupaCloud app installer', () => {
 
   it('defaults hosted gateway routes to the Management API with a project Host header', async () => {
     const { root, artifactDir } = createFixture();
-    const calls: Array<{ path: string; auth: string | null; body: any }> = [];
+    const calls: Array<{ path: string; auth: string | null; body: unknown }> = [];
 
     const result = await installSupacloudApp({
       root,
@@ -1603,14 +1623,14 @@ describe('SupaCloud app installer', () => {
         calls.push({
           path: url.pathname,
           auth: new Headers(init?.headers).get('authorization'),
-          body: init?.body ? JSON.parse(String(init.body)) : null,
+          body: init?.body ? parseJson(String(init.body)) : null,
         });
         if (url.pathname === '/v1/projects/project_123/functions') return Response.json([]);
         return new Response('{}', { status: 200 });
       },
     });
 
-    const gatewayCalls = calls.filter((call) => call.path === '/v1/projects/project_123/gateway/routes');
+    const gatewayCalls = calls.filter((call) => call.path === '/v1/projects/project_123/gateway/routes').map(call => ({ ...call, body: decodeGatewayRoute(call.body) }));
     const hostedGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-hosted');
     const customUiFallbackCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-custom-ui-fallback');
     const logoutGatewayCall = gatewayCalls.find((call) => call.body?.id === 'supauth-function-logout');
@@ -1623,7 +1643,7 @@ describe('SupaCloud app installer', () => {
     expect(gatewayCalls.every((call) => call.body.path.length <= 20)).toBe(true);
     expect(proxyGatewayCalls).toHaveLength(4);
     expect(proxyGatewayCalls.every((call) => call.body.upstream === '127.0.0.1:9090')).toBe(true);
-    expect(proxyGatewayCalls.every((call) => call.body.headers?.Host === 'auth.example.test')).toBe(true);
+    expect(proxyGatewayCalls.every((call) => call.body.headers?.["Host"] === 'auth.example.test')).toBe(true);
     expect(redirectGatewayCalls.map((call) => call.body.hosts[0])).toEqual([
       'auth.example.test',
       'project.example.test',
@@ -1674,7 +1694,7 @@ describe('SupaCloud app installer', () => {
 
   it('configures a separate API route and injects deduplicated Function CORS origins', async () => {
     const { root, artifactDir } = createFixture();
-    const routeBodies: any[] = [];
+    const routeBodies: ReturnType<typeof decodeGatewayRoute>[] = [];
     const seenSecrets: Array<{ name: string; value: string }> = [];
 
     const result = await installSupacloudApp({
@@ -1698,10 +1718,10 @@ describe('SupaCloud app installer', () => {
           return Response.json({ site_url: 'https://auth.example.test' });
         }
         if (url.pathname === '/v1/projects/project_123/secrets') {
-          seenSecrets.push(...JSON.parse(String(init?.body)));
+          seenSecrets.push(...decodeSecretEntries(parseJson(String(init?.body))));
         }
         if (url.pathname === '/v1/projects/project_123/gateway/routes') {
-          routeBodies.push(JSON.parse(String(init?.body)));
+          routeBodies.push(decodeGatewayRoute(parseJson(String(init?.body))));
         }
         return new Response('{}', { status: 200 });
       },
@@ -1754,13 +1774,13 @@ describe('SupaCloud app installer', () => {
       enabled: true,
       cors,
     });
-    const apiRoute = routeBodies.find((route) => route.id === 'supauth-api');
+    const apiRoute = requireDefined(routeBodies.find((route) => route.id === 'supauth-api'));
     const proxyRoutes = routeBodies.filter((route) => route.upstream);
     const redirectRoutes = routeBodies.filter((route) => route.protocol === 'http');
     expect(apiRoute.path).not.toContain('/auth/v1/*');
     expect(proxyRoutes).toHaveLength(5);
     expect(proxyRoutes.every((route) => route.upstream === '127.0.0.1:9090')).toBe(true);
-    expect(proxyRoutes.every((route) => route.headers?.Host === 'auth.example.test')).toBe(true);
+    expect(proxyRoutes.every((route) => route.headers?.["Host"] === 'auth.example.test')).toBe(true);
     expect(redirectRoutes.map((route) => route.hosts[0])).toEqual([
       'auth.example.test',
       'project.example.test',
@@ -1785,7 +1805,7 @@ describe('SupaCloud app installer', () => {
 
   it('upserts one stable HTTP-to-HTTPS redirect route per distinct public host', async () => {
     const { root, artifactDir } = createFixture();
-    const routeBodies: any[] = [];
+    const routeBodies: ReturnType<typeof decodeGatewayRoute>[] = [];
 
     const result = await installSupacloudApp({
       root,
@@ -1804,7 +1824,7 @@ describe('SupaCloud app installer', () => {
           return Response.json({ site_url: 'https://auth.example.test' });
         }
         if (url.pathname === '/v1/projects/project_123/gateway/routes') {
-          routeBodies.push(JSON.parse(String(init?.body)));
+          routeBodies.push(decodeGatewayRoute(parseJson(String(init?.body))));
         }
         return new Response('{}', { status: 200 });
       },
@@ -1829,7 +1849,7 @@ describe('SupaCloud app installer', () => {
 
   it('preserves explicit direct Edge upstream overrides without a Management Host header', async () => {
     const { root, artifactDir } = createFixture();
-    const routeBodies: any[] = [];
+    const routeBodies: ReturnType<typeof decodeGatewayRoute>[] = [];
 
     const result = await installSupacloudApp({
       root,
@@ -1848,7 +1868,7 @@ describe('SupaCloud app installer', () => {
           return Response.json({ site_url: 'https://auth.example.test' });
         }
         if (url.pathname === '/v1/projects/project_123/gateway/routes') {
-          routeBodies.push(JSON.parse(String(init?.body)));
+          routeBodies.push(decodeGatewayRoute(parseJson(String(init?.body))));
         }
         return new Response('{}', { status: 200 });
       },
@@ -1866,8 +1886,8 @@ describe('SupaCloud app installer', () => {
 
   it('uses the EDGE_RUNTIME_UPSTREAM environment override for direct Edge routes', async () => {
     const { root, artifactDir } = createFixture();
-    const routeBodies: any[] = [];
-    process.env.EDGE_RUNTIME_UPSTREAM = '127.0.0.1:9005';
+    const routeBodies: ReturnType<typeof decodeGatewayRoute>[] = [];
+    process.env["EDGE_RUNTIME_UPSTREAM"] = '127.0.0.1:9005';
 
     const result = await installSupacloudApp({
       root,
@@ -1885,7 +1905,7 @@ describe('SupaCloud app installer', () => {
           return Response.json({ site_url: 'https://auth.example.test' });
         }
         if (url.pathname === '/v1/projects/project_123/gateway/routes') {
-          routeBodies.push(JSON.parse(String(init?.body)));
+          routeBodies.push(decodeGatewayRoute(parseJson(String(init?.body))));
         }
         return new Response('{}', { status: 200 });
       },

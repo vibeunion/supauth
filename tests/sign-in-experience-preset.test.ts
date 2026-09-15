@@ -1,3 +1,6 @@
+import { createFetchMock } from "./tooling-test-values.js";
+import { requireString } from "../scripts/tooling-values.js";
+import { parseJson } from "../scripts/tooling-values.js";
 import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,15 +16,15 @@ import {
 const PRESET_PATH = 'config/sign-in-experience/xigu-shujian.json';
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
-  return (async (input: string | URL | Request, init?: RequestInit) => {
+  return createFetchMock((async (input: string | URL | Request, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
     return handler(url, init);
-  }) as typeof fetch;
+  }));
 }
 
 describe('sign-in experience deployment presets', () => {
   it('keeps Xigu Shujian as tenant configuration, not a source default', () => {
-    const preset = JSON.parse(readFileSync(PRESET_PATH, 'utf8')) as unknown;
+    const preset = (parseJson(readFileSync(PRESET_PATH, 'utf8')));
     const payload = extractSignInExperiencePayload(preset);
 
     expect(payload.branding?.page_title).toBe('西谷智灯枢鉴系统');
@@ -142,7 +145,7 @@ describe('sign-in experience deployment presets', () => {
         "abcdefghijklmnopqrstuvwxyz:ABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789:!@#$%^&*()_+-=[]{};'\\\\:\"|<>?,./`~",
     });
 
-    const fullCharacterSet = buildAuthConfigPayload(extractSignInExperiencePayload({
+    const fullCharacterSet = requireString(buildAuthConfigPayload(extractSignInExperiencePayload({
       branding: { page_title: 'Tenant' },
       password_policy: {
         require_uppercase: true,
@@ -150,7 +153,7 @@ describe('sign-in experience deployment presets', () => {
         require_numbers: true,
         require_symbols: true,
       },
-    })).password_required_characters as string;
+    }))["password_required_characters"]);
     expect(fullCharacterSet.length).toBe(98);
     expect([...fullCharacterSet].slice(-25, -9).map(char => char.charCodeAt(0))).toEqual([
       40, 41, 95, 43, 45, 61, 91, 93, 123, 125, 59, 39, 92, 92, 58, 34,
@@ -181,7 +184,7 @@ describe('sign-in experience deployment presets', () => {
   });
 
   it('updates GoTrue first, updates the overlay, then reads both resources back', async () => {
-    const preset = JSON.parse(readFileSync(PRESET_PATH, 'utf8')) as { sign_in_experience: Record<string, unknown> };
+    const preset = parseJson(readFileSync(PRESET_PATH, 'utf8'));
     const payload = extractSignInExperiencePayload(preset);
     const expectedAuthConfig = {
       enable_signup: false,
@@ -205,7 +208,7 @@ describe('sign-in experience deployment presets', () => {
         pathname: new URL(url).pathname,
         authorization: headers.get('authorization'),
         contentType: headers.get('content-type'),
-        body: typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : null,
+        body: typeof init?.body === 'string' ? (parseJson(init.body)) : null,
       });
 
       if (method === 'PATCH') {

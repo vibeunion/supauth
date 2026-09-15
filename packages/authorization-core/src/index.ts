@@ -1,5 +1,6 @@
+import { readAuthorizationRequest, readResolvedPermissions } from './validation.js';
+
 const PERMISSION_PATTERN = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
-const CONTEXT_PART_PATTERN = /^[^\s]{1,512}$/u;
 
 export type PrincipalKind = 'user' | 'service';
 export type Permission = string & { readonly __permission: unique symbol };
@@ -56,27 +57,11 @@ export class AuthorizationForbiddenError extends Error {
 }
 
 export function permission(permissionName: string): Permission {
-  if (permissionName.length > 512 || !PERMISSION_PATTERN.test(permissionName)) {
+  if (typeof permissionName !== 'string' || permissionName.length > 512 || !PERMISSION_PATTERN.test(permissionName)) {
     throw new TypeError(`Invalid permission ${JSON.stringify(permissionName)}; expected resource:action`);
   }
+  // 品牌只在字符串、长度和 resource:action 语法均校验后创建。
   return permissionName as Permission;
-}
-
-function assertContextPart(label: string, contextPart: string): void {
-  if (!CONTEXT_PART_PATTERN.test(contextPart)) {
-    throw new TypeError(`${label} must be a non-empty value without whitespace`);
-  }
-}
-
-function assertRequest(request: AuthorizationRequest): void {
-  if (request.principal.kind !== 'user' && request.principal.kind !== 'service') {
-    throw new TypeError('principal.kind must be user or service');
-  }
-  assertContextPart('principal.issuer', request.principal.issuer);
-  assertContextPart('principal.subject', request.principal.subject);
-  assertContextPart('applicationId', request.applicationId);
-  assertContextPart('domain.type', request.domain.type);
-  assertContextPart('domain.id', request.domain.id);
 }
 
 function immutableRequest(request: AuthorizationRequest): AuthorizationRequest {
@@ -88,11 +73,7 @@ function immutableRequest(request: AuthorizationRequest): AuthorizationRequest {
 }
 
 function effectivePermissions(resolvedPermissions: readonly string[]): readonly Permission[] {
-  if (!Array.isArray(resolvedPermissions)) throw new TypeError('resolved permissions must be an array');
-  const parsedPermissions = resolvedPermissions.map(permissionName => {
-    if (typeof permissionName !== 'string') throw new TypeError('resolved permission must be a string');
-    return permission(permissionName);
-  });
+  const parsedPermissions = readResolvedPermissions(resolvedPermissions).map(permission);
   return Object.freeze([...new Set(parsedPermissions)]);
 }
 
@@ -124,8 +105,7 @@ export async function resolveAuthorization(
   request: AuthorizationRequest,
   resolver: AuthorizationResolver,
 ): Promise<AuthorizationContext> {
-  assertRequest(request);
-  const trustedRequest = immutableRequest(request);
+  const trustedRequest = immutableRequest(readAuthorizationRequest(request));
   const resolvedPermissions = await currentPermissions(trustedRequest, resolver);
   try {
     return contextFromPermissions(trustedRequest, resolvedPermissions);

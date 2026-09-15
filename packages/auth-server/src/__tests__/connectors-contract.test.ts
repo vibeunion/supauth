@@ -13,6 +13,9 @@ import {
 } from '../routes/connectors.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
 import { withoutSecrets } from '../utils/secrets.js';
+import { strictRecord, strictDefined } from './helpers/strict-values.js';
+
+type FactoryOverlay = Awaited<ReturnType<NonNullable<Parameters<typeof instantiateConnectorFactory>[2]>['saveOverlay']>>;
 
 describe('enterprise connector contracts', () => {
   it('requires builtin OAuth credentials before enabling a connector', async () => {
@@ -369,7 +372,7 @@ describe('enterprise connector contracts', () => {
       scopes: ['openid', 'email'],
       pkce_enabled: true,
     });
-    const safeOverlayConfig = withoutSecrets(upstreamRequest) as Record<string, unknown>;
+    const safeOverlayConfig = strictRecord(withoutSecrets(upstreamRequest));
     expect(safeOverlayConfig).toEqual({
       provider_type: 'oidc',
       identifier: 'custom:workos',
@@ -425,7 +428,7 @@ describe('enterprise connector contracts', () => {
       createSaml: async () => ({}),
       readSaml: async () => ({}),
       deleteSaml: async () => null,
-      saveOverlay: async () => ({} as never),
+      saveOverlay: async () => { throw new Error('Invalid connector input must not save an overlay'); },
       readOverlay: async () => null,
     })).rejects.toMatchObject({ status: 400, code: 'invalid_connector_client_id' });
     expect(customOidcCreateCalls).toBe(0);
@@ -500,7 +503,7 @@ describe('enterprise connector contracts', () => {
   it('creates, reads back, then stores a secret-free OIDC overlay', async () => {
     const events: string[] = [];
     let savedConfig: Record<string, unknown> | undefined;
-    let savedOverlay: Record<string, unknown> | null = null;
+    let savedOverlay: FactoryOverlay | null = null;
     const response = await instantiateConnectorFactory({
       name: 'Enterprise OIDC',
       protocol: 'oidc',
@@ -516,7 +519,7 @@ describe('enterprise connector contracts', () => {
     }, {
       createCustomOidc: async request => {
         events.push('create');
-        expect(request.client_secret).toBe('send-once');
+        expect(request["client_secret"]).toBe('send-once');
         return { identifier: 'custom:workos' };
       },
       readCustomOidc: async providerId => {
@@ -535,17 +538,17 @@ describe('enterprise connector contracts', () => {
           id: input.providerId,
           provider_id: input.providerId,
           connector_record_id: '11111111-1111-4111-8111-111111111111',
-          runtime_kind: input.runtimeKind,
-          name: input.name,
-          category: input.category,
-          enabled: input.enabled,
-          config: input.config,
+          runtime_kind: strictDefined(input.runtimeKind),
+          name: strictDefined(input.name),
+          category: strictDefined(input.category),
+          enabled: strictDefined(input.enabled),
+          config: strictDefined(input.config),
         };
-        return savedOverlay as never;
+        return savedOverlay;
       },
       readOverlay: async () => {
         events.push('overlay-readback');
-        return savedOverlay as never;
+        return savedOverlay;
       },
     });
 
@@ -570,7 +573,7 @@ describe('enterprise connector contracts', () => {
       createSaml: async () => { calls.push('create-saml'); return {}; },
       readSaml: async () => { calls.push('read-saml'); return {}; },
       deleteSaml: async () => { calls.push('delete-saml'); return {}; },
-      saveOverlay: async () => { calls.push('overlay'); return {} as never; },
+      saveOverlay: async () => { calls.push('overlay'); throw new Error('Unexpected overlay write'); },
       readOverlay: async () => { calls.push('read-overlay'); return null; },
     })).rejects.toMatchObject({ code: 'connector_factory_runtime_unavailable' });
     expect(calls).toEqual([]);
@@ -578,7 +581,7 @@ describe('enterprise connector contracts', () => {
 
   it('uses the SAML request and readback contract before writing its overlay', async () => {
     const events: string[] = [];
-    let savedOverlay: Record<string, unknown> | null = null;
+    let savedOverlay: FactoryOverlay | null = null;
     await instantiateConnectorFactory({
       name: 'Enterprise SAML',
       protocol: 'saml',
@@ -613,17 +616,17 @@ describe('enterprise connector contracts', () => {
         savedOverlay = {
           id: input.providerId,
           provider_id: input.providerId,
-          runtime_kind: input.runtimeKind,
-          name: input.name,
-          category: input.category,
-          enabled: input.enabled,
-          config: input.config,
+          runtime_kind: strictDefined(input.runtimeKind),
+          name: strictDefined(input.name),
+          category: strictDefined(input.category),
+          enabled: strictDefined(input.enabled),
+          config: strictDefined(input.config),
         };
-        return savedOverlay as never;
+        return savedOverlay;
       },
       readOverlay: async () => {
         events.push('overlay-readback');
-        return savedOverlay as never;
+        return savedOverlay;
       },
     });
     expect(events).toEqual(['create', 'readback', 'overlay', 'overlay-readback']);
@@ -663,7 +666,7 @@ describe('enterprise connector contracts', () => {
       createSaml: async () => ({}),
       readSaml: async () => ({}),
       deleteSaml: async () => null,
-      saveOverlay: async () => { events.push('overlay'); return {} as never; },
+      saveOverlay: async () => { events.push('overlay'); throw new Error('Unexpected overlay write'); },
       readOverlay: async () => { events.push('overlay-readback'); return null; },
     })).rejects.toThrow('readback unavailable');
     expect(events).toEqual(['create', 'readback', 'rollback']);

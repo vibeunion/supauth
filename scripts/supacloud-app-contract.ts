@@ -1,4 +1,18 @@
 import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
+import { Type, decodeSchema } from '../packages/shared/src/schema.js';
+import { requireRecord } from './tooling-values.js';
+
+const ArtifactPathsSchema = Type.Object({
+  function_bundle: Type.String({ minLength: 1 }),
+  admin_static_dir: Type.String({ minLength: 1 }),
+  openapi: Type.String({ minLength: 1 }),
+});
+
+export function decodeArtifactManifest(value: unknown) {
+  const manifest = requireRecord(value, 'Manifest');
+  const artifacts = decodeSchema(ArtifactPathsSchema, manifest['artifacts']);
+  return { ...manifest, artifacts };
+}
 
 export const SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE = '/custom-ui/*';
 

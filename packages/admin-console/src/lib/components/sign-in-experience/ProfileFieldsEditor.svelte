@@ -1,12 +1,14 @@
-<script>
+<script lang="ts">
+  import { decodeSchema, JsonObjectSchema, type AdminEndpointResult } from '@supauth/shared';
+  import { errorMessage } from '$lib/resource-page.js';
   import { onMount } from 'svelte';
   import { deleteTenantConfig, listTenantConfigs, upsertTenantConfig } from '$lib/api/client.js';
   import { t } from '$lib/i18n.js';
 
   let loading = $state(true);
   let saving = $state(false);
-  let error = $state(null);
-  let profileFields = $state([]);
+  let error = $state<string | null>(null);
+  let profileFields = $state<AdminEndpointResult<'listTenantConfigs'>['items']>([]);
   let fieldKey = $state('default');
   let fieldDefinition = $state('{\n  "fields": ["name", "email", "phone"]\n}');
 
@@ -17,7 +19,7 @@
       const response = await listTenantConfigs('profile_field');
       profileFields = response.items || [];
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
     loading = false;
   }
@@ -28,22 +30,22 @@
     try {
       await upsertTenantConfig('profile_field', fieldKey.trim(), {
         enabled: true,
-        value: JSON.parse(fieldDefinition),
+        value: decodeSchema(JsonObjectSchema, JSON.parse(fieldDefinition)),
       });
       await loadProfileFields();
     } catch (requestError) {
-      error = requestError instanceof SyntaxError ? t('profileFields.invalidJson') : requestError.message;
+      error = requestError instanceof SyntaxError ? t('profileFields.invalidJson') : errorMessage(requestError);
     }
     saving = false;
   }
 
-  async function removeProfileField(profileField) {
+  async function removeProfileField(profileField: AdminEndpointResult<'listTenantConfigs'>['items'][number]) {
     if (!confirm(t('profileFields.deleteConfirm'))) return;
     try {
       await deleteTenantConfig('profile_field', profileField.key);
       await loadProfileFields();
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
   }
 

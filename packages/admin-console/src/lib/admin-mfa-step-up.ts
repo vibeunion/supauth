@@ -1,5 +1,6 @@
 import { GoTrueClient } from '@supabase/auth-js';
 import type { SSOAuthProvider, SSOSession, TokenStorage } from '@svadmin/sso';
+import { isUnknownRecord } from './unknown-value.js';
 
 const SESSION_STORAGE_PREFIX = 'supaoauth.admin.sso.';
 
@@ -56,16 +57,16 @@ function adminAuthErrorMessage(error: unknown, fallback: string): string {
 }
 
 function validRefreshableSsoSession(value: unknown): value is RefreshableSsoSession {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const session = value as Record<string, unknown>;
-  return typeof session.access_token === 'string'
-    && session.access_token.length > 0
-    && typeof session.refresh_token === 'string'
-    && session.refresh_token.length > 0
-    && typeof session.token_type === 'string'
-    && session.token_type.length > 0
-    && (session.id_token === undefined || typeof session.id_token === 'string')
-    && (session.expires_at === undefined || (typeof session.expires_at === 'number' && Number.isFinite(session.expires_at)));
+  if (!isUnknownRecord(value)) return false;
+  const session = value;
+  return typeof session["access_token"] === 'string'
+    && session["access_token"].length > 0
+    && typeof session["refresh_token"] === 'string'
+    && session["refresh_token"].length > 0
+    && typeof session["token_type"] === 'string'
+    && session["token_type"].length > 0
+    && (session["id_token"] === undefined || typeof session["id_token"] === 'string')
+    && (session["expires_at"] === undefined || (typeof session["expires_at"] === 'number' && Number.isFinite(session["expires_at"])));
 }
 
 function parseRefreshableSsoSession(raw: string | null): RefreshableSsoSession | null {

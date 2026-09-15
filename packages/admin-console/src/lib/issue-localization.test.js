@@ -2,8 +2,11 @@ import { expect, test } from "bun:test";
 import { t } from "./i18n.js";
 
 test("localizes the issue-facing JWT, Webhook, audit, and tenant labels", () => {
-  const previousStorage = globalThis.localStorage;
-  globalThis.localStorage = { getItem: () => "zh-CN" };
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: { getItem: () => "zh-CN" },
+  });
   try {
     expect(t("jwt.hookState.inactive")).toBe("未生效");
     expect(t("jwt.verifyRuntimeHook")).toBe("验证运行时 Hook");
@@ -18,7 +21,7 @@ test("localizes the issue-facing JWT, Webhook, audit, and tenant labels", () => 
     expect(t("tenant.domainsDescription")).not.toContain("runtime");
     expect(t("tenant.signingKeyCount", { count: 1 })).toBe("1 个");
   } finally {
-    if (previousStorage === undefined) delete globalThis.localStorage;
-    else globalThis.localStorage = previousStorage;
+    if (previousStorage === undefined) Reflect.deleteProperty(globalThis, "localStorage");
+    else Object.defineProperty(globalThis, "localStorage", previousStorage);
   }
 });

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { isUnknownArray, parseJson } from "./tooling-values.js";
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -44,7 +45,7 @@ const ALLOWED_KEYS = new Set([
 const ALLOWED_CLAIM_KEYS = new Set(['sub', 'role', 'email', 'phone', 'session_id', 'aal', 'is_anonymous']);
 
 function isRecord(candidate: unknown): candidate is JsonObject {
-  return Boolean(candidate) && typeof candidate === 'object' && !Array.isArray(candidate);
+  return Boolean(candidate) && typeof candidate === 'object' && !isUnknownArray(candidate);
 }
 
 function requiredString(candidate: unknown, path: string) {
@@ -69,7 +70,7 @@ function validateHttpUrl(candidate: unknown, path: string) {
 
 function validateAudience(candidate: unknown) {
   if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
-  if (!Array.isArray(candidate) || candidate.length === 0) {
+  if (!isUnknownArray(candidate) || candidate.length === 0) {
     throw new Error('third_party_auth.audience must be a non-empty string or string array.');
   }
   const normalized = candidate.map((audience, index) => requiredString(audience, `third_party_auth.audience[${index}]`));
@@ -96,35 +97,35 @@ export function extractThirdPartyAuthConfig(input: unknown): ThirdPartyAuthConfi
     const unknownEnvelopeKeys = Object.keys(input).filter(key => !['name', 'description', 'third_party_auth'].includes(key));
     if (unknownEnvelopeKeys.length > 0) throw new Error(`Config contains unknown field(s): ${unknownEnvelopeKeys.join(', ')}.`);
   }
-  const candidate = hasEnvelope ? input.third_party_auth : input;
+  const candidate = hasEnvelope ? input["third_party_auth"] : input;
   if (!isRecord(candidate)) throw new Error('third_party_auth must be a JSON object.');
   const unknown = Object.keys(candidate).filter(key => !ALLOWED_KEYS.has(key));
   if (unknown.length > 0) throw new Error(`third_party_auth contains unknown field(s): ${unknown.join(', ')}.`);
-  if (candidate.enabled !== true) throw new Error('third_party_auth.enabled must be true.');
-  const mode = candidate.auth_endpoint_mode;
+  if (candidate["enabled"] !== true) throw new Error('third_party_auth.enabled must be true.');
+  const mode = candidate["auth_endpoint_mode"];
   if (mode !== 'local' && mode !== 'external') {
     throw new Error('third_party_auth.auth_endpoint_mode must be "local" or "external".');
   }
   const config: ThirdPartyAuthConfig = {
     enabled: true,
-    issuer: validateHttpUrl(candidate.issuer, 'third_party_auth.issuer'),
-    jwks_url: validateHttpUrl(candidate.jwks_url, 'third_party_auth.jwks_url'),
-    audience: validateAudience(candidate.audience),
-    client_id: requiredString(candidate.client_id, 'third_party_auth.client_id'),
+    issuer: validateHttpUrl(candidate["issuer"], 'third_party_auth.issuer'),
+    jwks_url: validateHttpUrl(candidate["jwks_url"], 'third_party_auth.jwks_url'),
+    audience: validateAudience(candidate["audience"]),
+    client_id: requiredString(candidate["client_id"], 'third_party_auth.client_id'),
     auth_endpoint_mode: mode,
-    claim_mapping: validateClaimMapping(candidate.claim_mapping),
+    claim_mapping: validateClaimMapping(candidate["claim_mapping"]),
   };
-  if (candidate.auth_upstream !== undefined) {
-    config.auth_upstream = requiredString(candidate.auth_upstream, 'third_party_auth.auth_upstream');
+  if (candidate["auth_upstream"] !== undefined) {
+    config.auth_upstream = requiredString(candidate["auth_upstream"], 'third_party_auth.auth_upstream');
   }
-  if (candidate.auth_host_header !== undefined) {
-    config.auth_host_header = requiredString(candidate.auth_host_header, 'third_party_auth.auth_host_header');
+  if (candidate["auth_host_header"] !== undefined) {
+    config.auth_host_header = requiredString(candidate["auth_host_header"], 'third_party_auth.auth_host_header');
   }
-  if (candidate.auth_upstream_tls_insecure_skip_verify !== undefined) {
-    if (typeof candidate.auth_upstream_tls_insecure_skip_verify !== 'boolean') {
+  if (candidate["auth_upstream_tls_insecure_skip_verify"] !== undefined) {
+    if (typeof candidate["auth_upstream_tls_insecure_skip_verify"] !== 'boolean') {
       throw new Error('third_party_auth.auth_upstream_tls_insecure_skip_verify must be a boolean.');
     }
-    config.auth_upstream_tls_insecure_skip_verify = candidate.auth_upstream_tls_insecure_skip_verify;
+    config.auth_upstream_tls_insecure_skip_verify = candidate["auth_upstream_tls_insecure_skip_verify"];
   }
   if (mode === 'external' && !config.auth_upstream) {
     throw new Error('third_party_auth.auth_upstream is required for external auth endpoint mode.');
@@ -133,13 +134,13 @@ export function extractThirdPartyAuthConfig(input: unknown): ThirdPartyAuthConfi
 }
 
 export function readThirdPartyAuthConfig(configPath: string) {
-  return extractThirdPartyAuthConfig(JSON.parse(readFileSync(resolve(configPath), 'utf8')) as unknown);
+  return extractThirdPartyAuthConfig((parseJson(readFileSync(resolve(configPath), 'utf8'))));
 }
 
 function parseBody(text: string): unknown {
   if (!text.trim()) return null;
   try {
-    return JSON.parse(text) as unknown;
+    return (parseJson(text));
   } catch {
     return text;
   }
@@ -165,22 +166,22 @@ async function loadIssuerMetadata(config: ThirdPartyAuthConfig, fetchImpl: typeo
   const discoveryUrl = `${config.issuer}/.well-known/openid-configuration`;
   const discoveryResponse = await requestJsonStage(fetchImpl, 'OIDC discovery validation', discoveryUrl);
   if (!isRecord(discoveryResponse.body)) throw new Error('OIDC discovery response must be a JSON object.');
-  const actualIssuer = requiredString(discoveryResponse.body.issuer, 'OIDC discovery issuer');
-  const actualJwksUrl = requiredString(discoveryResponse.body.jwks_uri, 'OIDC discovery jwks_uri');
+  const actualIssuer = requiredString(discoveryResponse.body["issuer"], 'OIDC discovery issuer');
+  const actualJwksUrl = requiredString(discoveryResponse.body["jwks_uri"], 'OIDC discovery jwks_uri');
   if (actualIssuer.replace(/\/$/, '') !== config.issuer) throw new Error('OIDC discovery issuer does not match configured issuer.');
   if (actualJwksUrl.replace(/\/$/, '') !== config.jwks_url) throw new Error('OIDC discovery jwks_uri does not match configured jwks_url.');
 
   const jwksResponse = await requestJsonStage(fetchImpl, 'JWKS validation', config.jwks_url);
-  if (!isRecord(jwksResponse.body) || !Array.isArray(jwksResponse.body.keys)) {
+  if (!isRecord(jwksResponse.body) || !isUnknownArray(jwksResponse.body["keys"])) {
     throw new Error('JWKS response must contain a keys array.');
   }
-  const signingKeys = jwksResponse.body.keys.filter((key): key is JsonObject => {
+  const signingKeys = jwksResponse.body["keys"].filter((key): key is JsonObject => {
     if (!isRecord(key)) return false;
-    if (key.kty === 'oct') throw new Error('JWKS must not contain symmetric oct/HS signing keys.');
-    if (typeof key.alg === 'string' && key.alg.toUpperCase().startsWith('HS')) {
+    if (key["kty"] === 'oct') throw new Error('JWKS must not contain symmetric oct/HS signing keys.');
+    if (typeof key["alg"] === 'string' && key["alg"].toUpperCase().startsWith('HS')) {
       throw new Error('JWKS must not contain symmetric oct/HS signing keys.');
     }
-    return ['EC', 'RSA', 'OKP'].includes(String(key.kty)) && (!key.use || key.use === 'sig');
+    return ['EC', 'RSA', 'OKP'].includes(String(key["kty"])) && (!key["use"] || key["use"] === 'sig');
   }).map(publicSigningKey);
   if (signingKeys.length === 0) throw new Error('JWKS must contain at least one asymmetric signing key.');
   return {
@@ -189,7 +190,7 @@ async function loadIssuerMetadata(config: ThirdPartyAuthConfig, fetchImpl: typeo
       issuer: actualIssuer,
       jwks_url: actualJwksUrl,
       signing_key_count: signingKeys.length,
-      signing_algorithms: [...new Set(signingKeys.map(key => String(key.alg || '')).filter(Boolean))],
+      signing_algorithms: [...new Set(signingKeys.map(key => String(key["alg"] || '')).filter(Boolean))],
     },
     jwtJwks: { keys: signingKeys },
   };
@@ -209,8 +210,8 @@ export async function validateIssuerMetadata(config: ThirdPartyAuthConfig, fetch
 }
 
 function assertSubset(actual: unknown, expected: unknown, path: string) {
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || actual.length !== expected.length) throw new Error(`${path} read-back mismatch.`);
+  if (isUnknownArray(expected)) {
+    if (!isUnknownArray(actual) || actual.length !== expected.length) throw new Error(`${path} read-back mismatch.`);
     expected.forEach((expectedEntry, index) => assertSubset(actual[index], expectedEntry, `${path}[${index}]`));
     return;
   }
@@ -253,13 +254,13 @@ export async function applyThirdPartyAuth(options: ApplyThirdPartyAuthOptions) {
   });
   const readBack = await requestJsonStage(fetchImpl, 'Third-party Auth read-back', readBackEndpoint, { headers });
   if (!isRecord(readBack.body)) throw new Error('Third-party Auth read-back must be a JSON object.');
-  const rawAuth = isRecord(readBack.body.auth)
-    ? readBack.body.auth
-    : isRecord(readBack.body.config) && isRecord(readBack.body.config.auth)
-      ? readBack.body.config.auth
+  const rawAuth = isRecord(readBack.body["auth"])
+    ? readBack.body["auth"]
+    : isRecord(readBack.body["config"]) && isRecord(readBack.body["config"]["auth"])
+      ? readBack.body["config"]["auth"]
       : null;
   if (!rawAuth) throw new Error('Third-party Auth read-back did not include project auth settings.');
-  assertSubset(rawAuth.third_party_auth, appliedConfig, 'third_party_auth');
+  assertSubset(rawAuth["third_party_auth"], appliedConfig, 'third_party_auth');
   const applySummary = {
     dryRun: false,
     endpoint,
@@ -279,10 +280,10 @@ function parseArgs(argv: string[]) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--dry-run') {
-      args.dryRun = true;
+      args["dryRun"] = true;
       continue;
     }
-    if (!arg.startsWith('--')) continue;
+    if (arg === undefined || !arg.startsWith('--')) continue;
     const argumentValue = argv[index + 1];
     if (!argumentValue || argumentValue.startsWith('--')) throw new Error(`Missing value for ${arg}`);
     args[arg.slice(2)] = argumentValue;
@@ -294,12 +295,12 @@ function parseArgs(argv: string[]) {
 if (import.meta.main) {
   const args = parseArgs(Bun.argv.slice(2));
   const applySummary = await applyThirdPartyAuth({
-    baseUrl: String(args['base-url'] || process.env.SUPACLOUD_API_URL || process.env.SUPACLOUD_INTERNAL_API_URL || ''),
-    projectRef: String(args['project-ref'] || process.env.SUPACLOUD_PROJECT_REF || ''),
-    configPath: String(args.config || ''),
-    token: String(args.token || process.env.SUPACLOUD_API_TOKEN || process.env.SUPACLOUD_MASTER_TOKEN || ''),
-    dryRun: args.dryRun === true,
-    outputPath: typeof args.output === 'string' ? args.output : undefined,
+    baseUrl: String(args['base-url'] || process.env["SUPACLOUD_API_URL"] || process.env["SUPACLOUD_INTERNAL_API_URL"] || ''),
+    projectRef: String(args['project-ref'] || process.env["SUPACLOUD_PROJECT_REF"] || ''),
+    configPath: String(args["config"] || ''),
+    token: String(args["token"] || process.env["SUPACLOUD_API_TOKEN"] || process.env["SUPACLOUD_MASTER_TOKEN"] || ''),
+    dryRun: args["dryRun"] === true,
+    ...(typeof args["output"] === 'string' ? { outputPath: args["output"] } : {}),
   });
   console.log(JSON.stringify(applySummary, null, 2));
 }

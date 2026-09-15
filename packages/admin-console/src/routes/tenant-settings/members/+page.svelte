@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import { adminEndpoints, decodeSchema, type AdminEndpointResult } from "@supauth/shared";
   import { onMount } from "svelte";
   import RequestState from "$lib/components/RequestState.svelte";
   import { AdminApiError } from "$lib/admin-api.js";
@@ -17,12 +18,12 @@
     tenantRoleLabelKey,
   } from "$lib/tenant-settings.js";
 
-  let members = $state([]);
-  let invitations = $state([]);
+  let members = $state<AdminEndpointResult<"listTenantMembers">["items"]>([]);
+  let invitations = $state<AdminEndpointResult<"listTenantInvitations">["items"]>([]);
   let invite = $state({ email: "", role: "viewer" });
   let loading = $state(true);
   let saving = $state(false);
-  let error = $state(null);
+  let error = $state<unknown>(null);
 
   async function loadMembers() {
     loading = true;
@@ -40,15 +41,15 @@
         listTenantMembers(),
         listTenantInvitations(),
       ]);
-      members = collectionItems(memberResponse);
-      invitations = collectionItems(invitationResponse);
+      members = collectionItems<AdminEndpointResult<"listTenantMembers">["items"][number]>(memberResponse);
+      invitations = collectionItems<AdminEndpointResult<"listTenantInvitations">["items"][number]>(invitationResponse);
     } catch (requestError) {
       error = requestError;
     }
     loading = false;
   }
 
-  async function runMutation(command) {
+  async function runMutation(command: () => Promise<unknown>) {
     saving = true;
     error = null;
     try {
@@ -62,9 +63,16 @@
 
   function sendInvitation() {
     return runMutation(async () => {
-      await createTenantInvitation(invite);
+      await createTenantInvitation(decodeSchema(adminEndpoints.createTenantInvitation.input.properties.body, invite));
       invite = { email: "", role: "viewer" };
     });
+  }
+
+  function changeMemberRole(memberId: string, event: Event & {currentTarget: HTMLSelectElement}) {
+    const role = event.currentTarget.value;
+    return runMutation(() => updateTenantMember(memberId,
+      decodeSchema(adminEndpoints.updateTenantMember.input.properties.body, { role }),
+    ));
   }
 
   onMount(loadMembers);
@@ -87,8 +95,8 @@
           bind:value={invite.email}
           placeholder="admin@example.com"
         /><select bind:value={invite.role}
-          ><option value="viewer">{t("tenant.role.viewer")}</option><option value="developer"
-            >{t("tenant.role.developer")}</option
+          ><option value="viewer">{t("tenant.role.viewer")}</option><option value="member"
+            >{t("tenant.role.member")}</option
           ><option value="admin">{t("tenant.role.admin")}</option><option value="owner"
             >{t("tenant.role.owner")}</option
           ></select
@@ -107,17 +115,12 @@
             ><tr><th>{t("Email")}</th><th>{t("tenant.members.role")}</th><th></th></tr></thead
           ><tbody
             >{#each members as member (member.id)}<tr
-                ><td>{member.email || member.user_id}</td><td
+                ><td>{member.email || ("user_id" in member && typeof member.user_id === "string" ? member.user_id : "")}</td><td
                   ><select
                     value={member.role}
-                    onchange={(event) =>
-                      runMutation(() =>
-                        updateTenantMember(member.id, {
-                          role: event.currentTarget.value,
-                        }),
-                      )}
+                    onchange={(event) => changeMemberRole(member.id, event)}
                     ><option value="viewer">{t("tenant.role.viewer")}</option><option
-                      value="developer">{t("tenant.role.developer")}</option
+                      value="member">{t("tenant.role.member")}</option
                     ><option value="admin">{t("tenant.role.admin")}</option><option value="owner"
                       >{t("tenant.role.owner")}</option
                     ></select

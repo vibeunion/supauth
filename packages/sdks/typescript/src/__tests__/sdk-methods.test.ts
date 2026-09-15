@@ -1,20 +1,27 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { SupaOAuthClient, SupaOAuthAPIError } from '../index.js';
+import { SupaOAuthClient, SupaOAuthAPIError, SupaOAuthRequestContractError, type SupaOAuthFetch, type SupaOAuthClientOptions } from '../index.js';
+import { health, resource, responseForRequest, responses } from './domain-fixtures.js';
 
-function mockFetch(fn: (input: string | Request, init?: RequestInit) => Promise<Response>) {
-  const orig = globalThis.fetch;
-  globalThis.fetch = fn as typeof fetch;
-  return () => { globalThis.fetch = orig; };
+let transport: SupaOAuthFetch = async () => { throw new Error('Configure the test transport'); };
+function mockFetch(fn: SupaOAuthFetch) {
+  const orig = transport;
+  transport = fn;
+  return () => { transport = orig; };
 }
 
-async function capturedRequestUrl(invoke: (client: SupaOAuthClient) => Promise<unknown>, response: unknown = {}) {
+function createClient(options: SupaOAuthClientOptions) {
+  return new SupaOAuthClient({ ...options, fetch: (input, init) => transport(input, init) });
+}
+
+async function capturedRequestUrl(invoke: (client: SupaOAuthClient) => Promise<unknown>, response?: unknown) {
   let requestUrl = '';
-  const restore = mockFetch((input) => {
-    requestUrl = typeof input === 'string' ? input : input.url;
-    return Promise.resolve(Response.json(response));
+  const restore = mockFetch((input, init) => {
+    requestUrl = input instanceof Request ? input.url : String(input);
+    const fixture = response ?? responseForRequest(requestUrl, init?.method);
+    return Promise.resolve(fixture === undefined ? new Response(null, { status: 204 }) : Response.json(fixture));
   });
   try {
-    await invoke(new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' }));
+    await invoke(createClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' }));
     return requestUrl;
   } finally {
     restore();
@@ -22,7 +29,7 @@ async function capturedRequestUrl(invoke: (client: SupaOAuthClient) => Promise<u
 }
 
 describe('SupaOAuthClient — all public methods exist', () => {
-  const client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
+  const client = createClient({ baseUrl: 'http://localhost:4010' });
 
   const expectedMethods = [
     'health', 'getProject',
@@ -75,16 +82,16 @@ describe('SupaOAuthClient — all public methods exist', () => {
     'getSecurityStatus', 'getProvisioningStatus', 'reconcileProject',
     'listEnterpriseSSOConfigs', 'createEnterpriseSSOConfig',
     'setAccessToken',
-  ];
+  ] as const satisfies readonly (keyof SupaOAuthClient)[];
 
   it('has all expected public methods', () => {
     for (const method of expectedMethods) {
-      expect(typeof (client as any)[method]).toBe('function');
+      expect(typeof client[method]).toBe('function');
     }
   });
 
   it('setAccessToken is a function', () => {
-    expect(typeof (client as any).setAccessToken).toBe('function');
+    expect(typeof client.setAccessToken).toBe('function');
   });
 });
 
@@ -92,37 +99,36 @@ describe('SupaOAuthClient — request serialization', () => {
   let client: SupaOAuthClient;
 
   beforeEach(() => {
-    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' });
+    client = createClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' });
   });
 
   it('sends JSON body in POST requests', async () => {
     let capturedBody: string | undefined;
     const restore = mockFetch((_input, init) => {
-      capturedBody = init?.body as string | undefined;
-      return Promise.resolve(new Response(JSON.stringify({ id: 'new' }), { status: 201 }));
+      const body = init?.body;
+      if (body !== undefined && typeof body !== 'string') throw new Error('Expected JSON request text');
+      capturedBody = body;
+      return Promise.resolve(Response.json(resource, { status: 201 }));
     });
 
     try {
-      await (client as any)['request']('/v1/resources', {
-        method: 'POST',
-        body: JSON.stringify({ name: 'test-resource' }),
-      });
-      expect(capturedBody).toEqual('{"name":"test-resource"}');
+      await client.createResource({ name: 'test-resource', indicator: 'https://api.example.test' });
+      expect(capturedBody).toEqual('{"name":"test-resource","indicator":"https://api.example.test"}');
     } finally {
       restore();
     }
   });
 
   it('includes Content-Type application/json', async () => {
-    let capturedHeaders: Record<string, string> = {};
+    let capturedHeaders = new Headers();
     const restore = mockFetch((_input, init) => {
-      capturedHeaders = (init?.headers || {}) as Record<string, string>;
-      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+      capturedHeaders = new Headers(init?.headers);
+      return Promise.resolve(Response.json(health));
     });
 
     try {
-      await (client as any)['request']('/v1/health');
-      expect(capturedHeaders['Content-Type']).toBe('application/json');
+      await client.health();
+      expect(capturedHeaders.get('Content-Type')).toBe('application/json');
     } finally {
       restore();
     }
@@ -132,11 +138,11 @@ describe('SupaOAuthClient — request serialization', () => {
     let capturedUrl: string = '';
     const restore = mockFetch((input) => {
       capturedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+      return Promise.resolve(Response.json(health));
     });
 
     try {
-      await (client as any)['request']('/v1/health');
+      await client.health();
       expect(capturedUrl).toBe('http://localhost:4010/v1/health');
     } finally {
       restore();
@@ -148,14 +154,14 @@ describe('SupaOAuthClient — query string construction', () => {
   let client: SupaOAuthClient;
 
   beforeEach(() => {
-    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' });
+    client = createClient({ baseUrl: 'http://localhost:4010', accessToken: 'tk' });
   });
 
   it('listAuditLogs builds query string from params', async () => {
     let capturedUrl: string = '';
     const restore = mockFetch((input) => {
       capturedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      return Promise.resolve(new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
+      return Promise.resolve(Response.json(responses.listAuditLogs));
     });
 
     try {
@@ -174,7 +180,7 @@ describe('SupaOAuthClient — query string construction', () => {
     let capturedUrl: string = '';
     const restore = mockFetch((input) => {
       capturedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      return Promise.resolve(new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
+      return Promise.resolve(Response.json(responses.listAuditLogs));
     });
 
     try {
@@ -234,7 +240,7 @@ describe('SupaOAuthClient — query string construction', () => {
     let capturedUrl: string = '';
     const restore = mockFetch((input) => {
       capturedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+      return Promise.resolve(Response.json(responses.getConnectorAuthorizationUri));
     });
 
     try {
@@ -365,8 +371,8 @@ describe('SupaOAuthClient — dynamic URL boundaries', () => {
 
   for (const invalidSegment of ['', '.', '..']) {
     it(`rejects invalid path segment ${JSON.stringify(invalidSegment)}`, () => {
-      const client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
-      expect(() => client.getUser(invalidSegment)).toThrow(TypeError);
+      const client = createClient({ baseUrl: 'http://localhost:4010' });
+      expect(() => client.getUser(invalidSegment)).toThrow(SupaOAuthRequestContractError);
     });
   }
 
@@ -394,7 +400,7 @@ describe('SupaOAuthClient — error handling edge cases', () => {
   let client: SupaOAuthClient;
 
   beforeEach(() => {
-    client = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
+    client = createClient({ baseUrl: 'http://localhost:4010' });
   });
 
   it('handles 500 server error', async () => {
@@ -414,9 +420,9 @@ describe('SupaOAuthClient — error handling edge cases', () => {
       Promise.resolve(new Response('Forbidden', { status: 403 }))
     );
     try {
-      const err = await client.listRoles().catch(e => e);
-      expect(err).toBeInstanceOf(SupaOAuthAPIError);
-      expect(err.status).toBe(403);
+      const request = client.listRoles();
+      await expect(request).rejects.toBeInstanceOf(SupaOAuthAPIError);
+      await expect(request).rejects.toMatchObject({ status: 403 });
     } finally {
       restore();
     }
@@ -436,23 +442,23 @@ describe('SupaOAuthClient — error handling edge cases', () => {
 });
 
 describe('SupaOAuthClient — constructor edge cases', () => {
-  it('trims trailing slashes from baseUrl', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010////' });
-    expect((c as any).baseUrl).toBe('http://localhost:4010');
+  it.each(['http://localhost:4010////', 'http://localhost:4010'])('normalizes request URL from %s', async baseUrl => {
+    const c = new SupaOAuthClient({ baseUrl, fetch: async input => {
+      expect(String(input)).toBe('http://localhost:4010/v1/health');
+      return Response.json(health);
+    } });
+    await c.health();
   });
 
-  it('handles baseUrl with no trailing slashes', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
-    expect((c as any).baseUrl).toBe('http://localhost:4010');
-  });
-
-  it('stores undefined accessToken as null', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010' });
-    expect((c as any).accessToken).toBeNull();
-  });
-
-  it('stores provided accessToken', () => {
-    const c = new SupaOAuthClient({ baseUrl: 'http://localhost:4010', accessToken: 'my-token' });
-    expect((c as any).accessToken).toBe('my-token');
+  it.each([undefined, 'my-token'])('sends only a configured token %s', async accessToken => {
+    const c = new SupaOAuthClient({
+      baseUrl: 'http://localhost:4010',
+      ...(accessToken === undefined ? {} : { accessToken }),
+      fetch: async (_input, init) => {
+        expect(new Headers(init?.headers).get('authorization')).toBe(accessToken === undefined ? null : `Bearer ${accessToken}`);
+        return Response.json(health);
+      },
+    });
+    await c.health();
   });
 });

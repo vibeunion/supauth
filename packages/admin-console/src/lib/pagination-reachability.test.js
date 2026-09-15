@@ -1,6 +1,8 @@
-// @ts-nocheck
+import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import ts from "typescript";
 import { setAdminAuthenticatedFetch } from "./admin-api.js";
+import { deferredRequest } from "./providers/auth-fixtures.js";
 import {
   listApplications,
   listOrganizations,
@@ -17,39 +19,50 @@ import {
   mergeCollectionPages,
 } from "./resource-page.js";
 
-function deferredRequest() {
-  let resolveRequest;
-  let rejectRequest;
-  const promise = new Promise((resolve, reject) => {
-    resolveRequest = resolve;
-    rejectRequest = reject;
-  });
-  return { promise, resolve: resolveRequest, reject: rejectRequest };
-}
-
+/** @param {string} source @param {string} functionName */
 function functionBody(source, functionName) {
-  const signatureOffset = source.indexOf(`function ${functionName}(`);
-  if (signatureOffset < 0) throw new Error(`Missing ${functionName}`);
-  const bodyStart = source.indexOf("{", signatureOffset);
-  let braceDepth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === "{") braceDepth += 1;
-    if (source[index] === "}") braceDepth -= 1;
-    if (braceDepth === 0) return source.slice(bodyStart + 1, index);
+  const input = source.match(/<script\b[^>]*>([\s\S]*?)<\/script>/)?.[1] || source;
+  const script = ts.transpileModule(input, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
+  }).outputText;
+  const file = ts.createSourceFile("page.ts", script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declaration = file.statements.find((statement) =>
+    ts.isFunctionDeclaration(statement) && statement.name?.text === functionName,
+  );
+  if (!declaration || !ts.isFunctionDeclaration(declaration) || !declaration.body) {
+    throw new Error(`Missing ${functionName}`);
   }
-  throw new Error(`Unclosed ${functionName}`);
+  return script.slice(declaration.body.getStart(file) + 1, declaration.body.end - 1);
 }
 
+/** @param {number} page @param {number} [limit] @param {number} [total] */
 function numberedTargetPage(page, limit = 25, total = 125) {
   const firstNumber = (page - 1) * limit + 1;
   const finalNumber = Math.min(page * limit, total);
   const items = Array.from(
     { length: Math.max(0, finalNumber - firstNumber + 1) },
-    (_, offset) => ({ id: `target-${firstNumber + offset}` }),
+    (/** @type {unknown} */ _, offset) => ({ id: `target-${firstNumber + offset}` }),
   );
   return { items, total, page, limit };
 }
 
+/** @param {unknown} response */
+function targetCollectionPage(response) {
+  const page = collectionPage(response);
+  const items = page.items.map((item) => {
+    if (!item || typeof item !== "object" || !("id" in item) || typeof item.id !== "string") {
+      throw new Error("Expected target identity in collection fixture");
+    }
+    return { id: item.id };
+  });
+  return { ...page, items };
+}
+
+/**
+ * @param {ReturnType<typeof createLatestRequestTracker<string, unknown>>} tracker
+ * @param {import("./resource-page.js").KeyedOperation<string, {pageContext: import("./resource-page.js").ResourceLoadContext, search: string}>} request
+ * @param {import("./resource-page.js").ResourceLoadContext} currentPageContext
+ */
 function targetRequestIsCurrent(tracker, request, currentPageContext) {
   return (
     tracker.isCurrent(request) &&
@@ -182,9 +195,10 @@ describe("collection pagination boundaries", () => {
 
 describe("management list request contracts", () => {
   test("sends paging and search only to endpoints that support them", async () => {
+    /** @type {string[]} */
     const requestedUrls = [];
     setAdminAuthenticatedFetch(
-      mock(async (input) => {
+      mock(async (/** @type {RequestInfo | URL} */ input) => {
         requestedUrls.push(String(input));
         return Response.json({ items: [], total: 0, page: 1, limit: 25 });
       }),
@@ -202,6 +216,7 @@ describe("management list request contracts", () => {
     const [usersUrl, organizationsUrl, applicationsUrl] = requestedUrls.map(
       (requestedUrl) => new URL(requestedUrl, "http://console.local"),
     );
+    if (!usersUrl || !organizationsUrl || !applicationsUrl) throw new Error("Expected all three list requests");
     expect(Object.fromEntries(usersUrl.searchParams)).toEqual({
       page: "3",
       limit: "25",
@@ -220,12 +235,14 @@ describe("management list request contracts", () => {
 describe("organization list coordination", () => {
   test("keeps stale success, failure, and finally handlers from overwriting current state", async () => {
     const requests = createLatestRequestTracker();
+    /** @type {{organizations: {id: string}[], total: number, loading: boolean, error: unknown}} */
     const state = {
       organizations: [{ id: "current" }],
       total: 1,
       loading: true,
       error: null,
     };
+    /** @type {ReturnType<typeof deferredRequest<{items: {id: string}[], total: number}>>} */
     const staleSuccess = deferredRequest();
     const firstRequest = requests.begin("organizations", {
       page: 1,
@@ -234,7 +251,7 @@ describe("organization list coordination", () => {
     });
     const firstLoad = staleSuccess.promise
       .then((response) => {
-        const page = collectionPage(response);
+        const page = targetCollectionPage(response);
         if (!requests.isCurrent(firstRequest)) return;
         state.organizations = page.items;
         state.total = page.total;
@@ -254,7 +271,7 @@ describe("organization list coordination", () => {
       search: "older",
     });
     const failedLoad = staleFailure.promise
-      .catch((requestError) => {
+      .catch((/** @type {unknown} */ requestError) => {
         if (requests.isCurrent(failedRequest)) state.error = requestError;
       })
       .finally(() => {
@@ -273,9 +290,7 @@ describe("organization list coordination", () => {
   });
 
   test("wires page, limit, search, and all state commits to the current request", async () => {
-    const pageSource = await Bun.file(
-      new URL("../routes/organizations/+page.svelte", import.meta.url),
-    ).text();
+    const pageSource = await readFile(new URL("../routes/organizations/+page.svelte", import.meta.url), 'utf8');
     const loadBody = functionBody(pageSource, "loadOrganizations");
 
     expect(loadBody).toContain('organizationRequests.begin("organizations"');
@@ -293,9 +308,9 @@ describe("organization list coordination", () => {
 
 describe("role assignment target reachability", () => {
   test("reaches the 51st and 125th targets through merged pages or remote search", () => {
-    let loadedTargets = collectionPage(numberedTargetPage(1)).items;
+    let loadedTargets = targetCollectionPage(numberedTargetPage(1)).items;
     for (let page = 2; page <= 5; page += 1) {
-      const nextPage = collectionPage(numberedTargetPage(page));
+      const nextPage = targetCollectionPage(numberedTargetPage(page));
       loadedTargets = mergeCollectionPages(
         loadedTargets,
         nextPage.items,
@@ -307,7 +322,7 @@ describe("role assignment target reachability", () => {
       true,
     );
 
-    const searchPage = collectionPage({
+    const searchPage = targetCollectionPage({
       items: [{ id: "target-51" }],
       total: 1,
       page: 1,
@@ -352,9 +367,7 @@ describe("role assignment target reachability", () => {
   });
 
   test("wires paged users and organizations while filtering complete applications locally", async () => {
-    const pageSource = await Bun.file(
-      new URL("../routes/roles/+page.svelte", import.meta.url),
-    ).text();
+    const pageSource = await readFile(new URL("../routes/roles/+page.svelte", import.meta.url), 'utf8');
     const userLoad = functionBody(pageSource, "loadUserTargets");
     const organizationLoad = functionBody(
       pageSource,

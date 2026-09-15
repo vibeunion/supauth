@@ -5,62 +5,112 @@
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as roleRepo from './roles.js';
 import * as auditRepo from './audit.js';
+import { Type, decodeSchema, type Static, type TSchema } from '../../../shared/src/schema.js';
+import {
+  LegacyRoleMappingSchema, RbacMigrationPolicySchema, RbacMigrationResultSchema,
+} from '../../../shared/src/server-operations.js';
+import { ApiContractError } from '../utils/api-contract.js';
 
-export interface LegacyRoleMapping {
-  /** The legacy role value from app_metadata.role */
+export type LegacyRoleMapping = Static<typeof LegacyRoleMappingSchema>;
+export type MigrationPolicy = Static<typeof RbacMigrationPolicySchema>;
+export type MigrationResult = Static<typeof RbacMigrationResultSchema>;
+const optionalString = Type.Optional(Type.Union([Type.String(), Type.Null()]));
+const migrationUserSchema = Type.Object({
+  id: Type.String({ minLength: 1 }),
+  app_metadata: Type.Optional(Type.Union([
+    Type.Object({ role: optionalString }),
+    Type.Null(),
+  ])),
+});
+const migrationRoleSchema = Type.Object({
+  id: optionalString, role_id: optionalString,
+  name: optionalString, role_name: optionalString,
+});
+const migrationAssignmentSchema = Type.Object({
+  roleId: optionalString, role_id: optionalString,
+  organizationId: optionalString, organization_id: optionalString,
+});
+
+function invalidInventory(): ApiContractError {
+  return new ApiContractError(502, 'invalid_upstream_response', 'RBAC inventory does not match the expected contract');
+}
+
+function listItems<S extends TSchema>(value: unknown, itemSchema: S): Static<S>[] {
+  const itemsSchema = Type.Array(itemSchema);
+  try {
+    if (Array.isArray(value)) return decodeSchema(itemsSchema, value);
+    const envelope = decodeSchema(Type.Object({
+      items: Type.Optional(itemsSchema),
+      users: Type.Optional(itemsSchema),
+      roles: Type.Optional(itemsSchema),
+      assignments: Type.Optional(itemsSchema),
+    }), value);
+    const items = envelope.items ?? envelope.users ?? envelope.roles ?? envelope.assignments;
+    if (items !== undefined) return items;
+  } catch {
+    throw invalidInventory();
+  }
+  throw invalidInventory();
+}
+
+function requiredAlias(primary: string | null | undefined, legacy: string | null | undefined): string {
+  const value = primary || legacy;
+  if (!value) throw invalidInventory();
+  return value;
+}
+
+interface MigrationRole {
+  id: string;
+  name: string;
+}
+
+interface MigrationAssignment {
+  roleId: string;
+  organizationId: string | null;
+}
+
+interface MigrationEntry {
+  userId: string;
   legacyRole: string;
-  /** The SupaOAuth role name to map to */
-  supaoauthRole: string;
-  /** Description of what this mapping does */
-  description?: string;
+  targetRoleName: string | null;
+  assignments: MigrationAssignment[];
 }
 
-export interface MigrationPolicy {
-  /** Mapping table from legacy roles to SupaOAuth roles */
-  mappings: LegacyRoleMapping[];
-  /** Whether to actually apply changes (false = dry-run) */
-  dryRun: boolean;
-  /** If true, creates missing SupaOAuth roles automatically */
-  autoCreateRoles: boolean;
-  /** If true, preserves the original app_metadata.role after migration */
-  preserveLegacyRole: boolean;
-  /** Maximum users to process in a single run (safety limit) */
-  batchSize: number;
-}
+async function preflightMigration(policy: MigrationPolicy) {
+  const users = listItems(await getSupaCloudAdapter().listUsers(), migrationUserSchema);
+  const roles = listItems(await roleRepo.listRoles(), migrationRoleSchema).map((role): MigrationRole => ({
+    id: requiredAlias(role.id, role.role_id),
+    name: requiredAlias(role.name, role.role_name),
+  }));
+  const mappings = new Map(policy.mappings.map(mapping => [mapping.legacyRole, mapping.supaoauthRole]));
+  const assignmentsByUser = new Map<string, MigrationAssignment[]>();
+  const entries: MigrationEntry[] = [];
+  const total = Math.min(users.length, policy.batchSize);
 
-export interface MigrationResult {
-  total: number;
-  migrated: number;
-  skipped: number;
-  errors: number;
-  details: Array<{
-    userId: string;
-    legacyRole: string;
-    targetRole: string;
-    status: 'migrated' | 'skipped' | 'error';
-    error?: string;
-  }>;
-  dryRun: boolean;
-}
-
-function listItems(value: unknown): Array<Record<string, unknown>> {
-  if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    if (Array.isArray(record.items)) return record.items as Array<Record<string, unknown>>;
-    if (Array.isArray(record.users)) return record.users as Array<Record<string, unknown>>;
-    if (Array.isArray(record.roles)) return record.roles as Array<Record<string, unknown>>;
-    if (Array.isArray(record.assignments)) return record.assignments as Array<Record<string, unknown>>;
+  // 全批预检必须在第一笔写入或审计之前完成，不能边校验边赋权。
+  for (let index = 0; index < total; index++) {
+    const user = users[index];
+    if (!user) throw invalidInventory();
+    const legacyRole = user.app_metadata?.role || '';
+    const targetRoleName = mappings.get(legacyRole) ?? null;
+    let assignments: MigrationAssignment[] = [];
+    if (targetRoleName !== null) {
+      const cached = assignmentsByUser.get(user.id);
+      if (cached) {
+        assignments = cached;
+      } else {
+        assignments = listItems(
+          await roleRepo.getUserRoleAssignments(user.id), migrationAssignmentSchema,
+        ).map(assignment => ({
+          roleId: requiredAlias(assignment.roleId, assignment.role_id),
+          organizationId: assignment.organizationId || assignment.organization_id || null,
+        }));
+        assignmentsByUser.set(user.id, assignments);
+      }
+    }
+    entries.push({ userId: user.id, legacyRole, targetRoleName, assignments });
   }
-  return [];
-}
-
-function getStringField(record: Record<string, unknown>, fields: string[]) {
-  for (const field of fields) {
-    const value = record[field];
-    if (typeof value === 'string' && value.length > 0) return value;
-  }
-  return '';
+  return { roles, entries, total };
 }
 
 /**
@@ -88,8 +138,8 @@ export function buildDefaultPolicy(): MigrationPolicy {
  * Returns list of created role names.
  */
 export async function ensureRolesExist(policy: MigrationPolicy): Promise<string[]> {
-  const existingRoles = listItems(await roleRepo.listRoles());
-  const existingNames = new Set(existingRoles.map(role => getStringField(role, ['name', 'role_name'])).filter(Boolean));
+  const { roles } = await preflightMigration(policy);
+  const existingNames = new Set(roles.map(role => role.name));
   const created: string[] = [];
 
   for (const mapping of policy.mappings) {
@@ -112,36 +162,20 @@ export async function ensureRolesExist(policy: MigrationPolicy): Promise<string[
  * In dry-run mode, only reports what would be done.
  */
 export async function importLegacyRoles(policy: MigrationPolicy): Promise<MigrationResult> {
-  const adapter = getSupaCloudAdapter();
+  const { roles, entries, total } = await preflightMigration(policy);
+  const rolesByName = new Map(roles.map(role => [role.name, role]));
   const result: MigrationResult = {
-    total: 0,
+    total,
     migrated: 0,
     skipped: 0,
     errors: 0,
     details: [],
     dryRun: policy.dryRun,
   };
+  const attemptedAssignments = new Map<string, Set<string>>();
 
-  // Build lookup: legacyRole → supaoauthRole
-  const mappingLookup = new Map(policy.mappings.map(m => [m.legacyRole, m.supaoauthRole]));
-
-  // Fetch all users from GoTrue
-  const users = listItems(await adapter.listUsers());
-  const rolesByName = new Map<string, Record<string, unknown>>();
-  for (const role of listItems(await roleRepo.listRoles())) {
-    const name = getStringField(role, ['name', 'role_name']);
-    if (name) rolesByName.set(name, role);
-  }
-
-  result.total = Math.min(users.length, policy.batchSize);
-
-  for (let i = 0; i < result.total; i++) {
-    const user = users[i] as Record<string, unknown>;
-    const userId = user.id as string;
-    const appMetadata = (user.app_metadata as Record<string, unknown>) || {};
-    const legacyRole = (appMetadata.role as string) || '';
-
-    if (!legacyRole || !mappingLookup.has(legacyRole)) {
+  for (const { userId, legacyRole, targetRoleName, assignments } of entries) {
+    if (!legacyRole || targetRoleName === null) {
       result.details.push({
         userId,
         legacyRole: legacyRole || '(none)',
@@ -151,8 +185,6 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
       result.skipped++;
       continue;
     }
-
-    const targetRoleName = mappingLookup.get(legacyRole)!;
 
     if (policy.dryRun) {
       result.details.push({
@@ -167,8 +199,7 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
 
     try {
       const targetRole = rolesByName.get(targetRoleName);
-      const targetRoleId = targetRole ? getStringField(targetRole, ['id', 'role_id']) : '';
-      if (!targetRoleId) {
+      if (!targetRole) {
         result.details.push({
           userId,
           legacyRole,
@@ -180,12 +211,9 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
         continue;
       }
 
-      const existing = listItems(await roleRepo.getUserRoleAssignments(userId));
-      const alreadyAssigned = existing.some((assignment) => {
-        const roleId = getStringField(assignment, ['roleId', 'role_id']);
-        const organizationId = getStringField(assignment, ['organizationId', 'organization_id']);
-        return roleId === targetRoleId && !organizationId;
-      });
+      const targetRoleId = targetRole.id;
+      const alreadyAssigned = assignments.some(assignment =>
+        assignment.roleId === targetRoleId && !assignment.organizationId);
       if (alreadyAssigned) {
         result.details.push({
           userId,
@@ -197,10 +225,17 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
         continue;
       }
 
+      const attemptedRoles = attemptedAssignments.get(userId) ?? new Set<string>();
+      if (attemptedRoles.has(targetRoleId)) {
+        throw new Error('Role assignment was already attempted; verify its outcome before retrying');
+      }
+      attemptedRoles.add(targetRoleId);
+      attemptedAssignments.set(userId, attemptedRoles);
       await roleRepo.assignRole({
         roleId: targetRoleId,
         userId,
       });
+      assignments.push({ roleId: targetRoleId, organizationId: null });
 
       result.details.push({
         userId,
@@ -215,7 +250,7 @@ export async function importLegacyRoles(policy: MigrationPolicy): Promise<Migrat
         legacyRole,
         targetRole: targetRoleName,
         status: 'error',
-        error: (e as Error).message,
+        error: e instanceof Error ? e.message : 'Role assignment failed',
       });
       result.errors++;
     }

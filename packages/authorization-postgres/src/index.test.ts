@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { readRlsOptions, readSchemaName, readSchemaOptions } from './validation.js';
+import { permission } from '../../authorization-core/src/index.js';
 import {
   generateAuthorizationProjectionPreflightSql,
   generateAuthorizationSchemaSql,
@@ -127,10 +129,10 @@ describe('@supauth/authorization-postgres', () => {
       schema: 'fa_authorization',
       applicationId: 'xigu fa',
     })).toThrow(TypeError);
-    expect(() => generateAuthorizationSchemaSql({
+    expect(() => readSchemaOptions({
       schema: 'fa_authorization',
       applicationId: 'xigu-fa',
-      requireOAuthApplicationClaim: 'yes' as unknown as boolean,
+      requireOAuthApplicationClaim: 'yes',
     })).toThrow('requireOAuthApplicationClaim must be a boolean');
     expect(() => generateRlsPoliciesSql({
       schema: 'fa_authorization',
@@ -141,26 +143,51 @@ describe('@supauth/authorization-postgres', () => {
       domainType: 'organization',
       policies: [{ command: 'select', usingPermission: 'invoice.*' }],
     })).toThrow(TypeError);
-    expect(() => generateRlsPoliciesSql({
+    expect(() => readRlsOptions({
       schema: 'fa_authorization',
       tableSchema: 'public',
       table: 'invoices',
       domainColumn: 'organization_id',
-      domainIdType: 'integer' as 'text',
+      domainIdType: 'integer',
       domainType: 'organization',
       policies: [{ command: 'select', usingPermission: 'invoice:read' }],
     })).toThrow(TypeError);
-    expect(() => generateRlsPoliciesSql({
+    expect(() => readRlsOptions({
       schema: 'fa_authorization',
       tableSchema: 'public',
       table: 'invoices',
       domainColumn: 'organization_id',
       domainIdType: 'uuid',
       domainType: 'organization',
-      policies: [{ command: 'truncate' as 'select', usingPermission: 'invoice:read' }],
+      policies: [{ command: 'truncate', usingPermission: 'invoice:read' }],
     })).toThrow(TypeError);
   });
 
+  it('rejects missing options, non-string identifiers and malformed policy rows', () => {
+    for (const value of [null, [], {}, { schema: 42 }]) expect(() => readSchemaName(value)).toThrow(TypeError);
+    const options = {
+      schema: 'authz', tableSchema: 'public', table: 'documents', domainColumn: 'organization_id',
+      domainIdType: 'uuid', domainType: 'organization',
+    };
+    for (const policies of [null, [null], [{ command: 'insert' }], [{ command: 'select', usingPermission: 42 }]]) {
+      expect(() => readRlsOptions({ ...options, policies })).toThrow(TypeError);
+    }
+  });
+
+  it('keeps SQL permission syntax aligned with the dependency-free core', () => {
+    const sqlFor = (usingPermission: string) => generateRlsPoliciesSql({
+      schema: 'authz', tableSchema: 'public', table: 'documents', domainColumn: 'organization_id',
+      domainIdType: 'uuid', domainType: 'organization', policies: [{ command: 'select', usingPermission }],
+    });
+    for (const name of ['invoice:read', 'document.v2:read_own', 'my-resource:edit-item']) {
+      expect(() => permission(name)).not.toThrow();
+      expect(() => sqlFor(name)).not.toThrow();
+    }
+    for (const name of ['invoice.read', 'invoice:*', '*:read', 'Invoice:read', `invoice:${'x'.repeat(505)}`]) {
+      expect(() => permission(name)).toThrow(TypeError);
+      expect(() => sqlFor(name)).toThrow(TypeError);
+    }
+  });
   it('escapes quotes in the installed application ID', () => {
     const sql = generateAuthorizationSchemaSql({
       schema: 'fa_authorization',

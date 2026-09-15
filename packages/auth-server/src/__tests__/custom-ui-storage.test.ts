@@ -1,3 +1,4 @@
+import { strictDefined, strictProperty } from './helpers/strict-values.js';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { Elysia } from 'elysia';
@@ -10,13 +11,13 @@ import {
 } from '../utils/custom-ui-assets.js';
 import { ApiContractError } from '../utils/api-contract.js';
 
-process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
-process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-32-characters';
-process.env.SUPACLOUD_PROJECT_REF = 'test-project';
-process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
-process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
-process.env.ADMIN_AUTH_MODE = 'token';
+process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
+process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'test-bff-signing-secret-32-characters';
+process.env["SUPACLOUD_PROJECT_REF"] = 'test-project';
+process.env["SUPACLOUD_RUNTIME_URL"] = 'http://runtime.internal';
+process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
+process.env["ADMIN_AUTH_MODE"] = 'token';
 process.env.NODE_ENV = 'test';
 
 interface ConfigRecord {
@@ -135,8 +136,8 @@ mock.module('../repositories/audit.js', () => ({
     identity: { actorId: string; requestId: string },
     event: Record<string, unknown>,
   ) => {
-    if (rejectedAuditEventTypes.has(String(event.eventType))) return 'rejected';
-    const idempotencyKey = String(event.idempotencyKey);
+    if (rejectedAuditEventTypes.has(String(event["eventType"]))) return 'rejected';
+    const idempotencyKey = String(event["idempotencyKey"]);
     if (!auditEventsByIdempotencyKey.has(idempotencyKey)) {
       const persisted = { ...event, actorId: identity.actorId, requestId: identity.requestId };
       auditEvents.push(persisted);
@@ -146,20 +147,20 @@ mock.module('../repositories/audit.js', () => ({
   }),
   queryAuditLogs: mock(async (filters: Record<string, unknown>) => {
     const matching = auditEvents.filter(event => (
-      event.eventType === filters.eventType
-      && event.resourceType === filters.resourceType
-      && event.resourceId === filters.resourceId
-      && event.actorId === filters.actorId
+      event["eventType"] === filters["eventType"]
+      && event["resourceType"] === filters["resourceType"]
+      && event["resourceId"] === filters["resourceId"]
+      && event["actorId"] === filters["actorId"]
     ));
     return {
       items: matching.map(event => ({
-        event_type: event.eventType,
-        actor_id: event.actorId,
+        event_type: event["eventType"],
+        actor_id: event["actorId"],
         actor_type: 'admin',
-        resource_type: event.resourceType,
-        resource_id: event.resourceId,
-        details: event.details,
-        request_id: event.requestId,
+        resource_type: event["resourceType"],
+        resource_id: event["resourceId"],
+        details: event["details"],
+        request_id: event["requestId"],
         source: 'supauth',
         method: 'EVENT',
         status: 200,
@@ -177,7 +178,7 @@ mock.module('../supacloud/adapter.js', () => ({
   getSupaCloudAdapter: () => storageAdapter,
   getSupaCloudAdapterForProject: () => storageAdapter,
   isSupaCloudApiError: (error: unknown, statuses?: number[]) => {
-    const status = error && typeof error === 'object' ? (error as { status?: number }).status : undefined;
+    const status = error && typeof error === 'object' && 'status' in error ? error.status : undefined;
     return typeof status === 'number' && (!statuses || statuses.includes(status));
   },
 }));
@@ -299,7 +300,7 @@ function seedLegacyCustomUi(label: string, auditSeed: LegacyUploadAuditSeed = 'n
     );
   }
   if (auditSeed === 'delivery_unknown_with_readback') {
-    seedAuditReadBack(manifest.audit_pending_event!, manifest);
+    seedAuditReadBack(strictDefined(manifest.audit_pending_event), manifest);
   }
   const active = nextConfigRecord('custom_ui_assets', 'active', null, {
     value: { ...manifest },
@@ -316,9 +317,9 @@ function currentManifest() {
 }
 
 function currentObjectKeys() {
-  const files = currentManifest().files;
+  const files = currentManifest()["files"];
   if (!Array.isArray(files)) return [];
-  return files.map(file => String((file as Record<string, unknown>).object_key));
+  return files.map((file: unknown) => String(strictProperty(file, 'object_key')));
 }
 
 function cleanupQueue() {
@@ -445,7 +446,7 @@ describe('Custom UI durable deletion', () => {
     await expect(deleteCustomUiAssets()).resolves.toEqual({ status: 'deleted', deleted_file_count: 0 });
 
     expect(storedObjects.size).toBe(0);
-    expect(cleanupQueue()?.batches).toEqual([]);
+    expect(cleanupQueue()?.["batches"]).toEqual([]);
   });
 
   it('deactivates, recursively deletes every managed object, and reads back 404', async () => {
@@ -461,7 +462,7 @@ describe('Custom UI durable deletion', () => {
 
   it('normalizes a disabled active manifest as blocked and keeps it deletable', async () => {
     seedLegacyCustomUi('disabled-active');
-    activeConfig()!.enabled = false;
+    strictDefined(activeConfig()).enabled = false;
 
     const statusResponse = await managementApp.handle(new Request(
       'https://auth.example.test/v1/sign-in-experience/custom-ui-assets',
@@ -485,7 +486,7 @@ describe('Custom UI durable deletion', () => {
   it('keeps a rejected upload audit valid before retrying disabled active deletion', async () => {
     rejectedAuditEventTypes.add('sign_in_experience.custom_ui_uploaded');
     seedLegacyCustomUi('disabled-rejected-audit', 'ready');
-    activeConfig()!.enabled = false;
+    strictDefined(activeConfig()).enabled = false;
 
     await expect(deleteCustomUiAssets()).rejects.toMatchObject({
       status: 503,
@@ -519,7 +520,7 @@ describe('Custom UI durable deletion', () => {
 
   it('keeps an unknown upload audit valid until disabled active deletion can retry', async () => {
     seedLegacyCustomUi('disabled-unknown-audit', 'delivery_unknown_with_readback');
-    activeConfig()!.enabled = false;
+    strictDefined(activeConfig()).enabled = false;
 
     await expect(deleteCustomUiAssets()).rejects.toMatchObject({
       status: 503,
@@ -542,7 +543,7 @@ describe('Custom UI durable deletion', () => {
       audit_pending: true,
     });
 
-    activeConfig()!.updatedAt = new Date(0);
+    strictDefined(activeConfig()).updatedAt = new Date(0);
     await expect(deleteCustomUiAssets()).resolves.toEqual({
       status: 'deleted',
       deleted_file_count: 3,
@@ -602,7 +603,7 @@ describe('Custom UI durable deletion', () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toMatchObject({ status: 'deactivated', audit_pending: true });
     expect(activeConfig()?.enabled).toBe(false);
-    expect(currentManifest().audit_pending_event).toMatchObject({
+    expect(currentManifest()["audit_pending_event"]).toMatchObject({
       event_type: 'sign_in_experience.custom_ui_delete_pending',
     });
     expect(storedObjects.size).toBe(3);

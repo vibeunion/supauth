@@ -1,3 +1,5 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 const getSecurityConfig = mock(async () => null);
@@ -6,19 +8,19 @@ mock.module('../repositories/security-config.js', () => ({ getSecurityConfig }))
 const originalFetch = globalThis.fetch;
 
 function setSupacloudFunctionEnv() {
-  process.env.SUPACLOUD_API_URL = '';
-  process.env.SUPACLOUD_MASTER_TOKEN = '';
-  process.env.PROJECT_REF = '';
-  process.env.OAUTH_RUNTIME_URL = '';
-  process.env.DATABASE_URL = '';
-  process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-  process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
-  process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-32-characters';
-  process.env.SUPACLOUD_PROJECT_REF = 'test-project';
-  process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
-  process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
-  process.env.ADMIN_AUTH_MODE = 'token';
-  process.env.ADMIN_TOKEN = 'test-admin-token';
+  process.env["SUPACLOUD_API_URL"] = '';
+  process.env["SUPACLOUD_MASTER_TOKEN"] = '';
+  process.env["PROJECT_REF"] = '';
+  process.env["OAUTH_RUNTIME_URL"] = '';
+  process.env["DATABASE_URL"] = '';
+  process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+  process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
+  process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'test-bff-signing-secret-32-characters';
+  process.env["SUPACLOUD_PROJECT_REF"] = 'test-project';
+  process.env["SUPACLOUD_RUNTIME_URL"] = 'http://runtime.internal';
+  process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
+  process.env["ADMIN_AUTH_MODE"] = 'token';
+  process.env["ADMIN_TOKEN"] = 'test-admin-token';
   process.env.NODE_ENV = 'test';
 }
 
@@ -76,7 +78,7 @@ describe('SupAuth function entrypoint', () => {
   it('rejects anonymous project reads before calling SupaCloud', async () => {
     setSupacloudFunctionEnv();
     const upstreamFetch = mock(async () => Response.json({ ref: 'must-not-be-returned' }));
-    globalThis.fetch = upstreamFetch as unknown as typeof fetch;
+    globalThis.fetch = strictFetch(upstreamFetch);
     const { handleSupAuthRequest } = await import('../index.js');
 
     const response = await handleSupAuthRequest(new Request('http://supauth.local/v1/project'));
@@ -100,7 +102,7 @@ describe('SupAuth function entrypoint', () => {
         jwt: { keys: [{ d: 'must-not-leak', k: 'must-not-leak' }] },
       },
     }));
-    globalThis.fetch = upstreamFetch as unknown as typeof fetch;
+    globalThis.fetch = strictFetch(upstreamFetch);
     const { handleSupAuthRequest } = await import('../index.js');
 
     const loginResponse = await handleSupAuthRequest(new Request('http://supauth.local/v1/auth/login', {
@@ -108,11 +110,11 @@ describe('SupAuth function entrypoint', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: 'test-admin-token' }),
     }));
-    const { token } = await loginResponse.json() as { token: string };
+    const { token } = strictDecodeSchema(StrictType.Object({ "token": StrictType.String() }), await loginResponse.json());
     const response = await handleSupAuthRequest(new Request('http://supauth.local/v1/project', {
       headers: { authorization: `Bearer ${token}` },
     }));
-    const project = await response.json();
+    const project: unknown = await response.json();
 
     expect(response.status).toBe(200);
     expect(project).toEqual({
@@ -127,7 +129,7 @@ describe('SupAuth function entrypoint', () => {
 
   it('keeps health, runtime health, and public SSO metadata anonymous', async () => {
     setSupacloudFunctionEnv();
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
+    globalThis.fetch = strictFetch(mock(async (input: string | URL | Request) => {
       const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url).pathname;
       if (path.endsWith('/.well-known/openid-configuration')) {
         return Response.json({
@@ -140,7 +142,7 @@ describe('SupAuth function entrypoint', () => {
         });
       }
       return Response.json({ keys: [] });
-    }) as unknown as typeof fetch;
+    }));
     const { handleSupAuthRequest } = await import('../index.js');
 
     for (const path of ['/v1/health', '/v1/runtime/health', '/v1/public/admin-sso-config']) {

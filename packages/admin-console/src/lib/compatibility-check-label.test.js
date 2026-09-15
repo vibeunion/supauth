@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { compatibilityCheckLabel } from "./compatibility-check-label.js";
 
+/** @param {string} key @param {{checkId?: string}} params */
 function keyWithParams(key, params = {}) {
   return `${key}:${params.checkId || ""}`;
 }

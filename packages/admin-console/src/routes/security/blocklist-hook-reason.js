@@ -1,3 +1,5 @@
+// @ts-check
+/** @type {Readonly<Record<string, string>>} */
 const BLOCKLIST_HOOK_REASON_KEYS = Object.freeze({
   gotrue_before_user_created_hook_authority_project_unavailable:
     "security.blocklistReasonAuthorityUnavailable",
@@ -22,12 +24,13 @@ const BLOCKLIST_HOOK_REASON_KEYS = Object.freeze({
     "security.blocklistReasonProbeResponseInvalid",
 });
 
+/** @param {unknown} reasonCode @returns {string} */
 export function blocklistHookReasonKey(reasonCode) {
   if (
     typeof reasonCode === "string" &&
     Object.hasOwn(BLOCKLIST_HOOK_REASON_KEYS, reasonCode)
   ) {
-    return BLOCKLIST_HOOK_REASON_KEYS[reasonCode];
+    return BLOCKLIST_HOOK_REASON_KEYS[reasonCode] ?? "security.blocklistReasonUnavailable";
   }
   return "security.blocklistReasonUnavailable";
 }

@@ -3,6 +3,8 @@
 import { and, eq, notExists } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { apiResources, applicationBindings, scopes } from '../db/schema.js';
+import { requiredRow } from '../utils/defined-fields.js';
+import type { SdkEndpointInput } from '../../../shared/src/sdk-endpoints.js';
 
 export async function listResources() {
   const db = getDb();
@@ -23,14 +25,15 @@ export async function getResource(id: string) {
   return { ...resource[0], scopes: resourceScopes };
 }
 
-export async function createResource(data: { name: string; indicator: string; description?: string; scopes?: { name: string; description?: string }[] }) {
+export async function createResource(data: SdkEndpointInput<'createResource'>['body']) {
   const db = getDb();
   return db.transaction(async (transaction) => {
-    const [resource] = await transaction.insert(apiResources).values({
+    const [created] = await transaction.insert(apiResources).values({
       name: data.name,
       indicator: data.indicator,
       description: data.description || null,
     }).returning();
+    const resource = requiredRow(created);
 
     const createdScopes: typeof scopes.$inferSelect[] = [];
     if (data.scopes?.length) {
@@ -48,7 +51,7 @@ export async function createResource(data: { name: string; indicator: string; de
   });
 }
 
-export async function updateResource(id: string, data: { name?: string; indicator?: string; description?: string }) {
+export async function updateResource(id: string, data: NonNullable<SdkEndpointInput<'updateResource'>['body']>) {
   const db = getDb();
   const [updated] = await db.update(apiResources).set({
     ...data,
@@ -63,7 +66,7 @@ export async function deleteResource(id: string) {
   await db.delete(apiResources).where(eq(apiResources.id, id));
 }
 
-export async function addScope(resourceId: string, data: { name: string; description?: string }) {
+export async function addScope(resourceId: string, data: SdkEndpointInput<'addScope'>['body']) {
   const db = getDb();
   const [scope] = await db.insert(scopes).values({
     name: data.name,
@@ -94,7 +97,7 @@ export async function removeScope(resourceId: string, scopeId: string): Promise<
   return 'in_use';
 }
 
-export async function updateScope(scopeId: string, data: { name?: string; description?: string }) {
+export async function updateScope(scopeId: string, data: SdkEndpointInput<'updateScope'>['body']) {
   const db = getDb();
   const [scope] = await db.update(scopes).set(data).where(eq(scopes.id, scopeId)).returning();
   return scope;

@@ -1,17 +1,8 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { resetAdminAuthRuntimeForTests } from './auth.js';
+import { adminIdentityFixture, enabledSsoConfig, deferredRequest, runLockOperation } from './auth-fixtures.js';
 
-function deferredRequest() {
-  let resolveRequest;
-  const promise = new Promise((resolve) => {
-    resolveRequest = resolve;
-  });
-  return { promise, resolve: resolveRequest };
-}
-
-async function waitFor(predicate, message) {
+async function waitFor(predicate: () => boolean, message: string) {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 1));
@@ -44,48 +35,50 @@ test('invalidates a callback exchange before remote logout can complete', async 
       expires_at: Math.floor(Date.now() / 1000) + 3_600,
     })],
   ]);
-  const tokenResponse = deferredRequest();
-  const remoteLogoutResponse = deferredRequest();
+  const tokenResponse = deferredRequest<Response>();
+  const remoteLogoutResponse = deferredRequest<Response>();
   let tokenRequests = 0;
   let logoutRequests = 0;
-  const identityAuthorization = [];
+  const identityAuthorization: (string | null)[] = [];
   let currentHref = callbackHref;
   const location = {
     get href() { return currentHref; },
     set href(value) { currentHref = new URL(String(value), currentHref).href; },
     get origin() { return new URL(currentHref).origin; },
     get pathname() { return new URL(currentHref).pathname; },
-    assign(value) { currentHref = new URL(String(value), currentHref).href; },
+    assign(value: string | URL) { currentHref = new URL(String(value), currentHref).href; },
   };
-  globalThis.window = {
+  const browserWindow = {
     document: {},
-    navigator: { locks: { request: async (_name, operation) => operation() } },
+    navigator: { locks: { request: runLockOperation } },
     location,
     history: {
-      replaceState: (_state, _title, nextUrl) => {
+      replaceState: (_state: unknown, _title: string, nextUrl?: string | URL | null) => {
         currentHref = new URL(String(nextUrl), currentHref).href;
       },
     },
     sessionStorage: {
-      getItem: (key) => storageValues.get(key) ?? null,
-      setItem: (key, value) => storageValues.set(key, value),
-      removeItem: (key) => storageValues.delete(key),
+      getItem: (key: string) => storageValues.get(key) ?? null,
+      setItem: (key: string, value: string) => storageValues.set(key, value),
+      removeItem: (key: string) => storageValues.delete(key),
     },
   };
+  Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: browserWindow });
   globalThis.Request = class BrowserRequest extends OriginalRequest {
-    constructor(input, init) {
+    constructor(input: RequestInfo | URL, init?: RequestInit) {
       super(typeof input === 'string' && input.startsWith('/')
         ? new URL(input, location.href)
         : input, init);
     }
   };
-  globalThis.fetch = async (input, init = {}) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const requestUrl = new URL(
       input && typeof input === 'object' && 'url' in input ? input.url : String(input),
       location.href,
     );
     if (requestUrl.pathname === '/api/v1/public/admin-sso-config') {
       return Response.json({
+        ...enabledSsoConfig,
         enabled: true,
         issuer: 'https://issuer.example.test',
         client_id: 'admin-client',
@@ -115,10 +108,10 @@ test('invalidates a callback exchange before remote logout can complete', async 
         ? input.headers
         : new Headers(init.headers);
       identityAuthorization.push(new Headers(headers).get('Authorization'));
-      return Response.json({ id: 'admin-1' });
+      return Response.json({ ...adminIdentityFixture, id: 'admin-1' });
     }
     return Response.json({ code: 'not_found' }, { status: 404 });
-  };
+  });
 
   try {
     const authModule = await import('./auth.js');
@@ -171,6 +164,6 @@ test('invalidates a callback exchange before remote logout can complete', async 
     remoteLogoutResponse.resolve(new Response(null, { status: 204 }));
     globalThis.fetch = originalFetch;
     globalThis.Request = OriginalRequest;
-    globalThis.window = originalWindow;
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: originalWindow });
   }
 });

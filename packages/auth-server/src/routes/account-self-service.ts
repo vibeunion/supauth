@@ -3,6 +3,10 @@
 // browser-supplied user ids or service-role credentials.
 
 import { Elysia } from 'elysia';
+import { accountContract, accountOutput, readAccountInput, readAccountNormalization } from '../utils/account-contract.js';
+import { definedFields } from '../utils/defined-fields.js';
+import type { Static } from '../../../shared/src/schema.js';
+import { AccountCenterSchema, ProviderLinkingSchema } from '../../../shared/src/server-account.js';
 import { getConfig } from '../config/index.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
@@ -35,36 +39,14 @@ type LogoutScope = 'local' | 'global' | 'others';
 type GoTruePayloadResult = { ok: true; payload: unknown } | AccountFailure;
 type AccessTokenApplicationResult = { ok: true; clientId: string | null } | AccountFailure;
 
-export interface ProviderLinkingCapability {
-  available: boolean;
-  source: 'gotrue';
-  version: string | null;
-  reason_code: string | null;
-  providers: string[];
-  redirect_to: string | null;
-}
+export type ProviderLinkingCapability = Static<typeof ProviderLinkingSchema>;
 
 interface ProviderLinkRequest {
   provider: string;
   redirectTo: string;
 }
 
-export type AccountCenterConfig = {
-  enabled: boolean;
-  profile: {
-    edit_mode: 'disabled' | 'read_only' | 'editable';
-    fields: string[];
-  };
-  security: {
-    password_change: boolean;
-    mfa: boolean;
-    email_change: boolean;
-    phone_change: boolean;
-  };
-  grants: { enabled: boolean };
-  identities: { enabled: boolean };
-  delete_account: { enabled: boolean; url: string | null };
-};
+export type AccountCenterConfig = Static<typeof AccountCenterSchema>;
 
 const adapter = getSupaCloudAdapter();
 
@@ -108,13 +90,13 @@ function asBoolean(value: unknown, fallback: boolean) {
 }
 
 function asModuleEnabled(value: unknown, fallback: boolean) {
-  return isRecord(value) ? asBoolean(value.enabled, fallback) : fallback;
+  return isRecord(value) ? asBoolean(value["enabled"], fallback) : fallback;
 }
 
 function asSafeFields(value: unknown) {
   if (!Array.isArray(value)) return DEFAULT_ACCOUNT_CENTER_CONFIG.profile.fields;
   const fields = value
-    .filter((field): field is string => typeof field === 'string')
+    .filter((field: unknown): field is string => typeof field === 'string')
     .map((field) => field.trim())
     .filter((field) => /^[a-zA-Z0-9_.:-]{1,64}$/.test(field));
   return fields.length ? Array.from(new Set(fields)).slice(0, 30) : DEFAULT_ACCOUNT_CENTER_CONFIG.profile.fields;
@@ -138,8 +120,8 @@ function unavailableProviderLinking(reasonCode: string): ProviderLinkingCapabili
 function enabledOAuthProviders(authConfig: Record<string, unknown>) {
   const providers = Object.entries(authConfig).flatMap(([key, enabled]) => {
     const match = key.match(/^external_(.+)_enabled$/);
-    if (enabled !== true || !match) return [];
-    const provider = match[1];
+    const provider = match?.[1];
+    if (enabled !== true || provider === undefined) return [];
     if (NON_OAUTH_PROVIDER_CONFIG_NAMES.has(provider) || !OAUTH_PROVIDER_NAME_PATTERN.test(provider)) return [];
     return [provider];
   });
@@ -161,7 +143,7 @@ export function resolveProviderLinkingCapability(
   publicBaseUrl: string,
 ): ProviderLinkingCapability {
   // v2.193 linking-domain groups affect automatic email matching; GoTrue gates this manual ceremony separately.
-  if (authConfig.manual_linking_enabled !== true) return unavailableProviderLinking('manual_linking_disabled');
+  if (authConfig["manual_linking_enabled"] !== true) return unavailableProviderLinking('manual_linking_disabled');
 
   const providers = enabledOAuthProviders(authConfig);
   if (providers.length === 0) return unavailableProviderLinking('oauth_provider_unavailable');
@@ -194,31 +176,31 @@ export function sanitizeAccountCenterConfig(
   nodeEnv = getConfig().nodeEnv,
 ): AccountCenterConfig {
   const row = isRecord(config) ? config : {};
-  const value = isRecord(row.value) ? row.value : row;
-  const profile = isRecord(value.profile) ? value.profile : {};
-  const security = isRecord(value.security) ? value.security : {};
-  const deleteAccount = isRecord(value.delete_account) ? value.delete_account : {};
-  const deleteUrlInput = Object.hasOwn(deleteAccount, 'url') ? deleteAccount.url : value.delete_account_url;
+  const value = isRecord(row["value"]) ? row["value"] : row;
+  const profile = isRecord(value["profile"]) ? value["profile"] : {};
+  const security = isRecord(value["security"]) ? value["security"] : {};
+  const deleteAccount = isRecord(value["delete_account"]) ? value["delete_account"] : {};
+  const deleteUrlInput = Object.hasOwn(deleteAccount, 'url') ? deleteAccount["url"] : value["delete_account_url"];
   const deleteUrlValidation = validateExternalDeleteAccountUrl(deleteUrlInput, nodeEnv);
   const deleteUrl = deleteUrlValidation.ok ? deleteUrlValidation.url : null;
 
   return {
-    enabled: asBoolean(row.enabled, asBoolean(value.enabled, DEFAULT_ACCOUNT_CENTER_CONFIG.enabled)),
+    enabled: asBoolean(row["enabled"], asBoolean(value["enabled"], DEFAULT_ACCOUNT_CENTER_CONFIG.enabled)),
     profile: {
-      edit_mode: asEditMode(profile.edit_mode),
-      fields: asSafeFields(profile.fields),
+      edit_mode: asEditMode(profile["edit_mode"]),
+      fields: asSafeFields(profile["fields"]),
     },
     security: {
-      password_change: asBoolean(security.password_change, DEFAULT_ACCOUNT_CENTER_CONFIG.security.password_change),
-      mfa: asBoolean(security.mfa, DEFAULT_ACCOUNT_CENTER_CONFIG.security.mfa),
-      email_change: asBoolean(security.email_change, DEFAULT_ACCOUNT_CENTER_CONFIG.security.email_change),
-      phone_change: asBoolean(security.phone_change, DEFAULT_ACCOUNT_CENTER_CONFIG.security.phone_change),
+      password_change: asBoolean(security["password_change"], DEFAULT_ACCOUNT_CENTER_CONFIG.security.password_change),
+      mfa: asBoolean(security["mfa"], DEFAULT_ACCOUNT_CENTER_CONFIG.security.mfa),
+      email_change: asBoolean(security["email_change"], DEFAULT_ACCOUNT_CENTER_CONFIG.security.email_change),
+      phone_change: asBoolean(security["phone_change"], DEFAULT_ACCOUNT_CENTER_CONFIG.security.phone_change),
     },
-    grants: { enabled: asModuleEnabled(value.grants, DEFAULT_ACCOUNT_CENTER_CONFIG.grants.enabled) },
-    identities: { enabled: asModuleEnabled(value.identities, DEFAULT_ACCOUNT_CENTER_CONFIG.identities.enabled) },
+    grants: { enabled: asModuleEnabled(value["grants"], DEFAULT_ACCOUNT_CENTER_CONFIG.grants.enabled) },
+    identities: { enabled: asModuleEnabled(value["identities"], DEFAULT_ACCOUNT_CENTER_CONFIG.identities.enabled) },
     delete_account: {
       enabled: deleteUrlValidation.ok
-        ? asBoolean(deleteAccount.enabled, !!deleteUrl)
+        ? asBoolean(deleteAccount["enabled"], !!deleteUrl)
         : false,
       url: deleteUrl,
     },
@@ -226,9 +208,9 @@ export function sanitizeAccountCenterConfig(
 }
 
 function bearerToken(headers: Record<string, string | undefined>): string | null {
-  const authHeader = headers.authorization || '';
+  const authHeader = headers["authorization"] || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : null;
+  return match?.[1]?.trim() || null;
 }
 
 function decodedJwtPayload(encodedPayload: string): Record<string, unknown> | null {
@@ -243,18 +225,19 @@ function decodedJwtPayload(encodedPayload: string): Record<string, unknown> | nu
 
 function accessTokenApplication(accessToken: string): AccessTokenApplicationResult {
   const segments = accessToken.split('.');
-  if (segments.length !== 3 || !/^[A-Za-z0-9_-]+$/.test(segments[1])) {
+  const encodedPayload = segments[1];
+  if (segments.length !== 3 || !encodedPayload || !/^[A-Za-z0-9_-]+$/.test(encodedPayload)) {
     return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token is not a valid JWT.' };
   }
-  const tokenPayload = decodedJwtPayload(segments[1]);
+  const tokenPayload = decodedJwtPayload(encodedPayload);
   if (!tokenPayload) {
     return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token payload is invalid.' };
   }
-  if (tokenPayload.client_id === undefined) return { ok: true, clientId: null };
-  if (typeof tokenPayload.client_id !== 'string' || !tokenPayload.client_id.trim() || tokenPayload.client_id.length > 255) {
+  if (tokenPayload["client_id"] === undefined) return { ok: true, clientId: null };
+  if (typeof tokenPayload["client_id"] !== 'string' || !tokenPayload["client_id"].trim() || tokenPayload["client_id"].length > 255) {
     return { ok: false, status: 401, code: 'invalid_token', message: 'The account access token client_id is invalid.' };
   }
-  return { ok: true, clientId: tokenPayload.client_id };
+  return { ok: true, clientId: tokenPayload["client_id"] };
 }
 
 function goTrueRoute(routePath: string) {
@@ -328,11 +311,11 @@ function goTrueBaseCandidates(runtimeBaseUrls?: string[]) {
   });
 }
 
-async function readJson(response: Response) {
+async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text.trim()) return null;
   try {
-    return JSON.parse(text) as unknown;
+    return JSON.parse(text);
   } catch {
     return null;
   }
@@ -353,19 +336,19 @@ function forbidden(code: string, message: string): AccountFailure {
 
 function sanitizeUser(user: Record<string, unknown>) {
   return {
-    id: user.id,
-    aud: user.aud,
-    role: user.role,
-    email: user.email,
-    phone: user.phone,
-    email_confirmed_at: user.email_confirmed_at,
-    phone_confirmed_at: user.phone_confirmed_at,
-    last_sign_in_at: user.last_sign_in_at,
-    created_at: user.created_at,
-    updated_at: user.updated_at,
-    user_metadata: isRecord(user.user_metadata) ? user.user_metadata : {},
-    app_metadata: isRecord(user.app_metadata) ? user.app_metadata : {},
-    identities: Array.isArray(user.identities) ? user.identities : [],
+    id: user["id"],
+    aud: user["aud"],
+    role: user["role"],
+    email: user["email"],
+    phone: user["phone"],
+    email_confirmed_at: user["email_confirmed_at"],
+    phone_confirmed_at: user["phone_confirmed_at"],
+    last_sign_in_at: user["last_sign_in_at"],
+    created_at: user["created_at"],
+    updated_at: user["updated_at"],
+    user_metadata: isRecord(user["user_metadata"]) ? user["user_metadata"] : {},
+    app_metadata: isRecord(user["app_metadata"]) ? user["app_metadata"] : {},
+    identities: Array.isArray(user["identities"]) ? user["identities"] : [],
   };
 }
 
@@ -375,10 +358,10 @@ function isPrimitiveProfileValue(value: unknown) {
 
 function normalizeProfileData(body: unknown): Record<string, unknown> | AccountFailure {
   const input = isRecord(body) ? body : {};
-  const source = isRecord(input.data)
-    ? input.data
-    : isRecord(input.user_metadata)
-      ? input.user_metadata
+  const source = isRecord(input["data"])
+    ? input["data"]
+    : isRecord(input["user_metadata"])
+      ? input["user_metadata"]
       : input;
   const data: Record<string, unknown> = {};
 
@@ -412,16 +395,16 @@ function normalizeProfileData(body: unknown): Record<string, unknown> | AccountF
 }
 
 function isFailure(value: unknown): value is AccountFailure {
-  return isRecord(value) && 'ok' in value && value.ok === false;
+  return isRecord(value) && 'ok' in value && value["ok"] === false;
 }
 
 function userIdFromUser(user: Record<string, unknown>): string | null {
-  return typeof user.id === 'string' && user.id ? user.id : null;
+  return typeof user["id"] === 'string' && user["id"] ? user["id"] : null;
 }
 
 function normalizeEmail(body: unknown): string | AccountFailure {
   const input = isRecord(body) ? body : {};
-  const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : '';
+  const email = typeof input["email"] === 'string' ? input["email"].trim().toLowerCase() : '';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
     return {
       ok: false,
@@ -435,7 +418,7 @@ function normalizeEmail(body: unknown): string | AccountFailure {
 
 function normalizePhone(body: unknown): string | AccountFailure {
   const input = isRecord(body) ? body : {};
-  const phone = typeof input.phone === 'string' ? input.phone.trim() : '';
+  const phone = typeof input["phone"] === 'string' ? input["phone"].trim() : '';
   if (!/^\+?[0-9 ()-]{6,32}$/.test(phone)) {
     return {
       ok: false,
@@ -483,12 +466,12 @@ function normalizeProviderLinkRequest(
   capability: ProviderLinkingCapability,
 ): ProviderLinkRequest | AccountFailure {
   const input = isRecord(body) ? body : {};
-  const provider = typeof input.provider === 'string' ? input.provider : '';
+  const provider = typeof input["provider"] === 'string' ? input["provider"] : '';
   if (!OAUTH_PROVIDER_NAME_PATTERN.test(provider) || !capability.providers.includes(provider)) {
     return invalidAccountRequest('provider_not_allowed', 'Provider is not enabled for manual identity linking.');
   }
 
-  const redirectTo = normalizedAccountRedirect(input.redirect_to, capability.redirect_to);
+  const redirectTo = normalizedAccountRedirect(input["redirect_to"], capability.redirect_to);
   if (!redirectTo) {
     return invalidAccountRequest('invalid_redirect_to', 'redirect_to must target this account center.');
   }
@@ -497,12 +480,12 @@ function normalizeProviderLinkRequest(
 
 function normalizeTotpEnrollment(body: unknown) {
   const input = isRecord(body) ? body : {};
-  const friendlyName = typeof input.friendly_name === 'string'
-    ? input.friendly_name.trim()
-    : typeof input.name === 'string'
-      ? input.name.trim()
+  const friendlyName = typeof input["friendly_name"] === 'string'
+    ? input["friendly_name"].trim()
+    : typeof input["name"] === 'string'
+      ? input["name"].trim()
       : 'Authenticator app';
-  const issuer = typeof input.issuer === 'string' ? input.issuer.trim() : '';
+  const issuer = typeof input["issuer"] === 'string' ? input["issuer"].trim() : '';
 
   return {
     friendly_name: friendlyName.slice(0, 80) || 'Authenticator app',
@@ -512,7 +495,7 @@ function normalizeTotpEnrollment(body: unknown) {
 
 function normalizeTotpCode(body: unknown): string | AccountFailure {
   const input = isRecord(body) ? body : {};
-  const code = typeof input.code === 'string' ? input.code.replace(/\s+/g, '') : '';
+  const code = typeof input["code"] === 'string' ? input["code"].replace(/\s+/g, '') : '';
   if (!/^\d{6,8}$/.test(code)) {
     return {
       ok: false,
@@ -526,39 +509,39 @@ function normalizeTotpCode(body: unknown): string | AccountFailure {
 
 function challengeIdFrom(body: unknown): string | null {
   const input = isRecord(body) ? body : {};
-  const challengeId = input.challenge_id || input.challengeId;
+  const challengeId = input["challenge_id"] || input["challengeId"];
   return typeof challengeId === 'string' && challengeId.trim() ? challengeId.trim() : null;
 }
 
 function mfaFactorsFromUser(user: Record<string, unknown>) {
-  const candidates = [user.factors, user.mfa_factors];
+  const candidates = [user["factors"], user["mfa_factors"]];
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) return candidate;
   }
-  const appMetadata = isRecord(user.app_metadata) ? user.app_metadata : {};
-  if (Array.isArray(appMetadata.mfa_factors)) return appMetadata.mfa_factors;
+  const appMetadata = isRecord(user["app_metadata"]) ? user["app_metadata"] : {};
+  if (Array.isArray(appMetadata["mfa_factors"])) return appMetadata["mfa_factors"];
   return [];
 }
 
 function publicMfaEnrollmentPayload(payload: Record<string, unknown>) {
-  const totp = isRecord(payload.totp) ? payload.totp : {};
-  const factorId = payload.id || payload.factor_id;
+  const totp = isRecord(payload["totp"]) ? payload["totp"] : {};
+  const factorId = payload["id"] || payload["factor_id"];
   return {
     factor_id: typeof factorId === 'string' ? factorId : '',
     id: typeof factorId === 'string' ? factorId : '',
-    type: payload.type || payload.factor_type || 'totp',
-    status: payload.status || payload.factor_status || 'unverified',
-    friendly_name: payload.friendly_name || payload.name || null,
+    type: payload["type"] || payload["factor_type"] || 'totp',
+    status: payload["status"] || payload["factor_status"] || 'unverified',
+    friendly_name: payload["friendly_name"] || payload["name"] || null,
     totp: {
-      qr_code: typeof totp.qr_code === 'string' ? totp.qr_code : '',
-      uri: typeof totp.uri === 'string' ? totp.uri : '',
+      qr_code: typeof totp["qr_code"] === 'string' ? totp["qr_code"] : '',
+      uri: typeof totp["uri"] === 'string' ? totp["uri"] : '',
     },
   };
 }
 
 function mfaSessionFromVerification(payload: Record<string, unknown>) {
-  const accessToken = typeof payload.access_token === 'string' ? payload.access_token.trim() : '';
-  const refreshToken = typeof payload.refresh_token === 'string' ? payload.refresh_token.trim() : '';
+  const accessToken = typeof payload["access_token"] === 'string' ? payload["access_token"].trim() : '';
+  const refreshToken = typeof payload["refresh_token"] === 'string' ? payload["refresh_token"].trim() : '';
   if (!accessToken || !refreshToken) return null;
   return { access_token: accessToken, refresh_token: refreshToken };
 }
@@ -628,7 +611,7 @@ async function fetchGoTrueJsonWithUserToken(input: {
   runtimeBaseUrls?: string[];
   emptySuccessData?: Record<string, unknown>;
 }): Promise<MfaOperationResult> {
-  const response = await requestGoTrueWithUserToken({
+  const response = await requestGoTrueWithUserToken(definedFields({
     accessToken: input.accessToken,
     routePath: input.routePath,
     init: input.init,
@@ -636,7 +619,7 @@ async function fetchGoTrueJsonWithUserToken(input: {
     fallbackMessage: input.fallbackMessage,
     fetchImpl: input.fetchImpl,
     runtimeBaseUrls: input.runtimeBaseUrls,
-  });
+  }));
   if (!response.ok) return response;
   if (isRecord(response.payload)) return { ok: true, data: response.payload };
   if (response.payload === null && input.emptySuccessData) {
@@ -651,7 +634,7 @@ async function fetchGoTrueJsonWithUserToken(input: {
 }
 
 async function auditProfileUpdate(user: Record<string, unknown>, keys: string[]) {
-  const userId = typeof user.id === 'string' ? user.id : undefined;
+  const userId = typeof user["id"] === 'string' ? user["id"] : undefined;
   if (!userId) return;
 
   await auditRepo.logAudit({
@@ -682,7 +665,7 @@ export async function getAccountWithGoTrue(
     runtimeBaseUrls?: string[];
   } = {},
 ): Promise<AccountResult> {
-  const result = await fetchGoTrueJsonWithUserToken({
+  const result = await fetchGoTrueJsonWithUserToken(definedFields({
     accessToken,
     routePath: '/user',
     init: { method: 'GET' },
@@ -690,7 +673,7 @@ export async function getAccountWithGoTrue(
     fallbackMessage: 'Account lookup failed.',
     fetchImpl: options.fetchImpl,
     runtimeBaseUrls: options.runtimeBaseUrls,
-  });
+  }));
   if (!result.ok) return result;
   return { ok: true, user: sanitizeUser(result.data) };
 }
@@ -704,7 +687,7 @@ export async function updateAccountProfileWithGoTrue(
     audit?: boolean;
   } = {},
 ): Promise<AccountResult> {
-  const result = await fetchGoTrueJsonWithUserToken({
+  const result = await fetchGoTrueJsonWithUserToken(definedFields({
     accessToken,
     routePath: '/user',
     init: {
@@ -715,7 +698,7 @@ export async function updateAccountProfileWithGoTrue(
     fallbackMessage: 'Profile update failed.',
     fetchImpl: options.fetchImpl,
     runtimeBaseUrls: options.runtimeBaseUrls,
-  });
+  }));
   if (!result.ok) return result;
   const user = sanitizeUser(result.data);
   if (options.audit !== false) {
@@ -798,7 +781,7 @@ export async function verifyTotpMfaWithGoTrue(
       ...options,
     });
     if (!challenge.ok) return challenge;
-    const rawChallengeId = challenge.data.id || challenge.data.challenge_id;
+    const rawChallengeId = challenge.data["id"] || challenge.data["challenge_id"];
     challengeId = typeof rawChallengeId === 'string' ? rawChallengeId : null;
     if (!challengeId) {
       return {
@@ -902,9 +885,9 @@ export function unlinkIdentityWithGoTrue(
 }
 
 function providerAuthorizationUrl(payload: unknown) {
-  if (!isRecord(payload) || typeof payload.url !== 'string') return null;
+  if (!isRecord(payload) || typeof payload["url"] !== 'string') return null;
   try {
-    const authorizationUrl = new URL(payload.url);
+    const authorizationUrl = new URL(payload["url"]);
     if (!['http:', 'https:'].includes(authorizationUrl.protocol)
       || authorizationUrl.username
       || authorizationUrl.password) return null;
@@ -1053,28 +1036,29 @@ export function createPublicAccountRoutes(options?: {
   return new Elysia({ prefix: '/v1/public/account' })
     .get('/config', async () => {
       const [config, providerLinking] = await Promise.all([getPublicConfig(), getProviderLinking()]);
-      return {
+      return accountOutput('config', {
         success: true,
         config,
         capabilities: { provider_linking: providerLinking },
-      };
-    }, {
+      });
+    }, accountContract('config', {
       detail: { summary: 'Get public account center configuration', tags: ['Public', 'Account Center'] },
-    })
-    .get('/me', async ({ headers, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .get('/me', async ({ headers, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(set, () => true, 'account_center_disabled', 'Account center is disabled.');
       if (!feature.ok) return feature.response;
-      return { success: true, user: account.user };
-    }, {
+      readAccountInput('me', request, { headers });
+      return accountOutput('me', { success: true, user: account.user });
+    }, accountContract('me', {
       detail: { summary: 'Get current account profile with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .get('/permissions', async ({ headers, query, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .get('/permissions', async ({ headers, query, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
-      const applicationId = typeof query.application_id === 'string' ? query.application_id.trim() : '';
-      const orgId = typeof query.org_id === 'string' ? query.org_id.trim() : undefined;
+      const applicationId = typeof query["application_id"] === 'string' ? query["application_id"].trim() : '';
+      const orgId = typeof query["org_id"] === 'string' ? query["org_id"].trim() : undefined;
       if (!applicationId || applicationId.length > 255) {
         set.status = 400;
         return {
@@ -1105,17 +1089,18 @@ export function createPublicAccountRoutes(options?: {
           },
         };
       }
-      const resolved = await resolvePermissions(account.userId, orgId || undefined, applicationId);
-      return {
+      const input = readAccountInput('permissions', request, { headers, query });
+      const resolved = await resolvePermissions(account.userId, input.query.org_id?.trim() || undefined, input.query.application_id.trim());
+      return accountOutput('permissions', {
         ...(isRecord(resolved) ? resolved : { data: resolved }),
         success: true,
         application_id: applicationId,
-      };
-    }, {
+      });
+    }, accountContract('permissions', {
       detail: { summary: 'Resolve current user permissions for one application', tags: ['Public', 'Account Center', 'RBAC'] },
-    })
-    .patch('/profile', async ({ headers, body, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .patch('/profile', async ({ headers, body, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1131,17 +1116,18 @@ export function createPublicAccountRoutes(options?: {
         return { success: false, error: { code: data.code, message: data.message } };
       }
 
-      const result = await updateProfile(account.token, data);
+      readAccountInput('profile', request, { headers, body });
+      const result = await updateProfile(account.token, readAccountNormalization('profile', request, data));
       if (!result.ok) {
         set.status = result.status;
         return { success: false, error: { code: result.code, message: result.message } };
       }
-      return { success: true, user: result.user };
-    }, {
+      return accountOutput('profile', { success: true, user: result.user });
+    }, accountContract('profile', {
       detail: { summary: 'Update current account profile metadata with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .patch('/email', async ({ headers, body, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .patch('/email', async ({ headers, body, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1151,23 +1137,24 @@ export function createPublicAccountRoutes(options?: {
       );
       if (!feature.ok) return feature.response;
       const email = normalizeEmail(body);
-      if (isFailure(email as AccountFailure)) {
-        const failure = email as AccountFailure;
+      if (isFailure(email)) {
+        const failure = email;
         set.status = failure.status;
         return { success: false, error: { code: failure.code, message: failure.message } };
       }
-      const result = await updateContact(account.token, { email: email as string });
+      readAccountInput('email', request, { headers, body });
+      const result = await updateContact(account.token, { email });
       if (!result.ok) {
         set.status = result.status;
         return { success: false, error: { code: result.code, message: result.message } };
       }
       await auditEvent('my_account.email.change_requested', account.userId);
-      return { success: true, user: result.user, status: 'verification_required' };
-    }, {
+      return accountOutput('email', { success: true, user: result.user, status: 'verification_required' });
+    }, accountContract('email', {
       detail: { summary: 'Request current account email change with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .patch('/phone', async ({ headers, body, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .patch('/phone', async ({ headers, body, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1177,33 +1164,34 @@ export function createPublicAccountRoutes(options?: {
       );
       if (!feature.ok) return feature.response;
       const phone = normalizePhone(body);
-      if (isFailure(phone as AccountFailure)) {
-        const failure = phone as AccountFailure;
+      if (isFailure(phone)) {
+        const failure = phone;
         set.status = failure.status;
         return { success: false, error: { code: failure.code, message: failure.message } };
       }
-      const result = await updateContact(account.token, { phone: phone as string });
+      readAccountInput('phone', request, { headers, body });
+      const result = await updateContact(account.token, { phone });
       if (!result.ok) {
         set.status = result.status;
         return { success: false, error: { code: result.code, message: result.message } };
       }
       await auditEvent('my_account.phone.change_requested', account.userId);
-      return { success: true, user: result.user, status: 'verification_required' };
-    }, {
+      return accountOutput('phone', { success: true, user: result.user, status: 'verification_required' });
+    }, accountContract('phone', {
       detail: { summary: 'Request current account phone change with user access token', tags: ['Public', 'Account Center'] },
-    })
+    }))
     .get('/sessions', async () => {
       throw capabilityUnavailable('gotrue_user_session_listing');
-    }, {
+    }, accountContract('sessions', {
       detail: { hide: true },
-    })
+    }))
     .post('/sessions/:sessionId/revoke', async () => {
       throw capabilityUnavailable('gotrue_user_session_revoke_by_id');
-    }, {
+    }, accountContract('revokeSession', {
       detail: { hide: true },
-    })
-    .get('/grants', async ({ headers, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .get('/grants', async ({ headers, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1212,17 +1200,18 @@ export function createPublicAccountRoutes(options?: {
         'Application grants management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
+      readAccountInput('grants', request, { headers });
       const grantList = await listGrants(account.token);
       if (!grantList.ok) {
         set.status = grantList.status;
         return { success: false, error: { code: grantList.code, message: grantList.message } };
       }
-      return { success: true, items: grantList.items, total: grantList.total };
-    }, {
+      return accountOutput('grants', { success: true, items: grantList.items, total: grantList.total });
+    }, accountContract('grants', {
       detail: { summary: 'List current account application grants with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .delete('/grants/:clientId', async ({ headers, params, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .delete('/grants/:clientId', async ({ headers, params, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1231,18 +1220,19 @@ export function createPublicAccountRoutes(options?: {
         'Application grants management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
-      const grantRevocation = await revokeGrant(account.token, params.clientId);
+      const input = readAccountInput('revokeGrant', request, { headers, params });
+      const grantRevocation = await revokeGrant(account.token, input.params.clientId);
       if (!grantRevocation.ok) {
         set.status = grantRevocation.status;
         return { success: false, error: { code: grantRevocation.code, message: grantRevocation.message } };
       }
       await auditEvent('my_account.grant.revoked', account.userId, { client_id: params.clientId });
-      return { success: true, result: grantRevocation.data };
-    }, {
+      return accountOutput('revokeGrant', { success: true, result: grantRevocation.data });
+    }, accountContract('revokeGrant', {
       detail: { summary: 'Revoke current account application grant with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .get('/identities', async ({ headers, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .get('/identities', async ({ headers, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1251,13 +1241,14 @@ export function createPublicAccountRoutes(options?: {
         'Identity management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
-      const items = Array.isArray(account.user.identities) ? account.user.identities : [];
-      return { success: true, items, total: items.length };
-    }, {
+      readAccountInput('identities', request, { headers });
+      const items = Array.isArray(account.user["identities"]) ? account.user["identities"] : [];
+      return accountOutput('identities', { success: true, items, total: items.length });
+    }, accountContract('identities', {
       detail: { summary: 'List current account identities with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .post('/identities/authorize', async ({ headers, body, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .post('/identities/authorize', async ({ headers, body, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1286,17 +1277,18 @@ export function createPublicAccountRoutes(options?: {
         return { success: false, error: { code: linkRequest.code, message: linkRequest.message } };
       }
 
+      readAccountInput('authorizeIdentity', request, { headers, body });
       const authorization = await authorizeIdentityLink(account.token, linkRequest);
       if (!authorization.ok) {
         set.status = authorization.status;
         return { success: false, error: { code: authorization.code, message: authorization.message } };
       }
-      return { success: true, authorization: authorization.data };
-    }, {
+      return accountOutput('authorizeIdentity', { success: true, authorization: authorization.data });
+    }, accountContract('authorizeIdentity', {
       detail: { summary: 'Start current account manual identity linking with GoTrue', tags: ['Public', 'Account Center'] },
-    })
-    .delete('/identities/:identityId', async ({ headers, params, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .delete('/identities/:identityId', async ({ headers, params, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1305,51 +1297,53 @@ export function createPublicAccountRoutes(options?: {
         'Identity management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
-      const identityUnlink = await unlinkIdentity(account.token, params.identityId);
+      const input = readAccountInput('unlinkIdentity', request, { headers, params });
+      const identityUnlink = await unlinkIdentity(account.token, input.params.identityId);
       if (!identityUnlink.ok) {
         set.status = identityUnlink.status;
         return { success: false, error: { code: identityUnlink.code, message: identityUnlink.message } };
       }
       await auditEvent('my_account.identity.unlinked', account.userId, { identity_id: params.identityId });
-      return { success: true, result: identityUnlink.data };
-    }, {
+      return accountOutput('unlinkIdentity', { success: true, result: identityUnlink.data });
+    }, accountContract('unlinkIdentity', {
       detail: { summary: 'Unlink current account identity with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .post('/logout', async ({ headers, query, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .post('/logout', async ({ headers, query, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
-      const scope = normalizeLogoutScope(query.scope);
+      const scope = normalizeLogoutScope(query["scope"]);
       if (typeof scope !== 'string') {
         set.status = scope.status;
         return { success: false, error: { code: scope.code, message: scope.message } };
       }
+      readAccountInput('logout', request, { headers, query });
       const logoutOperation = await logout(account.token, scope);
       if (!logoutOperation.ok) {
         set.status = logoutOperation.status;
         return { success: false, error: { code: logoutOperation.code, message: logoutOperation.message } };
       }
       await auditEvent('my_account.logged_out', account.userId, { scope });
-      return { success: true, result: logoutOperation.data };
-    }, {
+      return accountOutput('logout', { success: true, result: logoutOperation.data });
+    }, accountContract('logout', {
       detail: { summary: 'Log out the current GoTrue account by scope', tags: ['Public', 'Account Center'] },
-    })
+    }))
     .get('/passkeys', async () => {
       throw capabilityUnavailable('gotrue_passkey_ceremony');
-    }, {
+    }, accountContract('passkeys', {
       detail: { hide: true },
-    })
+    }))
     .put('/passkeys/:passkeyId/rename', async () => {
       throw capabilityUnavailable('gotrue_passkey_ceremony');
-    }, {
+    }, accountContract('renamePasskey', {
       detail: { hide: true },
-    })
+    }))
     .delete('/passkeys/:passkeyId', async () => {
       throw capabilityUnavailable('gotrue_passkey_ceremony');
-    }, {
+    }, accountContract('deletePasskey', {
       detail: { hide: true },
-    })
-      .get('/mfa', async ({ headers, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+      .get('/mfa', async ({ headers, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1358,13 +1352,14 @@ export function createPublicAccountRoutes(options?: {
         'MFA management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
+      readAccountInput('mfa', request, { headers });
       const items = mfaFactorsFromUser(account.user);
-      return { success: true, items, total: items.length };
-      }, {
+      return accountOutput('mfa', { success: true, items, total: items.length });
+      }, accountContract('mfa', {
         detail: { summary: 'List current account MFA factors with user access token', tags: ['Public', 'Account Center'] },
-      })
-      .post('/mfa/totp/enroll', async ({ headers, body, set }) => {
-        const account = await requireAccount(headers as Record<string, string | undefined>, set);
+      }))
+      .post('/mfa/totp/enroll', async ({ headers, body, set, request }) => {
+        const account = await requireAccount(headers, set);
         if (!account.ok) return account.response;
         const feature = await requireFeature(
           set,
@@ -1373,19 +1368,20 @@ export function createPublicAccountRoutes(options?: {
           'MFA management is disabled for this account center.',
         );
         if (!feature.ok) return feature.response;
-        const result = await enrollTotpMfa(account.token, normalizeTotpEnrollment(body));
+        const input = readAccountNormalization('enrollment', request, normalizeTotpEnrollment(body));
+        const result = await enrollTotpMfa(account.token, input);
         if (!result.ok) {
           set.status = result.status;
           return { success: false, error: { code: result.code, message: result.message } };
         }
         const enrollment = publicMfaEnrollmentPayload(result.data);
         await auditEvent('my_account.mfa.totp.enrolled', account.userId, { factor_id: enrollment.factor_id || null });
-        return { success: true, enrollment };
-      }, {
+        return accountOutput('enroll', { success: true, enrollment });
+      }, accountContract('enroll', {
         detail: { summary: 'Enroll current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
-      })
-      .post('/mfa/:factorId/verify', async ({ headers, params, body, set }) => {
-        const account = await requireAccount(headers as Record<string, string | undefined>, set);
+      }))
+      .post('/mfa/:factorId/verify', async ({ headers, params, body, set, request }) => {
+        const account = await requireAccount(headers, set);
         if (!account.ok) return account.response;
         const feature = await requireFeature(
           set,
@@ -1395,13 +1391,14 @@ export function createPublicAccountRoutes(options?: {
         );
         if (!feature.ok) return feature.response;
         const code = normalizeTotpCode(body);
-        if (isFailure(code as AccountFailure)) {
-          const failure = code as AccountFailure;
+        if (isFailure(code)) {
+          const failure = code;
           set.status = failure.status;
           return { success: false, error: { code: failure.code, message: failure.message } };
         }
-        const result = await verifyTotpMfa(account.token, params.factorId, {
-          code: code as string,
+        const input = readAccountInput('verify', request, { headers, params, body });
+        const result = await verifyTotpMfa(account.token, input.params.factorId, {
+          code,
           challengeId: challengeIdFrom(body),
         });
         if (!result.ok) {
@@ -1420,17 +1417,17 @@ export function createPublicAccountRoutes(options?: {
           };
         }
         await auditEvent('my_account.mfa.totp.verified', account.userId, { factor_id: params.factorId });
-        return {
+        return accountOutput('verify', {
           success: true,
           result: publicMfaVerificationPayload(result.data),
           session: upgradedSession,
           status: 'verified',
-        };
-      }, {
+        });
+      }, accountContract('verify', {
         detail: { summary: 'Verify current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
-      })
-    .delete('/mfa/:factorId', async ({ headers, params, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+      }))
+    .delete('/mfa/:factorId', async ({ headers, params, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1439,18 +1436,19 @@ export function createPublicAccountRoutes(options?: {
         'MFA management is disabled for this account center.',
       );
       if (!feature.ok) return feature.response;
-      const result = await unenrollMfa(account.token, params.factorId);
+      const input = readAccountInput('unenroll', request, { headers, params });
+      const result = await unenrollMfa(account.token, input.params.factorId);
       if (!result.ok) {
         set.status = result.status;
         return { success: false, error: { code: result.code, message: result.message } };
       }
       await auditEvent('my_account.mfa.unenrolled', account.userId, { factor_id: params.factorId });
-      return { success: true, result: result.data, status: 'unenrolled' };
-    }, {
+      return accountOutput('unenroll', { success: true, result: result.data, status: 'unenrolled' });
+    }, accountContract('unenroll', {
       detail: { summary: 'Unenroll current account MFA factor with user access token', tags: ['Public', 'Account Center'] },
-    })
-    .delete('/', async ({ headers, body, set }) => {
-      const account = await requireAccount(headers as Record<string, string | undefined>, set);
+    }))
+    .delete('/', async ({ headers, body, set, request }) => {
+      const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
         set,
@@ -1460,7 +1458,7 @@ export function createPublicAccountRoutes(options?: {
       );
       if (!feature.ok) return feature.response;
       const input = isRecord(body) ? body : {};
-      if (input.confirmation !== 'DELETE') {
+      if (input["confirmation"] !== 'DELETE') {
         set.status = 400;
         return {
           success: false,
@@ -1470,10 +1468,11 @@ export function createPublicAccountRoutes(options?: {
           },
         };
       }
-      return { success: true, result: await deleteAccount(account.userId), status: 'deleted' };
-    }, {
+      readAccountInput('delete', request, { headers, body });
+      return accountOutput('delete', { success: true, result: await deleteAccount(account.userId), status: 'deleted' });
+    }, accountContract('delete', {
       detail: { summary: 'Delete current account with user access token', tags: ['Public', 'Account Center'] },
-    });
+    }));
 }
 
 export const publicAccountRoutes = createPublicAccountRoutes();

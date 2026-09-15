@@ -219,6 +219,7 @@ const CATALOG_BY_NAME = Object.fromEntries(
   PERMISSION_CATALOG.map((permission) => [permission.name, permission]),
 );
 
+/** @param {string | null | undefined} name */
 export function permissionMeta(name) {
   if (!name) return null;
   if (CATALOG_BY_NAME[name]) return CATALOG_BY_NAME[name];
@@ -233,6 +234,7 @@ export function permissionMeta(name) {
   };
 }
 
+/** @param {{name: string, description?: string | null}} perm @param {(key: string) => string} t */
 export function permissionLabel(perm, t) {
   const meta = permissionMeta(perm.name);
   if (meta?.labelKey) return t(meta.labelKey);
@@ -240,6 +242,7 @@ export function permissionLabel(perm, t) {
   return perm.name;
 }
 
+/** @param {{name: string, description?: string | null}} perm @param {(key: string) => string} t */
 export function permissionDescription(perm, t) {
   const meta = permissionMeta(perm.name);
   if (meta?.descKey) return t(meta.descKey);

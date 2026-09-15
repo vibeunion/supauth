@@ -1,3 +1,4 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 import { principalHasAction, requiredAdminAction } from '../auth/admin-permissions.js';
@@ -24,16 +25,16 @@ const { loadConfig } = await import('../config/index.js');
 
 describe('Auth module — exported functions', () => {
   beforeEach(() => {
-    process.env.ADMIN_TOKEN = 'test-admin-token';
-    process.env.ADMIN_AUTH_MODE = 'auto';
+    process.env["ADMIN_TOKEN"] = 'test-admin-token';
+    process.env["ADMIN_AUTH_MODE"] = 'auto';
     process.env.NODE_ENV = 'test';
-    delete process.env.ADMIN_SSO_ISSUER;
-    delete process.env.ADMIN_SSO_CLIENT_ID;
-    delete process.env.ADMIN_SSO_JWKS_URI;
-    delete process.env.ADMIN_SSO_REQUIRE_AAL2;
-    delete process.env.ADMIN_SSO_ALLOWED_EMAILS;
-    delete process.env.ADMIN_SSO_ALLOWED_DOMAINS;
-    process.env.PROJECT_REF = 'project-one';
+    delete process.env["ADMIN_SSO_ISSUER"];
+    delete process.env["ADMIN_SSO_CLIENT_ID"];
+    delete process.env["ADMIN_SSO_JWKS_URI"];
+    delete process.env["ADMIN_SSO_REQUIRE_AAL2"];
+    delete process.env["ADMIN_SSO_ALLOWED_EMAILS"];
+    delete process.env["ADMIN_SSO_ALLOWED_DOMAINS"];
+    process.env["PROJECT_REF"] = 'project-one';
     loadConfig();
   });
 
@@ -60,11 +61,11 @@ describe('Auth module — exported functions', () => {
   });
 
   it('accepts the Function-scoped admin token alias', async () => {
-    const previousToken = process.env.ADMIN_TOKEN;
-    const previousScopedToken = process.env.EDGEFN_SUPAUTH_ADMIN_TOKEN;
+    const previousToken = process.env["ADMIN_TOKEN"];
+    const previousScopedToken = process.env["EDGEFN_SUPAUTH_ADMIN_TOKEN"];
     try {
-      delete process.env.ADMIN_TOKEN;
-      process.env.EDGEFN_SUPAUTH_ADMIN_TOKEN = 'scoped-admin-token';
+      delete process.env["ADMIN_TOKEN"];
+      process.env["EDGEFN_SUPAUTH_ADMIN_TOKEN"] = 'scoped-admin-token';
 
       const response = await authRoutes.handle(new Request('http://localhost/v1/auth/login', {
         method: 'POST',
@@ -75,25 +76,25 @@ describe('Auth module — exported functions', () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ success: true });
     } finally {
-      if (previousToken === undefined) delete process.env.ADMIN_TOKEN;
-      else process.env.ADMIN_TOKEN = previousToken;
-      if (previousScopedToken === undefined) delete process.env.EDGEFN_SUPAUTH_ADMIN_TOKEN;
-      else process.env.EDGEFN_SUPAUTH_ADMIN_TOKEN = previousScopedToken;
+      if (previousToken === undefined) delete process.env["ADMIN_TOKEN"];
+      else process.env["ADMIN_TOKEN"] = previousToken;
+      if (previousScopedToken === undefined) delete process.env["EDGEFN_SUPAUTH_ADMIN_TOKEN"];
+      else process.env["EDGEFN_SUPAUTH_ADMIN_TOKEN"] = previousScopedToken;
     }
   });
 });
 
 describe('Auth module — project-scoped schema v2 claims', () => {
   beforeEach(() => {
-    delete process.env.SUPACLOUD_AUTH_AUTHORITY_REF;
-    delete process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
-    process.env.PROJECT_REF = 'project-one';
+    delete process.env["SUPACLOUD_AUTH_AUTHORITY_REF"];
+    delete process.env["SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF"];
+    process.env["PROJECT_REF"] = 'project-one';
     loadConfig();
   });
 
   it('prefers the SupaCloud auth authority ref for the existing authority setting', () => {
-    process.env.SUPACLOUD_AUTH_AUTHORITY_REF = 'authority-project';
-    process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'legacy-authority-project';
+    process.env["SUPACLOUD_AUTH_AUTHORITY_REF"] = 'authority-project';
+    process.env["SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF"] = 'legacy-authority-project';
 
     expect(loadConfig().oauthAuthorizationProjectRef).toBe('authority-project');
   });
@@ -410,7 +411,7 @@ describe('Auth module — guard and route structure', () => {
   });
 
   it('accepts the case-insensitive Bearer scheme from OAuth token responses', async () => {
-    process.env.ADMIN_TOKEN = 'request-scoped-admin-token';
+    process.env["ADMIN_TOKEN"] = 'request-scoped-admin-token';
     const { adminAuthGuard, authRoutes } = await import('../auth/index.js');
     const app = new Elysia()
       .use(authRoutes)
@@ -422,11 +423,11 @@ describe('Auth module — guard and route structure', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: 'request-scoped-admin-token' }),
     }));
-    const loginPayload = await login.json() as { token: string };
+    const loginPayload = strictDecodeSchema(StrictType.Object({ "token": StrictType.String() }), await login.json());
     const response = await app.handle(new Request('http://localhost/v1/users/principal-probe', {
       headers: { authorization: `bearer ${loginPayload.token}`, 'x-request-id': 'principal-request' },
     }));
-    const principal = await response.json() as { id: string; authorization_source: string; permissions: string[] };
+    const principal = strictDecodeSchema(StrictType.Object({ "id": StrictType.String(), "authorization_source": StrictType.String(), "permissions": StrictType.Array(StrictType.String()) }), await response.json());
 
     expect(response.status).toBe(200);
     expect(principal.id).toBe('admin');
@@ -436,9 +437,7 @@ describe('Auth module — guard and route structure', () => {
 
   it('returns the required action and request correlation in permission failures', async () => {
     const response = adminPermissionFailureResponse('users.manage', 'permission-request');
-    const payload = await response.json() as {
-      error: { code: string; correlation_id: string; details: { required_action: string } };
-    };
+    const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String(), "correlation_id": StrictType.String(), "details": StrictType.Object({ "required_action": StrictType.String() }) }) }), await response.json());
 
     expect(response.status).toBe(403);
     expect(payload.error.code).toBe('insufficient_permissions');

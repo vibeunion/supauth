@@ -1,6 +1,7 @@
 import type { AuthProvider, CheckResult } from '@svadmin/core';
 import type { AdminMfaFactor, AdminMfaStepUpState } from '../lib/admin-mfa-step-up';
 import { runBoundedAdminRequest } from '../lib/admin-api';
+import { isUnknownFunction, isUnknownRecord } from '../lib/unknown-value.js';
 
 type AdminInitializationErrorCode =
   | 'authentication_required'
@@ -48,18 +49,39 @@ type AdminAttemptPreparation = (signal: AbortSignal) => Promise<void>;
 async function skipAttemptPreparation(): Promise<void> {}
 
 function errorRecord(error: unknown): Record<string, unknown> | null {
-  return typeof error === 'object' && error !== null
-    ? error as Record<string, unknown>
-    : null;
+  return isUnknownRecord(error) ? error : null;
+}
+
+function deferredRedirectHooks(value: object): DeferredRedirectResult {
+  const commit = 'commitRedirect' in value ? value.commitRedirect : undefined;
+  const rollback = 'rollbackRedirect' in value ? value.rollbackRedirect : undefined;
+  if (commit !== undefined && !isUnknownFunction(commit)
+    || rollback !== undefined && !isUnknownFunction(rollback)) {
+    throw new TypeError('Invalid deferred login redirect hooks');
+  }
+  return {
+    ...(isUnknownFunction(commit) ? {
+      commitRedirect: async (signal: AbortSignal): Promise<void> => {
+        const result = await commit.call(value, signal);
+        if (result !== undefined) throw new TypeError('Invalid deferred redirect commit result');
+      },
+    } : {}),
+    ...(isUnknownFunction(rollback) ? {
+      rollbackRedirect: async (): Promise<void> => {
+        const result = await rollback.call(value);
+        if (result !== undefined) throw new TypeError('Invalid deferred redirect rollback result');
+      },
+    } : {}),
+  };
 }
 
 function initializationErrorCode(error: unknown): AdminInitializationErrorCode {
   const record = errorRecord(error);
-  if (record?.code === 'request_timeout') return 'request_timeout';
-  if (record?.code === 'request_aborted') return 'request_aborted';
-  if (record?.statusCode === 401 || record?.status === 401) return 'authentication_required';
-  if (record?.statusCode === 403 || record?.status === 403) return 'forbidden';
-  if (record?.statusCode === 503 || record?.status === 503) return 'service_unavailable';
+  if (record?.["code"] === 'request_timeout') return 'request_timeout';
+  if (record?.["code"] === 'request_aborted') return 'request_aborted';
+  if (record?.["statusCode"] === 401 || record?.["status"] === 401) return 'authentication_required';
+  if (record?.["statusCode"] === 403 || record?.["status"] === 403) return 'forbidden';
+  if (record?.["statusCode"] === 503 || record?.["status"] === 503) return 'service_unavailable';
   return 'initialization_failed';
 }
 
@@ -107,7 +129,7 @@ async function unauthenticatedState(
   if (loginResult.success && !loginResult.redirectTo)
     return { kind: 'login_started', pending: false, provider };
   if (loginResult.redirectTo && loginResult.success !== false) {
-    const deferredRedirect = loginResult as typeof loginResult & DeferredRedirectResult;
+    const deferredRedirect = deferredRedirectHooks(loginResult);
     return {
       kind: 'redirect',
       pending: false,
@@ -180,7 +202,7 @@ export function createAdminAuthInitializationController(
             signal,
           );
         },
-        { signal: controller.signal, timeoutMs: dependencies.timeoutMs },
+        { signal: controller.signal, ...(dependencies.timeoutMs === undefined ? {} : { timeoutMs: dependencies.timeoutMs }) },
       );
       commit(attemptGeneration, state);
     } catch (error) {

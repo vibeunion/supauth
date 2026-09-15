@@ -94,7 +94,7 @@ function mockFetch(
 
   return async (input: string | URL, init?: RequestInit) => {
     const url = new URL(String(input));
-    requestLog.push({ url, init });
+    requestLog.push({ url, ...(init === undefined ? {} : { init }) });
     if (url.protocol === 'http:' && url.pathname.startsWith('/.well-known/supauth-https-redirect/')) {
       const status = overrides[url.pathname] ?? 308;
       const configuredHeaders = responseHeaders[url.pathname];

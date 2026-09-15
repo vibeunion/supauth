@@ -1,15 +1,13 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { describe, expect, mock, test } from 'bun:test';
 import { AdminMfaStepUp, createAdminSsoStorage } from './admin-mfa-step-up.js';
 
 function storage() {
-  const values = new Map();
+  const values = new Map<string, string>();
   return {
     values,
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, value),
-    removeItem: (key) => values.delete(key),
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
   };
 }
 
@@ -23,7 +21,9 @@ function session(accessToken = 'access-aal1') {
   };
 }
 
-function client(overrides = {}) {
+type MfaClient = NonNullable<ConstructorParameters<typeof AdminMfaStepUp>[2]>;
+
+function client(overrides: Partial<MfaClient> = {}) {
   return {
     setSession: mock(async () => ({
       data: { session: { access_token: 'access-aal1', refresh_token: 'refresh-aal1' } },
@@ -50,6 +50,12 @@ function client(overrides = {}) {
     },
     ...overrides,
   };
+}
+
+function storedSession(backing: ReturnType<typeof storage>): unknown {
+  const raw = backing.getItem('actual-provider-key');
+  if (raw === null) throw new Error('Expected stored OAuth session');
+  return JSON.parse(raw);
 }
 
 describe('admin MFA post-exchange step-up', () => {
@@ -116,7 +122,7 @@ describe('admin MFA post-exchange step-up', () => {
     await stepUp.verify('factor-1', '123456');
 
     expect(mfaClient.mfa.challengeAndVerify).toHaveBeenCalledWith({ factorId: 'factor-1', code: '123456' });
-    expect(JSON.parse(backing.getItem('actual-provider-key'))).toEqual({
+    expect(storedSession(backing)).toEqual({
       access_token: 'access-aal2',
       refresh_token: 'refresh-aal2',
       id_token: 'id-token',
@@ -160,7 +166,7 @@ describe('admin MFA post-exchange step-up', () => {
     );
 
     await expect(stepUp.verify('factor-1', '123456')).rejects.toThrow('未返回可用于管理员 MFA 的升级会话');
-    expect(JSON.parse(backing.getItem('actual-provider-key'))).toEqual(session());
+    expect(storedSession(backing)).toEqual(session());
   });
 
   test('does not observe a partial provider session without a refresh token', () => {
@@ -200,6 +206,6 @@ describe('admin MFA post-exchange step-up', () => {
     );
 
     await expect(stepUp.verify('factor-1', '123456')).rejects.toThrow('会话在 MFA 验证期间已变化');
-    expect(JSON.parse(backing.getItem('actual-provider-key'))).toEqual(session('access-new-login'));
+    expect(storedSession(backing)).toEqual(session('access-new-login'));
   });
 });

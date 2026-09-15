@@ -1,5 +1,3 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { describe, expect, it } from 'bun:test';
 import {
   SUPAOAUTH_ORGANIZATION_MEMBERSHIP_FIELD_LENGTH_LIMIT,
@@ -14,7 +12,7 @@ import { buildJwtExtensionExample, validateExtensionDraft } from './jwt-preview.
 
 const projectRef = 'project-one';
 
-function draftForProject(projectProjection) {
+function draftForProject(projectProjection: unknown) {
   return JSON.stringify({
     app_metadata: {
       supaoauth: {
@@ -25,7 +23,7 @@ function draftForProject(projectProjection) {
   });
 }
 
-function validationCodes(rawDraft) {
+function validationCodes(rawDraft: string) {
   return validateExtensionDraft(rawDraft).errors.map((validationError) => validationError.code);
 }
 
@@ -58,7 +56,7 @@ describe('Customize JWT preview validation', () => {
     }));
 
     expect(validation.errors).toEqual([]);
-    expect(validation.value?.app_metadata.supaoauth.projects[projectRef].roles).toEqual(['tenant_admin']);
+    expect(validation.value?.app_metadata.supaoauth.projects[projectRef]?.roles).toEqual(['tenant_admin']);
   });
 
   it('rejects protected and legacy top-level claims', () => {

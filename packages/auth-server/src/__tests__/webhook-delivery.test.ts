@@ -1,14 +1,16 @@
+import { strictProperty } from './helpers/strict-values.js';
+import { strictFetch } from './helpers/strict-fetch.js';
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { withRequestContext } from '../auth/request-context.js';
 
 describe('Webhook delivery — buildEvent', () => {
   it('builds event envelope with stable id, type, and versioned timestamp', async () => {
-    process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-    process.env.PROJECT_REF = 'test-ref';
-    process.env.DATABASE_URL = 'postgres://test';
-    process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
-    process.env.RUNTIME_MODE = 'gotrue';
+    process.env["SUPACLOUD_API_URL"] = 'http://localhost:9090';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = 'test-token';
+    process.env["PROJECT_REF"] = 'test-ref';
+    process.env["DATABASE_URL"] = 'postgres://test';
+    process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.test';
+    process.env["RUNTIME_MODE"] = 'gotrue';
 
     const { buildEvent } = await import('../repositories/webhook-delivery.js');
     const event = withRequestContext({ requestId: 'build-envelope-request' }, () => (
@@ -35,8 +37,8 @@ describe('Webhook delivery — buildEvent', () => {
     const event = withRequestContext({ requestId: 'nested-payload-request' }, () => (
       buildEvent('organization.created', { name: 'acme', settings: { public: true } })
     ));
-    expect(event.payload.name).toBe('acme');
-    expect((event.payload as any).settings.public).toBe(true);
+    expect(event.payload["name"]).toBe('acme');
+    expect(strictProperty(event.payload, "settings", "public")).toBe(true);
   });
 
   it('derives a stable UUID from request ID and event type for retries', async () => {
@@ -59,12 +61,12 @@ describe('Webhook delivery — buildEvent', () => {
 
 describe('Webhook delivery — SUPPORTED_WEBHOOK_EVENTS', () => {
   it('includes core user events', async () => {
-    process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-    process.env.PROJECT_REF = 'test-ref';
-    process.env.DATABASE_URL = 'postgres://test';
-    process.env.OAUTH_RUNTIME_URL = 'http://runtime.test';
-    process.env.RUNTIME_MODE = 'gotrue';
+    process.env["SUPACLOUD_API_URL"] = 'http://localhost:9090';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = 'test-token';
+    process.env["PROJECT_REF"] = 'test-ref';
+    process.env["DATABASE_URL"] = 'postgres://test';
+    process.env["OAUTH_RUNTIME_URL"] = 'http://runtime.test';
+    process.env["RUNTIME_MODE"] = 'gotrue';
 
     const { SUPPORTED_WEBHOOK_EVENTS } = await import('../repositories/webhook-delivery.js');
     expect(SUPPORTED_WEBHOOK_EVENTS).toContain('user.created');
@@ -129,23 +131,23 @@ describe('Webhook delivery — SupaCloud managed pipeline', () => {
   const calls: Array<{ url: string; method: string; body?: string; headers?: Headers }> = [];
 
   beforeEach(() => {
-    process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-    process.env.SUPACLOUD_INTERNAL_TOKEN = 'test-token';
-    process.env.SUPACLOUD_PROJECT_REF = 'test-project';
-    process.env.SUPACLOUD_RUNTIME_URL = 'http://runtime.internal';
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://test';
-    process.env.RUNTIME_MODE = 'gotrue';
+    process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+    process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
+    process.env["SUPACLOUD_PROJECT_REF"] = 'test-project';
+    process.env["SUPACLOUD_RUNTIME_URL"] = 'http://runtime.internal';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://test';
+    process.env["RUNTIME_MODE"] = 'gotrue';
     calls.length = 0;
-    globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({
         url,
         method: init?.method || 'GET',
-        body: typeof init?.body === 'string' ? init.body : undefined,
+        ...(typeof init?.body === 'string' ? { body: init.body } : {}),
         headers: new Headers(init?.headers),
       });
       return Promise.resolve(Response.json({ queued: true }));
-    }) as unknown as typeof fetch;
+    }));
   });
 
   afterEach(() => {
@@ -161,11 +163,13 @@ describe('Webhook delivery — SupaCloud managed pipeline', () => {
     await dispatchEvent(event);
 
     expect(calls).toHaveLength(1);
-    const url = new URL(calls[0].url);
-    expect(calls[0].method).toBe('POST');
+    const call = calls[0];
+    if (!call) throw new Error('Expected exactly one webhook submission');
+    const url = new URL(call.url);
+    expect(call.method).toBe('POST');
     expect(url.pathname.replace(/\/v1\/projects\/[^/]+/, '/v1/projects/{projectRef}')).toBe('/v1/projects/{projectRef}/webhooks/events');
-    expect(JSON.parse(calls[0].body || '{}')).toEqual(event);
-    expect(calls[0].headers?.get('Idempotency-Key')).toBe(event.id);
+    expect(JSON.parse(call.body || '{}')).toEqual(event);
+    expect(call.headers?.get('Idempotency-Key')).toBe(event.id);
   });
 });
 

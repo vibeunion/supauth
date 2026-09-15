@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { RoleView, PermissionView, AssignmentView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
@@ -32,9 +33,11 @@
   ];
   const tabValues = tabs.map((tab) => tab.value);
 
-  let role = $state(null);
-  let permissions = $state([]);
-  let assignments = $state([]);
+  type RevocationAction = "delete-permission" | "revoke-assignment";
+  type RoleLocks = DurableMutationLocks<RevocationAction>;
+  let role = $state<RoleView | null>(null);
+  let permissions = $state<PermissionView[]>([]);
+  let assignments = $state<AssignmentView[]>([]);
   let roleForm = $state({ name: "", description: "" });
   let newPermission = $state({ name: "", description: "" });
   let loading = $state(true);
@@ -42,19 +45,19 @@
   const mutationTracker = createOperationTracker((pending) => {
     saving = pending;
   });
-  let error = $state(null);
-  let mutationLocks = $state({});
+  let error = $state<unknown>(null);
+  let mutationLocks = $state<RoleLocks>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   const mutationLockStore = createDurableMutationLockStore({
     storageKey: "supaoauth.admin.role-mutation-locks.v1",
     allowedActions: ["delete-permission", "revoke-assignment"],
     storageProvider: () => globalThis.localStorage,
   });
-  let roleId = $derived(page.params.roleId);
+  let roleId = $derived(page.params.roleId || "");
   let activeTab = $derived(tabFromRoute(page.params.tab, tabValues, "general"));
   let loadGeneration = 0;
-  let loadedRoleContext = $state(null);
+  let loadedRoleContext = $state<ResourceLoadContext | null>(null);
   let userAssignments = $derived(
     assignments.filter((assignment) => assignment.user_id || assignment.userId),
   );
@@ -68,7 +71,7 @@
     return { generation: loadGeneration, resourceId: roleId, tab: activeTab };
   }
 
-  function isCurrentLoad(loadContext) {
+  function isCurrentLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(loadContext, currentLoadContext());
   }
 
@@ -78,7 +81,7 @@
       : null;
   }
 
-  function isCurrentMutation(operation) {
+  function isCurrentMutation(operation: Operation<ResourceLoadContext>) {
     return (
       mutationTracker.isCurrent(operation) &&
       isCurrentLoad(operation.ownerContext)
@@ -92,7 +95,7 @@
     });
   }
 
-  function updateMutationLocks(lockCommand) {
+  function updateMutationLocks(lockCommand: () => RoleLocks) {
     try {
       mutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -108,11 +111,11 @@
     updateMutationLocks(() => mutationLockStore.restore());
   }
 
-  function revocationLock(action, targetId, ownerId = roleId) {
+  function revocationLock(action: RevocationAction, targetId: string, ownerId = roleId) {
     return { action, ownerId, targetId };
   }
 
-  function revocationUnknown(action, targetId) {
+  function revocationUnknown(action: RevocationAction, targetId: string) {
     return Boolean(
       roleId &&
         targetId &&
@@ -123,7 +126,7 @@
     );
   }
 
-  function stageRevocation(action, targetId, ownerId) {
+  function stageRevocation(action: RevocationAction, targetId: string, ownerId: string) {
     return updateMutationLocks(() =>
       mutationLockStore.stage(
         mutationLocks,
@@ -132,7 +135,7 @@
     );
   }
 
-  function clearRevocation(action, targetId, ownerId) {
+  function clearRevocation(action: RevocationAction, targetId: string, ownerId = roleId) {
     return updateMutationLocks(() =>
       mutationLockStore.clear(
         mutationLocks,
@@ -141,13 +144,13 @@
     );
   }
 
-  function acknowledgeRevocation(action, targetId) {
+  function acknowledgeRevocation(action: RevocationAction, targetId: string) {
     if (!confirm(t("I have reconciled the authoritative role state."))) return;
     if (!confirm(t("Allow this role revocation to run again?"))) return;
     clearRevocation(action, targetId);
   }
 
-  function completePermissionList(response) {
+  function completePermissionList(response: CollectionPayload<PermissionView>) {
     const listedPermissions = completeCollectionItems(response);
     if (listedPermissions.every((permission) => typeof permission?.id === "string")) {
       return listedPermissions;
@@ -155,7 +158,7 @@
     throw new Error("Management API returned a permission without an identity");
   }
 
-  function completeAssignmentList(response) {
+  function completeAssignmentList(response: CollectionPayload<AssignmentView>) {
     const listedAssignments = completeCollectionItems(response);
     if (listedAssignments.every((assignment) => assignmentId(assignment))) {
       return listedAssignments;
@@ -189,13 +192,13 @@
           loadContext.resourceId,
         );
         if (!isCurrentLoad(loadContext)) return;
-        permissions = collectionItems(permissionResponse);
+        permissions = collectionItems<PermissionView>(permissionResponse);
       } else if (loadContext.tab === "users" || loadContext.tab === "m2m") {
         const assignmentResponse = await listRoleAssignments(
           loadContext.resourceId,
         );
         if (!isCurrentLoad(loadContext)) return;
-        assignments = collectionItems(assignmentResponse);
+        assignments = collectionItems<AssignmentView>(assignmentResponse);
       }
       if (!isCurrentLoad(loadContext)) return;
       roleForm = {
@@ -210,7 +213,7 @@
     }
   }
 
-  async function runMutation(command) {
+  async function runMutation(command: (context: ResourceLoadContext, operation: Operation<ResourceLoadContext>) => Promise<unknown>) {
     if (saving) return;
     const mutationContext = currentMutationContext();
     if (!mutationContext) return;
@@ -235,12 +238,12 @@
     });
   }
 
-  function assignmentId(assignment) {
+  function assignmentId(assignment: AssignmentView) {
     const identity = assignment?.id || assignment?.assignment_id;
     return typeof identity === "string" ? identity : "";
   }
 
-  async function deletePermission(permissionId) {
+  async function deletePermission(permissionId: string) {
     if (saving || !mutationStorageReady) return;
     if (revocationUnknown("delete-permission", permissionId)) return;
     const mutationContext = currentMutationContext();
@@ -305,7 +308,7 @@
     }
   }
 
-  async function revokeAssignment(assignment) {
+  async function revokeAssignment(assignment: AssignmentView) {
     const targetId = assignmentId(assignment);
     if (saving || !mutationStorageReady || !targetId) return;
     if (revocationUnknown("revoke-assignment", targetId)) return;

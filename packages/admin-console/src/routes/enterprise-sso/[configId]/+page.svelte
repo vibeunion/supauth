@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import { adminEndpoints, decodeSchema } from "@supauth/shared";
+  import type { EnterpriseSsoView, CapabilitiesView, ResourceLoadContext, Operation } from "$lib/management-view-types.js";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import DetailTabs from "$lib/components/DetailTabs.svelte";
@@ -22,8 +24,8 @@
     { value: "experience", labelKey: "detail.experience" },
   ];
 
-  let configuration = $state(null);
-  let capabilities = $state(null);
+  let configuration = $state<EnterpriseSsoView | null>(null);
+  let capabilities = $state<CapabilitiesView | null>(null);
   let form = $state({
     domains: "",
     sso_protocol: "oidc",
@@ -36,8 +38,8 @@
   const mutationTracker = createOperationTracker((pending) => {
     saving = pending;
   });
-  let error = $state(null);
-  let configId = $derived(page.params.configId);
+  let error = $state<unknown>(null);
+  let configId = $derived(page.params.configId || "");
   let idpInitiatedAvailable = $derived(
     capabilityAvailable(capabilities, "enterprise_sso_idp_initiated_v1"),
   );
@@ -48,7 +50,7 @@
   );
   let requestedTab = $derived(page.params.tab || "connection");
   let loadGeneration = 0;
-  let loadedConfigurationContext = $state(null);
+  let loadedConfigurationContext = $state<ResourceLoadContext | null>(null);
   let activeTab = $derived(
     tabFromRoute(
       requestedTab,
@@ -74,7 +76,7 @@
     };
   }
 
-  function isCurrentLoad(loadContext) {
+  function isCurrentLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(loadContext, currentLoadContext());
   }
 
@@ -84,7 +86,7 @@
       : null;
   }
 
-  function isCurrentMutation(operation) {
+  function isCurrentMutation(operation: Operation<ResourceLoadContext>) {
     return (
       mutationTracker.isCurrent(operation) &&
       isCurrentLoad(operation.ownerContext)
@@ -155,16 +157,22 @@
     const operation = mutationTracker.begin(mutationContext);
     error = null;
     try {
-      await updateEnterpriseSSOConfig(operation.ownerContext.resourceId, {
+      const membershipMapping: unknown = JSON.parse(form.org_membership_mapping || "{}");
+      const roleMapping: unknown = JSON.parse(form.role_mapping || "{}");
+      const command = decodeSchema(adminEndpoints.updateEnterpriseSSOConfig.input, {
+        params: { configId: operation.ownerContext.resourceId },
+        body: {
         domains: form.domains
           .split(",")
           .map((domain) => domain.trim())
           .filter(Boolean),
         sso_protocol: form.sso_protocol,
         jit_provisioning: form.jit_provisioning,
-        org_membership_mapping: JSON.parse(form.org_membership_mapping || "{}"),
-        role_mapping: JSON.parse(form.role_mapping || "{}"),
+          org_membership_mapping: membershipMapping,
+          role_mapping: roleMapping,
+        },
       });
+      await updateEnterpriseSSOConfig(command.params.configId, command.body);
       if (isCurrentMutation(operation)) await loadConfigurationData();
     } catch (requestError) {
       if (isCurrentMutation(operation)) error = requestError;

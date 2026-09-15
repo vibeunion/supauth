@@ -63,12 +63,18 @@ interface PatternRule {
 }
 
 interface PolicyAuthorizationClauses {
-  command?: string;
-  usingClause?: string;
-  checkClause?: string;
+  command: string | undefined;
+  usingClause: string | undefined;
+  checkClause: string | undefined;
 }
 
-type ExplainNode = Record<string, unknown>;
+interface ExplainNode {
+  readonly 'Function Name': string | undefined;
+  readonly 'Actual Loops': number | undefined;
+  readonly 'Parent Relationship': string | undefined;
+  readonly 'Subplan Name': string | undefined;
+  readonly Filter: string | undefined;
+}
 
 interface ExplainEntry {
   node: ExplainNode;
@@ -206,8 +212,11 @@ function nextSqlSegment(sql: string, offset: number, prefix: string): SqlSegment
   const commentClosing = commentEnd(sql, offset);
   if (commentClosing !== undefined) return { normalized: ' ', nextOffset: commentClosing };
   if (sql[offset] === "'") return { normalized: "''", nextOffset: quotedStringEnd(sql, offset) };
-  return dollarQuotedSegment(sql, offset, prefix)
-    ?? { normalized: sql[offset]!, nextOffset: offset + 1 };
+  const segment = dollarQuotedSegment(sql, offset, prefix);
+  if (segment) return segment;
+  const character = sql[offset];
+  if (character === undefined) throw new Error('SQL cursor is outside the input');
+  return { normalized: character, nextOffset: offset + 1 };
 }
 
 function executableSql(sql: string): string {
@@ -370,22 +379,53 @@ export function checkAuthorizationSql(input: SqlConformanceInput): ConformanceRe
 }
 
 function explainEntries(explainJson: unknown): ExplainEntry[] {
-  if (!Array.isArray(explainJson) || !explainJson[0] || typeof explainJson[0] !== 'object') return [];
-  const root = (explainJson[0] as ExplainNode).Plan;
-  if (!root || typeof root !== 'object' || Array.isArray(root)) return [];
+  if (!Array.isArray(explainJson) || explainJson.length !== 1) return [];
+  const documents: readonly unknown[] = explainJson;
+  const document = documents[0];
+  if (!explainRecord(document)) return [];
   const entries: ExplainEntry[] = [];
-  const pending: ExplainEntry[] = [{ node: root as ExplainNode, ancestors: [] }];
+  const seen = new Set<object>();
+  const pending: Array<{ value: unknown; ancestors: readonly ExplainNode[] }> = [
+    { value: document['Plan'], ancestors: [] },
+  ];
   while (pending.length > 0) {
-    const entry = pending.pop()!;
+    const next = pending.pop();
+    if (!next) break;
+    const value = next.value;
+    if (!explainRecord(value) || seen.has(value) || next.ancestors.length > 256 || entries.length >= 100_000) return [];
+    seen.add(value);
+    const stringKeys = ['Function Name', 'Parent Relationship', 'Subplan Name', 'Filter'] as const;
+    for (const key of stringKeys) {
+      if (value[key] !== undefined && typeof value[key] !== 'string') return [];
+    }
+    const loops = value['Actual Loops'];
+    if (loops !== undefined && (typeof loops !== 'number' || !Number.isSafeInteger(loops) || loops < 0)) return [];
+    const node: ExplainNode = {
+      'Function Name': explainText(value['Function Name']),
+      'Parent Relationship': explainText(value['Parent Relationship']),
+      'Subplan Name': explainText(value['Subplan Name']),
+      Filter: explainText(value['Filter']),
+      'Actual Loops': typeof loops === 'number' ? loops : undefined,
+    };
+    const entry: ExplainEntry = { node, ancestors: next.ancestors };
     entries.push(entry);
-    const children = Array.isArray(entry.node.Plans) ? entry.node.Plans : [];
+    const plans = value['Plans'];
+    if (plans !== undefined && !Array.isArray(plans)) return [];
+    const children: readonly unknown[] = plans === undefined ? [] : plans;
+    if (children.length + pending.length + entries.length > 100_000) return [];
     for (const child of children) {
-      if (child && typeof child === 'object' && !Array.isArray(child)) {
-        pending.push({ node: child as ExplainNode, ancestors: [entry.node, ...entry.ancestors] });
-      }
+      pending.push({ value: child, ancestors: [entry.node, ...entry.ancestors] });
     }
   }
   return entries;
+}
+
+function explainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function explainText(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 function hashedHelperSubplan(entry: ExplainEntry): boolean {
@@ -393,7 +433,7 @@ function hashedHelperSubplan(entry: ExplainEntry): boolean {
     node['Parent Relationship'] === 'SubPlan' && typeof node['Subplan Name'] === 'string');
   if (!subplanNode) return false;
   const hashedSubplan = `hashed ${subplanNode['Subplan Name']}`;
-  return entry.ancestors.some(ancestor => String(ancestor.Filter || '').includes(hashedSubplan));
+  return entry.ancestors.some(ancestor => ancestor.Filter?.includes(hashedSubplan));
 }
 
 export function checkAuthorizationExplain(explainJson: unknown): ConformanceReport {

@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import { decodeSchema, JsonValueSchema, type AdminEndpointResult, type JsonValue } from '@supauth/shared';
+  import { errorMessage } from '$lib/resource-page.js';
   import { onMount } from 'svelte';
   import { getSignInExperience, updateSignInExperience } from '$lib/api/client.js';
   import { t } from '$lib/i18n.js';
@@ -12,32 +14,32 @@
 
   let loading = $state(true);
   let saving = $state(false);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let saved = $state(false);
   let contentDraft = $state({ description: '', button_label: '', custom_css: '', illustration: '', content: '' });
 
-  function structuredContent(signInExperience) {
+  function structuredContent(signInExperience: AdminEndpointResult<'getSignInExperience'>) {
     const currentContent = signInExperience?.branding?.content;
     if (!currentContent) return '';
     return typeof currentContent === 'string' ? currentContent : JSON.stringify(currentContent, null, 2);
   }
 
-  function syncContent(signInExperience) {
+  function syncContent(signInExperience: AdminEndpointResult<'getSignInExperience'>) {
     const currentBranding = signInExperience?.branding || {};
     const currentContent = currentBranding.content;
     contentDraft = {
       description: currentBranding.description || '',
       button_label: currentBranding.button_label || '',
       custom_css: currentBranding.custom_css || '',
-      illustration: typeof currentContent?.illustration === 'string' ? currentContent.illustration : '',
+      illustration: currentContent && typeof currentContent === 'object' && !Array.isArray(currentContent) && typeof currentContent["illustration"] === 'string' ? currentContent["illustration"] : '',
       content: structuredContent(signInExperience),
     };
   }
 
-  function parseContent() {
+  function parseContent(): JsonValue {
     const rawContent = contentDraft.content.trim();
     if (!rawContent) return contentDraft.illustration ? { illustration: contentDraft.illustration } : null;
-    const parsedContent = JSON.parse(rawContent);
+    const parsedContent = decodeSchema(JsonValueSchema, JSON.parse(rawContent));
     if (Array.isArray(parsedContent)) {
       return contentDraft.illustration ? { illustration: contentDraft.illustration, items: parsedContent } : parsedContent;
     }
@@ -45,8 +47,8 @@
       return contentDraft.illustration ? { illustration: contentDraft.illustration } : parsedContent;
     }
     const normalizedContent = { ...parsedContent };
-    if (contentDraft.illustration) normalizedContent.illustration = contentDraft.illustration;
-    else delete normalizedContent.illustration;
+    if (contentDraft.illustration) normalizedContent["illustration"] = contentDraft.illustration;
+    else delete normalizedContent["illustration"];
     return normalizedContent;
   }
 
@@ -56,7 +58,7 @@
     try {
       syncContent(await getSignInExperience());
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
     loading = false;
   }
@@ -77,7 +79,7 @@
     } catch (requestError) {
       error = requestError instanceof SyntaxError
         ? t('Structured login content must be valid JSON.')
-        : requestError.message;
+        : errorMessage(requestError);
     }
     saving = false;
   }

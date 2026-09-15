@@ -2,67 +2,13 @@
 // Produces reviewable SQL/configuration artifacts for RLS, Storage, Realtime,
 // and Edge Function gates without mutating tenant infrastructure.
 
-export type AuthorizationOperation = 'read' | 'create' | 'update' | 'delete' | 'manage';
-
-export interface AuthorizationTableTarget {
-  schema?: string;
-  table: string;
-  permission_prefix?: string;
-  operations?: AuthorizationOperation[];
-  owner_column?: string;
-  organization_column?: string;
-}
-
-export interface StorageBucketTarget {
-  bucket_id: string;
-  permission_prefix?: string;
-  owner_path_prefix?: string;
-  organization_path_prefix?: string;
-  operations?: AuthorizationOperation[];
-}
-
-export interface RealtimeChannelTarget {
-  topic: string;
-  permission: string;
-  organization_claim?: string;
-}
-
-export interface EdgeFunctionTarget {
-  name: string;
-  permission: string;
-  require_organization?: boolean;
-}
-
-export interface AuthorizationCompileRequest {
-  project_ref?: string;
-  tables?: AuthorizationTableTarget[];
-  storage_buckets?: StorageBucketTarget[];
-  realtime_channels?: RealtimeChannelTarget[];
-  edge_functions?: EdgeFunctionTarget[];
-  include_helper_sql?: boolean;
-}
-
-export interface AuthorizationCompileResult {
-  generated_at: string;
-  assumptions: string[];
-  warnings: string[];
-  permissions: string[];
-  sql: {
-    helpers: string;
-    tables: string;
-    storage: string;
-    realtime: string;
-    rollback: string;
-  };
-  edge_functions: Array<{
-    name: string;
-    permission: string;
-    middleware: string;
-    negative_tests: string[];
-  }>;
-  negative_tests: string[];
-  deploy_checklist: string[];
-}
+import type { AuthorizationOperation, AuthorizationCompileRequest, AuthorizationCompileResult } from '../../../shared/src/sdk-models.js';
+import type { AuthorizationDiagnosticInput } from '../../../shared/src/server-operations.js';
+export type { AuthorizationOperation, AuthorizationCompileRequest, AuthorizationCompileResult };
+export type AuthorizationTableTarget = NonNullable<AuthorizationCompileRequest['tables']>[number];
+export type StorageBucketTarget = NonNullable<AuthorizationCompileRequest['storage_buckets']>[number];
+export type RealtimeChannelTarget = NonNullable<AuthorizationCompileRequest['realtime_channels']>[number];
+export type EdgeFunctionTarget = NonNullable<AuthorizationCompileRequest['edge_functions']>[number];
 
 const DEFAULT_OPERATIONS: AuthorizationOperation[] = ['read', 'create', 'update', 'delete'];
 
@@ -236,7 +182,7 @@ const HELPER_SQL = `-- SupaOAuth helper functions are installed by the main auth
 --   supaoauth.current_permission_claims(target_organization_id uuid default null)
 -- Install SupAuth through SupaCloud hosted migrations first: bun run install:supacloud`;
 
-export function compileAuthorizationPlan(request: AuthorizationCompileRequest = {}): AuthorizationCompileResult {
+export function compileAuthorizationPlan(request: AuthorizationDiagnosticInput = {}): AuthorizationCompileResult {
   const warnings: string[] = [];
   const assumptions = [
     'GoTrue/Supabase remains the JWT issuer and top-level JWT role keeps Supabase semantics.',
@@ -267,7 +213,7 @@ export function compileAuthorizationPlan(request: AuthorizationCompileRequest = 
     for (const operation of operations) {
       const permission = `${prefix}.${OPERATION_TO_SQL[operation].suffix}`;
       permissionNames.push(permission);
-      tableStatements.push(buildTablePolicy(table, operation, permission));
+      tableStatements.push(buildTablePolicy({ ...table, table: table.table }, operation, permission));
       rollbackStatements.push(`DROP POLICY IF EXISTS ${quoteIdent(tablePolicyName(table.table, operation))} ON ${quoteIdent(table.schema || 'public')}.${quoteIdent(table.table)};`);
     }
   }
@@ -282,7 +228,7 @@ export function compileAuthorizationPlan(request: AuthorizationCompileRequest = 
     for (const operation of operations) {
       const permission = `${prefix}.${OPERATION_TO_SQL[operation].suffix}`;
       permissionNames.push(permission);
-      storageStatements.push(buildStoragePolicy(bucket, operation, permission));
+      storageStatements.push(buildStoragePolicy({ ...bucket, bucket_id: bucket.bucket_id }, operation, permission));
       rollbackStatements.push(`DROP POLICY IF EXISTS ${quoteIdent(storagePolicyName(bucket.bucket_id, operation))} ON storage.objects;`);
     }
   }
@@ -293,10 +239,10 @@ export function compileAuthorizationPlan(request: AuthorizationCompileRequest = 
       continue;
     }
     permissionNames.push(channel.permission);
-    realtimeStatements.push(buildRealtimePolicy(channel));
+    realtimeStatements.push(buildRealtimePolicy({ ...channel, topic: channel.topic, permission: channel.permission }));
   }
 
-  const edgeFunctions = (request.edge_functions || []).filter(fn => {
+  const edgeFunctions = (request.edge_functions || []).filter((fn): fn is EdgeFunctionTarget => {
     if (!fn.name || !fn.permission) {
       warnings.push('Skipped an edge function target without name or permission.');
       return false;

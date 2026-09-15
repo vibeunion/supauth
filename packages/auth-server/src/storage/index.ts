@@ -7,6 +7,7 @@ import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.j
 import * as auditRepo from '../repositories/audit.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 import { ApiContractError } from '../utils/api-contract.js';
+import { hostedContract } from '../utils/hosted-contract.js';
 
 const ALLOWED_BUCKETS = ['avatars', 'branding'] as const;
 const ALLOWED_MIME_TYPES = [
@@ -94,7 +95,7 @@ async function contentHash(file: Blob) {
 
 export async function brandingAssetMetadata(file: Blob, rawContentType: string) {
   const contentType = brandingContentType(rawContentType);
-  const imageType = BRANDING_IMAGE_TYPES[contentType as keyof typeof BRANDING_IMAGE_TYPES];
+  const imageType = Object.entries(BRANDING_IMAGE_TYPES).find(([type]) => type === contentType)?.[1];
   if (!imageType) throw new ApiContractError(400, 'invalid_branding_image_type', 'Unsupported branding image type');
   if (file.size === 0) throw new ApiContractError(400, 'empty_branding_image', 'Branding image is empty');
   if (file.size > MAX_FILE_SIZE) throw new ApiContractError(400, 'branding_image_too_large', 'Branding image exceeds 5MB');
@@ -226,11 +227,11 @@ async function storeBrandingFile(
 }
 
 function validateBucket(bucketId: string): boolean {
-  return (ALLOWED_BUCKETS as readonly string[]).includes(bucketId);
+  return ALLOWED_BUCKETS.some(bucket => bucket === bucketId);
 }
 
 function validateMimeType(contentType: string): boolean {
-  return (ALLOWED_MIME_TYPES as readonly string[]).includes(contentType);
+  return ALLOWED_MIME_TYPES.some(type => type === contentType);
 }
 
 export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
@@ -249,7 +250,7 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     const adapter = getSupaCloudAdapter();
     const buckets = await adapter.listStorageBuckets();
     return { buckets };
-  })
+  }, hostedContract('storageList'))
 
   // ─── Create bucket (idempotent) ──────────────────────────────────
   .post('/buckets/:bucketId', async ({ params }) => {
@@ -261,7 +262,8 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     try {
       const existing = await adapter.getStorageBucket(bucketId);
       return { bucket: existing };
-    } catch {
+    } catch (error) {
+      if (!isSupaCloudApiError(error) || error.status !== 404) throw error;
       const isPublic = bucketId === 'branding';
       const created = await adapter.createStorageBucket(bucketId, {
         public: isPublic,
@@ -269,10 +271,10 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
       });
       return { bucket: created };
     }
-  })
+  }, hostedContract('storageCreate'))
 
   // ─── Upload file ─────────────────────────────────────────────────
-  .post('/upload/:bucketId/*', async ({ params, body, headers }) => {
+  .post('/upload/:bucketId/*', async ({ params, request, headers }) => {
     const { bucketId } = params;
     const filePath = params['*'];
 
@@ -280,12 +282,12 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
       return new Response('Bucket not allowed', { status: 400 });
     }
 
-    const contentType = (headers['content-type'] as string) || 'application/octet-stream';
+    const contentType = headers['content-type'] || 'application/octet-stream';
     if (!validateMimeType(contentType)) {
       return new Response(`Content-Type ${contentType} not allowed. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`, { status: 400 });
     }
 
-    const file = body as Blob;
+    const file = await request.blob();
     if (file.size > MAX_FILE_SIZE) {
       return new Response(`File too large. Max: ${MAX_FILE_SIZE / 1024 / 1024}MB`, { status: 400 });
     }
@@ -320,7 +322,7 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     });
 
     return { key: result.key, url, bucket: bucketId, path: filePath, public: bucketId === 'branding' };
-  })
+  }, hostedContract('storageUpload', { hide: true }))
 
   // ─── Get signed URL (private buckets) ────────────────────────────
   .get('/sign-url/:bucketId/*', async ({ params, query }) => {
@@ -331,7 +333,7 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
       return new Response('Bucket not allowed', { status: 400 });
     }
 
-    const expiresIn = parseInt((query.expires as string) || '3600', 10);
+    const expiresIn = Number(query["expires"] ?? 3600);
     const adapter = getSupaCloudAdapter();
 
     if (bucketId === 'branding') {
@@ -340,7 +342,7 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
 
     const signedUrl = await adapter.createSignedUrl(bucketId, filePath, expiresIn);
     return { url: signedUrl, public: false, expiresIn };
-  })
+  }, hostedContract('storageSign', { hide: true }))
 
   // ─── Delete file ─────────────────────────────────────────────────
   .delete('/delete/:bucketId/*', async ({ params }) => {
@@ -362,18 +364,18 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     });
 
     return { deleted: true, bucket: bucketId, path: filePath };
-  })
+  }, hostedContract('storageDelete', { hide: true }))
 
   // ─── Avatar upload (P0-12 fix: store storage key, not signed URL) ─
-  .post('/avatar/:userId', async ({ params, body, headers }) => {
+  .post('/avatar/:userId', async ({ params, request, headers }) => {
     const { userId } = params;
-    const contentType = (headers['content-type'] as string) || 'application/octet-stream';
+    const contentType = headers['content-type'] || 'application/octet-stream';
 
     if (!validateMimeType(contentType)) {
       return new Response('Invalid image type', { status: 400 });
     }
 
-    const file = body as Blob;
+    const file = await request.blob();
     if (file.size > MAX_FILE_SIZE) {
       return new Response('File too large', { status: 400 });
     }
@@ -409,7 +411,7 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     });
 
     return { storage_key: storageKey, userId, bucket: 'avatars' };
-  })
+  }, hostedContract('storageAvatar'))
 
   // ─── Branding asset read (admin console accesses it via /api/v1) ──
   // Keep the browser on the authenticated BFF origin because the configured
@@ -425,7 +427,7 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
       throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
     }
     return brandingAssetResponse(assetType, assetUrl);
-  })
+  }, hostedContract('storageBrandingRead'))
 
   // ─── Branding upload (convenience endpoint) ──────────────────────
   .post('/branding/:assetType', async ({ params, request, headers }) => {
@@ -446,4 +448,4 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     });
 
     return { url: publicUrl, assetType, content_type: image.contentType };
-  });
+  }, hostedContract('storageBrandingUpload'));

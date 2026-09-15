@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { connectors } from '../db/schema.js';
 import { getDb } from '../db/index.js';
+import { requiredRow } from '../utils/defined-fields.js';
 
 export interface ConnectorConfigInput {
   providerId: string;
@@ -84,5 +85,5 @@ export async function upsertConnectorConfig(input: ConnectorConfigInput) {
       config: input.config || {},
     }).returning();
 
-  return connectorConfigToResponse(saved);
+  return connectorConfigToResponse(requiredRow(saved));
 }

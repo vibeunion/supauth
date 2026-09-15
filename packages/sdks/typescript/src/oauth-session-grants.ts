@@ -31,7 +31,7 @@ export class SupaOAuthSessionConfigurationError extends Error {
 /** 只检查声明的会话需求，不修改授权、回调、客户端类型或密钥。 */
 export function assertOAuthSessionGrants(
   client: unknown,
-  requirement: OAuthSessionRequirement,
+  requirement: unknown,
 ): void {
   if (requirement !== 'authorization-code' && requirement !== 'refreshable') {
     throw new SupaOAuthSessionConfigurationError('invalid_requirement');

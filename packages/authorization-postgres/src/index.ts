@@ -26,21 +26,21 @@ export interface RlsPolicyOptions {
 }
 
 function identifier(label: string, identifierValue: string): string {
-  if (!IDENTIFIER_PATTERN.test(identifierValue) || identifierValue.startsWith('pg_')) {
+  if (typeof identifierValue !== 'string' || !IDENTIFIER_PATTERN.test(identifierValue) || identifierValue.startsWith('pg_')) {
     throw new TypeError(`${label} must be a safe unquoted PostgreSQL identifier`);
   }
   return `"${identifierValue}"`;
 }
 
 function literal(label: string, literalValue: string): string {
-  if (!CONTEXT_VALUE_PATTERN.test(literalValue)) {
+  if (typeof literalValue !== 'string' || !CONTEXT_VALUE_PATTERN.test(literalValue)) {
     throw new TypeError(`${label} must be a non-empty value without whitespace`);
   }
   return `'${literalValue.replace(/'/g, "''")}'`;
 }
 
 function permissionLiteral(permissionName: string): string {
-  if (permissionName.length > 512 || !PERMISSION_PATTERN.test(permissionName)) {
+  if (typeof permissionName !== 'string' || permissionName.length > 512 || !PERMISSION_PATTERN.test(permissionName)) {
     throw new TypeError(`Invalid permission ${JSON.stringify(permissionName)}; expected resource:action`);
   }
   return `'${permissionName}'`;
@@ -110,8 +110,9 @@ function projectionViolationQueries(projectionLabel: string): string {
 }
 
 export function generateAuthorizationProjectionPreflightSql(
-  options: Pick<AuthorizationSchemaOptions, 'schema'>,
+  input: Pick<AuthorizationSchemaOptions, 'schema'>,
 ): string {
+  const options = readSchemaName(input);
   const schemaRef = identifier('schema', options.schema);
   const projectionName = literal('projection', `${schemaRef}."effective_permission_grants"`);
   const projectionLabel = `${options.schema}.effective_permission_grants`;
@@ -228,13 +229,8 @@ AS $$
 $$;`;
 }
 
-export function generateAuthorizationSchemaSql(options: AuthorizationSchemaOptions): string {
-  if (
-    options.requireOAuthApplicationClaim !== undefined
-    && typeof options.requireOAuthApplicationClaim !== 'boolean'
-  ) {
-    throw new TypeError('requireOAuthApplicationClaim must be a boolean');
-  }
+export function generateAuthorizationSchemaSql(input: AuthorizationSchemaOptions): string {
+  const options = readSchemaOptions(input);
   const schemaRef = identifier('schema', options.schema);
   const statements = [
     `CREATE SCHEMA IF NOT EXISTS ${schemaRef};`,
@@ -255,7 +251,7 @@ export function generateAuthorizationSchemaSql(options: AuthorizationSchemaOptio
 }
 
 export function generateLegacyAuthorizationCleanupSql(options: Pick<AuthorizationSchemaOptions, 'schema'>): string {
-  const schemaRef = identifier('schema', options.schema);
+  const schemaRef = identifier('schema', readSchemaName(options).schema);
   return `DROP FUNCTION IF EXISTS ${schemaRef}.authorization_allowed_scope_ids(TEXT, TEXT, TEXT);`;
 }
 
@@ -303,7 +299,8 @@ function assertRlsOptions(options: RlsPolicyOptions): void {
   if (new Set(commands).size !== commands.length) throw new TypeError('RLS policy commands must be unique');
 }
 
-export function generateRlsPoliciesSql(options: RlsPolicyOptions): string {
+export function generateRlsPoliciesSql(input: RlsPolicyOptions): string {
+  const options = readRlsOptions(input);
   assertRlsOptions(options);
   const tableRef = `${identifier('tableSchema', options.tableSchema)}.${identifier('table', options.table)}`;
   return [
@@ -311,3 +308,4 @@ export function generateRlsPoliciesSql(options: RlsPolicyOptions): string {
     ...options.policies.map(policy => policySql(options, policy)),
   ].join('\n\n');
 }
+import { readRlsOptions, readSchemaName, readSchemaOptions } from './validation.js';

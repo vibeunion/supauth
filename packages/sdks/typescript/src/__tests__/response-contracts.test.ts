@@ -1,16 +1,14 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { SupaOAuthAPIError, SupaOAuthClient, SupaOAuthResponseContractError } from '../index.js';
+import { describe, expect, it, mock } from 'bun:test';
+import { SupaOAuthAPIError, SupaOAuthClient, SupaOAuthResponseContractError, type SupaOAuthFetch } from '../index.js';
 
-const originalFetch = globalThis.fetch;
-const client = new SupaOAuthClient({ baseUrl: 'https://auth.example.test' });
-
-afterEach(() => { globalThis.fetch = originalFetch; });
+let transport: SupaOAuthFetch = async () => { throw new Error('Configure the test transport'); };
+const client = new SupaOAuthClient({ baseUrl: 'https://auth.example.test', fetch: (input, init) => transport(input, init) });
 
 function respond(value: unknown, status = 200) {
   const fetcher = mock(async () => status === 204 || status === 205
     ? new Response(null, { status })
     : Response.json(value, { status }));
-  globalThis.fetch = fetcher as unknown as typeof fetch;
+  transport = fetcher;
   return fetcher;
 }
 
@@ -41,7 +39,7 @@ describe('SDK response contracts', () => {
   });
 
   it('reports invalid JSON without including response text', async () => {
-    globalThis.fetch = mock(async () => new Response('private-response-not-json', { status: 200 })) as unknown as typeof fetch;
+    transport = mock(async () => new Response('private-response-not-json', { status: 200 }));
     try {
       await client.health();
       throw new Error('expected rejection');
@@ -64,8 +62,9 @@ describe('SDK response contracts', () => {
   });
 
   it('preserves additive discovery metadata and valid runtime results', async () => {
-    respond({ status: 'ok' });
-    expect(await client.getRuntimeHealth()).toEqual({ status: 'ok' });
+    const runtime = { discovery: true, jwks: true, authorize: true, token: true, userinfo: true, issuer: 'https://auth.example.test', signing_alg: 'RS256' };
+    respond(runtime);
+    expect(await client.getRuntimeHealth()).toEqual(runtime);
     const server = { enabled: true, signing_alg: 'RS256', allow_dynamic_registration: false, migration_status: 'complete' };
     respond(server);
     expect(await client.getOAuthServerStatus()).toEqual(server);
@@ -78,6 +77,16 @@ describe('SDK response contracts', () => {
     expect(await client.getDiscovery()).toEqual(discovery);
     respond({ keys: [{ kty: 'RSA', kid: 'key' }] });
     expect(await client.getJWKS()).toEqual({ keys: [{ kty: 'RSA', kid: 'key' }] });
+  });
+
+  it('preserves runtime-unreachable diagnostics and rejects the obsolete status-only shape', async () => {
+    const unreachable = { discovery: false, jwks: false, authorize: false, token: false, userinfo: false, issuer: null, signing_alg: null };
+    respond(unreachable);
+    expect(await client.getRuntimeHealth()).toEqual(unreachable);
+    for (const invalid of [{ status: 'ok' }, { ...unreachable, jwks: 'false' }, { ...unreachable, signing_alg: 256 }]) {
+      respond(invalid);
+      await expect(client.getRuntimeHealth()).rejects.toBeInstanceOf(SupaOAuthResponseContractError);
+    }
   });
 
   it('keeps HTTP errors distinct and does not call the decoder', async () => {
@@ -97,12 +106,12 @@ describe('SDK response contracts', () => {
   it('passes cancellation to fetch and preserves the abort reason', async () => {
     const controller = new AbortController();
     const abort = new DOMException('cancelled', 'AbortError');
-    globalThis.fetch = mock(async (_url: unknown, options?: RequestInit) => {
+    transport = mock(async (_url: unknown, options?: RequestInit) => {
       expect(options?.signal).toBe(controller.signal);
       return new Promise<Response>((_resolve, reject) => {
         options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true });
       });
-    }) as unknown as typeof fetch;
+    });
     const pending = client.requestDecoded('/custom', String, { signal: controller.signal });
     controller.abort(abort);
     await expect(pending).rejects.toBe(abort);

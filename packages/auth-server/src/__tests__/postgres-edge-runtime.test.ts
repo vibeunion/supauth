@@ -14,7 +14,8 @@ test('postgres sql.file fails explicitly in the Edge Runtime build', async () =>
   }
 
   expect(fileError).toBeInstanceOf(Error);
-  expect((fileError as Error).message).toBe(
+  if (!(fileError instanceof Error)) throw new Error('Expected postgres.sql.file to reject with an Error');
+  expect(fileError.message).toBe(
     'postgres.sql.file() is unavailable in the SupaCloud Edge Runtime',
   );
 });

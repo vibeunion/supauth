@@ -1,5 +1,3 @@
-// Bun executes this browser-bundle unit test directly; the Admin Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { describe, expect, mock, test } from 'bun:test';
 import { AuthApiError, AuthRetryableFetchError, type Session } from '@supabase/auth-js';
 import {
@@ -36,10 +34,20 @@ function client(overrides: Partial<HostedAuthClient> = {}): HostedAuthClient {
     getSession: mock(async () => ({ data: { session: currentSession }, error: null })),
     setSession: mock(async () => ({ data: { user: currentSession.user, session: currentSession }, error: null })),
     refreshSession: mock(async () => ({ data: { user: currentSession.user, session: currentSession }, error: null })),
-    onAuthStateChange: mock(() => ({ data: { subscription: { id: 'test', unsubscribe() {} } } })),
+    onAuthStateChange: mock((callback: Parameters<HostedAuthClient['onAuthStateChange']>[0]) => ({
+      data: { subscription: { id: 'test', callback, unsubscribe() {} } },
+    })),
     signOut: mock(async () => ({ error: null })),
     ...overrides,
-  } as HostedAuthClient;
+  };
+}
+
+function memoryStorage(removeItem: Storage['removeItem'], getItem: Storage['getItem']): Storage {
+  return { length: 0, clear() {}, key() { return null; }, setItem() {}, removeItem, getItem };
+}
+
+function requestOnlyFetch(fetcher: (request: Request) => Promise<Response>): HostedFetch {
+  return (input, init) => fetcher(input instanceof Request && init === undefined ? input : new Request(input, init));
 }
 
 describe('hosted session client', () => {
@@ -50,8 +58,8 @@ describe('hosted session client', () => {
     const localGet = mock(() => 'legacy-token');
 
     clearLegacyAccountAccessToken({
-      sessionStorage: { removeItem: sessionRemove, getItem: sessionGet } as unknown as Storage,
-      localStorage: { removeItem: localRemove, getItem: localGet } as unknown as Storage,
+      sessionStorage: memoryStorage(sessionRemove, sessionGet),
+      localStorage: memoryStorage(localRemove, localGet),
     });
 
     expect(sessionRemove).toHaveBeenCalledWith(LEGACY_ACCOUNT_ACCESS_TOKEN_STORAGE_KEY);
@@ -154,7 +162,7 @@ describe('hosted session client', () => {
       return new Response(null, { status: requests.length === 1 ? 401 : 200 });
     });
     const controller = new AbortController();
-    const api = createHostedAuthApi(authClient, fetchImpl as unknown as HostedFetch);
+    const api = createHostedAuthApi(authClient, requestOnlyFetch(fetchImpl));
 
     const response = await api.authenticatedFetch('https://auth.example.test/v1/public/account/profile', {
       method: 'PATCH',
@@ -174,7 +182,7 @@ describe('hosted session client', () => {
   test('does not refresh a forbidden response', async () => {
     const authClient = client();
     const fetchImpl = mock(async () => new Response(null, { status: 403 }));
-    const api = createHostedAuthApi(authClient, fetchImpl as unknown as HostedFetch);
+    const api = createHostedAuthApi(authClient, fetchImpl);
 
     const response = await api.authenticatedFetch('https://auth.example.test/v1/public/account/me');
 
@@ -213,7 +221,7 @@ describe('hosted session client', () => {
     });
     const api = createHostedAuthApi(
       authClient,
-      mock(async () => new Response(null, { status: 401 })) as unknown as HostedFetch,
+      mock(async () => new Response(null, { status: 401 })),
     );
 
     await expect(api.authenticatedFetch('https://auth.example.test/v1/public/account/me'))
@@ -229,7 +237,7 @@ describe('hosted session client', () => {
     });
     const api = createHostedAuthApi(
       authClient,
-      mock(async () => new Response(null, { status: 401 })) as unknown as HostedFetch,
+      mock(async () => new Response(null, { status: 401 })),
     );
 
     await expect(api.authenticatedFetch('https://auth.example.test/v1/public/account/me'))
@@ -247,7 +255,7 @@ describe('hosted session client', () => {
     });
     const api = createHostedAuthApi(
       authClient,
-      mock(async () => new Response(null, { status: 401 })) as unknown as HostedFetch,
+      mock(async () => new Response(null, { status: 401 })),
     );
 
     await expect(api.authenticatedFetch('https://auth.example.test/v1/public/account/me'))
@@ -266,7 +274,7 @@ describe('hosted session client', () => {
     });
     const api = createHostedAuthApi(
       authClient,
-      mock(async () => new Response(null, { status: 401 })) as unknown as HostedFetch,
+      mock(async () => new Response(null, { status: 401 })),
     );
 
     await expect(api.authenticatedFetch('https://auth.example.test/v1/public/account/me'))
@@ -285,7 +293,7 @@ describe('hosted session client', () => {
     });
     const api = createHostedAuthApi(
       authClient,
-      mock(async () => new Response(null, { status: 401 })) as unknown as HostedFetch,
+      mock(async () => new Response(null, { status: 401 })),
     );
 
     await expect(api.authenticatedFetch('https://auth.example.test/v1/public/account/me'))
@@ -296,10 +304,7 @@ describe('hosted session client', () => {
 
   test('deduplicates concurrent 401 refreshes', async () => {
     const refreshedSession = session('access-new');
-    let releaseRefresh!: () => void;
-    const refreshGate = new Promise<void>((resolve) => {
-      releaseRefresh = resolve;
-    });
+    const { promise: refreshGate, resolve: releaseRefresh } = Promise.withResolvers<void>();
     const refreshSession = mock(async () => {
       await refreshGate;
       return { data: { user: refreshedSession.user, session: refreshedSession }, error: null };
@@ -308,7 +313,7 @@ describe('hosted session client', () => {
     const fetchImpl = mock(async (request: Request) => new Response(null, {
       status: request.headers.get('authorization') === 'Bearer access-old' ? 401 : 200,
     }));
-    const api = createHostedAuthApi(authClient, fetchImpl as unknown as HostedFetch);
+    const api = createHostedAuthApi(authClient, requestOnlyFetch(fetchImpl));
 
     const first = api.authenticatedFetch('https://auth.example.test/v1/public/account/me');
     const second = api.authenticatedFetch('https://auth.example.test/v1/public/account/sessions');
@@ -325,10 +330,7 @@ describe('hosted session client', () => {
     const oldSession = session('access-old');
     const refreshedSession = session('access-new');
     let currentSession = oldSession;
-    let releaseDelayedUnauthorized!: () => void;
-    const delayedUnauthorized = new Promise<void>((resolve) => {
-      releaseDelayedUnauthorized = resolve;
-    });
+    const { promise: delayedUnauthorized, resolve: releaseDelayedUnauthorized } = Promise.withResolvers<void>();
     const refreshSession = mock(async () => {
       currentSession = refreshedSession;
       releaseDelayedUnauthorized();
@@ -347,7 +349,7 @@ describe('hosted session client', () => {
       }
       return new Response(null, { status: 200 });
     });
-    const api = createHostedAuthApi(authClient, fetchImpl as unknown as HostedFetch);
+    const api = createHostedAuthApi(authClient, requestOnlyFetch(fetchImpl));
 
     const responses = await Promise.all([
       api.authenticatedFetch('https://auth.example.test/v1/public/account/me'),
@@ -367,7 +369,7 @@ describe('hosted session client', () => {
     });
     const api = createHostedAuthApi(
       authClient,
-      mock(async () => new Response(null, { status: 401 })) as unknown as HostedFetch,
+      mock(async () => new Response(null, { status: 401 })),
     );
 
     const response = await api.authenticatedFetch('https://auth.example.test/v1/public/account/me');
@@ -380,7 +382,7 @@ describe('hosted session client', () => {
   test('fails explicitly before fetch when a consumed request cannot be replayed', async () => {
     const authClient = client();
     const fetchImpl = mock(async () => new Response(null, { status: 200 }));
-    const api = createHostedAuthApi(authClient, fetchImpl as unknown as HostedFetch);
+    const api = createHostedAuthApi(authClient, fetchImpl);
     const request = new Request('https://auth.example.test/v1/public/account/profile', {
       method: 'PATCH',
       body: 'used body',
@@ -393,7 +395,7 @@ describe('hosted session client', () => {
 
   test('signs out only the current browser session', async () => {
     const signOut = mock(async () => ({ error: null }));
-    const api = createHostedAuthApi(client({ signOut: signOut as HostedAuthClient['signOut'] }));
+    const api = createHostedAuthApi(client({ signOut }));
 
     const result = await api.signOut();
 
@@ -404,7 +406,7 @@ describe('hosted session client', () => {
 
   test('forwards an explicit account-center logout scope exactly once', async () => {
     const signOut = mock(async () => ({ error: null }));
-    const api = createHostedAuthApi(client({ signOut: signOut as HostedAuthClient['signOut'] }));
+    const api = createHostedAuthApi(client({ signOut }));
 
     await api.signOut({ scope: 'others' });
 

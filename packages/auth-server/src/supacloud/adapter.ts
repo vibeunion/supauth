@@ -6,7 +6,12 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { currentAdminRequestContext, getCurrentRequestId } from '../auth/request-context.js';
 import { getConfig, validateBffSigningSecret } from '../config/index.js';
 import { runtimeEnv } from '../config/platform-env.js';
-import { capabilityUnavailable } from '../utils/api-contract.js';
+import { capabilityUnavailable, isRecord } from '../utils/api-contract.js';
+import { definedFields } from '../utils/defined-fields.js';
+import { decodeSchema, Type, JsonValueSchema } from '../../../shared/src/schema.js';
+import { StorageBucketSchema } from '../../../shared/src/admin-models.js';
+import { decodeUpstream } from '../utils/upstream-contract.js';
+import { ServerHookVerificationSchema } from '../../../shared/src/server-contracts.js';
 
 const DELEGATED_HEADER_NAMES = [
   'x-request-id',
@@ -20,6 +25,8 @@ const DELEGATED_HEADER_NAMES = [
 ] as const;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:/+-]{1,200}$/;
 const ACTOR_ID_PATTERN = /^[A-Za-z0-9@._:+/-]{1,200}$/;
+const StorageUploadReceiptSchema = Type.Object({ Key: Type.Optional(Type.String({ minLength: 1 })) });
+const StorageSignedReceiptSchema = Type.Object({ signedURL: Type.String({ minLength: 1 }) });
 type BffActorType = 'admin' | 'user' | 'system';
 
 interface BffActorContext {
@@ -352,7 +359,7 @@ function runtimeApiUrl(baseUrl: string, requestPath: string) {
 
 function safeRuntimeAuthorizationUrl(response: Response, payload: unknown) {
   const payloadUrl = payload && typeof payload === 'object' && 'url' in payload
-    ? (payload as { url?: unknown }).url
+    ? payload.url
     : null;
   const candidate = response.headers.get('location') || payloadUrl;
   if (typeof candidate !== 'string') throw new Error('Authentication runtime did not return an authorization URL');
@@ -386,13 +393,13 @@ export class SupaCloudAdapter {
       || (this.projectRef === config.projectRef ? config.supabaseServiceRoleKey : '');
     const runtimeTemplate = runtimeEnv('SUPACLOUD_RUNTIME_URL_TEMPLATE');
 
-    const runtimeTarget = resolveProjectUrl({
+    const runtimeTarget = resolveProjectUrl(definedFields({
       explicitUrl: options?.runtimeUrl,
       baseUrl: config.oauthRuntimeUrl,
       template: runtimeTemplate,
       defaultProjectRef: config.projectRef,
       targetProjectRef: this.projectRef,
-    });
+    }));
     const configuredStorageUrl = runtimeEnv('SUPACLOUD_STORAGE_URL');
     const configuredStorageTemplate = runtimeEnv('SUPACLOUD_STORAGE_URL_TEMPLATE');
     const projectApiUrl = runtimeEnv('SUPABASE_URL');
@@ -402,13 +409,13 @@ export class SupaCloudAdapter {
       && runtimeTemplate
       ? storageFallbackUrl(runtimeTemplate)
       : undefined;
-    const storageTarget = resolveProjectUrl({
+    const storageTarget = resolveProjectUrl(definedFields({
       explicitUrl: options?.storageUrl,
       baseUrl: configuredStorageUrl || projectApiUrl || storageFallbackUrl(config.oauthRuntimeUrl),
       template: configuredStorageTemplate || fallbackStorageTemplate,
       defaultProjectRef: config.projectRef,
       targetProjectRef: this.projectRef,
-    });
+    }));
 
     this.runtimeUrl = runtimeTarget.url;
     this.storageUrl = storageTarget.url;
@@ -571,7 +578,7 @@ export class SupaCloudAdapter {
       const kongRouteMiss = body.includes('no Route matched with those values');
       const upstreamFailure = res.status === 502 || res.status === 503 || res.status === 504;
       const ok = acceptedStatuses.includes(res.status) && !kongRouteMiss && !upstreamFailure;
-      return {
+      return definedFields({
         name,
         path,
         status: res.status,
@@ -579,7 +586,7 @@ export class SupaCloudAdapter {
         error: ok
           ? undefined
           : `expected HTTP status in [${acceptedStatuses.join(', ')}], got HTTP ${res.status}${body ? `: ${body.slice(0, 240)}` : ''}`,
-      };
+      });
     } catch (e) {
       return {
         name,
@@ -755,7 +762,7 @@ export class SupaCloudAdapter {
     if (!response.ok && (response.status < 300 || response.status >= 400)) {
       throw new Error(`Authentication runtime preflight failed with HTTP ${response.status}`);
     }
-    const payload = response.status >= 300 ? null : await response.json();
+    const payload: unknown = response.status >= 300 ? null : await response.json();
     return safeRuntimeAuthorizationUrl(response, payload);
   }
 
@@ -1080,7 +1087,7 @@ export class SupaCloudAdapter {
     };
     return this.requestWithAuditActor(`/v1/projects/${this.projectRef}/audit/events`, {
       method: 'POST',
-      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
       body: JSON.stringify(payload),
     }, actor);
   }
@@ -1255,20 +1262,11 @@ export class SupaCloudAdapter {
       `/v1/projects/${this.projectRef}/auth/hooks/${pathSegment(hookName)}/messages/verify`,
       { method: 'POST', body: JSON.stringify(message) },
     );
-    if (
-      !payload
-      || typeof payload !== 'object'
-      || Array.isArray(payload)
-      || typeof (payload as Record<string, unknown>).verified !== 'boolean'
-      || typeof (payload as Record<string, unknown>).consumed !== 'boolean'
-      || (
-        (payload as Record<string, unknown>).reason_code !== null
-        && typeof (payload as Record<string, unknown>).reason_code !== 'string'
-      )
-    ) {
+    try {
+      return decodeSchema(ServerHookVerificationSchema, payload);
+    } catch {
       throw new Error('SupaCloud auth hook verification response has an invalid shape');
     }
-    return payload as { verified: boolean; consumed: boolean; reason_code: string | null };
   }
 
   async checkCustomDomain(domain: string) {
@@ -1286,7 +1284,7 @@ export class SupaCloudAdapter {
       headers: { Authorization: `Bearer ${storageToken}` },
     });
     if (!res.ok) throw new Error(`Storage list buckets: ${res.status}`);
-    return res.json();
+    return decodeUpstream(Type.Array(StorageBucketSchema), await res.json());
   }
 
   async getStorageBucket(bucketId: string) {
@@ -1299,7 +1297,7 @@ export class SupaCloudAdapter {
     if (!res.ok) {
       throw new SupaCloudApiError(res.status, await res.text(), path);
     }
-    return res.json();
+    return decodeUpstream(StorageBucketSchema, await res.json());
   }
 
   async createStorageBucket(bucketId: string, options?: { public?: boolean; fileSizeLimit?: number }) {
@@ -1323,7 +1321,7 @@ export class SupaCloudAdapter {
       const body = await res.text();
       throw new SupaCloudApiError(res.status, body, path);
     }
-    return res.json();
+    return decodeUpstream(StorageBucketSchema, await res.json());
   }
 
   async deleteStorageBucket(bucketId: string) {
@@ -1337,7 +1335,7 @@ export class SupaCloudAdapter {
       const body = await res.text();
       throw new Error(`Storage delete bucket: ${res.status} ${body}`);
     }
-    return res.json();
+    return decodeUpstream(JsonValueSchema, await res.json());
   }
 
   /**
@@ -1361,8 +1359,8 @@ export class SupaCloudAdapter {
       const body = await res.text();
       throw new SupaCloudApiError(res.status, body, path);
     }
-    const result = await res.json() as Record<string, unknown>;
-    const key = (result.Key as string) || `${bucketId}/${filePath}`;
+    const result = decodeUpstream(StorageUploadReceiptSchema, await res.json());
+    const key = result.Key ?? `${bucketId}/${filePath}`;
     return { key };
   }
 
@@ -1384,7 +1382,7 @@ export class SupaCloudAdapter {
       const body = await res.text();
       throw new Error(`Storage delete: ${res.status} ${body}`);
     }
-    return res.json();
+    return decodeUpstream(JsonValueSchema, await res.json());
   }
 
   async downloadFile(bucketId: string, filePath: string): Promise<Response> {
@@ -1421,7 +1419,7 @@ export class SupaCloudAdapter {
       const body = await res.text();
       throw new Error(`Storage sign URL: ${res.status} ${body}`);
     }
-    const result = await res.json() as Record<string, unknown>;
+    const result = decodeUpstream(StorageSignedReceiptSchema, await res.json());
     return storageSignedUrl(result.signedURL, this.storageUrl);
   }
 
@@ -1453,11 +1451,11 @@ export function getSupaCloudAdapterForProject(projectRef: string, options?: Omit
 }
 
 function bffAuditExport(payload: unknown): unknown {
-  if (!payload || typeof payload !== 'object') return payload;
-  const record = { ...(payload as Record<string, unknown>) };
+  if (!isRecord(payload)) return payload;
+  const record = { ...payload };
   if (!Object.hasOwn(record, 'download_url')) return record;
-  const exportId = typeof record.id === 'string' ? record.id : null;
-  record.download_url = exportId ? `/v1/audit/export/${pathSegment(exportId)}/download` : null;
+  const exportId = typeof record["id"] === 'string' ? record["id"] : null;
+  record["download_url"] = exportId ? `/v1/audit/export/${pathSegment(exportId)}/download` : null;
   return record;
 }
 

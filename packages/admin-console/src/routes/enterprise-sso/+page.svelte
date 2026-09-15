@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { ConnectorView, EnterpriseSsoView, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import { decodeSchema, Type } from "@supauth/shared";
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import { t } from "$lib/i18n.js";
@@ -8,6 +10,7 @@
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     mutationOutcomeUnknown,
+    errorMessage,
   } from "$lib/resource-page.js";
   import {
     listEnterpriseSSOConfigs,
@@ -15,22 +18,22 @@
     listConnectors,
   } from "$lib/api/client.js";
 
-  let configs = $state([]);
-  let enterpriseConnectors = $state([]);
+  let configs = $state<EnterpriseSsoView[]>([]);
+  let enterpriseConnectors = $state<ConnectorView[]>([]);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let showCreate = $state(false);
   let creating = $state(false);
-  let mutationLocks = $state({});
+  let mutationLocks = $state<DurableMutationLocks<"create">>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   const createOperations = createKeyedSingleFlightTracker();
   const listRequests = createLatestRequestTracker();
   const createLock = {
     action: "create",
     ownerId: "enterprise-sso",
     targetId: "new",
-  };
+  } as const;
   const mutationLockStore = createDurableMutationLockStore({
     storageKey: "supaoauth.admin.enterprise-sso-mutation-locks.v1",
     allowedActions: ["create"],
@@ -52,25 +55,25 @@
     };
   }
 
-  function connectorRecordId(connector) {
+  function connectorRecordId(connector: ConnectorView) {
     return connector.connector_record_id || connector._meta?.id || "";
   }
 
-  function connectorProtocol(connector) {
+  function connectorProtocol(connector: ConnectorView) {
     return connector.runtime_kind === "saml" ? "saml" : "oidc";
   }
 
-  function completeEnterpriseConnectors(response) {
+  function completeEnterpriseConnectors(response: CollectionPayload<ConnectorView>) {
     return completeCollectionItems(response).filter(
       (connector) =>
         connector.enabled === true &&
         (connector.category || connector.type) === "enterprise_sso" &&
-        ["custom_oidc", "saml"].includes(connector.runtime_kind) &&
+        ["custom_oidc", "saml"].includes(connector.runtime_kind || "") &&
         connectorRecordId(connector),
     );
   }
 
-  function selectConnector(connectorRecordIdValue) {
+  function selectConnector(connectorRecordIdValue: string) {
     form.connector_id = connectorRecordIdValue;
     const connector = enterpriseConnectors.find(
       (candidate) => connectorRecordId(candidate) === connectorRecordIdValue,
@@ -78,7 +81,7 @@
     form.sso_protocol = connector ? connectorProtocol(connector) : "oidc";
   }
 
-  function configIdentity(config) {
+  function configIdentity(config: EnterpriseSsoView | null) {
     return typeof config?.id === "string" ? config.id : "";
   }
 
@@ -89,7 +92,7 @@
     });
   }
 
-  function updateMutationLocks(lockCommand) {
+  function updateMutationLocks(lockCommand: () => DurableMutationLocks<"create">) {
     try {
       mutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -117,11 +120,11 @@
     );
   }
 
-  function mappingRecord(serializedMapping, fieldLabel) {
+  function mappingRecord(serializedMapping: string, fieldLabel: string) {
     try {
-      const mapping = JSON.parse(serializedMapping || "{}");
+      const mapping: unknown = JSON.parse(serializedMapping || "{}");
       if (mapping && typeof mapping === "object" && !Array.isArray(mapping)) {
-        return mapping;
+        return decodeSchema(Type.Record(Type.String(), Type.String()), mapping);
       }
     } catch {
       // 统一由下方本地化错误说明处理，避免显示浏览器原始 JSON 异常。
@@ -160,14 +163,14 @@
     showCreate = false;
   }
 
-  function enterpriseSsoCreationFailure(requestError) {
-    if (requestError?.statusCode === 400) {
+  function enterpriseSsoCreationFailure(requestError: unknown) {
+    if (typeof requestError === "object" && requestError !== null && "statusCode" in requestError && requestError.statusCode === 400) {
       return t("Enterprise SSO settings are invalid. Check the connector and mappings, then try again.");
     }
     return t("Enterprise SSO creation failed. Verify the connector runtime and try again.");
   }
 
-  function completeConfigList(response) {
+  function completeConfigList(response: CollectionPayload<EnterpriseSsoView>) {
     const listedConfigs = completeCollectionItems(response);
     if (listedConfigs.every((config) => configIdentity(config))) return listedConfigs;
     throw new Error("Management API returned an SSO config without an identity");
@@ -183,7 +186,7 @@
     }
   }
 
-  function applyConfigList(readBack) {
+  function applyConfigList(readBack: Awaited<ReturnType<typeof readConfigList>>) {
     if (!listRequests.isCurrent(readBack.request)) return false;
     if (readBack.requestError) throw readBack.requestError;
     configs = readBack.configs;
@@ -201,7 +204,7 @@
       enterpriseConnectors = completeEnterpriseConnectors(connectorResponse);
       if (applyConfigList(readBack)) loading = false;
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
       loading = false;
     }
   }

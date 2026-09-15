@@ -1,12 +1,15 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { describe, expect, test } from 'bun:test';
 import { createAdminLogoutController } from './admin-logout';
+import { deferredRequest } from './providers/auth-fixtures.js';
 
-function logoutHarness(overrides = {}) {
-  const calls = { initialize: 0, logout: 0, navigations: [] };
-  const states = [];
-  const options = {
+type LogoutOptions = Parameters<typeof createAdminLogoutController>[0];
+type LogoutState = Parameters<LogoutOptions['onStateChange']>[0];
+
+function logoutHarness(overrides: Partial<LogoutOptions> = {}) {
+  const navigations: string[] = [];
+  const calls = { initialize: 0, logout: 0, navigations };
+  const states: LogoutState[] = [];
+  const options: LogoutOptions = {
     initializeProvider: async () => { calls.initialize += 1; },
     logout: async () => {
       calls.logout += 1;
@@ -100,8 +103,7 @@ describe('Admin logout controller', () => {
   });
 
   test('deduplicates concurrent runs and restores pending after completion', async () => {
-    let finishLogout;
-    const logoutFinished = new Promise((resolve) => { finishLogout = resolve; });
+    const { promise: logoutFinished, resolve: finishLogout } = deferredRequest();
     const { calls, states, controller } = logoutHarness({
       logout: async () => {
         calls.logout += 1;

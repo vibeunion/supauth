@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { ResourceView, ResourceApplicationView, ResourceLoadContext, Operation, DurableMutationLocks } from "$lib/management-view-types.js";
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
@@ -28,8 +29,8 @@
   ];
   const tabValues = tabs.map((tab) => tab.value);
 
-  let resource = $state(null);
-  let applications = $state([]);
+  let resource = $state<ResourceView | null>(null);
+  let applications = $state<ResourceApplicationView[]>([]);
   let resourceForm = $state({ name: "", indicator: "" });
   let newScope = $state({ name: "", description: "" });
   let loading = $state(true);
@@ -37,19 +38,19 @@
   const mutationTracker = createOperationTracker((pending) => {
     saving = pending;
   });
-  let error = $state(null);
-  let mutationLocks = $state({});
+  let error = $state<unknown>(null);
+  let mutationLocks = $state<DurableMutationLocks<"delete-scope">>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   const mutationLockStore = createDurableMutationLockStore({
     storageKey: "supaoauth.admin.api-resource-mutation-locks.v1",
     allowedActions: ["delete-scope"],
     storageProvider: () => globalThis.localStorage,
   });
-  let resourceId = $derived(page.params.resourceId);
+  let resourceId = $derived(page.params.resourceId || "");
   let activeTab = $derived(tabFromRoute(page.params.tab, tabValues, "general"));
   let loadGeneration = 0;
-  let loadedResourceContext = $state(null);
+  let loadedResourceContext = $state<ResourceLoadContext | null>(null);
 
   function currentLoadContext() {
     return {
@@ -59,7 +60,7 @@
     };
   }
 
-  function isCurrentLoad(loadContext) {
+  function isCurrentLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(loadContext, currentLoadContext());
   }
 
@@ -69,7 +70,7 @@
       : null;
   }
 
-  function isCurrentMutation(operation) {
+  function isCurrentMutation(operation: Operation<ResourceLoadContext>) {
     return (
       mutationTracker.isCurrent(operation) &&
       isCurrentLoad(operation.ownerContext)
@@ -83,7 +84,7 @@
     });
   }
 
-  function updateMutationLocks(lockCommand) {
+  function updateMutationLocks(lockCommand: () => DurableMutationLocks<"delete-scope">) {
     try {
       mutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -99,23 +100,23 @@
     updateMutationLocks(() => mutationLockStore.restore());
   }
 
-  function scopeLock(scopeId, ownerId = resourceId) {
-    return { action: "delete-scope", ownerId, targetId: scopeId };
+  function scopeLock(scopeId: string, ownerId = resourceId) {
+    return { action: "delete-scope" as const, ownerId, targetId: scopeId };
   }
 
-  function stageScopeDelete(scopeId, ownerId) {
+  function stageScopeDelete(scopeId: string, ownerId: string) {
     return updateMutationLocks(() =>
       mutationLockStore.stage(mutationLocks, scopeLock(scopeId, ownerId)),
     );
   }
 
-  function clearScopeDelete(scopeId, ownerId) {
+  function clearScopeDelete(scopeId: string, ownerId = resourceId) {
     return updateMutationLocks(() =>
       mutationLockStore.clear(mutationLocks, scopeLock(scopeId, ownerId)),
     );
   }
 
-  function scopeDeleteUnknown(scopeId) {
+  function scopeDeleteUnknown(scopeId: string) {
     return Boolean(
       resourceId &&
         scopeId &&
@@ -123,13 +124,13 @@
     );
   }
 
-  function acknowledgeScopeDelete(scopeId) {
+  function acknowledgeScopeDelete(scopeId: string) {
     if (!confirm(t("I have reconciled the authoritative scope list."))) return;
     if (!confirm(t("Allow this scope deletion to run again?"))) return;
     clearScopeDelete(scopeId);
   }
 
-  function verifiedResourceScopes(resourceResponse, ownerId) {
+  function verifiedResourceScopes(resourceResponse: ResourceView, ownerId: string) {
     if (resourceResponse?.id !== ownerId || !Array.isArray(resourceResponse.scopes)) {
       throw new Error("Management API returned an invalid API resource read-back");
     }
@@ -164,7 +165,7 @@
           loadContext.resourceId,
         );
         if (!isCurrentLoad(loadContext)) return;
-        applications = collectionItems(applicationResponse);
+        applications = collectionItems<ResourceApplicationView>(applicationResponse);
       }
       if (!isCurrentLoad(loadContext)) return;
       resourceForm = {
@@ -179,7 +180,7 @@
     }
   }
 
-  async function runMutation(command) {
+  async function runMutation(command: (context: ResourceLoadContext, operation: Operation<ResourceLoadContext>) => Promise<unknown>) {
     if (saving) return;
     const mutationContext = currentMutationContext();
     if (!mutationContext) return;
@@ -204,7 +205,7 @@
     });
   }
 
-  async function deleteScope(scopeId) {
+  async function deleteScope(scopeId: string) {
     if (saving || !mutationStorageReady) return;
     if (scopeDeleteUnknown(scopeId)) return;
     const mutationContext = currentMutationContext();
@@ -376,7 +377,7 @@
                     runMutation((mutationContext) =>
                       updateResourceScope(mutationContext.resourceId, scope.id, {
                         name: scope.name,
-                        description: scope.description,
+                        ...(scope.description == null ? {} : { description: scope.description }),
                       }),
                     )}
                   class="text-sm text-brand-700">{t("Save")}</button
@@ -416,14 +417,14 @@
           {t("Applications using this resource cannot be deleted silently.")}
         </p>
         <div class="mt-4 space-y-2">
-          {#each applications as application (application.client_id || application.application_id)}<a
+          {#each applications as application (application.client_id || application.application_id || application.applicationId)}<a
               href={resolve(
-                `/applications/${encodeURIComponent(application.client_id || application.application_id)}/settings`,
+                `/applications/${encodeURIComponent(application.client_id || application.application_id || application.applicationId || "")}/settings`,
               )}
               class="block rounded-lg bg-surface-50 px-3 py-2 font-mono text-sm text-brand-700"
               >{application.client_name ||
                 application.client_id ||
-                application.application_id}</a
+                application.application_id || application.applicationId}</a
             >{/each}
         </div>
       </section>

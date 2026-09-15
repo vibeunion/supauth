@@ -1,4 +1,8 @@
-<script>
+<script lang="ts">
+  import { adminEndpoints, decodeSchema, type AdminEndpointResult } from '@supauth/shared';
+  import { errorMessage } from '$lib/resource-page.js';
+  import type { MutationReconciliation } from '$lib/mutation-reconciliation.js';
+  type AssetType = 'logo' | 'favicon';
   import { onDestroy, onMount } from 'svelte';
   import { getBrandingAsset, getSignInExperience, updateSignInExperience, uploadBranding } from '$lib/api/client.js';
   import {
@@ -18,14 +22,14 @@
     'image/vnd.microsoft.icon',
   ]);
   const BRANDING_FILE_ACCEPT = [...BRANDING_FILE_TYPES].join(',');
-  const BRANDING_ASSET_TYPES = ['logo', 'favicon'];
+  const BRANDING_ASSET_TYPES: AssetType[] = ['logo', 'favicon'];
 
   let loading = $state(true);
   let saving = $state(false);
-  let uploading = $state(null);
-  let error = $state(null);
+  let uploading = $state<AssetType | null>(null);
+  let error = $state<string | null>(null);
   let saved = $state(false);
-  let reconciliationStatus = $state(null);
+  let reconciliationStatus = $state<MutationReconciliation<unknown>['status'] | null>(null);
   let storageUnavailable = $state(false);
   let previewViewport = $state('desktop');
   let previewTheme = $state('light');
@@ -42,7 +46,7 @@
   let logoPreviewUrl = $derived(localPreviewUrls.logo);
   let faviconPreviewUrl = $derived(localPreviewUrls.favicon);
 
-  function syncBranding(signInExperience) {
+  function syncBranding(signInExperience: AdminEndpointResult<'getSignInExperience'>) {
     const currentBranding = signInExperience?.branding || {};
     const managedBranding = brandingSettingsAuthority(signInExperience).branding;
     branding = {
@@ -55,7 +59,7 @@
     previewFailures = { logo: false, favicon: false };
   }
 
-  function setLocalPreview(assetType, previewBlob) {
+  function setLocalPreview(assetType: AssetType, previewBlob: Blob) {
     if (previewsDisposed) return;
     const previousPreviewUrl = localPreviewUrls[assetType];
     if (previousPreviewUrl) URL.revokeObjectURL(previousPreviewUrl);
@@ -63,7 +67,7 @@
     previewFailures[assetType] = false;
   }
 
-  function markPreviewUnavailable(assetType) {
+  function markPreviewUnavailable(assetType: AssetType) {
     const failedPreviewUrl = localPreviewUrls[assetType];
     if (failedPreviewUrl) URL.revokeObjectURL(failedPreviewUrl);
     localPreviewUrls[assetType] = '';
@@ -77,7 +81,7 @@
     }
   }
 
-  async function loadStoredPreview(assetType) {
+  async function loadStoredPreview(assetType: AssetType) {
     if (!branding[`${assetType}_url`]) return;
     try {
       setLocalPreview(assetType, await getBrandingAsset(assetType));
@@ -103,9 +107,9 @@
 
   // Storage failures (e.g. "Storage create bucket: 404") are infrastructure
   // issues; show a localized friendly message and keep details in the console.
-  function displayError(requestError) {
-    const message = requestError?.message || '';
-    if (requestError?.code === 'branding_storage_unavailable' || message.startsWith('Storage ')) {
+  function displayError(requestError: unknown) {
+    const message = errorMessage(requestError);
+    if ((requestError && typeof requestError === 'object' && 'code' in requestError && requestError?.code === 'branding_storage_unavailable') || message.startsWith('Storage ')) {
       storageUnavailable = true;
       console.error('[branding] storage request failed:', message);
       return t('signIn.brandingStorageUnavailable');
@@ -124,7 +128,7 @@
     return { command, authority: brandingSettingsAuthority(command) };
   }
 
-  function brandingFileError(selectedFile) {
+  function brandingFileError(selectedFile: File) {
     if (!BRANDING_FILE_TYPES.has(selectedFile.type)) {
       return t('signIn.brandingUnsupportedFile');
     }
@@ -157,7 +161,7 @@
     }
   }
 
-  async function uploadBrandingFile(assetType, uploadEvent) {
+  async function uploadBrandingFile(assetType: AssetType, uploadEvent: Event & {currentTarget: HTMLInputElement}) {
     // Capture the input element before the first await: currentTarget is
     // cleared after event dispatch, and late access throws
     // "Cannot set properties of null (setting 'value')".
@@ -173,7 +177,10 @@
     uploading = assetType;
     error = null;
     try {
-      await uploadBranding(assetType, selectedFile, selectedFile.type);
+      const metadata = decodeSchema(adminEndpoints.uploadBranding.input.properties.upload, {
+        size: selectedFile.size, type: selectedFile.type,
+      });
+      await uploadBranding(assetType, selectedFile, metadata.type);
       setLocalPreview(assetType, selectedFile);
       syncBranding(await getSignInExperience());
     } catch (requestError) {

@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { OrganizationView, KeyedOperation, CollectionPayload } from "$lib/management-view-types.js";
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import RequestState from "$lib/components/RequestState.svelte";
@@ -30,9 +31,13 @@
     "resourceId",
   ]);
 
-  let organizations = $state([]);
+  type OrganizationMutationContext = { action: "create" | "delete"; resourceId: string };
+  type OrganizationMutationLock = OrganizationMutationContext & { recordedAt: number };
+  type OrganizationOperation = KeyedOperation<string, OrganizationMutationContext>;
+  type OrganizationResponse = OrganizationView | { organization: OrganizationView } | null;
+  let organizations = $state<OrganizationView[]>([]);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<unknown>(null);
   let showCreate = $state(false);
   let newOrganization = $state({ name: "", slug: "", description: "" });
   let slugTouched = $state(false);
@@ -41,10 +46,10 @@
   let currentPage = $state(1);
   let pageLimit = $state(25);
   let totalOrganizations = $state(0);
-  let organizationMutationLocks = $state({});
-  let organizationMutationPending = $state({});
+  let organizationMutationLocks = $state<Record<string, OrganizationMutationLock>>({});
+  let organizationMutationPending = $state<Record<string, OrganizationMutationContext & { operationGeneration: number }>>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   const organizationUnverifiedMutations = $derived(
     Object.entries(organizationMutationLocks).filter(
       ([mutationKey]) => !organizationMutationPending[mutationKey],
@@ -61,21 +66,24 @@
   const organizationRequests = createLatestRequestTracker();
   const organizationMutationTracker = createKeyedSingleFlightTracker();
 
-  function organizationMutationKey(action, resourceId) {
+  function organizationMutationKey(action: string, resourceId: string) {
     return `${action}:${resourceId}`;
   }
 
-  function validOrganizationMutationLock(mutationKey, lock) {
+  function validOrganizationMutationLock(mutationKey: string, lock: unknown): lock is OrganizationMutationLock {
     if (!lock || typeof lock !== "object" || Array.isArray(lock)) return false;
+    if (!("action" in lock && "resourceId" in lock && "recordedAt" in lock)) return false;
     const lockFields = Object.keys(lock);
     return (
       lockFields.length === ORGANIZATION_MUTATION_LOCK_FIELDS.size &&
       lockFields.every((field) =>
         ORGANIZATION_MUTATION_LOCK_FIELDS.has(field),
       ) &&
+      typeof lock.action === "string" &&
       ORGANIZATION_MUTATION_ACTIONS.has(lock.action) &&
       typeof lock.resourceId === "string" &&
       Boolean(lock.resourceId) &&
+      typeof lock.recordedAt === "number" &&
       Number.isSafeInteger(lock.recordedAt) &&
       lock.recordedAt > 0 &&
       (lock.action !== "create" || lock.resourceId === "new") &&
@@ -83,9 +91,9 @@
     );
   }
 
-  function parseOrganizationMutationLocks(serializedLocks) {
+  function parseOrganizationMutationLocks(serializedLocks: string | null): Record<string, OrganizationMutationLock> | null {
     if (serializedLocks === null) return {};
-    let storedLocks;
+    let storedLocks: unknown;
     try {
       storedLocks = JSON.parse(serializedLocks);
     } catch (parseError) {
@@ -95,11 +103,12 @@
     if (!storedLocks || typeof storedLocks !== "object" || Array.isArray(storedLocks)) {
       return null;
     }
-    return Object.entries(storedLocks).every(([key, lock]) =>
-      validOrganizationMutationLock(key, lock),
-    )
-      ? storedLocks
-      : null;
+    const validated: Record<string, OrganizationMutationLock> = {};
+    for (const [key, lock] of Object.entries(storedLocks)) {
+      if (!validOrganizationMutationLock(key, lock)) return null;
+      validated[key] = lock;
+    }
+    return validated;
   }
 
   function mutationStorageFailure() {
@@ -123,7 +132,7 @@
     }
   }
 
-  function persistOrganizationMutationLocks(nextLocks) {
+  function persistOrganizationMutationLocks(nextLocks: Record<string, OrganizationMutationLock>) {
     try {
       globalThis.localStorage.setItem(
         ORGANIZATION_MUTATION_LOCKS_KEY,
@@ -136,7 +145,7 @@
     }
   }
 
-  function stageOrganizationMutation(operation) {
+  function stageOrganizationMutation(operation: OrganizationOperation) {
     const context = operation.ownerContext;
     const nextLocks = {
       ...organizationMutationLocks,
@@ -147,7 +156,7 @@
     return true;
   }
 
-  function clearOrganizationMutationLock(context) {
+  function clearOrganizationMutationLock(context: OrganizationMutationContext) {
     const nextLocks = { ...organizationMutationLocks };
     delete nextLocks[
       organizationMutationKey(context.action, context.resourceId)
@@ -157,20 +166,20 @@
     return true;
   }
 
-  function organizationResourcePending(resourceId) {
-    const ownsResource = (entry) => entry.resourceId === resourceId;
+  function organizationResourcePending(resourceId: string) {
+    const ownsResource = (entry: OrganizationMutationContext) => entry.resourceId === resourceId;
     return Object.values(organizationMutationPending).some(ownsResource);
   }
 
-  function organizationResourceBusy(resourceId) {
-    const ownsResource = (entry) => entry.resourceId === resourceId;
+  function organizationResourceBusy(resourceId: string) {
+    const ownsResource = (entry: OrganizationMutationContext) => entry.resourceId === resourceId;
     return (
       organizationResourcePending(resourceId) ||
       Object.values(organizationMutationLocks).some(ownsResource)
     );
   }
 
-  function beginOrganizationMutation(ownerContext) {
+  function beginOrganizationMutation(ownerContext: OrganizationMutationContext) {
     if (
       !mutationStorageReady ||
       organizationResourceBusy(ownerContext.resourceId)
@@ -196,7 +205,7 @@
     return operation;
   }
 
-  function finishOrganizationMutation(operation) {
+  function finishOrganizationMutation(operation: OrganizationOperation) {
     organizationMutationTracker.finish(operation);
     if (
       organizationMutationPending[operation.key]?.operationGeneration !==
@@ -208,7 +217,7 @@
     organizationMutationPending = nextPending;
   }
 
-  function acknowledgeOrganizationMutation(lock) {
+  function acknowledgeOrganizationMutation(lock: OrganizationMutationLock) {
     if (!mutationStorageReady) return;
     if (
       !confirm(
@@ -226,7 +235,7 @@
     error = t("mutation.outcomeUnknown");
   }
 
-  async function submitOrganizationMutation(operation, writeCommand) {
+  async function submitOrganizationMutation<T>(operation: OrganizationOperation, writeCommand: () => Promise<T>) {
     try {
       return await writeCommand();
     } catch (requestError) {
@@ -239,24 +248,25 @@
     }
   }
 
-  function reportOrganizationMutationFailure(operation, requestError) {
+  function reportOrganizationMutationFailure(operation: OrganizationOperation, requestError: unknown) {
     if (!organizationMutationTracker.isCurrent(operation)) return;
     if (organizationMutationLocks[operation.key]) organizationMutationUnknown();
     else if (
       operation.ownerContext.action === "create" &&
-      requestError?.code === "validation_error"
+      typeof requestError === "object" && requestError !== null &&
+      "code" in requestError && requestError.code === "validation_error"
     ) {
       error = t("organizations.createValidationError");
     } else error = requestError;
   }
 
-  function organizationIdentity(payload) {
-    const candidate = payload?.organization || payload;
+  function organizationIdentity(payload: OrganizationResponse) {
+    const candidate = payload && "organization" in payload ? payload.organization : payload;
     return typeof candidate?.id === "string" ? candidate.id : "";
   }
 
-  function validatedOrganization(payload, expectedId) {
-    const candidate = payload?.organization || payload;
+  function validatedOrganization(payload: OrganizationResponse, expectedId: string) {
+    const candidate = payload && "organization" in payload ? payload.organization : payload;
     if (
       !candidate ||
       typeof candidate !== "object" ||
@@ -268,7 +278,7 @@
     return candidate;
   }
 
-  function completeOrganizationSearch(response) {
+  function completeOrganizationSearch(response: CollectionPayload<OrganizationView>) {
     const page = collectionPage(response);
     if (
       !page.complete ||
@@ -279,17 +289,17 @@
     return page.items;
   }
 
-  async function readCompleteOrganizationSearch(name) {
+  async function readCompleteOrganizationSearch(name: string) {
     return completeOrganizationSearch(
       await listOrganizations({ page: 1, limit: 100, search: name }),
     );
   }
 
   function createdOrganizationFromReadBack(
-    organizationsReadBack,
-    beforeOrganizationIds,
-    response,
-    name,
+    organizationsReadBack: OrganizationView[],
+    beforeOrganizationIds: Set<string>,
+    response: OrganizationResponse,
+    name: string,
   ) {
     const responseId = organizationIdentity(response);
     const newMatches = organizationsReadBack.filter(
@@ -307,14 +317,15 @@
     return newMatches.length === 1 ? newMatches[0] : null;
   }
 
-  function organizationNotFound(requestError) {
+  function organizationNotFound(requestError: unknown) {
     return (
-      Number(requestError?.statusCode) === 404 ||
-      requestError?.code === "not_found"
+      typeof requestError === "object" && requestError !== null &&
+      (("statusCode" in requestError && Number(requestError.statusCode) === 404) ||
+        ("code" in requestError && requestError.code === "not_found"))
     );
   }
 
-  async function organizationDeletedFromReadBack(organizationId) {
+  async function organizationDeletedFromReadBack(organizationId: string) {
     try {
       validatedOrganization(
         await getOrganization(organizationId),
@@ -336,7 +347,7 @@
     loading = true;
     error = null;
     try {
-      const page = collectionPage(
+      const page = collectionPage<OrganizationView>(
         await listOrganizations(request.ownerContext),
       );
       if (!organizationRequests.isCurrent(request)) return;
@@ -360,14 +371,14 @@
     }
   }
 
-  function applySearch(event) {
+  function applySearch(event: SubmitEvent) {
     event.preventDefault();
     search = searchDraft.trim();
     currentPage = 1;
     void loadOrganizations();
   }
 
-  function changePage(nextPage) {
+  function changePage(nextPage: number) {
     currentPage = nextPage;
     void loadOrganizations();
   }
@@ -420,7 +431,7 @@
     }
   }
 
-  async function removeOrganization(organizationId) {
+  async function removeOrganization(organizationId: string) {
     if (!confirm(t("organizations.deleteConfirm"))) return;
     const operation = beginOrganizationMutation({
       action: "delete",

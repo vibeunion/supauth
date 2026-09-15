@@ -6,12 +6,12 @@
  * endpoints. This is a lightweight gate; use k6/vegeta for full stress runs.
  */
 
-export {};
+import { positiveIntegerFromEnv } from './tooling-values.js';
 
-const runtimeUrl = (process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999').replace(/\/+$/, '');
-const supauthUrl = (process.env.SUPAUTH_PUBLIC_URL || process.env.AUTH_PUBLIC_URL || process.env.SUPAUTH_INSTALLED_BASE_URL || process.env.MANAGEMENT_URL || 'http://localhost:4010').replace(/\/+$/, '');
-const concurrency = parseInt(process.env.CAPACITY_CONCURRENCY || '10', 10);
-const iterations = parseInt(process.env.CAPACITY_ITERATIONS || '50', 10);
+const runtimeUrl = (process.env["OAUTH_RUNTIME_URL"] || 'http://localhost:9999').replace(/\/+$/, '');
+const supauthUrl = (process.env["SUPAUTH_PUBLIC_URL"] || process.env["AUTH_PUBLIC_URL"] || process.env["SUPAUTH_INSTALLED_BASE_URL"] || process.env["MANAGEMENT_URL"] || 'http://localhost:4010').replace(/\/+$/, '');
+const concurrency = positiveIntegerFromEnv(process.env['CAPACITY_CONCURRENCY'], 10, 'CAPACITY_CONCURRENCY', 1_000);
+const iterations = positiveIntegerFromEnv(process.env['CAPACITY_ITERATIONS'], 50, 'CAPACITY_ITERATIONS', 100_000);
 const supauthHealthPath = supauthUrl.endsWith('/api') ? '/v1/health' : '/api/v1/health';
 
 const targets = [

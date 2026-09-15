@@ -1,5 +1,7 @@
+// @ts-check
 const STANDARD_WEBHOOK_PREFIX = "v1,whsec_";
 
+/** @param {string} secret */
 export function normalizeAuthHookSecret(secret) {
   const trimmedSecret = secret.trim();
   if (!trimmedSecret) return "";

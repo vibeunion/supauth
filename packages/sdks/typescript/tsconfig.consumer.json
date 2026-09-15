@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": [],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"]
+  },
+  "include": ["consumers/browser.ts"],
+  "exclude": []
+}

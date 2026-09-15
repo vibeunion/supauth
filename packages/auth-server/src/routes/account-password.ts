@@ -4,6 +4,9 @@
 // password with the returned user access token.
 
 import { Elysia } from 'elysia';
+import { readUpstreamObject } from '../utils/upstream-contract.js';
+import { ApiContractError } from '../utils/api-contract.js';
+import { accountContract, accountOutput, readAccountNormalization } from '../utils/account-contract.js';
 import { getConfig } from '../config/index.js';
 import * as auditRepo from '../repositories/audit.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
@@ -55,6 +58,7 @@ interface RuntimeRequestOptions {
 interface RuntimeResponseSuccess {
   ok: true;
   response: Response;
+  base: string;
 }
 
 type RuntimeResponseResult = RuntimeResponseSuccess | PasswordChangeFailure;
@@ -63,6 +67,7 @@ interface PasswordGrantSuccess {
   ok: true;
   accessToken: string;
   tokenPayload: Record<string, unknown> | null;
+  base: string;
 }
 
 interface PasswordUpdateSuccess {
@@ -120,10 +125,10 @@ function passwordViolationFailure(
 
 function parsePasswordChangeInput(body: unknown): PasswordChangeInput | PasswordChangeFailure {
   const data = isRecord(body) ? body : {};
-  const email = normalizeEmail(data.email);
-  const currentPassword = readString(data.current_password || data.currentPassword);
-  const newPassword = readString(data.new_password || data.newPassword);
-  const confirmPassword = readString(data.confirm_password || data.confirmPassword);
+  const email = normalizeEmail(data["email"]);
+  const currentPassword = readString(data["current_password"] || data["currentPassword"]);
+  const newPassword = readString(data["new_password"] || data["newPassword"]);
+  const confirmPassword = readString(data["confirm_password"] || data["confirmPassword"]);
 
   if (!email || !currentPassword || !newPassword) {
     return {
@@ -199,15 +204,7 @@ function goTrueBaseCandidates(runtimeBaseUrls?: string[]) {
   });
 }
 
-async function readJson(response: Response) {
-  const text = await response.text();
-  if (!text.trim()) return null;
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
+const readJson = readUpstreamObject;
 
 async function readRuntimeJson(
   response: Response,
@@ -215,14 +212,18 @@ async function readRuntimeJson(
   try {
     return { ok: true, payload: await readJson(response) };
   } catch (error) {
+    if (error instanceof ApiContractError) {
+      // 非成功状态仍按 HTTP 分类；畸形错误页不能升级为可信业务数据。
+      return response.ok ? invalidRuntimeResponse() : { ok: true, payload: null };
+    }
     return upstreamNetworkFailure(error);
   }
 }
 
 function userIdFromTokenPayload(payload: Record<string, unknown> | null): string | undefined {
   if (!payload) return undefined;
-  const user = payload.user;
-  if (isRecord(user) && typeof user.id === 'string') return user.id;
+  const user = payload["user"];
+  if (isRecord(user) && typeof user["id"] === 'string') return user["id"];
   return undefined;
 }
 
@@ -256,7 +257,7 @@ async function firstRuntimeResponse(
   let lastFailure: PasswordChangeFailure | null = null;
   for (const base of options.bases) {
     try {
-      return { ok: true, response: await request(base) };
+      return { ok: true, response: await request(base), base };
     } catch (error) {
       lastFailure = preferredUpstreamNetworkFailure(lastFailure, error);
     }
@@ -289,31 +290,37 @@ async function passwordGrant(
       message: 'Authentication runtime rejected the password verification request.',
     });
   }
-  const accessToken = typeof payload?.access_token === 'string' ? payload.access_token : '';
-  return accessToken ? { ok: true, accessToken, tokenPayload: payload } : invalidRuntimeResponse();
+  const accessToken = typeof payload?.["access_token"] === 'string' ? payload["access_token"] : '';
+  return accessToken ? { ok: true, accessToken, tokenPayload: payload, base: runtime.base } : invalidRuntimeResponse();
 }
 
 async function updatePassword(
   accessToken: string,
   newPassword: string,
-  options: RuntimeRequestOptions,
+  options: { base: string; fetchImpl: typeof fetch },
 ): Promise<PasswordUpdateSuccess | PasswordChangeFailure> {
-  const runtime = await firstRuntimeResponse(options, (base) => options.fetchImpl(
-    buildGoTrueApiUrl(base, '/user'),
-    {
+  let response: Response;
+  try {
+    // 密码写入绑定成功 grant 的 runtime；传输异常无法证明未提交，绝不跨 runtime 重放。
+    response = await options.fetchImpl(buildGoTrueApiUrl(options.base, '/user'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ password: newPassword }),
       signal: AbortSignal.timeout(5000),
-    },
-  ));
-  if (!runtime.ok) return runtime;
-  const parsed = await readRuntimeJson(runtime.response);
+    });
+  } catch (error) {
+    return passwordChangeFailure(
+      upstreamNetworkFailure(error).status,
+      'password_update_outcome_unknown',
+      'Password update outcome is unknown. Verify the account state before trying again.',
+    );
+  }
+  const parsed = await readRuntimeJson(response);
   if (!parsed.ok) return parsed;
   const { payload } = parsed;
-  if (isWeakPasswordResponse(runtime.response.status, payload)) return weakPassword();
-  if (!runtime.response.ok) {
-    return upstreamResponseFailure(runtime.response.status, {
+  if (isWeakPasswordResponse(response.status, payload)) return weakPassword();
+  if (!response.ok) {
+    return upstreamResponseFailure(response.status, {
       code: 'password_update_failed',
       message: 'Authentication runtime rejected the password update request.',
     });
@@ -338,12 +345,12 @@ export async function changePasswordWithGoTrue(
   const runtimeOptions = { bases, fetchImpl };
   const grant = await passwordGrant(input, runtimeOptions);
   if (!grant.ok) return grant;
-  const update = await updatePassword(grant.accessToken, input.newPassword, runtimeOptions);
+  const update = await updatePassword(grant.accessToken, input.newPassword, { base: grant.base, fetchImpl });
   if (!update.ok) return update;
   const updatedUserId = userIdFromTokenPayload(grant.tokenPayload)
-    || (typeof update.payload?.id === 'string' ? update.payload.id : undefined);
+    || (typeof update.payload?.["id"] === 'string' ? update.payload["id"] : undefined);
   await auditImpl(updatedUserId, input.email);
-  return { ok: true, userId: updatedUserId };
+  return { ok: true, ...(updatedUserId === undefined ? {} : { userId: updatedUserId }) };
 }
 
 async function accountCenterFeatureFailure(
@@ -388,7 +395,7 @@ export function createPublicAccountPasswordRoutes(options?: {
   const getAuthConfig = options?.getAuthConfig || (() => adapter.getAuthConfig());
 
   return new Elysia({ prefix: '/v1/public/account-password' })
-    .post('/change', async ({ body, headers, set }) => {
+    .post('/change', async ({ body, headers, set, request }) => {
       const featureFailure = await accountCenterFeatureFailure(getAccountCenterConfig);
       if (featureFailure) {
         set.status = featureFailure.status;
@@ -400,7 +407,7 @@ export function createPublicAccountPasswordRoutes(options?: {
         return publicPasswordChangeFailure(parsed);
       }
 
-      const ip = requestIp(headers as Record<string, string | undefined>);
+      const ip = requestIp(headers);
       if (!consumeLimit(ip, parsed.email)) {
         set.status = 429;
         return { success: false, error: { code: 'too_many_attempts', message: 'Too many attempts. Please try again later.' } };
@@ -417,16 +424,16 @@ export function createPublicAccountPasswordRoutes(options?: {
         return publicPasswordChangeFailure(policyFailure);
       }
 
-      const result = await changePassword(parsed);
+      const result = await changePassword(readAccountNormalization('password', request, parsed));
       if (!result.ok) {
         set.status = result.status;
         return publicPasswordChangeFailure(result);
       }
 
-      return { success: true, status: 'password_changed' };
-    }, {
+      return accountOutput('password', { success: true, status: 'password_changed' });
+    }, accountContract('password', {
       detail: { summary: 'Change password with current credentials', tags: ['Public', 'Account Center'] },
-    });
+    }));
 }
 
 export const publicAccountPasswordRoutes = createPublicAccountPasswordRoutes();

@@ -1,3 +1,4 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { beforeAll, describe, expect, mock, test } from 'bun:test';
 
 const recordStep = mock(async () => {
@@ -47,10 +48,7 @@ describe('provisioning reconcile failure contract', () => {
       { method: 'POST' },
     ));
     expect(response.status).toBe(200);
-    const payload = await response.json() as {
-      results: Array<{ step: string; status: string; details?: Record<string, unknown> }>;
-      fully_provisioned: boolean;
-    };
+    const payload = strictDecodeSchema(StrictType.Object({ "results": StrictType.Array(StrictType.Object({ "step": StrictType.String(), "status": StrictType.String(), "details": StrictType.Optional(StrictType.Record(StrictType.String({ pattern: "^[\\s\\S]*$" }), StrictType.Unknown())) })), "fully_provisioned": StrictType.Boolean() }), await response.json());
     const migration = payload.results.find(result => result.step === 'db_migration');
     expect(migration).toMatchObject({
       status: 'failed',
@@ -59,7 +57,7 @@ describe('provisioning reconcile failure contract', () => {
         state_persistence: 'unavailable',
       },
     });
-    expect(migration?.details?.migration).toBeString();
+    expect(migration?.details?.["migration"]).toBeString();
     expect(JSON.stringify(payload)).not.toContain('secret_table');
     expect(JSON.stringify(payload)).not.toContain('credential');
     expect(payload.results).toHaveLength(4);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { readAuthorizationRequest, readResolvedPermissions } from './validation.js';
 import {
   assertCan,
   AuthorizationForbiddenError,
@@ -63,17 +64,25 @@ describe('@supauth/authorization-core', () => {
   it('maps malformed resolutions to 503 and freezes effective permissions', async () => {
     await expect(resolveAuthorization(request, async () => ['invoice:*']))
       .rejects.toMatchObject({ status: 503, code: 'authorization_unavailable' });
-    await expect(resolveAuthorization(request, async () => [42 as unknown as string]))
-      .rejects.toBeInstanceOf(AuthorizationUnavailableError);
-    await expect(resolveAuthorization(request, async () => null as unknown as string[]))
-      .rejects.toBeInstanceOf(AuthorizationUnavailableError);
+    expect(() => readResolvedPermissions([42])).toThrow(TypeError);
+    expect(() => readResolvedPermissions(null)).toThrow(TypeError);
 
     const context = await resolveAuthorization(request, async () => ['invoice:read', 'invoice:read']);
     expect(context.permissions).toEqual([permission('invoice:read')]);
     expect(Object.isFrozen(context.permissions)).toBe(true);
-    expect(() => (context.permissions as unknown as string[]).push('invoice:delete')).toThrow();
+    expect(() => Object.defineProperty(context.permissions, '0', { value: 'invoice:delete' })).toThrow();
   });
 
+  it('rejects wrong primitive types and missing request fields before resolution', () => {
+    for (const value of [null, [], {}, { ...request, principal: null },
+      { ...request, principal: { ...request.principal, issuer: 42 } },
+      { ...request, principal: { ...request.principal, subject: undefined } },
+      { ...request, applicationId: true },
+      { ...request, domain: { type: 'organization', id: 42 } }]) {
+      expect(() => readAuthorizationRequest(value)).toThrow(TypeError);
+    }
+    expect(readAuthorizationRequest(request)).toEqual(request);
+  });
   it('accepts only canonical resource:action permissions', () => {
     expect(String(permission('invoice:read'))).toBe('invoice:read');
     for (const invalid of ['invoice.read', 'invoice:*', '*:read', 'invoice:read:own', 'Invoice:read']) {

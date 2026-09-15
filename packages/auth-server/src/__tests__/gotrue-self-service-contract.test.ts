@@ -1,15 +1,16 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { renderHostedPage } from '../../../admin-console/src/hosted/build.js';
 
 function workspaceSource(path: string) {
   return readFileSync(resolve(import.meta.dir, '../../../..', path), 'utf8');
 }
 
 describe('stock GoTrue account and administrator boundaries', () => {
-  test('does not expose incompatible administrator or per-session UI actions', () => {
-    const accountHtml = workspaceSource('packages/admin-console/static/account.html');
-    const embeddedAccountHtml = workspaceSource('packages/auth-server/src/generated/hosted-pages.ts');
+  test('does not expose incompatible administrator or per-session UI actions', async () => {
+    const accountHtml = await renderHostedPage('account');
     const adminClient = workspaceSource('packages/admin-console/src/lib/api/client.js');
     const userPages = [
       workspaceSource('packages/admin-console/src/routes/users/+page.svelte'),
@@ -23,9 +24,8 @@ describe('stock GoTrue account and administrator boundaries', () => {
       'data-section="sessions"',
     ]) {
       expect(accountHtml).not.toContain(removedToken);
-      expect(embeddedAccountHtml).not.toContain(removedToken);
     }
-    expect(embeddedAccountHtml).toContain('EMBEDDED_ACCOUNT_HTML');
+    expect(workspaceSource('scripts/generate-hosted-pages.ts')).toContain("await renderHostedPage('account')");
     expect(accountHtml).not.toContain('/account/logout?scope=');
     expect(accountHtml).toContain('hostedAuth.signOut({ scope })');
     expect(accountHtml).toContain('data-logout-scope="local"');
@@ -45,8 +45,8 @@ describe('stock GoTrue account and administrator boundaries', () => {
     expect(userPages).toContain('listUserGrants');
   });
 
-  test('keeps the manual provider-linking entry hidden until public capability negotiation enables it', () => {
-    const accountHtml = workspaceSource('packages/admin-console/static/account.html');
+  test('keeps the manual provider-linking entry hidden until public capability negotiation enables it', async () => {
+    const accountHtml = await renderHostedPage('account');
 
     expect(accountHtml).toContain('id="identity-link-form" class="inline-form" hidden');
     expect(accountHtml).toContain("providerLinkingCapability.available");
@@ -56,15 +56,15 @@ describe('stock GoTrue account and administrator boundaries', () => {
   });
 
   test('hides compatibility routes from OpenAPI while publishing bearer self-service', async () => {
-    process.env.SUPACLOUD_API_URL ||= 'http://localhost:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN ||= 'contract-test';
-    process.env.PROJECT_REF ||= 'contract-test';
-    process.env.DATABASE_URL ||= 'postgres://placeholder';
-    process.env.RUNTIME_MODE = 'gotrue';
+    process.env["SUPACLOUD_API_URL"] ||= 'http://localhost:9090';
+    process.env["SUPACLOUD_MASTER_TOKEN"] ||= 'contract-test';
+    process.env["PROJECT_REF"] ||= 'contract-test';
+    process.env["DATABASE_URL"] ||= 'postgres://placeholder';
+    process.env["RUNTIME_MODE"] = 'gotrue';
 
     const { app } = await import('../index.js');
     const response = await app.handle(new Request('http://localhost/swagger/json'));
-    const specification = await response.json() as { paths?: Record<string, unknown> };
+    const specification = strictDecodeSchema(StrictType.Object({ "paths": StrictType.Optional(StrictType.Record(StrictType.String({ pattern: "^[\\s\\S]*$" }), StrictType.Unknown())) }), await response.json());
     const paths = Object.keys(specification.paths || {});
 
     expect(response.ok).toBe(true);

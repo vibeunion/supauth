@@ -3,6 +3,8 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { enterpriseSSOConfig } from '../db/schema.js';
+import { EnterpriseSSOConfigSchema } from '../../../shared/src/sdk-models.js';
+import { decodeSchema } from '../../../shared/src/schema.js';
 
 export interface EnterpriseSSOConfigRow {
   id: string;
@@ -84,7 +86,7 @@ export async function findSSOConfigByDomain(domain: string) {
   const db = getDb();
   const allConfigs = await db.select().from(enterpriseSSOConfig);
   return allConfigs.find(config => {
-    const domains = config.domains as string[];
+    const domains = decodeSchema(EnterpriseSSOConfigSchema.properties.domains, config.domains);
     return domains.map(d => d.toLowerCase()).includes(domain.toLowerCase());
   }) || null;
 }

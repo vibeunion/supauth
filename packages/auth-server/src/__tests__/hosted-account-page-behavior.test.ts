@@ -1,18 +1,22 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { strictDefined, strictInvoke, strictProperty, strictRecord, strictString } from './helpers/strict-values.js';
 import vm from 'node:vm';
-import { EMBEDDED_ACCOUNT_HTML } from '../generated/hosted-pages.js';
+import { renderHostedPage } from '../../../admin-console/src/hosted/build.js';
 import { validateExternalDeleteAccountUrl as validateServerDeleteUrl } from '../utils/external-delete-url.js';
-// @ts-expect-error Admin 浏览器 helper 是纯 JS；此导入用于锁定三条安全边界的同一契约。
 import { validateExternalDeleteAccountUrlDraft as validateAdminDeleteUrl } from '../../../admin-console/src/lib/components/account-center-settings.js';
 
-const accountHtml = readFileSync(
-  new URL('../../../admin-console/static/account.html', import.meta.url),
-  'utf8',
-);
+const accountHtml = await renderHostedPage('account');
 
 type EventListener = (event: FakeEvent) => unknown;
 type AccountResponder = (path: string, init: RequestInit) => Response | Promise<Response>;
+
+function assertDeleteUrlResult(value: unknown): asserts value is { ok: boolean; url?: string | null } {
+  const record = strictRecord(value);
+  if (typeof record['ok'] !== 'boolean'
+    || (Object.hasOwn(record, 'url') && record['url'] !== null && typeof record['url'] !== 'string')) {
+    throw new TypeError('Invalid hosted delete URL result');
+  }
+}
 
 class FakeClassList {
   readonly names = new Set<string>();
@@ -53,6 +57,18 @@ class FakeElement {
 
   constructor(readonly id = '', tagName = 'div') {
     this.tagName = tagName.toUpperCase();
+  }
+
+  get localName() { return this.tagName.toLowerCase(); }
+  readonly namespaceURI = 'http://www.w3.org/1999/xhtml';
+
+  matches(selector: string): boolean {
+    if (selector.startsWith('#')) return this.id === selector.slice(1);
+    if (selector.startsWith('.')) {
+      const name = selector.slice(1);
+      return this.classList.contains(name) || this.className.split(/\s+/).includes(name);
+    }
+    return this.localName === selector.toLowerCase();
   }
 
   set innerHTML(_markup: string) {
@@ -96,7 +112,7 @@ class FakeElement {
   }
 
   closest(selector: string): FakeElement | null {
-    if (selector === 'button[data-action]' && this.tagName === 'BUTTON' && this.dataset.action) return this;
+    if (selector === 'button[data-action]' && this.tagName === 'BUTTON' && this.dataset["action"]) return this;
     return this.parent?.closest(selector) || null;
   }
 
@@ -137,7 +153,19 @@ class FakeDocument {
   title = 'SupaOAuth 账户中心';
 
   constructor() {
-    for (const id of accountElementIds()) this.elements.set(id, new FakeElement(id));
+    for (const match of accountHtml.matchAll(/<([a-z][\w-]*)\b[^>]*\bid="([^"]+)"[^>]*>/g)) {
+      const [, tag, id] = match;
+      if (tag && id) this.elements.set(id, new FakeElement(id, tag));
+    }
+    this.elements.set('account-section-grid', new FakeElement('account-section-grid', 'section'));
+    this.elements.get('account-section-grid')?.classList.add('account-section-grid');
+    for (const id of ['identity-link-form', 'totp-verify-form']) {
+      this.elements.get(id)?.appendChild(new FakeElement('', 'button'));
+    }
+    for (const id of ['delete-account-form', 'delete-account-link-wrap']) {
+      const element = this.elements.get(id);
+      if (element) element.hidden = true;
+    }
   }
 
   getElementById(id: string) {
@@ -149,42 +177,34 @@ class FakeDocument {
   }
 
   querySelector(selector: string) {
+    if (selector.startsWith('#')) return this.getElementById(selector.slice(1));
     if (selector === '.account-section-grid') return this.elements.get('account-section-grid') || null;
     return null;
   }
 
-  querySelectorAll(_selector: string): FakeElement[] {
-    return [];
+  querySelectorAll(selector: string): FakeElement[] {
+    return [...this.elements.values()].filter(element => element.matches(selector));
   }
-}
-
-function accountElementIds() {
-  return [
-    'account-section-grid', 'brand', 'brand-mark', 'logo', 'account-title', 'account-lead',
-    'load-account', 'account-status-note', 'account-message', 'profile-details', 'profile-form',
-    'profile-email', 'profile-phone', 'profile-id', 'profile-name', 'profile-name-input',
-    'module-grid', 'account-panel', 'grants-list', 'identities-list', 'identity-link-form',
-    'identity-link-provider', 'mfa-list', 'start-totp-enroll', 'totp-enroll', 'totp-qr',
-    'totp-uri', 'totp-verify-form', 'totp-code', 'email-form', 'phone-form', 'email-input',
-    'phone-input', 'delete-account-form', 'delete-confirmation', 'delete-account-link-wrap',
-    'delete-account-link', 'save-profile', 'custom-style',
-  ];
 }
 
 function inlineAccountScript() {
   const scripts = [...accountHtml.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
   const source = scripts.at(-1)?.[1];
   if (!source) throw new Error('Hosted account inline script was not found.');
-  const initializationMarker = '    (async () => {';
+  const initializationMarker = '  (async () => {';
   const initializationMatches = source.split(initializationMarker).length - 1;
   if (initializationMatches !== 1) {
     throw new Error(`Expected one hosted account initialization IIFE, found ${initializationMatches}.`);
   }
   const instrumentedSource = source.replace(
     initializationMarker,
-    '    globalThis.__accountPageReady = (async () => {',
+    '  globalThis.__accountPageReady = (async () => {',
   );
-  return `${instrumentedSource}\nglobalThis.__accountPage = { accountFetch, validateExternalDeleteAccountUrl };`;
+  const closing = instrumentedSource.lastIndexOf('})();');
+  if (closing < 0) throw new Error('Missing hosted bundle boundary');
+  return `${instrumentedSource.slice(0, closing)}
+globalThis.__accountPage = { accountFetch: (path) => accountFetch(path, accountResponses.user), validateExternalDeleteAccountUrl };
+${instrumentedSource.slice(closing)}`;
 }
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -196,6 +216,7 @@ function enabledAccountConfig(
 ) {
   return {
     success: true,
+    capabilities: { provider_linking: { available: false, providers: [], redirect_to: null } },
     config: {
       enabled: true,
       profile: { edit_mode: 'editable', fields: ['name', 'email', 'phone'] },
@@ -210,12 +231,12 @@ function enabledAccountConfig(
 function defaultAccountResponder(path: string) {
   if (path === '/account/me') return jsonResponse({ success: true, user: { id: 'user-1' } });
   if (path === '/account/grants') {
-    return jsonResponse({ success: true, items: [{ client: { id: 'grant-1', name: 'Test App' } }] });
+    return jsonResponse({ success: true, items: [{ client: { id: 'grant-1', name: 'Test App' } }], total: 1 });
   }
   if (path === '/account/identities') {
-    return jsonResponse({ success: true, items: [{ id: 'identity-1', provider: 'github' }] });
+    return jsonResponse({ success: true, items: [{ id: 'identity-1', provider: 'github' }], total: 1 });
   }
-  if (path === '/account/mfa') return jsonResponse({ success: true, items: [{ id: 'mfa-1' }] });
+  if (path === '/account/mfa') return jsonResponse({ success: true, items: [{ id: 'mfa-1' }], total: 1 });
   return jsonResponse({ success: true });
 }
 
@@ -257,28 +278,32 @@ async function createHarness(
     if (url.endsWith('/account/config')) {
       return jsonResponse(options.accountConfigPayload ?? enabledAccountConfig());
     }
-    return jsonResponse({ success: true, branding: options.brandingPayload ?? null });
+    return jsonResponse({
+      branding: options.brandingPayload ?? {}, sign_in_methods: ['password'], sign_up_enabled: true,
+      password_policy: { min_length: 8, require_uppercase: false, require_lowercase: false, require_numbers: false, require_symbols: false },
+      connectors: [],
+    });
   };
  const context = {
-   Headers, Promise, Response, TypeError, URL, console, document, fetch: publicFetch,
-   globalThis: {} as Record<string, unknown>, window,
+   Headers, Promise, Response, TypeError, URL, URLSearchParams, console, document, fetch: publicFetch,
+   HTMLElement: FakeElement, Element: FakeElement, HTMLButtonElement: FakeElement,
+   globalThis: {}, window,
    brand: document.getElementById('brand'),
   };
   context.globalThis = context;
   vm.runInNewContext(inlineAccountScript(), context);
-  await (context as unknown as { __accountPageReady: Promise<void> }).__accountPageReady;
- const pageApi = (context as unknown as {
-    __accountPage: {
-      accountFetch: (path: string) => Promise<unknown>;
-      validateExternalDeleteAccountUrl: (urlInput: unknown) => { ok: boolean; url?: string | null };
-    };
-  }).__accountPage;
+  await strictDefined(strictProperty(context, '__accountPageReady'));
+  const pageApi = strictDefined(strictProperty(context, '__accountPage'));
 
   return {
-    accountFetch: pageApi.accountFetch,
+    accountFetch: (path: string) => Promise.resolve(strictInvoke(pageApi, 'accountFetch', path)),
     documentTitle: () => document.title,
-    validateExternalDeleteAccountUrl: pageApi.validateExternalDeleteAccountUrl,
-    element: (id: string) => document.getElementById(id) as FakeElement,
+    validateExternalDeleteAccountUrl: (urlInput: unknown) => {
+      const result = strictInvoke(pageApi, 'validateExternalDeleteAccountUrl', urlInput);
+      assertDeleteUrlResult(result);
+      return result;
+    },
+    element: (id: string) => strictDefined(document.getElementById(id)),
     requests,
     signOutScopes,
   };
@@ -341,8 +366,8 @@ const externalDeleteUrlContractCases: ExternalDeleteUrlContractCase[] = [
 ];
 
 describe('hosted account page behavior', () => {
-  test('keeps the generated hosted account page byte-identical to its source', () => {
-    expect(EMBEDDED_ACCOUNT_HTML).toBe(accountHtml);
+  test('materializes the checked hosted account source deterministically without writing generated files', async () => {
+    expect(await renderHostedPage('account')).toBe(accountHtml);
   });
 
   test('keeps branded document and heading titles in Chinese', async () => {
@@ -419,7 +444,7 @@ describe('hosted account page behavior', () => {
         throw new Error('accountFetch unexpectedly succeeded.');
       } catch (error) {
         expect(error).toMatchObject({ code: failureCase.code });
-        expect(String((error as Error).message)).not.toContain(internalMessage);
+        expect(strictString(strictProperty(error, 'message'))).not.toContain(internalMessage);
       }
     }
   });
@@ -497,7 +522,7 @@ describe('hosted account page behavior', () => {
       if (path === '/account/grants' && (init.method || 'GET') === 'GET') {
         return jsonResponse({ success: false, error: { message: 'private upstream detail' } }, 502);
       }
-      if (path === '/account/identities') return jsonResponse({ success: true, items: [] });
+      if (path === '/account/identities') return jsonResponse({ success: true, items: [], total: 0 });
       return defaultAccountResponder(path);
     });
 
@@ -597,7 +622,7 @@ describe('hosted account page behavior', () => {
           deleted = true;
           return jsonResponse({ success: true });
         }
-        if (path === actionCase.path && deleted) return jsonResponse({ success: true, items: [] });
+        if (path === actionCase.path && deleted) return jsonResponse({ success: true, items: [], total: 0 });
         return defaultAccountResponder(path);
       });
       await loadAccount(harness);

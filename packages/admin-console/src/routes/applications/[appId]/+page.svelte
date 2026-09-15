@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { ApplicationView, AssignmentView, AuditEntryView, OrganizationView, ApplicationBindingView, ResourceView, ApplicationConsentView, ApplicationAccessControlView, ApplicationBrandingView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import { adminEndpoints, decodeSchema } from "@supauth/shared";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
@@ -62,22 +64,28 @@
     legacyStorageKeys: ["supaoauth.admin.application-mutation-locks.v1"],
   });
 
-  let application = $state(null);
+  type ApplicationAction = "clear-sign-in" | "create" | "delete" | "rotate" | "unbind";
+  type ApplicationLocks = DurableMutationLocks<ApplicationAction>;
+  type BrandingForm = ApplicationBrandingView["branding"] & { enabled: boolean } &
+    Required<Pick<ApplicationBrandingView["branding"],
+      "page_title" | "primary_color" | "logo_url" | "favicon_url" |
+      "background_url" | "button_label" | "custom_css">>;
+  let application = $state<ApplicationView | null>(null);
   let displayedAuthMethods = $derived(
     application?.client_type === "public" ? ["none"] : confidentialAuthMethods,
   );
-  let roles = $state([]);
-  let logs = $state([]);
-  let organizations = $state([]);
-  let bindings = $state([]);
-  let resources = $state([]);
-  let applicationForm = $state({
+  let roles = $state<AssignmentView[]>([]);
+  let logs = $state<AuditEntryView[]>([]);
+  let organizations = $state<OrganizationView[]>([]);
+  let bindings = $state<ApplicationBindingView[]>([]);
+  let resources = $state<ResourceView[]>([]);
+  let applicationForm = $state<{ client_name: string; redirect_uris: string; grant_types: string[]; token_endpoint_auth_method: string }>({
     client_name: "",
     redirect_uris: "",
     grant_types: [],
     token_endpoint_auth_method: "client_secret_basic",
   });
-  let branding = $state({
+  let branding = $state<BrandingForm>({
     enabled: false,
     page_title: "",
     primary_color: "",
@@ -93,26 +101,26 @@
     allowed_organization_ids: "",
     require_explicit_consent: true,
   });
-  let accessControl = $state({
+  let accessControl = $state<{ enabled: boolean; organization_required: boolean; allowed_organization_ids: string[] }>({
     enabled: false,
     organization_required: false,
     allowed_organization_ids: [],
   });
   let newBinding = $state({ resource_id: "", scope_id: "" });
   let revealedSecret = $state("");
-  let applicationMutationLocks = $state({});
+  let applicationMutationLocks = $state<ApplicationLocks>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   let loading = $state(true);
   let saving = $state(false);
   const mutationTracker = createOperationTracker((pending) => {
     saving = pending;
   });
-  let error = $state(null);
-  let appId = $derived(page.params.appId);
+  let error = $state<unknown>(null);
+  let appId = $derived(page.params.appId || "");
   let requestedTab = $derived(page.params.tab || "settings");
   let loadGeneration = 0;
-  let loadedApplicationContext = $state(null);
+  let loadedApplicationContext = $state<ResourceLoadContext | null>(null);
   let tabs = $derived(applicationTabs());
   let activeTab = $derived(
     tabFromRoute(
@@ -143,11 +151,11 @@
     );
   }
 
-  function applicationMutationDescriptor(action, targetId) {
+  function applicationMutationDescriptor(action: ApplicationAction, targetId: string) {
     return { action, ownerId: APPLICATION_LOCK_OWNER, targetId };
   }
 
-  function updateApplicationMutationLocks(lockCommand) {
+  function updateApplicationMutationLocks(lockCommand: () => ApplicationLocks) {
     try {
       applicationMutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -163,7 +171,7 @@
     updateApplicationMutationLocks(() => applicationMutationLockStore.restore());
   }
 
-  function stageApplicationMutation(action, targetId) {
+  function stageApplicationMutation(action: ApplicationAction, targetId: string) {
     return updateApplicationMutationLocks(() =>
       applicationMutationLockStore.stage(
         applicationMutationLocks,
@@ -172,7 +180,7 @@
     );
   }
 
-  function clearApplicationMutationLock(action, targetId) {
+  function clearApplicationMutationLock(action: ApplicationAction, targetId: string) {
     return updateApplicationMutationLocks(() =>
       applicationMutationLockStore.clear(
         applicationMutationLocks,
@@ -181,30 +189,30 @@
     );
   }
 
-  function recordApplicationMutationUnknown(action, targetId) {
+  function recordApplicationMutationUnknown(action: ApplicationAction, targetId: string) {
     if (applicationMutationLocked(action, targetId)) return true;
     return stageApplicationMutation(action, targetId);
   }
 
-  function applicationMutationLocked(action, targetId) {
+  function applicationMutationLocked(action: ApplicationAction, targetId: string) {
     return applicationMutationLockStore.isLocked(
       applicationMutationLocks,
       applicationMutationDescriptor(action, targetId),
     );
   }
 
-  function acknowledgeApplicationMutation(action, resourceId) {
+  function acknowledgeApplicationMutation(action: ApplicationAction, resourceId: string) {
     if (!confirm(t("I have verified the authoritative application state."))) return;
     if (!confirm(t("Allow this high-impact application action to run again?"))) return;
     clearApplicationMutationLock(action, resourceId);
   }
 
-  function applicationIdentity(applicationResponse) {
+  function applicationIdentity(applicationResponse: ApplicationView | null) {
     const identity = applicationResponse?.client_id || applicationResponse?.id;
     return typeof identity === "string" ? identity : "";
   }
 
-  function completeApplicationList(response) {
+  function completeApplicationList(response: CollectionPayload<ApplicationView>) {
     const listedApplications = completeCollectionItems(response);
     if (listedApplications.every((entry) => applicationIdentity(entry))) {
       return listedApplications;
@@ -212,11 +220,11 @@
     throw new Error("Management API returned an application without an identity");
   }
 
-  function bindingMutationResourceId(bindingId) {
+  function bindingMutationResourceId(bindingId: string) {
     return `${appId}:${bindingId}`;
   }
 
-  function completeBindingList(response) {
+  function completeBindingList(response: CollectionPayload<ApplicationBindingView>) {
     const listedBindings = completeCollectionItems(response);
     if (listedBindings.every((binding) => typeof binding?.id === "string")) {
       return listedBindings;
@@ -224,7 +232,7 @@
     throw new Error("Management API returned a binding without an identity");
   }
 
-  function signInOverrideCleared(response, ownerId) {
+  function signInOverrideCleared(response: ApplicationBrandingView | null, ownerId: string) {
     if (
       response?.application_id !== ownerId ||
       response?.enabled !== false ||
@@ -235,7 +243,7 @@
     return brandingValues.length >= 7 && brandingValues.every((entry) => entry == null);
   }
 
-  function reconciliationError(message) {
+  function reconciliationError(message: string) {
     return new Error(t(message));
   }
 
@@ -245,18 +253,18 @@
     return allTabs.filter((tab) => availableTabs.has(tab.value));
   }
 
-  function timestamp(value) {
+  function timestamp(value: string | null | undefined) {
     return value ? new Date(value).toLocaleString() : t("common.notAvailable");
   }
 
-  function stringList(rawValues) {
+  function stringList(rawValues: string) {
     return rawValues
       .split(",")
       .map((entry) => entry.trim())
       .filter(Boolean);
   }
 
-  function initializeApplicationForm(applicationResponse) {
+  function initializeApplicationForm(applicationResponse: ApplicationView) {
     applicationForm = {
       client_name: applicationResponse.client_name || "",
       redirect_uris: (applicationResponse.redirect_uris || []).join(", "),
@@ -266,7 +274,7 @@
     };
   }
 
-  function initializeConsent(consentResponse) {
+  function initializeConsent(consentResponse: ApplicationConsentView) {
     consent = {
       user_scopes: (
         consentResponse.userScopes ||
@@ -290,7 +298,7 @@
     };
   }
 
-  function initializeBranding(brandingResponse) {
+  function initializeBranding(brandingResponse: ApplicationBrandingView) {
     branding = {
       ...branding,
       enabled: brandingResponse.enabled ?? false,
@@ -298,7 +306,7 @@
     };
   }
 
-  function initializeAccessControl(accessControlResponse) {
+  function initializeAccessControl(accessControlResponse: ApplicationAccessControlView) {
     accessControl = { ...accessControl, ...accessControlResponse };
   }
 
@@ -314,7 +322,7 @@
     return { generation: loadGeneration, resourceId: appId, tab: requestedTab };
   }
 
-  function isCurrentLoad(loadContext) {
+  function isCurrentLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(loadContext, currentLoadContext());
   }
 
@@ -324,28 +332,28 @@
       : null;
   }
 
-  function isCurrentMutation(operation) {
+  function isCurrentMutation(operation: Operation<ResourceLoadContext>) {
     return (
       mutationTracker.isCurrent(operation) &&
       isCurrentLoad(operation.ownerContext)
     );
   }
 
-  async function loadActiveTab(loadContext, loadTab) {
+  async function loadActiveTab(loadContext: ResourceLoadContext, loadTab: string) {
     if (loadTab === "roles") {
       const roleResponse = await listApplicationRoles(loadContext.resourceId);
-      if (isCurrentLoad(loadContext)) roles = collectionItems(roleResponse);
+      if (isCurrentLoad(loadContext)) roles = collectionItems<AssignmentView>(roleResponse);
     } else if (loadTab === "logs") {
       const logResponse = await listApplicationLogs(loadContext.resourceId, {
         limit: 50,
       });
-      if (isCurrentLoad(loadContext)) logs = collectionItems(logResponse);
+      if (isCurrentLoad(loadContext)) logs = collectionItems<AuditEntryView>(logResponse);
     } else if (loadTab === "organizations") {
       const organizationResponse = await listApplicationOrganizations(
         loadContext.resourceId,
       );
       if (isCurrentLoad(loadContext)) {
-        organizations = collectionItems(organizationResponse);
+        organizations = collectionItems<OrganizationView>(organizationResponse);
       }
     } else if (loadTab === "branding") {
       const brandingResponse = await getApplicationSignInExperience(
@@ -367,8 +375,8 @@
           getApplicationConsent(loadContext.resourceId),
         ]);
       if (isCurrentLoad(loadContext)) {
-        bindings = collectionItems(bindingResponse);
-        resources = collectionItems(resourceResponse);
+        bindings = collectionItems<ApplicationBindingView>(bindingResponse);
+        resources = collectionItems<ResourceView>(resourceResponse);
         initializeConsent(consentResponse);
       }
     }
@@ -410,7 +418,7 @@
     }
   }
 
-  async function runMutation(command) {
+  async function runMutation(command: (ownerId: string) => Promise<unknown>) {
     if (saving) return;
     const mutationContext = currentMutationContext();
     if (!mutationContext) return;
@@ -428,15 +436,15 @@
 
   function saveApplication() {
     return runMutation((ownerId) =>
-      updateApplication(ownerId, {
+      updateApplication(ownerId, decodeSchema(adminEndpoints.updateApplication.input.properties.body, {
         client_name: applicationForm.client_name,
         redirect_uris: stringList(applicationForm.redirect_uris),
         grant_types: applicationForm.grant_types,
         token_endpoint_auth_method:
-          application.client_type === "public"
+          application?.client_type === "public"
             ? "none"
             : applicationForm.token_endpoint_auth_method,
-      }),
+      })),
     );
   }
 
@@ -499,7 +507,8 @@
         return;
       }
       const readBack = await getApplication(operation.ownerContext.resourceId);
-      const returnedSecret = response?.client_secret || response?.secret;
+      const returnedSecret = response?.client_secret ||
+        ("secret" in response && typeof response.secret === "string" ? response.secret : undefined);
       const verified =
         applicationIdentity(readBack) === operation.ownerContext.resourceId &&
         typeof returnedSecret === "string" &&
@@ -687,7 +696,7 @@
     }
   }
 
-  async function unbindApplication(bindingId) {
+  async function unbindApplication(bindingId: string) {
     const mutationResourceId = bindingMutationResourceId(bindingId);
     if (
       saving ||
@@ -848,7 +857,7 @@
               >{t("application.authMethod")}</label
             ><select
               id="app-auth"
-              disabled={application.client_type === "public"}
+              disabled={application?.client_type === "public"}
               bind:value={applicationForm.token_endpoint_auth_method}
               class="w-full"
               >{#each displayedAuthMethods as authMethod (authMethod)}<option
@@ -904,12 +913,12 @@
               {t("application.secret.title")}
             </h3>
             <p class="mt-1 text-sm text-surface-500">
-              {application.client_type === "public"
+              {application?.client_type === "public"
                 ? t("application.secret.publicClient")
                 : t("application.secret.confidentialClient")}
             </p>
           </div>
-          {#if application.client_type !== "public"}
+          {#if application && application.client_type !== "public"}
             <button
               disabled={saving || !mutationStorageReady || rotationOutcomeUnknown}
               onclick={rotateSecret}
@@ -1188,7 +1197,7 @@
       ><div class="space-y-3">
         {#each organizations as organization (organization.id || organization.organization_id)}<a
             href={resolve(
-              `/organizations/${encodeURIComponent(organization.id || organization.organization_id)}/settings`,
+              `/organizations/${encodeURIComponent(organization.id || organization.organization_id || "")}/settings`,
             )}
             class="console-card console-card-hover block p-4"
             ><p class="font-semibold text-surface-900">

@@ -1,11 +1,22 @@
 {
-	"extends": "./.svelte-kit/tsconfig.json",
+	"extends": ["./.svelte-kit/tsconfig.json", "../../tsconfig.base.json"],
 	"compilerOptions": {
 		"allowJs": true,
-		"checkJs": false,
-		"types": ["@types/bun"],
+		"checkJs": true,
+		"skipLibCheck": false,
+		"types": ["node", "bun-types/test"],
 		"moduleResolution": "bundler"
-	}
+	},
+	"exclude": [
+		"node_modules/**",
+		"src/service-worker.js",
+		"src/service-worker/**/*.js",
+		"src/service-worker.ts",
+		"src/service-worker/**/*.ts",
+		"src/service-worker.d.ts",
+		"src/service-worker/**/*.d.ts",
+		"src/hosted/build-runtime.ts"
+	]
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
 	//

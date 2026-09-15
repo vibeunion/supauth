@@ -41,7 +41,7 @@ function runtimeMinimumLength(input: unknown): number {
 /** 未知字符策略无法被领取页精确表达，必须失败关闭以免放行弱密码。 */
 export function passwordPolicyFromAuthConfig(authConfig: unknown): PublicPasswordPolicy {
   if (!isRecord(authConfig)) throw new Error('GoTrue returned an invalid auth configuration');
-  const requiredCharacters = authConfig.password_required_characters;
+  const requiredCharacters = authConfig["password_required_characters"];
   if (typeof requiredCharacters !== 'string') {
     throw new Error('GoTrue returned an invalid password_required_characters policy');
   }
@@ -53,7 +53,7 @@ export function passwordPolicyFromAuthConfig(authConfig: unknown): PublicPasswor
   const requireStandard = requiredCharacters === GOTRUE_PASSWORD_CHARACTER_POLICIES.standard
     || requiredCharacters === GOTRUE_PASSWORD_CHARACTER_POLICIES.strong;
   return {
-    min_length: runtimeMinimumLength(authConfig.password_min_length),
+    min_length: runtimeMinimumLength(authConfig["password_min_length"]),
     require_uppercase: requireStandard,
     require_lowercase: requireStandard,
     require_numbers: requireStandard,

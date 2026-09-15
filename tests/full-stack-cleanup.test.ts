@@ -1,3 +1,4 @@
+import { aggregateErrors } from './tooling-test-values.js';
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { CleanupStack } from './integration/supabase-compat/cleanup.js';
@@ -29,7 +30,7 @@ describe('full-stack compatibility cleanup', () => {
 
     expect(cleaned).toEqual(['storage object']);
     expect(failure).toBeInstanceOf(AggregateError);
-    const errors = (failure as AggregateError).errors as Error[];
+    const errors = aggregateErrors(failure);
     expect(errors.map((error) => error.message)).toEqual([
       'realtime channel: unsubscribe failed',
       'primary user: delete failed',

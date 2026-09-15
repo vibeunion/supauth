@@ -22,6 +22,8 @@ describe("webhook event selection", () => {
       ["user.deleted"],
       ["user.created", null],
     ]) expect(normalizedWebhookSelection(selected, supported)).toBeNull();
+    expect(normalizedWebhookSelection(Array(1), [""])).toBeNull();
+    expect(normalizedWebhookSelection([null], [""])).toBeNull();
   });
 
   test("keeps exactly one selectable wildcard before catalog events", () => {

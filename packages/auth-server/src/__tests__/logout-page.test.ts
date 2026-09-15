@@ -297,16 +297,16 @@ describe('hosted logout redirect validation', () => {
   });
 
   test('uses the configured public origin instead of the request host', async () => {
-    const originalPublicUrl = process.env.SUPAUTH_PUBLIC_URL;
-    process.env.SUPAUTH_PUBLIC_URL = 'https://configured-auth.example.test';
+    const originalPublicUrl = process.env["SUPAUTH_PUBLIC_URL"];
+    process.env["SUPAUTH_PUBLIC_URL"] = 'https://configured-auth.example.test';
     loadConfig();
     const requestUrl = 'https://untrusted-forwarded-host.example.test/logout';
     try {
       const redirect = await resolvePostLogoutRedirect(new Request(requestUrl), {});
       expect(redirect).toBe('https://configured-auth.example.test/login?logged_out=1');
     } finally {
-      if (originalPublicUrl === undefined) delete process.env.SUPAUTH_PUBLIC_URL;
-      else process.env.SUPAUTH_PUBLIC_URL = originalPublicUrl;
+      if (originalPublicUrl === undefined) delete process.env["SUPAUTH_PUBLIC_URL"];
+      else process.env["SUPAUTH_PUBLIC_URL"] = originalPublicUrl;
       loadConfig();
     }
   });

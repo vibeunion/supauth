@@ -1,6 +1,7 @@
 // User management routes with OpenAPI annotations
 
 import { Elysia } from 'elysia';
+import { managementContract, decodeEndpointBody, decodeEndpointInput, decodeEndpointResponse, decodeManagementResponse, decodeManagementQuery } from '../utils/management-contract.js';
 import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
@@ -36,8 +37,13 @@ async function fireWebhook(eventType: string, data: Record<string, unknown>) {
 }
 
 function gotrueGrantPage(upstream: unknown) {
-  const page = pagedResponse<Record<string, unknown>>(upstream);
-  return { ...page, items: page.items.map((grant) => ({ ...grant, source: 'gotrue' })) };
+  const page = pagedResponse(upstream);
+  return { ...page, items: page.items.map((grant) => {
+    if (!isRecord(grant)) {
+      throw new ApiContractError(502, 'invalid_upstream_response', 'Upstream grant has an invalid shape');
+    }
+    return { ...grant, source: 'gotrue' };
+  }) };
 }
 
 function parseUserPaginationValue(
@@ -62,13 +68,13 @@ function parseUserPaginationValue(
 
 function parseUserPagination(query: Record<string, unknown>) {
   return {
-    page: parseUserPaginationValue(query.page, 'page', DEFAULT_USER_PAGE, Number.MAX_SAFE_INTEGER),
-    limit: parseUserPaginationValue(query.limit, 'limit', DEFAULT_USER_LIMIT, MAX_USER_LIMIT),
+    page: parseUserPaginationValue(query["page"], 'page', DEFAULT_USER_PAGE, Number.MAX_SAFE_INTEGER),
+    limit: parseUserPaginationValue(query["limit"], 'limit', DEFAULT_USER_LIMIT, MAX_USER_LIMIT),
   };
 }
 
 async function validateAdminCreatePassword(password: string): Promise<void> {
-  let policy;
+  let policy: ReturnType<typeof passwordPolicyFromAuthConfig>;
   try {
     policy = passwordPolicyFromAuthConfig(await adapter.getAuthConfig());
   } catch {
@@ -100,14 +106,15 @@ function isMissingUserDeleteError(error: unknown): boolean {
     throw parseError;
   }
   if (!isRecord(body)) return false;
-  const nestedError = isRecord(body.error) ? body.error : {};
-  return body.code === 'user_not_found'
-    || body.error_code === 'user_not_found'
-    || nestedError.code === 'user_not_found';
+  const nestedError = isRecord(body["error"]) ? body["error"] : {};
+  return body["code"] === 'user_not_found'
+    || body["error_code"] === 'user_not_found'
+    || nestedError["code"] === 'user_not_found';
 }
 
 export const userRoutes = new Elysia({ prefix: '/v1/users' })
-  .get('/', async ({ query }) => {
+  .get('/', async ({ query: rawQuery }) => {
+    const query = decodeManagementQuery('listUsers', rawQuery);
     const pagination = parseUserPagination(query);
     const users = await adapter.listUsers({
       page: pagination.page,
@@ -115,30 +122,34 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
       search: query.search,
       email: query.email,
     });
-    return pagedResponse(users, pagination);
-  }, {
+    return decodeEndpointResponse('listUsers', pagedResponse(users, pagination));
+  }, managementContract("GET", "/v1/users", {
     detail: { summary: 'List users', tags: ['Users'] },
-  })
+  }, ({ query }) => { parseUserPagination(decodeManagementQuery('listUsers', query)); }))
   .post('/', async ({ body, set }) => {
     const payload = sanitizeAdminUserCreatePayload(body);
     if (!payload.ok) {
       set.status = payload.status;
       return userUpdateFailureBody(payload);
     }
-    if (typeof payload.data.password === 'string') {
-      await validateAdminCreatePassword(payload.data.password);
+    if (typeof payload.data["password"] === 'string') {
+      await validateAdminCreatePassword(payload.data["password"]);
     }
-    const created = await adapter.createUser(payload.data);
-    const userId = String((created as Record<string, unknown>).id || '');
-    await audit('user.create', 'user', userId);
-    await fireWebhook('user.created', { user_id: userId });
-    return withoutSecrets(created);
-  }, {
+    const created = decodeEndpointResponse('createUser', withoutSecrets(
+      await adapter.createUser(decodeEndpointBody('createUser', payload.data)),
+    ));
+    await audit('user.create', 'user', created.id);
+    await fireWebhook('user.created', { user_id: created.id });
+    return created;
+  }, managementContract("POST", "/v1/users", {
     detail: { summary: 'Create a GoTrue user through SupaCloud', tags: ['Users'] },
-  })
-  .get('/:userId', async ({ params }) => adapter.getUser(params.userId), {
+  }, ({ body }) => {
+    const input = sanitizeAdminUserCreatePayload(body);
+    if (!input.ok) return Response.json(userUpdateFailureBody(input), { status: input.status });
+  }))
+  .get('/:userId', async ({ params }) => decodeEndpointResponse('getUser', await adapter.getUser(params.userId)), managementContract("GET", "/v1/users/:userId", {
     detail: { summary: 'Get user by ID', tags: ['Users'] },
-  })
+  }))
   .put('/:userId', async ({ params, body, set }) => {
     const payload = sanitizeAdminUserUpdatePayload(body);
     if (!payload.ok) {
@@ -149,29 +160,34 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
     const updateData = 'app_metadata' in payload.data
       ? mergeAdminUserAppMetadata(payload.data, await adapter.getUser(params.userId))
       : payload.data;
-    const updated = await adapter.updateUser(params.userId, updateData);
+    const updated = await adapter.updateUser(params.userId, decodeEndpointBody('updateUser', updateData));
     await audit('user.update', 'user', params.userId);
     await fireWebhook('user.updated', { user_id: params.userId });
-    return updated;
-  }, {
+    return decodeEndpointResponse('updateUser', updated);
+  }, managementContract("PUT", "/v1/users/:userId", {
     detail: { summary: 'Update user profile or metadata through SupaCloud', tags: ['Users', 'Account Center'] },
-  })
+  }, ({ body }) => {
+    const input = sanitizeAdminUserUpdatePayload(body);
+    if (!input.ok) return Response.json(userUpdateFailureBody(input), { status: input.status });
+  }))
   .post('/:userId/suspend', async ({ params, body }) => {
-    const result = await adapter.suspendUser(params.userId, body as Record<string, unknown>);
+    const result = body === undefined
+      ? await adapter.suspendUser(params.userId)
+      : await adapter.suspendUser(params.userId, decodeEndpointBody('suspendUser', body));
     await audit('user.suspend', 'user', params.userId);
     await fireWebhook('user.suspended', { user_id: params.userId });
-    return result;
-  }, {
+    return decodeEndpointResponse('suspendUser', result);
+  }, managementContract("POST", "/v1/users/:userId/suspend", {
     detail: { summary: 'Suspend user through SupaCloud', tags: ['Users', 'Account Center'] },
-  })
+  }))
   .post('/:userId/unsuspend', async ({ params }) => {
     const result = await adapter.unsuspendUser(params.userId);
     await audit('user.unsuspend', 'user', params.userId);
     await fireWebhook('user.unsuspended', { user_id: params.userId });
-    return result;
-  }, {
+    return decodeManagementResponse('unsuspendUser', result);
+  }, managementContract("POST", "/v1/users/:userId/unsuspend", {
     detail: { summary: 'Restore (unsuspend) user through SupaCloud', tags: ['Users', 'Account Center'] },
-  })
+  }))
   .delete('/:userId', async ({ params }) => {
     try {
       // SupaCloud's deletion fence makes an already-absent user look like a
@@ -187,75 +203,78 @@ export const userRoutes = new Elysia({ prefix: '/v1/users' })
     }
     await audit('user.delete', 'user', params.userId);
     await fireWebhook('user.deleted', { user_id: params.userId });
-  }, {
+  }, managementContract("DELETE", "/v1/users/:userId", {
     detail: { summary: 'Delete user', tags: ['Users'] },
-  })
+  }))
   .get('/:userId/sessions', async () => {
     throw capabilityUnavailable('gotrue_admin_user_sessions');
-  }, {
+  }, managementContract("GET", "/v1/users/:userId/sessions", {
     detail: { hide: true },
-  })
+  }))
   .post('/:userId/sessions', async () => {
     throw capabilityUnavailable('gotrue_admin_user_sessions');
-  }, {
+  }, managementContract("POST", "/v1/users/:userId/sessions", {
     detail: { hide: true },
-  })
+  }))
   .post('/:userId/sessions/:sessionId/revoke', async () => {
     throw capabilityUnavailable('gotrue_admin_user_sessions');
-  }, {
+  }, managementContract("POST", "/v1/users/:userId/sessions/:sessionId/revoke", {
     detail: { hide: true },
-  })
+  }))
   .delete('/:userId/identities/:identityId', async () => {
     throw capabilityUnavailable('gotrue_admin_identity_unlink');
-  }, {
+  }, managementContract("DELETE", "/v1/users/:userId/identities/:identityId", {
     detail: { hide: true },
-  })
+  }))
   .post('/:userId/mfa/:factorId/reset', async ({ params }) => {
     const result = await adapter.resetUserMfa(params.userId, params.factorId);
     await audit('user.mfa.reset', 'user', params.userId, { factor_id: params.factorId });
-    return result;
-  }, {
+    return decodeEndpointResponse('resetUserMfa', result);
+  }, managementContract("POST", "/v1/users/:userId/mfa/:factorId/reset", {
     detail: { summary: 'Reset user MFA factor', tags: ['Users', 'Account Center'] },
-  })
+  }))
   .get('/:userId/permissions', async ({ params, query }) => {
-    const orgId = query.org_id as string | undefined;
-    const applicationId = query.application_id as string | undefined;
-    return adapter.resolveUserPermissions(params.userId, orgId, applicationId);
-  }, {
+    const input = decodeEndpointInput('getUserPermissions', { params, query });
+    const orgId = input.query?.org_id;
+    const applicationId = input.query?.application_id;
+    return decodeEndpointResponse('getUserPermissions', await adapter.resolveUserPermissions(params.userId, orgId, applicationId));
+  }, managementContract("GET", "/v1/users/:userId/permissions", {
     detail: { summary: 'Resolve effective permissions for a user', tags: ['Users', 'RBAC'] },
-  })
+  }))
   .get('/:userId/roles', async ({ params, query }) => {
-    const applicationId = query.application_id as string | undefined;
-    return pagedResponse(await adapter.getUserRoleAssignments(params.userId, applicationId));
-  }, {
+    const applicationId = decodeEndpointInput('getUserRoles', { params, query }).query?.application_id;
+    return decodeEndpointResponse('getUserRoles', pagedResponse(await adapter.getUserRoleAssignments(params.userId, applicationId)));
+  }, managementContract("GET", "/v1/users/:userId/roles", {
     detail: { summary: 'Get role assignments for a user', tags: ['Users', 'RBAC'] },
-  })
-  .get('/:userId/logs', async ({ params, query }) => {
+  }))
+  .get('/:userId/logs', async ({ params, query: rawQuery }) => {
+    const query = decodeManagementQuery('listUserLogs', rawQuery);
     const logs = await adapter.queryAuditLogs({
       resource_type: 'user',
       resource_id: params.userId,
       limit: query.limit,
       cursor: query.cursor,
     });
-    return cursorResponse(logs, { limit: query.limit });
-  }, {
+    return decodeEndpointResponse('listUserLogs', cursorResponse(logs, { limit: query.limit }));
+  }, managementContract("GET", "/v1/users/:userId/logs", {
     detail: { summary: 'List audit logs for a user', tags: ['Users', 'Audit'] },
-  })
+  }))
   .get('/:userId/organizations', async ({ params }) => {
-    return pagedResponse(await adapter.listUserOrganizations(params.userId));
-  }, {
+    return decodeEndpointResponse('listUserOrganizations', pagedResponse(await adapter.listUserOrganizations(params.userId)));
+  }, managementContract("GET", "/v1/users/:userId/organizations", {
     detail: { summary: 'List business organizations for a user', tags: ['Users', 'Organizations'] },
-  })
-  .get('/:userId/grants', async ({ params, query }) => {
+  }))
+  .get('/:userId/grants', async ({ params, query: rawQuery }) => {
+    const query = decodeManagementQuery('listUserGrants', rawQuery);
     const grants = await adapter.listUserOAuthGrants(params.userId, {
       include_revoked: query.include_revoked,
     });
-    return gotrueGrantPage(grants);
-  }, {
+    return decodeManagementResponse('listUserGrants', gotrueGrantPage(grants));
+  }, managementContract("GET", "/v1/users/:userId/grants", {
     detail: { summary: 'List authoritative GoTrue OAuth grants for a user', tags: ['Users', 'OAuth'] },
-  })
+  }))
   .delete('/:userId/grants/:clientId', async () => {
     throw capabilityUnavailable('gotrue_admin_oauth_grants');
-  }, {
+  }, managementContract("DELETE", "/v1/users/:userId/grants/:clientId", {
     detail: { hide: true },
-  });
+  }));

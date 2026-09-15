@@ -1,5 +1,6 @@
-<script>
-  import { onMount } from "svelte";
+<script lang="ts">
+  import type { UserView, UserRoleView, UserPermissionView, ApplicationView, KeyedOperation, CollectionPayload, ValueEvent } from "$lib/management-view-types.js";
+  import { onMount, tick } from "svelte";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { t } from "$lib/i18n.js";
@@ -9,6 +10,7 @@
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     mutationOutcomeUnknown,
+    errorMessage,
   } from "$lib/resource-page.js";
   import {
     listUsers,
@@ -43,9 +45,14 @@
     "resourceId",
   ]);
 
-  let users = $state([]);
+  type UserMutationContext = { action: string; resourceId: string; ownerId: string };
+  type UserMutationLock = UserMutationContext & { recordedAt: number };
+  type UserOperation = KeyedOperation<string, UserMutationContext>;
+  type UserResponse = UserView | { user: UserView } | null;
+  type PermissionLoadContext = { generation: number; userId: string; applicationId: string };
+  let users = $state<UserView[]>([]);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<unknown>(null);
   let search = $state("");
   let searchDraft = $state("");
   let currentPage = $state(1);
@@ -53,10 +60,10 @@
   let totalUsers = $state(0);
   let showCreate = $state(false);
   let newUser = $state({ email: "", password: "" });
-  let userMutationLocks = $state({});
-  let userMutationPending = $state({});
+  let userMutationLocks = $state<Record<string, UserMutationLock>>({});
+  let userMutationPending = $state<Record<string, UserMutationContext & { operationGeneration: number }>>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   const userUnverifiedMutations = $derived(
     Object.entries(userMutationLocks).filter(
       ([mutationKey]) => !userMutationPending[mutationKey],
@@ -64,48 +71,54 @@
   );
 
   // 行内溢出菜单：记录当前展开的行
-  let openMenuId = $state(null);
+  let openMenuId = $state<string | null>(null);
+  let menuElement = $state<HTMLDivElement | null>(null);
+  let openMenuPosition = $state<{ top: number; left: number } | null>(null);
+  let menuGeneration = 0;
 
   // 详情抽屉
-  let selectedUser = $state(null);
+  let selectedUser = $state<UserView | null>(null);
   let drawerLoading = $state(false);
   let activeTab = $state("profile");
-  let roles = $state([]);
-  let permissions = $state([]);
+  let roles = $state<UserRoleView[]>([]);
+  let permissions = $state<UserPermissionView[]>([]);
   let rolesPermissionsLoaded = $state(false);
   let rolesPermissionsLoading = $state(false);
-  let applications = $state([]);
+  let applications = $state<ApplicationView[]>([]);
   let applicationsLoaded = $state(false);
-  let applicationLoadError = $state(null);
+  let applicationLoadError = $state<unknown>(null);
   let selectedApplicationId = $state("");
   let fromMfa = $derived(page.url.searchParams.get("from") === "mfa");
   let rolesPermissionsGeneration = 0;
   const userListRequests = createLatestRequestTracker();
   const userMutationTracker = createKeyedSingleFlightTracker();
 
-  function userMutationKey(action, resourceId) {
+  function userMutationKey(action: string, resourceId: string) {
     return `${action}:${resourceId}`;
   }
 
-  function validUserMutationLock(mutationKey, lock) {
+  function validUserMutationLock(mutationKey: string, lock: unknown): lock is UserMutationLock {
     if (!lock || typeof lock !== "object" || Array.isArray(lock)) return false;
+    if (!("action" in lock && "resourceId" in lock && "ownerId" in lock && "recordedAt" in lock)) return false;
     const lockFields = Object.keys(lock);
     return (
       lockFields.length === USER_MUTATION_LOCK_FIELDS.size &&
       lockFields.every((field) => USER_MUTATION_LOCK_FIELDS.has(field)) &&
+      typeof lock.action === "string" &&
       USER_MUTATION_ACTIONS.has(lock.action) &&
       typeof lock.resourceId === "string" &&
       Boolean(lock.resourceId) &&
       typeof lock.ownerId === "string" &&
       Boolean(lock.ownerId) &&
+      typeof lock.recordedAt === "number" &&
       Number.isSafeInteger(lock.recordedAt) &&
       lock.recordedAt > 0 &&
-      userMutationOwnerMatches(lock) &&
+      userMutationOwnerMatches({ action: lock.action, ownerId: lock.ownerId, resourceId: lock.resourceId }) &&
       mutationKey === userMutationKey(lock.action, lock.resourceId)
     );
   }
 
-  function userMutationOwnerMatches(lock) {
+  function userMutationOwnerMatches(lock: UserMutationContext) {
     if (lock.action === "create") {
       return lock.ownerId === "new" && lock.resourceId === "new";
     }
@@ -119,9 +132,9 @@
     return lock.resourceId === lock.ownerId;
   }
 
-  function parseUserMutationLocks(serializedLocks) {
+  function parseUserMutationLocks(serializedLocks: string | null): Record<string, UserMutationLock> | null {
     if (serializedLocks === null) return {};
-    let storedLocks;
+    let storedLocks: unknown;
     try {
       storedLocks = JSON.parse(serializedLocks);
     } catch (parseError) {
@@ -131,11 +144,12 @@
     if (!storedLocks || typeof storedLocks !== "object" || Array.isArray(storedLocks)) {
       return null;
     }
-    return Object.entries(storedLocks).every(([key, lock]) =>
-      validUserMutationLock(key, lock),
-    )
-      ? storedLocks
-      : null;
+    const validated: Record<string, UserMutationLock> = {};
+    for (const [key, lock] of Object.entries(storedLocks)) {
+      if (!validUserMutationLock(key, lock)) return null;
+      validated[key] = lock;
+    }
+    return validated;
   }
 
   function mutationStorageFailure() {
@@ -159,7 +173,7 @@
     }
   }
 
-  function persistUserMutationLocks(nextLocks) {
+  function persistUserMutationLocks(nextLocks: Record<string, UserMutationLock>) {
     try {
       globalThis.localStorage.setItem(
         USER_MUTATION_LOCKS_KEY,
@@ -172,7 +186,7 @@
     }
   }
 
-  function stageUserMutation(operation) {
+  function stageUserMutation(operation: UserOperation) {
     const context = operation.ownerContext;
     const nextLocks = {
       ...userMutationLocks,
@@ -183,7 +197,7 @@
     return true;
   }
 
-  function clearUserMutationLock(context) {
+  function clearUserMutationLock(context: UserMutationContext) {
     const nextLocks = { ...userMutationLocks };
     delete nextLocks[userMutationKey(context.action, context.resourceId)];
     if (!persistUserMutationLocks(nextLocks)) return false;
@@ -191,20 +205,20 @@
     return true;
   }
 
-  function userResourcePending(ownerId) {
-    const ownedByUser = (entry) => entry.ownerId === ownerId;
+  function userResourcePending(ownerId: string) {
+    const ownedByUser = (entry: UserMutationContext) => entry.ownerId === ownerId;
     return Object.values(userMutationPending).some(ownedByUser);
   }
 
-  function userResourceBusy(ownerId) {
-    const ownedByUser = (entry) => entry.ownerId === ownerId;
+  function userResourceBusy(ownerId: string) {
+    const ownedByUser = (entry: UserMutationContext) => entry.ownerId === ownerId;
     return (
       userResourcePending(ownerId) ||
       Object.values(userMutationLocks).some(ownedByUser)
     );
   }
 
-  function beginUserMutation(ownerContext) {
+  function beginUserMutation(ownerContext: UserMutationContext) {
     if (!mutationStorageReady || userResourceBusy(ownerContext.ownerId)) {
       return null;
     }
@@ -224,7 +238,7 @@
     return operation;
   }
 
-  function finishUserMutation(operation) {
+  function finishUserMutation(operation: UserOperation) {
     userMutationTracker.finish(operation);
     if (
       userMutationPending[operation.key]?.operationGeneration !==
@@ -236,7 +250,7 @@
     userMutationPending = nextPending;
   }
 
-  function acknowledgeUserMutation(lock) {
+  function acknowledgeUserMutation(lock: UserMutationLock) {
     if (!mutationStorageReady) return;
     if (!confirm(t("mutation.verifyAuthoritative", { resource: t("Users") })))
       return;
@@ -248,7 +262,7 @@
     error = t("mutation.outcomeUnknown");
   }
 
-  async function submitUserMutation(operation, writeCommand) {
+  async function submitUserMutation<T>(operation: UserOperation, writeCommand: () => Promise<T>) {
     try {
       return await writeCommand();
     } catch (requestError) {
@@ -261,19 +275,19 @@
     }
   }
 
-  function reportUserMutationFailure(operation, requestError) {
+  function reportUserMutationFailure(operation: UserOperation, requestError: unknown) {
     if (!userMutationTracker.isCurrent(operation)) return;
     if (userMutationLocks[operation.key]) userMutationUnknown();
     else error = requestError;
   }
 
-  function userIdentity(payload) {
-    const candidate = payload?.user || payload;
+  function userIdentity(payload: UserResponse) {
+    const candidate = payload && "user" in payload ? payload.user : payload;
     return typeof candidate?.id === "string" ? candidate.id : "";
   }
 
-  function validatedUser(payload, expectedId) {
-    const candidate = payload?.user || payload;
+  function validatedUser(payload: UserResponse, expectedId: string) {
+    const candidate = payload && "user" in payload ? payload.user : payload;
     if (
       !candidate ||
       typeof candidate !== "object" ||
@@ -285,7 +299,7 @@
     return candidate;
   }
 
-  function completeUserSearch(response) {
+  function completeUserSearch(response: CollectionPayload<UserView>) {
     const page = collectionPage(response);
     if (!page.complete || !page.items.every((user) => userIdentity(user))) {
       throw new Error("Management API returned an incomplete user search");
@@ -293,17 +307,17 @@
     return page.items;
   }
 
-  async function readCompleteUserSearch(email) {
+  async function readCompleteUserSearch(email: string) {
     return completeUserSearch(
       await listUsers({ page: 1, limit: 100, search: email }),
     );
   }
 
-  function normalizedEmail(user) {
+  function normalizedEmail(user: UserView) {
     return typeof user?.email === "string" ? user.email.trim().toLowerCase() : "";
   }
 
-  function createdUserFromReadBack(usersReadBack, beforeUserIds, response, email) {
+  function createdUserFromReadBack(usersReadBack: UserView[], beforeUserIds: Set<string>, response: UserResponse, email: string) {
     const expectedEmail = email.toLowerCase();
     const responseId = userIdentity(response);
     const newMatches = usersReadBack.filter(
@@ -317,25 +331,26 @@
     return newMatches.length === 1 ? newMatches[0] : null;
   }
 
-  async function readUserDetail(userId) {
+  async function readUserDetail(userId: string) {
     return validatedUser(await getUser(userId), userId);
   }
 
-  function factorStillPresent(user, factorId) {
+  function factorStillPresent(user: UserView, factorId: string) {
     if (!Array.isArray(user.factors)) {
       throw new Error("Management API returned an invalid MFA factor read-back");
     }
     return user.factors.some((factor) => factor?.id === factorId);
   }
 
-  function userNotFound(requestError) {
+  function userNotFound(requestError: unknown) {
     return (
-      Number(requestError?.statusCode) === 404 ||
-      requestError?.code === "not_found"
+      typeof requestError === "object" && requestError !== null &&
+      (("statusCode" in requestError && Number(requestError.statusCode) === 404) ||
+        ("code" in requestError && requestError.code === "not_found"))
     );
   }
 
-  async function userDeletedFromReadBack(userId) {
+  async function userDeletedFromReadBack(userId: string) {
     try {
       await readUserDetail(userId);
       return false;
@@ -345,47 +360,51 @@
     }
   }
 
-  function isSuspended(user) {
+  function isSuspended(user: UserView | null) {
     const until = user?.banned_until;
     return Boolean(until && until !== "none");
   }
 
-  function displayName(user) {
+  function displayName(user: UserView | null) {
     const meta = user?.user_metadata || {};
     return (
-      meta.full_name || meta.name || user?.email || user?.id?.slice(0, 8) || "-"
+      meta["full_name"] || meta["name"] || user?.email || user?.id?.slice(0, 8) || "-"
     );
   }
 
-  function avatarUrl(user) {
+  function avatarUrl(user: UserView | null) {
     const meta = user?.user_metadata || {};
-    if (meta.avatar_url) return meta.avatar_url;
+    if (typeof meta["avatar_url"] === "string" && meta["avatar_url"]) return meta["avatar_url"];
     const first = (user?.identities || [])[0];
-    return first?.identity_data?.avatar_url || null;
+    const identityAvatar = first?.identity_data?.["avatar_url"];
+    return typeof identityAvatar === "string" ? identityAvatar || null : null;
   }
 
-  function initials(user) {
+  function initials(user: UserView | null) {
     const name = displayName(user);
     const parts = String(name)
       .trim()
       .split(/[\s@._-]+/)
       .filter(Boolean);
     if (parts.length === 0) return "?";
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts.length === 1) return (parts[0] || "").slice(0, 2).toUpperCase();
+    return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
   }
 
-  function providers(user) {
-    const fromMeta = user?.app_metadata?.provider;
-    const fromList = user?.app_metadata?.providers;
-    const set = new Set([fromMeta, ...(fromList || [])].filter(Boolean));
+  function providers(user: UserView | null) {
+    const fromMeta = user?.app_metadata?.["provider"];
+    const fromList = user?.app_metadata?.["providers"];
+    const set = new Set(
+      [fromMeta, ...(Array.isArray(fromList) ? fromList : [])]
+        .filter((value): value is string => typeof value === "string" && Boolean(value)),
+    );
     if (set.size === 0 && user?.identities?.length)
       user.identities.forEach((i) => i.provider && set.add(i.provider));
     return [...set];
   }
 
-  function providerLabel(p) {
-    const map = {
+  function providerLabel(p: string) {
+    const map: Record<string, string> = {
       email: "Email",
       google: "Google",
       github: "GitHub",
@@ -393,22 +412,22 @@
       apple: "Apple",
       phone: "Phone",
     };
-    return map[p] || (p ? p[0].toUpperCase() + p.slice(1) : "-");
+    return map[p] || (p ? p.charAt(0).toUpperCase() + p.slice(1) : "-");
   }
 
-  function normalizePermission(permission) {
+  function normalizePermission(permission: UserPermissionView) {
     if (typeof permission === "string") return { name: permission };
     const name =
       permission?.name || permission?.permission || permission?.id || "-";
     return { ...permission, name };
   }
 
-  function permissionKey(permission) {
+  function permissionKey(permission: UserPermissionView) {
     const normalized = normalizePermission(permission);
     return normalized.id || normalized.name;
   }
 
-  function applicationId(application) {
+  function applicationId(application: ApplicationView) {
     return (
       application?.client_id ||
       application?.clientId ||
@@ -418,18 +437,18 @@
     );
   }
 
-  function applicationLabel(application) {
+  function applicationLabel(application: ApplicationView) {
     const id = applicationId(application);
     return [application?.name || application?.client_name || application?.clientName, id]
       .filter(Boolean)
       .join(" · ");
   }
 
-  function roleFromAssignment(assignment) {
+  function roleFromAssignment(assignment: UserRoleView) {
     return assignment?.role || assignment;
   }
 
-  function roleKey(assignment) {
+  function roleKey(assignment: UserRoleView) {
     const role = roleFromAssignment(assignment);
     return assignment?.id || assignment?.assignment_id || role?.id || role?.role_id;
   }
@@ -442,7 +461,7 @@
     permissions = [];
   }
 
-  function isCurrentRolesPermissionsLoad(loadContext) {
+  function isCurrentRolesPermissionsLoad(loadContext: PermissionLoadContext) {
     return (
       loadContext.generation === rolesPermissionsGeneration &&
       selectedUser?.id === loadContext.userId &&
@@ -451,12 +470,12 @@
     );
   }
 
-  function factorTypeLabel(type) {
-    const map = { totp: "Authenticator app" };
+  function factorTypeLabel(type: string) {
+    const map: Record<string, string> = { totp: "Authenticator app" };
     return map[type] || type || "-";
   }
 
-  function formatDate(value) {
+  function formatDate(value: string | null | undefined) {
     if (!value) return null;
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return null;
@@ -469,7 +488,7 @@
     });
   }
 
-  function formatDay(value) {
+  function formatDay(value: string | null | undefined) {
     if (!value) return null;
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return null;
@@ -493,9 +512,7 @@
     try {
       const res = await listUsers(request.ownerContext);
       if (!userListRequests.isCurrent(request)) return;
-      users = Array.isArray(res)
-        ? res
-        : res.users || res.items || res.data || [];
+      users = collectionItems<UserView>(res);
       totalUsers = typeof res.total === "number" ? res.total : users.length;
     } catch (requestError) {
       if (userListRequests.isCurrent(request)) error = requestError;
@@ -507,21 +524,22 @@
   onMount(() => {
     restoreUserMutationLocks();
     void load();
+    return observeMenuViewport();
   });
 
-  function applySearch(event) {
+  function applySearch(event: SubmitEvent) {
     event.preventDefault();
     search = searchDraft.trim();
     currentPage = 1;
     load();
   }
 
-  function changePage(nextPage) {
+  function changePage(nextPage: number) {
     currentPage = nextPage;
     load();
   }
 
-  async function openDrawer(user) {
+  async function openDrawer(user: UserView) {
     openMenuId = null;
     selectedUser = user;
     activeTab = "profile";
@@ -546,7 +564,7 @@
     applicationLoadError = null;
     applicationsLoaded = false;
     try {
-      applications = collectionItems(await listApplications());
+      applications = collectionItems<ApplicationView>(await listApplications());
       applicationsLoaded = true;
       if (activeTab === "rolesPermissions") await ensureRolesPermissions();
     } catch (requestError) {
@@ -575,15 +593,8 @@
         ),
       ]);
       if (!isCurrentRolesPermissionsLoad(loadContext)) return;
-      roles =
-        roleResponse.items ||
-        roleResponse.data ||
-        (Array.isArray(roleResponse) ? roleResponse : []);
-      permissions =
-        permissionResponse.items ||
-        permissionResponse.permissions ||
-        permissionResponse.data ||
-        (Array.isArray(permissionResponse) ? permissionResponse : []);
+      roles = collectionItems<UserRoleView>(roleResponse);
+      permissions = permissionResponse.permissions;
       rolesPermissionsLoaded = true;
     } catch (requestError) {
       if (isCurrentRolesPermissionsLoad(loadContext)) error = requestError;
@@ -592,13 +603,13 @@
     }
   }
 
-  async function changeApplication(event) {
+  async function changeApplication(event: ValueEvent<HTMLSelectElement>) {
     selectedApplicationId = event.currentTarget.value;
     resetRolesPermissions();
     await ensureRolesPermissions();
   }
 
-  function switchTab(tab) {
+  function switchTab(tab: string) {
     activeTab = tab;
     if (tab === "rolesPermissions") void ensureRolesPermissions();
     else resetRolesPermissions();
@@ -647,7 +658,7 @@
     }
   }
 
-  async function handleToggleSuspend(user) {
+  async function handleToggleSuspend(user: UserView) {
     openMenuId = null;
     const wasSuspended = isSuspended(user);
     const shouldSuspend = !wasSuspended;
@@ -674,7 +685,7 @@
       if (!stageUserMutation(operation)) return;
       await submitUserMutation(operation, () =>
         shouldSuspend
-          ? suspendUser(user.id, { reason: "admin_console" })
+          ? suspendUser(user.id, {})
           : unsuspendUser(user.id),
       );
       if (!userMutationTracker.isCurrent(operation)) return;
@@ -693,7 +704,7 @@
     }
   }
 
-  async function handleDelete(user) {
+  async function handleDelete(user: UserView) {
     openMenuId = null;
     if (!confirm(t("users.deleteConfirm"))) return;
     const operation = beginUserMutation({
@@ -720,7 +731,7 @@
     }
   }
 
-  async function handleResetFactor(factorId) {
+  async function handleResetFactor(factorId: string) {
     const userId = selectedUser?.id;
     if (!userId) return;
     if (!confirm(t("users.resetFactorConfirm"))) return;
@@ -759,12 +770,56 @@
   }
 
   function closeMenu() {
+    menuGeneration += 1;
     openMenuId = null;
+    openMenuPosition = null;
   }
 
-  function toggleMenu(userId, evt) {
-    evt?.stopPropagation?.();
-    openMenuId = openMenuId === userId ? null : userId;
+  function observeMenuViewport() {
+    // 捕获非冒泡的表格滚动，避免菜单与触发按钮的位置脱节。
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    return () => {
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+    };
+  }
+
+  function menuPosition(
+    anchor: Pick<DOMRect, "top" | "right" | "bottom">,
+    menu: Pick<DOMRect, "width" | "height">,
+    viewport: { width: number; height: number },
+  ) {
+    const margin = 8;
+    const below = anchor.bottom + 4;
+    const top = below + menu.height <= viewport.height - margin
+      ? below
+      : anchor.top - menu.height - 4;
+    const maxTop = Math.max(0, viewport.height - menu.height - margin);
+    const maxLeft = Math.max(0, viewport.width - menu.width - margin);
+    return {
+      top: Math.min(Math.max(margin, top), maxTop),
+      left: Math.min(Math.max(margin, anchor.right - menu.width), maxLeft),
+    };
+  }
+
+  async function toggleMenu(userId: string, evt: MouseEvent) {
+    evt.stopPropagation();
+    const button = evt.currentTarget;
+    if (!(button instanceof HTMLButtonElement) || openMenuId === userId) {
+      closeMenu();
+      return;
+    }
+    const anchor = button.getBoundingClientRect();
+    const generation = ++menuGeneration;
+    openMenuPosition = null;
+    openMenuId = userId;
+    await tick();
+    if (generation !== menuGeneration || openMenuId !== userId || !menuElement) return;
+    openMenuPosition = menuPosition(anchor, menuElement.getBoundingClientRect(), {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
   }
 </script>
 
@@ -777,30 +832,30 @@
   </a>
 {/if}
 
-<div class="flex items-center justify-between gap-4 mb-6">
-  <div>
-    <h2 class="text-2xl font-bold text-surface-900">{t("Users")}</h2>
+<div class="flex min-w-0 flex-col items-stretch justify-between gap-4 mb-6 sm:flex-row sm:flex-wrap sm:items-center">
+  <div class="min-w-0 shrink-0">
+    <h2 class="whitespace-nowrap text-2xl font-bold text-surface-900">{t("Users")}</h2>
     {#if !loading}
       <p class="text-sm text-surface-400 mt-1">
         {t("users.userCount", { count: totalUsers })}
       </p>
     {/if}
   </div>
-  <div class="flex items-center gap-2">
-    <form onsubmit={applySearch} class="flex items-center gap-2">
-      <div class="relative w-64 max-w-full">
+  <div class="flex w-full min-w-0 flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+    <form onsubmit={applySearch} class="flex min-w-0 flex-1 items-center gap-2">
+      <div class="relative min-w-0 flex-1 sm:w-64 max-w-full">
         <span
           class="absolute left-3 top-1/2 -translate-y-1/2 text-surface-400 text-sm"
           >⌕</span
         ><input
           bind:value={searchDraft}
           placeholder={t("users.searchPlaceholder")}
-          class="w-full pl-8 pr-3 py-2 border border-surface-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+          class="w-full min-w-0 pl-8 pr-3 py-2 border border-surface-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
         />
       </div>
       <button
         type="submit"
-        class="rounded-lg border border-surface-300 px-3 py-2 text-sm font-medium text-surface-700"
+        class="shrink-0 whitespace-nowrap rounded-lg border border-surface-300 px-3 py-2 text-sm font-medium text-surface-700"
         >{t("Apply")}</button
       >
     </form>
@@ -809,7 +864,7 @@
       disabled={!showCreate &&
         (!mutationStorageReady || userResourceBusy("new"))}
       onclick={() => (showCreate = !showCreate)}
-      class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+      class="self-start shrink-0 whitespace-nowrap rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
       >{showCreate ? t("Cancel") : `+ ${t("users.new")}`}</button
     >
   </div>
@@ -856,7 +911,7 @@
   <div
     class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4 flex items-start justify-between gap-3"
   >
-    <span>{error.message || error}</span>
+    <span>{errorMessage(error)}</span>
     <button
       onclick={() => (error = null)}
       class="text-red-400 hover:text-red-600 shrink-0">&times;</button
@@ -916,8 +971,8 @@
     </p>
   </div>
 {:else}
-  <div class="bg-white rounded-xl border border-surface-200 overflow-hidden">
-    <table class="w-full text-sm">
+  <div class="max-w-full bg-white rounded-xl border border-surface-200 overflow-x-auto">
+    <table class="w-full min-w-[48rem] whitespace-nowrap text-sm">
       <thead class="bg-surface-50 border-b border-surface-200">
         <tr>
           <th class="text-left px-4 py-3 font-medium text-surface-600"
@@ -1010,7 +1065,11 @@
                   }}
                 ></button>
                 <div
-                  class="absolute right-4 top-12 z-30 w-44 bg-white rounded-lg border border-surface-200 shadow-lg py-1 text-left"
+                  bind:this={menuElement}
+                  style:top={`${openMenuPosition?.top ?? 0}px`}
+                  style:left={`${openMenuPosition?.left ?? 0}px`}
+                  style:visibility={openMenuPosition ? "visible" : "hidden"}
+                  class="fixed z-30 w-44 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto bg-white rounded-lg border border-surface-200 shadow-lg py-1 text-left"
                 >
                   <a
                     href={resolve(
@@ -1134,7 +1193,7 @@
       <nav class="bg-white border-b border-surface-200 px-6 flex gap-1">
         {#each [["profile", t("users.profile")], ["security", t("users.security")], ["connectedAccounts", t("users.connectedAccounts")], ["rolesPermissions", t("users.rolesPermissions")]] as [key, label] (key)}
           <button
-            onclick={() => switchTab(key)}
+            onclick={() => key && switchTab(key)}
             class="px-3 py-3 text-sm font-medium border-b-2 -mb-px transition-colors {activeTab ===
             key
               ? 'border-brand-600 text-brand-600'
@@ -1156,7 +1215,7 @@
                   .join(" · ") || "-"], ["users.lastSignIn", formatDate(detail.last_sign_in_at) || t("users.never")], ["users.createdAt", formatDay(detail.created_at) || "-"], ["users.suspendedUntil", suspended ? formatDay(detail.banned_until) || detail.banned_until : null]] as [labelKey, value] (labelKey)}
               {#if value}
                 <div class="px-4 py-3 flex items-center justify-between gap-4">
-                  <dt class="text-sm text-surface-500">{t(labelKey)}</dt>
+                  <dt class="text-sm text-surface-500">{t(labelKey || "")}</dt>
                   <dd
                     class="text-sm text-surface-900 font-medium text-right break-all"
                   >
@@ -1214,8 +1273,8 @@
                   >
                   <div class="min-w-0">
                     <div class="text-sm font-medium text-surface-900 truncate">
-                      {identity.identity_data?.email ||
-                        identity.identity_data?.name ||
+                      {identity.identity_data?.["email"] ||
+                        identity.identity_data?.["name"] ||
                         identity.identity_id ||
                         identity.id}
                     </div>

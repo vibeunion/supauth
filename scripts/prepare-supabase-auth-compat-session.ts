@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
+import { requireRecord } from "./tooling-values.js";
+import { isUnknownArray, parseJson } from "./tooling-values.js";
 
 import { appendFileSync } from 'node:fs';
+import { decodeCreatedUser, decodeOAuthReply, decodeTokenReply } from './compat-session-contract.js';
 import { createSupaCloudOAuthFetch } from '@supacloud/js';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -23,7 +26,7 @@ const credentials = ephemeralCredentials(requiredEnv('SUPABASE_TEST_EMAIL'));
 const githubEnv = requiredEnv('GITHUB_ENV');
 const currentCompatVersion = 'v2.196.0';
 const supportedCompatVersions = new Set(['v2.192.0', currentCompatVersion]);
-const expectedCompatVersion = process.env.SUPABASE_AUTH_COMPAT_VERSION?.trim() || currentCompatVersion;
+const expectedCompatVersion = process.env["SUPABASE_AUTH_COMPAT_VERSION"]?.trim() || currentCompatVersion;
 const runtimeVersion = await verifiedRuntimeVersion(runtimeUrl, expectedCompatVersion);
 const expectedScopes = runtimeVersion === currentCompatVersion
   ? ['openid', 'email', 'profile', 'offline_access']
@@ -68,7 +71,7 @@ if (signIn.error || !signIn.data.session) {
 const consentUrl = `${authorizationPageUrl.origin}/v1/public/oauth/authorizations/${encodeURIComponent(authorizationId)}`;
 const userAuthorization = { authorization: `Bearer ${signIn.data.session.access_token}` };
 const detailsResponse = await fetch(consentUrl, { headers: userAuthorization });
-const details = await detailsResponse.json().catch(() => null) as OAuthErrorPayload | null;
+const details = decodeOAuthReply(await detailsResponse.json().catch(() => null));
 if (!detailsResponse.ok) {
   throw new Error(`OAuth authorization details failed with status ${detailsResponse.status}: ${oauthError(details, 'invalid response')}`);
 }
@@ -81,7 +84,7 @@ const approvalResponse = details?.redirect_url
   });
 const approval = details?.redirect_url
   ? details
-  : await approvalResponse.json().catch(() => null) as OAuthErrorPayload | null;
+  : decodeOAuthReply(await approvalResponse.json().catch(() => null));
 if (!approvalResponse.ok || !approval?.redirect_url) {
   throw new Error(`OAuth authorization approval failed with status ${approvalResponse.status}: ${oauthError(approval, 'missing redirect URL')}`);
 }
@@ -102,7 +105,7 @@ const tokenResponse = await fetch(`${runtimeUrl}/auth/v1/oauth/token`, {
     code_verifier: codeVerifier,
   }),
 });
-const tokens = await tokenResponse.json().catch(() => null) as { access_token?: string; refresh_token?: string; error?: string } | null;
+const tokens = decodeTokenReply(await tokenResponse.json().catch(() => null));
 if (!tokenResponse.ok || !tokens?.access_token || !tokens.refresh_token) {
   throw new Error(`OAuth authorization-code exchange failed with status ${tokenResponse.status}: ${tokens?.error || 'missing tokens'}`);
 }
@@ -130,18 +133,18 @@ if (refreshed.error || !refreshed.data.session) {
 const accessToken = refreshed.data.session.access_token;
 const refreshToken = refreshed.data.session.refresh_token;
 const payload = decodeJwtPayload(accessToken);
-const grantedScopes = typeof payload.scope === 'string' ? payload.scope.split(/\s+/).filter(Boolean) : [];
+const grantedScopes = typeof payload["scope"] === 'string' ? payload["scope"].split(/\s+/).filter(Boolean) : [];
 if (
-  payload.client_id !== clientId
-  || typeof payload.sub !== 'string'
+  payload["client_id"] !== clientId
+  || typeof payload["sub"] !== 'string'
   || expectedScopes.some((scope) => !grantedScopes.includes(scope))
 ) {
   throw new Error([
     'SupAuth OAuth compatibility exchange returned an unexpected token shape',
-    `client_id_present=${typeof payload.client_id === 'string'}`,
-    `client_id_matches=${payload.client_id === clientId}`,
-    `sub_present=${typeof payload.sub === 'string'}`,
-    `scope_present=${typeof payload.scope === 'string'}`,
+    `client_id_present=${typeof payload["client_id"] === 'string'}`,
+    `client_id_matches=${payload["client_id"] === clientId}`,
+    `sub_present=${typeof payload["sub"] === 'string'}`,
+    `scope_present=${typeof payload["scope"] === 'string'}`,
     `scope_values=${grantedScopes.join(',') || '<empty>'}`,
   ].join('; '));
 }
@@ -157,14 +160,7 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-interface OAuthErrorPayload {
-  redirect_url?: string;
-  error?: string;
-  error_description?: string;
-  message?: string;
-}
-
-function oauthError(payload: OAuthErrorPayload | null, fallback: string): string {
+function oauthError(payload: ReturnType<typeof decodeOAuthReply>, fallback: string): string {
   return payload?.error_description || payload?.message || payload?.error || fallback;
 }
 
@@ -173,7 +169,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   if (!payload) throw new Error('OAuth access token is not a JWT');
   const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-  return JSON.parse(atob(padded)) as Record<string, unknown>;
+  return requireRecord(parseJson(atob(padded)));
 }
 
 function randomBase64Url(bytes: number): string {
@@ -213,7 +209,7 @@ async function createCompatibilityUser(
     email_confirm: true,
   });
   const createdText = await created.text().catch(() => '');
-  const createdBody = parseJsonObject(createdText) as { id?: string; user?: { id?: string }; message?: string; error?: string } | null;
+  const createdBody = decodeCreatedUser(parseJsonObject(createdText));
   const createdUserId = createdBody?.id || createdBody?.user?.id
     || await lookupCompatibilityUserId(managementApiBases, tenantRef, adminKey, credentials.email);
   if (!created.ok || !createdUserId) {
@@ -232,9 +228,9 @@ async function createCompatibilityUser(
 function parseJsonObject(text: string): Record<string, unknown> | null {
   if (!text.trim()) return null;
   try {
-    const parsed = JSON.parse(text) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
+    const parsed = (parseJson(text));
+    return parsed && typeof parsed === 'object' && !isUnknownArray(parsed)
+      ? requireRecord(parsed)
       : null;
   } catch {
     return null;
@@ -257,10 +253,10 @@ async function verifiedRuntimeVersion(runtimeBaseUrl: string, expectedVersion: s
 }
 
 function runtimeVersionFromHealth(healthPayload: unknown): string {
-  if (!healthPayload || typeof healthPayload !== 'object' || Array.isArray(healthPayload)) {
+  if (!healthPayload || typeof healthPayload !== 'object' || isUnknownArray(healthPayload)) {
     throw new Error('GoTrue health response has no valid version');
   }
-  const runtimeVersion = (healthPayload as Record<string, unknown>).version;
+  const runtimeVersion = (requireRecord(healthPayload))["version"];
   if (typeof runtimeVersion !== 'string' || !/^v\d+\.\d+\.\d+$/.test(runtimeVersion)) {
     throw new Error('GoTrue health response has no valid version');
   }

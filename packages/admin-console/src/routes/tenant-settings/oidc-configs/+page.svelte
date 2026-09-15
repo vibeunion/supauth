@@ -1,19 +1,21 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from '@supauth/shared';
+  import { errorMessage } from '$lib/resource-page.js';
   import { onMount } from 'svelte';
   import { getDiscovery, getJWKS, getOAuthServerStatus } from '$lib/api/client.js';
   import { t } from '$lib/i18n.js';
 
   let loading = $state(true);
-  let error = $state(null);
-  let oauthStatus = $state(null);
-  let discovery = $state(null);
-  let jwks = $state(null);
+  let error = $state<string | null>(null);
+  let oauthStatus = $state<AdminEndpointResult<'getOAuthServerStatus'> | null>(null);
+  let discovery = $state<AdminEndpointResult<'getDiscovery'> | null>(null);
+  let jwks = $state<AdminEndpointResult<'getJWKS'> | null>(null);
 
   onMount(async () => {
     try {
       [oauthStatus, discovery, jwks] = await Promise.all([getOAuthServerStatus(), getDiscovery(), getJWKS()]);
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
     loading = false;
   });

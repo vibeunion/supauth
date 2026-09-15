@@ -73,7 +73,7 @@ WITH CHECK (organization_id IN (
   FROM authorization_allowed_scope_ids('invoice:update', 'organization') AS allowed_scope
 ));`;
 
-function passingPlan(actualLoops = 1): unknown {
+function passingPlan(actualLoops = 1) {
   return [{
     Plan: {
       'Node Type': 'Seq Scan',
@@ -180,11 +180,35 @@ describe('@supauth/authorization-conformance', () => {
     expect(checkAuthorizationExplain(passingPlan())).toEqual({ passed: true, violations: [] });
     expect(checkAuthorizationExplain(passingPlan(250_000)).violations.map(violation => violation.rule))
       .toEqual(['one_time_execution']);
-    const unrelatedSubplan = passingPlan() as Array<{ Plan: { Plans: Array<Record<string, unknown>> } }>;
-    unrelatedSubplan[0]!.Plan.Plans[0]!['Subplan Name'] = 'SubPlan 2';
+    const unrelatedSubplan = passingPlan();
+    const helper = unrelatedSubplan[0]?.Plan.Plans[0];
+    if (!helper) throw new Error('Expected fixture helper');
+    helper['Subplan Name'] = 'SubPlan 2';
     expect(checkAuthorizationExplain(unrelatedSubplan).violations.map(violation => violation.rule))
       .toEqual(['one_time_scope_plan']);
     expect(checkAuthorizationExplain('Seq Scan').violations.map(violation => violation.rule))
       .toEqual(['explain_json']);
+  });
+
+  it('rejects malformed fields, children, cycles and over-deep plans', () => {
+    const helper = {
+      'Function Name': 'authorization_allowed_scope_ids', 'Actual Loops': 1,
+      'Parent Relationship': 'SubPlan', 'Subplan Name': 'SubPlan 1',
+    };
+    const cycle: Record<string, unknown> = {};
+    cycle['Plans'] = [cycle];
+    let deep: unknown = helper;
+    for (let depth = 0; depth < 258; depth += 1) deep = { Plans: [deep] };
+    for (const value of [
+      [{ Plan: { Filter: ['hashed SubPlan 1'], Plans: [helper] } }],
+      [{ Plan: { Filter: 'hashed SubPlan 1', Plans: [helper, 42, null] } }],
+      [{ Plan: { Plans: {} } }],
+      [{ Plan: { ...helper, 'Actual Loops': '1' } }],
+      [{ Plan: cycle }], [{ Plan: deep }], passingPlan().concat(passingPlan()),
+    ]) {
+      expect(checkAuthorizationExplain(value)).toEqual({
+        passed: false, violations: [{ rule: 'explain_json', message: 'EXPLAIN must use parsed FORMAT JSON output' }],
+      });
+    }
   });
 });

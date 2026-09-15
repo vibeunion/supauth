@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { ApplicationView, DurableMutationLocks, RotationState, ValueEvent, CollectionPayload } from "$lib/management-view-types.js";
+  import { adminEndpoints, decodeSchema, type SdkEndpointInput } from "@supauth/shared";
   import { onMount } from "svelte";
   import { t } from "$lib/i18n.js";
   import { resolve } from "$app/paths";
@@ -13,6 +15,7 @@
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     mutationOutcomeUnknown,
+    errorMessage,
   } from "$lib/resource-page.js";
   import {
     listApplications,
@@ -34,21 +37,23 @@
     legacyStorageKeys: ["supaoauth.admin.application-mutation-locks.v1"],
   });
 
-  let applications = $state([]);
+  type ApplicationAction = "clear-sign-in" | "create" | "delete" | "rotate" | "unbind";
+  type ApplicationLocks = DurableMutationLocks<ApplicationAction>;
+  let applications = $state<ApplicationView[]>([]);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let showCreate = $state(false);
-  let newApp = $state({
+  let newApp = $state<{ name: string; redirect_uris: string; type: string; token_endpoint_auth_method: "none" | "client_secret_basic" | "client_secret_post" }>({
     name: "",
     redirect_uris: "",
     type: "web",
     token_endpoint_auth_method: "client_secret_basic",
   });
-  let revealedSecrets = $state({});
-  let secretRotations = $state({});
-  let applicationMutationLocks = $state({});
+  let revealedSecrets = $state<Record<string, string>>({});
+  let secretRotations = $state<Record<string, RotationState>>({});
+  let applicationMutationLocks = $state<ApplicationLocks>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   let creating = $state(false);
   const secretRotationTracker = createKeyedSingleFlightTracker();
   const applicationCreateTracker = createKeyedSingleFlightTracker();
@@ -61,11 +66,11 @@
     );
   }
 
-  function applicationMutationDescriptor(action, targetId) {
+  function applicationMutationDescriptor(action: ApplicationAction, targetId: string) {
     return { action, ownerId: APPLICATION_LOCK_OWNER, targetId };
   }
 
-  function updateApplicationMutationLocks(lockCommand) {
+  function updateApplicationMutationLocks(lockCommand: () => ApplicationLocks) {
     try {
       applicationMutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -81,7 +86,7 @@
     updateApplicationMutationLocks(() => applicationMutationLockStore.restore());
   }
 
-  function stageApplicationMutation(action, targetId) {
+  function stageApplicationMutation(action: ApplicationAction, targetId: string) {
     return updateApplicationMutationLocks(() =>
       applicationMutationLockStore.stage(
         applicationMutationLocks,
@@ -90,7 +95,7 @@
     );
   }
 
-  function clearApplicationMutationLock(action, targetId) {
+  function clearApplicationMutationLock(action: ApplicationAction, targetId: string) {
     return updateApplicationMutationLocks(() =>
       applicationMutationLockStore.clear(
         applicationMutationLocks,
@@ -99,19 +104,19 @@
     );
   }
 
-  function recordApplicationMutationUnknown(action, targetId) {
+  function recordApplicationMutationUnknown(action: ApplicationAction, targetId: string) {
     if (applicationMutationLocked(action, targetId)) return true;
     return stageApplicationMutation(action, targetId);
   }
 
-  function applicationMutationLocked(action, targetId) {
+  function applicationMutationLocked(action: ApplicationAction, targetId: string) {
     return applicationMutationLockStore.isLocked(
       applicationMutationLocks,
       applicationMutationDescriptor(action, targetId),
     );
   }
 
-  function applicationRowBlocked(appId) {
+  function applicationRowBlocked(appId: string) {
     return (
       !mutationStorageReady ||
       applicationMutationLocked("rotate", appId) ||
@@ -119,7 +124,7 @@
     );
   }
 
-  function acknowledgeApplicationMutation(action, appId) {
+  function acknowledgeApplicationMutation(action: ApplicationAction, appId: string) {
     if (!confirm(t("I have verified the authoritative application state."))) return;
     if (!confirm(t("Allow this high-impact application action to run again?"))) return;
     if (!clearApplicationMutationLock(action, appId)) return;
@@ -128,7 +133,7 @@
     }
   }
 
-  function secretRotationState(appId) {
+  function secretRotationState(appId: string) {
     const currentState =
       secretRotations[appId] || { pending: false, outcomeUnknown: false };
     return {
@@ -138,20 +143,20 @@
     };
   }
 
-  function updateSecretRotation(appId, rotationUpdate) {
+  function updateSecretRotation(appId: string, rotationUpdate: Partial<RotationState>) {
     secretRotations[appId] = {
       ...secretRotationState(appId),
       ...rotationUpdate,
     };
   }
 
-  function formatClientType(type) {
+  function formatClientType(type: string | undefined) {
     if (type === "public") return t("Public client");
     if (type === "confidential") return t("Confidential client");
     return type || t("Confidential client");
   }
 
-  function authMethodLabel(method) {
+  function authMethodLabel(method: string | undefined) {
     const protocol = method || "client_secret_basic";
     const translationKey = `application.authMethod.${protocol}`;
     const translated = t(translationKey);
@@ -161,7 +166,7 @@
     return `${label} (${protocol})`;
   }
 
-  function handleTypeChange(event) {
+  function handleTypeChange(event: ValueEvent<HTMLSelectElement>) {
     const type = event.currentTarget.value;
     const authMethod =
       type === "spa"
@@ -177,12 +182,12 @@
     };
   }
 
-  function applicationIdentity(application) {
+  function applicationIdentity(application: Pick<ApplicationView, "client_id" | "id"> | null) {
     const identity = application?.client_id || application?.id;
     return typeof identity === "string" ? identity : "";
   }
 
-  function completeApplicationList(response) {
+  function completeApplicationList(response: CollectionPayload<ApplicationView>) {
     const listedApplications = completeCollectionItems(response);
     if (listedApplications.every((application) => applicationIdentity(application))) {
       return listedApplications;
@@ -204,7 +209,7 @@
     }
   }
 
-  function applyApplicationList(readBack) {
+  function applyApplicationList(readBack: Awaited<ReturnType<typeof readApplicationList>>) {
     if (!applicationListRequests.isCurrent(readBack.request)) return false;
     if (readBack.requestError) throw readBack.requestError;
     applications = readBack.applications;
@@ -218,12 +223,15 @@
       const readBack = await readApplicationList();
       if (applyApplicationList(readBack)) loading = false;
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
       loading = false;
     }
   }
 
-  function applicationCreateDraft() {
+  type ApplicationCreateDraft = Required<Pick<SdkEndpointInput<"createApplication">["body"],
+    "client_name" | "redirect_uris" | "client_type" | "grant_types" | "token_endpoint_auth_method">>;
+
+  function applicationCreateDraft(): ApplicationCreateDraft {
     return {
       client_name: newApp.name,
       redirect_uris: newApp.redirect_uris
@@ -231,7 +239,10 @@
         .map((redirectUri) => redirectUri.trim())
         .filter(Boolean),
       client_type: newApp.type === "spa" ? "public" : "confidential",
-      grant_types: [...GOTRUE_OAUTH_GRANT_TYPES],
+      grant_types: decodeSchema(
+        adminEndpoints.createApplication.input.properties.body.properties.grant_types,
+        [...GOTRUE_OAUTH_GRANT_TYPES],
+      ),
       token_endpoint_auth_method:
         newApp.type === "spa" ? "none" : newApp.token_endpoint_auth_method,
     };
@@ -325,16 +336,16 @@
         );
       } else if (creationStaged) {
         clearApplicationMutationLock("create", "new");
-        error = requestError.message;
+        error = errorMessage(requestError);
       } else {
-        error = requestError.message;
+        error = errorMessage(requestError);
       }
     } finally {
       if (applicationCreateTracker.finish(operation)) creating = false;
     }
   }
 
-  async function handleRotateSecret(appId) {
+  async function handleRotateSecret(appId: string) {
     if (applications.find((application) => applicationIdentity(application) === appId)?.client_type === "public") return;
     const currentState = secretRotationState(appId);
     if (
@@ -397,7 +408,7 @@
         );
       } else {
         clearApplicationMutationLock("rotate", appId);
-        error = requestError.message;
+        error = errorMessage(requestError);
       }
     } finally {
       if (secretRotationTracker.finish(operation)) {
@@ -406,7 +417,7 @@
     }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(id: string) {
     if (
       secretRotationTracker.isPending(id) ||
       applicationMutationLocked("delete", id) ||
@@ -460,7 +471,7 @@
       } else {
         clearApplicationMutationLock("delete", id);
       }
-      error = requestError.message;
+      error = errorMessage(requestError);
     } finally {
       if (secretRotationTracker.finish(operation)) {
         updateSecretRotation(id, { pending: false });
@@ -658,7 +669,7 @@
           </div>
         </div>
         {#if revealedSecrets[app.client_id]}
-          <OneTimeSecret secret={revealedSecrets[app.client_id]} />
+          <OneTimeSecret secret={revealedSecrets[app.client_id] || ""} />
         {/if}
         {#if secretRotationState(app.client_id).outcomeUnknown}
           <div

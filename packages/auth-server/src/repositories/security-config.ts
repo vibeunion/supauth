@@ -3,26 +3,22 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { securityConfig } from '../db/schema.js';
+import { SecurityConfigSchema } from '../../../shared/src/admin-models.js';
+import { decodeSchema, type Static } from '../../../shared/src/schema.js';
 
-export interface SecurityConfigRow {
-  id: string;
-  adminAuthMode: string;
-  adminAllowedEmails: string[];
-  adminAllowedDomains: string[];
-  rateLimitRpm: number;
-  rateLimitBurst: number;
-  bruteForceProtection: boolean;
-  maxLoginAttempts: number;
-  lockoutDurationSec: number;
-  secretRotationReminderDays: number;
-  enforceHttps: boolean;
+export type SecurityConfigRow = Static<typeof SecurityConfigSchema>;
+
+function decodeSecurityConfig(row: typeof securityConfig.$inferSelect): SecurityConfigRow {
+  const { createdAt: _createdAt, updatedAt: _updatedAt, ...value } = row;
+  return decodeSchema(SecurityConfigSchema, value);
 }
 
 /** Get security config (singleton row) */
 export async function getSecurityConfig(): Promise<SecurityConfigRow | null> {
   const db = getDb();
   const rows = await db.select().from(securityConfig).limit(1);
-  return (rows[0] as SecurityConfigRow) || null;
+  const row = rows[0];
+  return row ? decodeSecurityConfig(row) : null;
 }
 
 /** Create default security config */
@@ -40,7 +36,7 @@ export async function createSecurityConfig(data?: Partial<SecurityConfigRow>) {
     secretRotationReminderDays: data?.secretRotationReminderDays ?? 90,
     enforceHttps: data?.enforceHttps ?? true,
   }).returning();
-  return row;
+  return row ? decodeSecurityConfig(row) : undefined;
 }
 
 /** Update security config */
@@ -54,7 +50,7 @@ export async function updateSecurityConfig(data: Partial<SecurityConfigRow>) {
     ...data,
     updatedAt: new Date(),
   }).where(eq(securityConfig.id, current.id)).returning();
-  return updated;
+  return updated ? decodeSecurityConfig(updated) : undefined;
 }
 
 /** Check if ADMIN_TOKEN is allowed in current environment */

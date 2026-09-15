@@ -6,44 +6,9 @@ import { Elysia } from 'elysia';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { getConfig } from '../config/index.js';
 import { runtimeEnv } from '../config/platform-env.js';
-
-export interface RouteProbe {
-  name: string;
-  path: string;
-  method: string;
-  expectedStatus: number[];
-  actualStatus: number | null;
-  ok: boolean;
-  error?: string;
-  responseSnippet?: string;
-}
-
-export interface DomainAudit {
-  domain: string;
-  functionReachable: boolean;
-  apiReachable: boolean;
-  authReachable: boolean;
-  tlsValid: boolean;
-  error?: string;
-}
-
-export interface IntegrationGateResult {
-  timestamp: string;
-  projectRef: string;
-  routes: RouteProbe[];
-  domainAudit: DomainAudit[];
-  envAudit: {
-    supacloudApiUrl: string;
-    oauthRuntimeUrl: string;
-    runtimeMode: string;
-    corsOrigins: string[];
-    supauthUrl: string;
-    runtimeUrl: string;
-    extraDomains: string[];
-  };
-  allPassed: boolean;
-  conflicts: string[];
-}
+import { operationContract } from '../utils/operation-contract.js';
+import type { RouteProbe, DomainAudit, IntegrationGateResult } from '../../../shared/src/server-operations.js';
+export type { RouteProbe, DomainAudit, IntegrationGateResult } from '../../../shared/src/server-operations.js';
 
 /**
  * Probe a single HTTP endpoint.
@@ -75,7 +40,7 @@ async function probeRoute(
       expectedStatus,
       actualStatus: res.status,
       ok,
-      error: ok ? undefined : body.slice(0, 200),
+      ...(ok ? {} : { error: body.slice(0, 200) }),
     };
   } catch (e) {
     return {
@@ -101,13 +66,19 @@ type AddressLookup = (hostname: string) => Promise<readonly ResolvedAddress[]>;
 
 const defaultAddressLookup: AddressLookup = async (hostname) => (
   await dnsLookup(hostname, { all: true, verbatim: true })
-).map(({ address, family }) => ({ address, family: family as 4 | 6 }));
+).map(({ address, family }): ResolvedAddress => {
+  if (family !== 4 && family !== 6) throw new TypeError('Invalid DNS address family');
+  return { address, family };
+});
 
-function ipv4Parts(address: string): number[] | null {
+function ipv4Parts(address: string): [number, number, number, number] | null {
   const parts = address.split('.');
   if (parts.length !== 4 || parts.some(part => !/^\d{1,3}$/.test(part))) return null;
   const numbers = parts.map(Number);
-  return numbers.every(part => part >= 0 && part <= 255) ? numbers : null;
+  const [a, b, c, d] = numbers;
+  if (a === undefined || b === undefined || c === undefined || d === undefined
+    || !numbers.every(part => part >= 0 && part <= 255)) return null;
+  return [a, b, c, d];
 }
 
 function inIpv4Range(address: string, network: readonly number[], prefix: number): boolean {
@@ -117,7 +88,9 @@ function inIpv4Range(address: string, network: readonly number[], prefix: number
   for (let index = 0; index < network.length; index++) {
     const bits = Math.min(remaining, 8);
     const mask = 0xff << (8 - bits) & 0xff;
-    if ((parts[index]! & mask) !== (network[index]! & mask)) return false;
+    const part = parts[index];
+    const networkPart = network[index];
+    if (part === undefined || networkPart === undefined || (part & mask) !== (networkPart & mask)) return false;
     remaining -= bits;
     if (remaining <= 0) return true;
   }
@@ -145,21 +118,25 @@ function ipv4IsBlocked(address: string): boolean {
 }
 
 function ipv6Parts(address: string): number[] | null {
-  const normalized = address.toLowerCase().split('%')[0]!;
+  const normalized = address.toLowerCase().split('%')[0];
+  if (normalized === undefined) return null;
   const embeddedIpv4 = normalized.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
-  const ipv4 = embeddedIpv4 ? ipv4Parts(embeddedIpv4[1]!) : null;
+  const embeddedAddress = embeddedIpv4?.[1];
+  const ipv4 = embeddedAddress ? ipv4Parts(embeddedAddress) : null;
   if (embeddedIpv4 && !ipv4) return null;
-  const withoutIpv4 = embeddedIpv4
-    ? normalized.slice(0, normalized.length - embeddedIpv4[1]!.length).replace(/:$/, '')
+  const withoutIpv4 = embeddedAddress
+    ? normalized.slice(0, normalized.length - embeddedAddress.length).replace(/:$/, '')
     : normalized;
-  const ipv4Groups = ipv4 ? [(ipv4[0]! << 8) | ipv4[1]!, (ipv4[2]! << 8) | ipv4[3]!] : [];
+  const ipv4Groups = ipv4 ? [(ipv4[0] << 8) | ipv4[1], (ipv4[2] << 8) | ipv4[3]] : [];
   const halves = withoutIpv4.split('::');
   if (halves.length > 2) return null;
   const parseHalf = (half: string) => half
     ? half.split(':').filter(Boolean).map(part => parseInt(part, 16))
     : [];
-  const left = parseHalf(halves[0]!);
-  const right = halves.length === 2 ? parseHalf(halves[1]!) : [];
+  const [leftHalf, rightHalf] = halves;
+  if (leftHalf === undefined) return null;
+  const left = parseHalf(leftHalf);
+  const right = rightHalf === undefined ? [] : parseHalf(rightHalf);
   if ([...left, ...right, ...ipv4Groups].some(part => !Number.isInteger(part) || part < 0 || part > 0xffff)) return null;
   const missing = 8 - left.length - right.length - ipv4Groups.length;
   if (halves.length === 1 && missing !== 0) return null;
@@ -174,7 +151,9 @@ function inIpv6Range(address: string, network: readonly number[], prefix: number
   for (let index = 0; index < network.length; index++) {
     const bits = Math.min(remaining, 16);
     const mask = 0xffff << (16 - bits) & 0xffff;
-    if ((parts[index]! & mask) !== (network[index]! & mask)) return false;
+    const part = parts[index];
+    const networkPart = network[index];
+    if (part === undefined || networkPart === undefined || (part & mask) !== (networkPart & mask)) return false;
     remaining -= bits;
     if (remaining <= 0) return true;
   }
@@ -223,8 +202,8 @@ export async function validateRouteGateTarget(
   }
 
   const literalFamily = ipv4Parts(url.hostname) ? 4 : url.hostname.includes(':') ? 6 : 0;
-  const addresses = literalFamily
-    ? [{ address: url.hostname.replace(/^\[|\]$/g, ''), family: literalFamily as 4 | 6 }]
+  const addresses: readonly ResolvedAddress[] = literalFamily
+    ? [{ address: url.hostname.replace(/^\[|\]$/g, ''), family: literalFamily }]
     : await lookup(url.hostname);
   if (!addresses.length) throw new TypeError('Route Gate target hostname has no address');
   if (addresses.some(({ address, family }) => isBlockedAddress(address, family))) {
@@ -286,7 +265,7 @@ export function resolveRouteGateInput(query?: Record<string, unknown>): {
   }
 
   return {
-    projectRef: String(query?.project_ref || config.projectRef),
+    projectRef: String(query?.["project_ref"] || config.projectRef),
     supauthUrl: normalizeBaseUrl(supauthUrl),
     runtimeUrl: normalizeBaseUrl(runtimeUrl),
     extraDomains: extraDomains.map(normalizeBaseUrl),
@@ -403,18 +382,18 @@ export async function runIntegrationGate(
 
 export const routeGateRoutes = new Elysia({ prefix: '/v1/route-gate' })
   .get('/', async ({ query }) => {
-    const input = resolveRouteGateInput(query as Record<string, unknown>);
+    const input = resolveRouteGateInput(query);
     return runIntegrationGate(input.projectRef, input.supauthUrl, input.runtimeUrl, input.extraDomains);
-  }, {
+  }, operationContract('getRouteGate', {
     detail: {
       summary: 'Run route/domain integration gate',
       description: 'Validates installed SupAuth Function/Pages routes and preserved Supabase runtime routes on the target SupaCloud project. Reports conflicts, missing routes, and domain health.',
       tags: ['Route Gate'],
     },
-  })
+  }))
 
   .get('/routes', async ({ query }) => {
-    const input = resolveRouteGateInput(query as Record<string, unknown>);
+    const input = resolveRouteGateInput(query);
     const result = await runIntegrationGate(input.projectRef, input.supauthUrl, input.runtimeUrl, input.extraDomains);
     return {
       total: result.routes.length,
@@ -423,9 +402,9 @@ export const routeGateRoutes = new Elysia({ prefix: '/v1/route-gate' })
       conflicts: result.conflicts,
       allPassed: result.allPassed,
     };
-  }, {
+  }, operationContract('getRouteGateSummary', {
     detail: {
       summary: 'Quick route health summary',
       tags: ['Route Gate'],
     },
-  });
+  }));

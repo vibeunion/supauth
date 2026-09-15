@@ -1,26 +1,27 @@
-<script>
+<script lang="ts">
+  import type { CapabilityStatus } from "@supauth/shared";
   import { t } from "$lib/i18n.js";
 
-  let { name, capability = null } = $props();
+  let { name, capability = null }: { name: string; capability?: CapabilityStatus | null | undefined } = $props();
 
   let available = $derived(capability?.available === true);
   let source = $derived(capability?.source || "unknown");
   let reasonCode = $derived(capability?.reason_code || null);
 
-  const reasonKeys = {
+  const reasonKeys: Record<string, string> = {
     not_advertised_by_upstream: "capability.reason.notAdvertised",
     capability_negotiation_unavailable: "capability.reason.negotiationUnavailable",
     not_supported_by_runtime: "capability.reason.notSupported",
     runtime_verification_failed: "capability.reason.verificationFailed",
     configuration_required: "capability.reason.configurationRequired",
   };
-  const sourceKeys = {
+  const sourceKeys: Record<string, string> = {
     gotrue: "capability.source.gotrue",
     supacloud: "capability.source.supacloud",
     supaoauth: "capability.source.supaoauth",
   };
 
-  function capabilityLabel(capabilityName) {
+  function capabilityLabel(capabilityName: string) {
     const translationKey = `capability.name.${capabilityName}`;
     const translatedLabel = t(translationKey);
     return translatedLabel === translationKey
@@ -28,16 +29,16 @@
       : translatedLabel;
   }
 
-  function reasonLabel(code) {
+  function reasonLabel(code: string | null) {
     if (!code) return t("capability.ready");
     return t(reasonKeys[code] || "capability.reason.unavailable");
   }
 
-  function sourceLabel(authority) {
+  function sourceLabel(authority: string) {
     return t(sourceKeys[authority] || "capability.source.unknown");
   }
 
-  function timestamp(isoTimestamp) {
+  function timestamp(isoTimestamp: string | undefined) {
     return isoTimestamp
       ? new Date(isoTimestamp).toLocaleString()
       : t("common.notAvailable");

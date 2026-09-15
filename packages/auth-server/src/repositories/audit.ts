@@ -69,7 +69,7 @@ export async function logAudit(event: {
   actorType?: 'admin' | 'user' | 'system';
   resourceType: string;
   resourceId: string;
-  details?: Record<string, unknown>;
+  details?: Record<string, unknown> | undefined;
 }) {
   const config = getConfig();
   const requestContext = currentAdminRequestContext();

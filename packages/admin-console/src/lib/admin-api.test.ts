@@ -1,16 +1,29 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
   ADMIN_REQUEST_TIMEOUT_MS,
   AdminApiError,
   adminApiRequest,
+  resolveAdminApiBase,
   runBoundedAdminRequest,
   setAdminAuthenticatedFetch,
 } from "./admin-api.js";
 
 afterEach(() => {
   setAdminAuthenticatedFetch(null);
+});
+
+describe("admin API environment boundary", () => {
+  test("preserves absent, empty, relative and absolute string configuration", () => {
+    expect(resolveAdminApiBase(undefined)).toBe("/api");
+    expect(resolveAdminApiBase("")).toBe("/api");
+    expect(resolveAdminApiBase("/auth-api")).toBe("/auth-api");
+    expect(resolveAdminApiBase("https://auth.example.test")).toBe("https://auth.example.test");
+  });
+
+  test("rejects non-string environment values before constructing request URLs", () => {
+    const invalidValues: unknown[] = [null, false, 0, [], {}, { toString: () => "/api" }];
+    for (const value of invalidValues) expect(() => resolveAdminApiBase(value)).toThrow();
+  });
 });
 
 describe("admin API authentication recovery", () => {
@@ -25,6 +38,7 @@ describe("admin API authentication recovery", () => {
       );
       throw new Error("Expected request to time out");
     } catch (error) {
+      if (!(error instanceof AdminApiError)) throw error;
       expect(error).toBeInstanceOf(AdminApiError);
       expect(error).toMatchObject({
         statusCode: 0,
@@ -38,7 +52,7 @@ describe("admin API authentication recovery", () => {
 
   test("composes caller cancellation without leaking its abort reason", async () => {
     const caller = new AbortController();
-    let operationSignal;
+    let operationSignal: AbortSignal | undefined;
     const pendingRequest = runBoundedAdminRequest(
       async (signal) => {
         operationSignal = signal;
@@ -55,7 +69,7 @@ describe("admin API authentication recovery", () => {
       message: "Admin API request was cancelled",
     });
     expect(operationSignal).not.toBe(caller.signal);
-    expect(operationSignal.aborted).toBe(true);
+    expect(operationSignal?.aborted).toBe(true);
     await expect(pendingRequest).rejects.not.toHaveProperty("cause");
   });
 
@@ -171,6 +185,7 @@ describe("admin API authentication recovery", () => {
         statusCode: 403,
         code: "insufficient_permissions",
       });
+      if (!(error instanceof AdminApiError)) throw error;
       expect(error.message).toBe("[403 Forbidden] Forbidden");
     }
   });

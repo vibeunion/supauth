@@ -1,13 +1,14 @@
-<script>
-  import { onMount } from 'svelte';
+<script lang="ts">
+  import { onMount, type Snippet } from 'svelte';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import {
-    setDataProvider,
     setAuthProvider,
     setResources,
+    type AuthProvider,
+    type CheckResult,
   } from '@svadmin/core';
-  import { supaoauthDataProvider } from '$lib/providers/data.js';
+  import type { AdminMfaFactor, AdminTotpEnrollment } from '$lib/admin-mfa-step-up';
   import {
     adminSsoEnabled,
     enrollAdminTotp,
@@ -19,25 +20,25 @@
   import { supaoauthResources } from '$lib/providers/resources.js';
   import { t } from '$lib/i18n.js';
   import { retireLegacyCustomUiServiceWorkers } from '$lib/legacy-custom-ui-service-workers.js';
-  import { createAdminAuthInitializationController } from './admin-auth-initialization.js';
+  import { createAdminAuthInitializationController, type AdminAuthInitializationState } from './admin-auth-initialization.js';
   import AdminLayout from '../layouts/AdminLayout.svelte';
   import '../app.css';
 
-  let { children } = $props();
+  let { children }: { children: Snippet } = $props();
   let initialized = $state(false);
   let checkingAuth = $state(true);
-  let authError = $state(null);
-  let mfaFactors = $state([]);
+  let authError = $state<string | null>(null);
+  let mfaFactors = $state<AdminMfaFactor[]>([]);
   let mfaFactorId = $state('');
   let mfaCode = $state('');
   let mfaSubmitting = $state(false);
   let mfaError = $state('');
-  let mfaEnrollment = $state(null);
+  let mfaEnrollment = $state<AdminTotpEnrollment | null>(null);
   let mfaEnrollmentRoute = $state(false);
-  let activeAuthProvider = null;
+  let activeAuthProvider: AuthProvider | null = null;
   let adminConsoleMounted = false;
 
-  function isMfaRequired(authCheck) {
+  function isMfaRequired(authCheck: CheckResult) {
     return authCheck?.error?.name === 'admin_mfa_required';
   }
 
@@ -52,8 +53,8 @@
     mfaEnrollment = null;
   }
 
-  function initializationErrorMessage(code) {
-    const messages = {
+  function initializationErrorMessage(code: string) {
+    const messages: Record<string, string> = {
       authentication_required: '管理员会话已失效，请重试登录。',
       forbidden: '当前账号没有访问管理控制台的权限。',
       service_unavailable: '认证服务暂时不可用，请重试。',
@@ -69,18 +70,18 @@
       : messages[code] || t('auth.unauthorized');
   }
 
-  function activateProvider(provider) {
+  function activateProvider(provider: AuthProvider) {
     activeAuthProvider = provider;
     setAuthProvider(provider);
   }
 
-  function applyMfaInitialization(state) {
+  function applyMfaInitialization(state: AdminAuthInitializationState) {
     mfaFactors = state.kind === 'mfa_required' ? state.factors : [];
     mfaFactorId = mfaFactors[0]?.id || '';
     checkingAuth = false;
   }
 
-  function applyInitializationState(state) {
+  function applyInitializationState(state: AdminAuthInitializationState) {
     if (state.kind === 'checking') {
       resetInitializationState();
       checkingAuth = true;
@@ -135,7 +136,7 @@
     }
   }
 
-  async function startAuthenticationAfterWorkerCleanup(startAuthentication) {
+  async function startAuthenticationAfterWorkerCleanup(startAuthentication: () => Promise<void>) {
     checkingAuth = true;
     authError = null;
     const workerCleanup = await legacyWorkerCleanup();
@@ -171,6 +172,7 @@
   }
 
   async function continueAfterMfaVerification() {
+    if (!activeAuthProvider) return false;
     const authCheck = await activeAuthProvider.check();
     if (authCheck.authenticated) {
       await finishAuthenticated();
@@ -184,7 +186,7 @@
     return false;
   }
 
-  async function verifyMfa(event) {
+  async function verifyMfa(event: SubmitEvent) {
     event.preventDefault();
     if (!activeAuthProvider || !mfaFactorId) return;
     mfaError = '';
@@ -215,7 +217,7 @@
     }
   }
 
-  async function verifyMfaEnrollment(event) {
+  async function verifyMfaEnrollment(event: SubmitEvent) {
     event.preventDefault();
     if (!activeAuthProvider || !mfaEnrollment) return;
     mfaError = '';
@@ -235,7 +237,6 @@
 
   onMount(() => {
     adminConsoleMounted = true;
-    setDataProvider(supaoauthDataProvider);
     setResources(supaoauthResources);
     mfaEnrollmentRoute = window.location.pathname === resolve('/mfa-enroll');
     void beginAuthentication();
@@ -281,7 +282,7 @@
         <img class="mx-auto mt-5 h-48 w-48 rounded-md border border-surface-200 bg-white p-2" src={mfaEnrollment.qrCode} alt="管理员 TOTP 二维码" />
         <form class="mt-5" onsubmit={verifyMfaEnrollment}>
           <label class="block text-left text-sm font-medium text-surface-700" for="admin-mfa-enrollment-code">动态码</label>
-          <input id="admin-mfa-enrollment-code" class="mt-1 w-full rounded-md border border-surface-300 px-3 py-2" bind:value={mfaCode} inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required disabled={mfaSubmitting} />
+          <input id="admin-mfa-enrollment-code" class="mt-1 w-full rounded-md border border-surface-300 px-3 py-2" bind:value={mfaCode} inputmode="numeric" autocomplete="one-time-code" pattern={'[0-9]{6,8}'} required disabled={mfaSubmitting} />
           {#if mfaError}<p class="mt-3 text-sm text-red-600" role="alert" aria-live="assertive">{mfaError}</p>{/if}
           <button class="mt-5 w-full rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60" type="submit" disabled={mfaSubmitting}>{mfaSubmitting ? '验证中…' : '验证并进入后台'}</button>
         </form>
@@ -305,7 +306,7 @@
         {/each}
       </select>
       <label class="mt-4 block text-sm font-medium text-surface-700" for="admin-mfa-code">动态码</label>
-      <input id="admin-mfa-code" class="mt-1 w-full rounded-md border border-surface-300 px-3 py-2" bind:value={mfaCode} inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required disabled={mfaSubmitting} />
+      <input id="admin-mfa-code" class="mt-1 w-full rounded-md border border-surface-300 px-3 py-2" bind:value={mfaCode} inputmode="numeric" autocomplete="one-time-code" pattern={'[0-9]{6,8}'} required disabled={mfaSubmitting} />
       {#if mfaError}<p class="mt-3 text-sm text-red-600" role="alert" aria-live="assertive">{mfaError}</p>{/if}
       <button class="mt-5 w-full rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60" type="submit" disabled={mfaSubmitting}>{mfaSubmitting ? '验证中…' : '验证并继续'}</button>
     </form>

@@ -12,7 +12,7 @@ import { relative, resolve } from 'node:path';
 import { createSupacloudAppManifest } from './supacloud-app-contract.js';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
-const artifactDir = resolve(root, process.env.SUPAUTH_SUPACLOUD_ARTIFACT_DIR || 'artifacts/supacloud-app');
+const artifactDir = resolve(root, process.env["SUPAUTH_SUPACLOUD_ARTIFACT_DIR"] || 'artifacts/supacloud-app');
 const skipBuild = Bun.argv.includes('--skip-build');
 
 function run(command: string[], options: { env?: Record<string, string | undefined> } = {}) {

@@ -25,9 +25,13 @@ export function enterAdminRequestContext(context: AdminRequestContext): void {
   requestStorage.enterWith(context);
 }
 
+function hasPrincipal(context: RequestContext | undefined): context is AdminRequestContext {
+  return context?.principal !== undefined;
+}
+
 export function currentAdminRequestContext(): AdminRequestContext | undefined {
   const context = requestStorage.getStore();
-  return context?.principal ? context as AdminRequestContext : undefined;
+  return hasPrincipal(context) ? context : undefined;
 }
 
 export function getCurrentRequestId(): string | undefined {

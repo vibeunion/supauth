@@ -1,7 +1,9 @@
-import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from 'jose';
+import { createLocalJWKSet, jwtVerify } from 'jose';
 import { getConfig } from '../config/index.js';
 import { getDiscovery, getJWKS } from '../runtime/index.js';
 import { getSupaCloudAdapter, getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
+import { decodeSchema, type Static } from '../../../shared/src/schema.js';
+import { HostedLogoutQuerySchema, LogoutClientMetadataSchema, LogoutDiscoverySchema, LogoutJwksSchema } from '../../../shared/src/server-hosted.js';
 
 type LogoutQuery = Record<string, unknown>;
 
@@ -35,16 +37,15 @@ function defaultDependencies(): LogoutValidationDependencies {
   };
 }
 
-function clientMetadata(candidate: unknown): Record<string, unknown> | null {
+function clientMetadata(candidate: unknown): Static<typeof LogoutClientMetadataSchema> | null {
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
-  const record = candidate as Record<string, unknown>;
-  const nested = record.client;
-  return nested && typeof nested === 'object' && !Array.isArray(nested)
-    ? nested as Record<string, unknown>
-    : record;
+  const nested = 'client' in candidate ? candidate.client : undefined;
+  try {
+    return decodeSchema(LogoutClientMetadataSchema, nested ?? candidate);
+  } catch { return null; }
 }
 
-function registeredLogoutUris(client: Record<string, unknown>): string[] {
+function registeredLogoutUris(client: Static<typeof LogoutClientMetadataSchema>): string[] {
   const configured = [client.post_logout_redirect_uris, client.redirect_uris].flatMap((candidate) => (
     Array.isArray(candidate) ? candidate.filter((uri): uri is string => typeof uri === 'string') : []
   ));
@@ -96,14 +97,14 @@ async function validIdTokenHint(
   dependencies: LogoutValidationDependencies,
 ): Promise<boolean> {
   const [discovery, jwks] = await Promise.all([dependencies.discovery(), dependencies.jwks()]);
-  const issuer = discovery.issuer;
-  if (typeof issuer !== 'string' || !issuer) return false;
-  const verified = await jwtVerify(token, createLocalJWKSet(jwks as unknown as JSONWebKeySet), {
+  const { issuer } = decodeSchema(LogoutDiscoverySchema, discovery);
+  const keys = decodeSchema(LogoutJwksSchema, jwks);
+  const verified = await jwtVerify(token, createLocalJWKSet(keys), {
     issuer,
     audience: clientId,
     algorithms: ['ES256', 'RS256'],
   });
-  return verified.payload.azp === undefined || verified.payload.azp === clientId;
+  return verified.payload["azp"] === undefined || verified.payload["azp"] === clientId;
 }
 
 function redirectWithState(redirectUri: URL, state: string): string {
@@ -117,6 +118,7 @@ export async function resolvePostLogoutRedirect(
   dependencies: LogoutValidationDependencies = defaultDependencies(),
 ): Promise<string> {
   const fallback = fallbackRedirectUrl(request);
+  try { decodeSchema(HostedLogoutQuerySchema, query); } catch { return fallback; }
   const clientId = queryString(query, 'client_id');
   const idTokenHint = queryString(query, 'id_token_hint');
   const requestedRedirect = queryString(query, 'post_logout_redirect_uri');

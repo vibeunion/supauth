@@ -1,12 +1,16 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "rootDir": "../..",
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "types": ["@types/bun"],
     "strict": true,
+    "allowJs": true,
+    "checkJs": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
+    "skipLibCheck": false,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,

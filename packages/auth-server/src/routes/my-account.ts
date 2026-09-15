@@ -1,5 +1,6 @@
 import { Elysia } from 'elysia';
 import { capabilityUnavailable } from '../utils/api-contract.js';
+import { hostedContract } from '../utils/hosted-contract.js';
 
 function legacyAccountRouteUnavailable(): never {
   throw capabilityUnavailable(
@@ -8,7 +9,7 @@ function legacyAccountRouteUnavailable(): never {
   );
 }
 
-const hiddenRoute = { detail: { hide: true } };
+const hiddenRoute = hostedContract('retired', { hide: true });
 
 export const myAccountRoutes = new Elysia({ prefix: '/v1/my-account' })
   .get('/profile', legacyAccountRouteUnavailable, hiddenRoute)

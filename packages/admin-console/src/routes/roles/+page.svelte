@@ -1,10 +1,13 @@
-<script>
+<script lang="ts">
+  import type { RoleView, PermissionView, UserView, ApplicationView, OrganizationView, AssignmentView, ResourceLoadContext, Operation, KeyedOperation, CollectionPage, CollectionPayload, ValueEvent, TextValues } from "$lib/management-view-types.js";
   import { onDestroy, onMount, tick } from "svelte";
   import { resolve } from "$app/paths";
   import { t } from "$lib/i18n.js";
   import RequestState from "$lib/components/RequestState.svelte";
   import {
     collectionPage,
+    collectionItems,
+    errorMessage,
     completeCollectionItems,
     createLatestRequestTracker,
     createOperationTracker,
@@ -34,16 +37,23 @@
     revokeRole,
   } from "$lib/api/client.js";
 
-  let roles = $state([]);
+  type RoleListContext = ResourceLoadContext & { ownerRoleId: string | null };
+  type RoleOperation = Operation<RoleListContext>;
+  type TargetPageContext = { pageContext: ResourceLoadContext; page: number; search: string; mode: string };
+  type TargetRequest = KeyedOperation<string, TargetPageContext>;
+  type PermissionDraft = Pick<PermissionView, "name" | "description">;
+  type CatalogPermission = (typeof PERMISSION_CATALOG)[number];
+  type RoleTemplate = (typeof roleTemplates)[number];
+  let roles = $state<RoleView[]>([]);
   let loading = $state(true);
   let saving = $state(false);
   const mutationTracker = createOperationTracker((pending) => {
     saving = pending;
   });
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let showCreate = $state(false);
   let newRole = $state({ name: "", description: "" });
-  let selectedRoleId = $state(null);
+  let selectedRoleId = $state<string | null>(null);
   let search = $state("");
   let selectedGroup = $state("all");
   let permissionQuery = $state("");
@@ -57,13 +67,13 @@
     organizationId: "",
     assignmentId: "",
   });
-  let assignments = $state([]);
+  let assignments = $state<AssignmentView[]>([]);
   let assignmentsLoading = $state(false);
-  let assignmentMessage = $state(null);
-  let assignmentError = $state(null);
-  let users = $state([]);
-  let applications = $state([]);
-  let organizations = $state([]);
+  let assignmentMessage = $state<string | null>(null);
+  let assignmentError = $state<unknown>(null);
+  let users = $state<UserView[]>([]);
+  let applications = $state<ApplicationView[]>([]);
+  let organizations = $state<OrganizationView[]>([]);
   let targetSearch = $state("");
   let organizationSearch = $state("");
   let userTargetSearch = $state("");
@@ -77,10 +87,10 @@
   let userTargetsLoading = $state(false);
   let applicationTargetsLoading = $state(false);
   let organizationTargetsLoading = $state(false);
-  let userTargetError = $state(null);
-  let applicationTargetError = $state(null);
-  let organizationTargetError = $state(null);
-  let roleListElement = $state(null);
+  let userTargetError = $state<unknown>(null);
+  let applicationTargetError = $state<unknown>(null);
+  let organizationTargetError = $state<unknown>(null);
+  let roleListElement = $state<HTMLElement | null>(null);
   const targetRequests = createLatestRequestTracker();
   const TARGET_PAGE_LIMIT = 25;
   const targetLoadError = $derived(
@@ -93,11 +103,11 @@
       ? userTargetsLoading
       : applicationTargetsLoading) || organizationTargetsLoading,
   );
-  let editingRoleId = $state(null);
+  let editingRoleId = $state<string | null>(null);
   let editRole = $state({ name: "", description: "" });
   let pageLoadGeneration = 0;
   let assignmentLoadGeneration = 0;
-  let assignmentsOwnerRoleId = $state(null);
+  let assignmentsOwnerRoleId = $state<string | null>(null);
 
   const riskPatterns = [
     { pattern: /^security\.manage$/, weight: 4 },
@@ -158,25 +168,25 @@
     },
   ];
 
-  function permissionsOf(role) {
+  function permissionsOf(role: RoleView | null) {
     return Array.isArray(role?.permissions) ? role.permissions : [];
   }
 
-  function permissionNames(role) {
+  function permissionNames(role: RoleView | null) {
     return new Set(permissionsOf(role).map((p) => p.name));
   }
 
-  function findPermission(role, name) {
+  function findPermission(role: RoleView, name: string) {
     return permissionsOf(role).find((p) => p.name === name);
   }
 
-  function normalizeText(value) {
+  function normalizeText(value: unknown) {
     return String(value || "")
       .trim()
       .toLowerCase();
   }
 
-  function roleMatches(role, term) {
+  function roleMatches(role: RoleView, term: string) {
     if (!term) return true;
     const haystack = [role.name, role.description]
       .map(normalizeText)
@@ -184,18 +194,18 @@
     return haystack.includes(term);
   }
 
-  function formatCount(template, count) {
+  function formatCount(template: string, count: number) {
     return t(template).replace("{count}", String(count));
   }
 
-  function formatText(template, values) {
+  function formatText(template: string, values: TextValues) {
     return Object.entries(values).reduce(
       (text, [key, value]) => text.replaceAll(`{${key}}`, String(value)),
       t(template),
     );
   }
 
-  function riskScore(role) {
+  function riskScore(role: RoleView | null) {
     return permissionsOf(role).reduce((score, permission) => {
       const name = permission.name || "";
       const matched = riskPatterns.find((rule) => rule.pattern.test(name));
@@ -204,12 +214,12 @@
     }, 0);
   }
 
-  function roleRisk(role) {
+  function roleRisk(role: RoleView | null) {
     const score = riskScore(role);
     return riskBadge(score >= 8 ? "high" : score >= 3 ? "medium" : "low");
   }
 
-  function riskBadge(level) {
+  function riskBadge(level: string) {
     if (level === "high")
       return {
         level: "high",
@@ -229,7 +239,7 @@
     };
   }
 
-  function riskyPermissionNames(names) {
+  function riskyPermissionNames(names: string[]) {
     return names.filter((name) => {
       if (!name) return false;
       if (!permissionMeta(name)?.labelKey) return true;
@@ -239,7 +249,7 @@
     });
   }
 
-  function confirmPermissionChange(action, names) {
+  function confirmPermissionChange(action: string, names: string[]) {
     const risky = riskyPermissionNames(names);
     if (names.length <= 1 && risky.length === 0) return true;
     const message =
@@ -256,7 +266,7 @@
     return confirm(message);
   }
 
-  function groupCoverage(role, group) {
+  function groupCoverage(role: RoleView | null, group: string) {
     const owned = permissionNames(role);
     const items = PERMISSION_CATALOG.filter(
       (permission) => permission.group === group,
@@ -267,34 +277,34 @@
     return { group, items, ownedCount, total: items.length };
   }
 
-  function customPermissions(role) {
+  function customPermissions(role: RoleView | null) {
     return permissionsOf(role).filter(
       (permission) => !permissionMeta(permission.name)?.labelKey,
     );
   }
 
-  function roleByName(name) {
+  function roleByName(name: string) {
     return roles.find(
       (role) => normalizeText(role.name) === normalizeText(name),
     );
   }
 
-  function userId(user) {
+  function userId(user: UserView) {
     return user?.id || user?.user_id || user?.userId || "";
   }
 
-  function userLabel(user) {
+  function userLabel(user: UserView) {
     const id = userId(user);
     const name =
       user?.name ||
       user?.full_name ||
-      user?.user_metadata?.name ||
-      user?.raw_user_meta_data?.name;
+      user?.user_metadata?.["name"] ||
+      user?.raw_user_meta_data?.["name"];
     const email = user?.email || user?.phone || id;
     return [name, email].filter(Boolean).join(" · ");
   }
 
-  function applicationId(application) {
+  function applicationId(application: ApplicationView) {
     return (
       application?.client_id ||
       application?.clientId ||
@@ -304,7 +314,7 @@
     );
   }
 
-  function applicationLabel(application) {
+  function applicationLabel(application: ApplicationView) {
     const id = applicationId(application);
     return [
       application?.name || application?.client_name || application?.clientName,
@@ -314,7 +324,7 @@
       .join(" · ");
   }
 
-  function organizationId(organization) {
+  function organizationId(organization: OrganizationView) {
     return (
       organization?.id ||
       organization?.organization_id ||
@@ -323,14 +333,14 @@
     );
   }
 
-  function organizationLabel(organization) {
+  function organizationLabel(organization: OrganizationView) {
     const id = organizationId(organization);
     return [organization?.name || organization?.slug, id]
       .filter(Boolean)
       .join(" · ");
   }
 
-  function chooseTarget(id) {
+  function chooseTarget(id: string) {
     if (saving) return;
     assignmentForm = { ...assignmentForm, targetId: id };
     targetSearch = "";
@@ -343,18 +353,18 @@
     organizationTargetResultsVisible = false;
   }
 
-  function chooseOrganization(id) {
+  function chooseOrganization(id: string) {
     if (saving) return;
     assignmentForm = { ...assignmentForm, organizationId: id };
     organizationSearch = "";
     organizationTargetResultsVisible = false;
   }
 
-  function assignmentIdOf(assignment) {
+  function assignmentIdOf(assignment: AssignmentView) {
     return assignment?.id || assignment?.assignment_id || "";
   }
 
-  function assignmentKey(assignment) {
+  function assignmentKey(assignment: AssignmentView) {
     const target = assignmentTarget(assignment);
     return (
       assignmentIdOf(assignment) ||
@@ -362,7 +372,7 @@
     );
   }
 
-  function assignmentTarget(assignment) {
+  function assignmentTarget(assignment: AssignmentView) {
     const userId = assignment?.user_id || assignment?.userId;
     const applicationId =
       assignment?.application_id || assignment?.applicationId;
@@ -372,11 +382,11 @@
     return { type: t("roles.targetUnknown"), id: t("common.notAvailable") };
   }
 
-  function assignmentOrganization(assignment) {
+  function assignmentOrganization(assignment: AssignmentView) {
     return assignment?.organization_id || assignment?.organizationId || "-";
   }
 
-  function assignmentApplication(assignment) {
+  function assignmentApplication(assignment: AssignmentView) {
     return (
       assignment?.application_id ||
       assignment?.applicationId ||
@@ -384,12 +394,12 @@
     );
   }
 
-  function assignmentCreatedAt(assignment) {
+  function assignmentCreatedAt(assignment: AssignmentView) {
     const value = assignment?.created_at || assignment?.createdAt;
     return value ? new Date(value).toLocaleString() : "-";
   }
 
-  function assignmentAuditHref(roleId) {
+  function assignmentAuditHref(roleId: string) {
     const params = new URLSearchParams({
       resource_type: "role",
       resource_id: roleId,
@@ -405,20 +415,20 @@
     };
   }
 
-  function isCurrentPageLoad(loadContext) {
+  function isCurrentPageLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(loadContext, currentPageLoadContext());
   }
 
-  function roleListMutationContext(ownerRoleId) {
+  function roleListMutationContext(ownerRoleId: string | null) {
     return { ...currentPageLoadContext(), ownerRoleId: ownerRoleId || null };
   }
 
-  function operationOwnsSelectedRole(operation) {
+  function operationOwnsSelectedRole(operation: RoleOperation) {
     const ownerRoleId = operation.ownerContext.ownerRoleId;
     return !ownerRoleId || ownerRoleId === selectedRoleId;
   }
 
-  function isCurrentRoleListMutation(operation) {
+  function isCurrentRoleListMutation(operation: RoleOperation) {
     return (
       mutationTracker.isCurrent(operation) &&
       isCurrentPageLoad(operation.ownerContext) &&
@@ -426,11 +436,11 @@
     );
   }
 
-  function isActiveRoleListMutation(operation) {
+  function isActiveRoleListMutation(operation: Operation<unknown>) {
     return mutationTracker.isCurrent(operation);
   }
 
-  function isActiveOwnedRoleMutation(operation) {
+  function isActiveOwnedRoleMutation(operation: RoleOperation) {
     return (
       isActiveRoleListMutation(operation) &&
       operationOwnsSelectedRole(operation)
@@ -453,17 +463,14 @@
     };
   }
 
-  function preparePageLoad(loadContext) {
+  function preparePageLoad(loadContext: ResourceLoadContext) {
     pageLoadGeneration = loadContext.generation;
     invalidateAssignmentLoad();
     loading = true;
   }
 
-  function commitRoles(rolesResponse) {
-    roles =
-      rolesResponse.items ||
-      rolesResponse.data ||
-      (Array.isArray(rolesResponse) ? rolesResponse : []);
+  function commitRoles(rolesResponse: CollectionPayload<RoleView>) {
+    roles = collectionItems(rolesResponse);
     if (!selectedRoleId || !roles.some((role) => role.id === selectedRoleId)) {
       selectedRoleId = roles[0]?.id || null;
     }
@@ -487,20 +494,20 @@
       await loadRoleAssignments(selectedRoleId);
       if (isCurrentPageLoad(loadContext)) error = null;
     } catch (requestError) {
-      if (isCurrentPageLoad(loadContext)) error = requestError.message;
+      if (isCurrentPageLoad(loadContext)) error = errorMessage(requestError);
     } finally {
       if (isCurrentPageLoad(loadContext)) loading = false;
     }
   }
 
-  function targetRequestIsCurrent(request) {
+  function targetRequestIsCurrent(request: KeyedOperation<string, { pageContext: ResourceLoadContext }>) {
     return (
       targetRequests.isCurrent(request) &&
       isCurrentPageLoad(request.ownerContext.pageContext)
     );
   }
 
-  function targetPageQuery(request) {
+  function targetPageQuery(request: TargetRequest) {
     return {
       page: request.ownerContext.page,
       limit: TARGET_PAGE_LIMIT,
@@ -508,19 +515,19 @@
     };
   }
 
-  function mergedTargetPage(currentTargets, page, request, identifyTarget) {
+  function mergedTargetPage<T>(currentTargets: T[], page: CollectionPage<T>, request: TargetRequest, identifyTarget: (target: T) => string) {
     return request.ownerContext.mode === "append"
       ? mergeCollectionPages(currentTargets, page.items, identifyTarget)
       : page.items;
   }
 
-  function commitUserTargetPage(request, page) {
+  function commitUserTargetPage(request: TargetRequest, page: CollectionPage<UserView>) {
     users = mergedTargetPage(users, page, request, userId);
     userTargetPage = page.page;
     userTargetTotal = page.total;
   }
 
-  function commitOrganizationTargetPage(request, page) {
+  function commitOrganizationTargetPage(request: TargetRequest, page: CollectionPage<OrganizationView>) {
     organizations = mergedTargetPage(
       organizations,
       page,
@@ -531,14 +538,14 @@
     organizationTargetTotal = page.total;
   }
 
-  async function loadApplicationTargets(pageContext) {
+  async function loadApplicationTargets(pageContext: ResourceLoadContext) {
     const request = targetRequests.begin("applications", { pageContext });
     applicationTargetsLoading = true;
     applicationTargetError = null;
     try {
       const response = await listApplications();
       if (!targetRequestIsCurrent(request)) return;
-      applications = completeCollectionItems(response);
+      applications = completeCollectionItems<ApplicationView>(response);
     } catch (requestError) {
       if (targetRequestIsCurrent(request)) applicationTargetError = requestError;
     } finally {
@@ -546,7 +553,7 @@
     }
   }
 
-  async function loadUserTargets(pageContext, requestedPage = 1, mode = "replace") {
+  async function loadUserTargets(pageContext: ResourceLoadContext, requestedPage = 1, mode = "replace") {
     const request = targetRequests.begin("users", {
       pageContext,
       page: requestedPage,
@@ -556,7 +563,7 @@
     userTargetsLoading = true;
     userTargetError = null;
     try {
-      const page = collectionPage(await listUsers(targetPageQuery(request)));
+      const page = collectionPage<UserView>(await listUsers(targetPageQuery(request)));
       if (!targetRequestIsCurrent(request)) return;
       commitUserTargetPage(request, page);
     } catch (requestError) {
@@ -567,7 +574,7 @@
   }
 
   async function loadOrganizationTargets(
-    pageContext,
+    pageContext: ResourceLoadContext,
     requestedPage = 1,
     mode = "replace",
   ) {
@@ -580,7 +587,7 @@
     organizationTargetsLoading = true;
     organizationTargetError = null;
     try {
-      const page = collectionPage(
+      const page = collectionPage<OrganizationView>(
         await listOrganizations(targetPageQuery(request)),
       );
       if (!targetRequestIsCurrent(request)) return;
@@ -592,7 +599,7 @@
     }
   }
 
-  function loadAssignmentTargets(pageContext) {
+  function loadAssignmentTargets(pageContext: ResourceLoadContext) {
     return Promise.all([
       loadUserTargets(pageContext),
       loadApplicationTargets(pageContext),
@@ -600,14 +607,14 @@
     ]);
   }
 
-  function applyUserTargetSearch(event) {
+  function applyUserTargetSearch(event: SubmitEvent) {
     event.preventDefault();
     userTargetSearch = targetSearch.trim();
     userTargetResultsVisible = true;
     void loadUserTargets(currentPageLoadContext());
   }
 
-  function applyOrganizationTargetSearch(event) {
+  function applyOrganizationTargetSearch(event: SubmitEvent) {
     event.preventDefault();
     organizationTargetSearch = organizationSearch.trim();
     organizationTargetResultsVisible = true;
@@ -630,7 +637,7 @@
     );
   }
 
-  function changeAssignmentTargetType(event) {
+  function changeAssignmentTargetType(event: ValueEvent<HTMLSelectElement>) {
     const targetType = event.currentTarget.value;
     assignmentForm = {
       ...assignmentForm,
@@ -657,14 +664,14 @@
     };
   }
 
-  function isCurrentAssignmentLoad(loadContext) {
+  function isCurrentAssignmentLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(
       loadContext,
       currentAssignmentLoadContext(),
     );
   }
 
-  function selectedRoleOwnsAssignments(role) {
+  function selectedRoleOwnsAssignments(role: RoleView | null) {
     return Boolean(
       role &&
         role.id === selectedRoleId &&
@@ -672,20 +679,20 @@
     );
   }
 
-  function currentAssignmentMutationContext(role) {
+  function currentAssignmentMutationContext(role: RoleView) {
     return selectedRoleOwnsAssignments(role)
       ? currentAssignmentLoadContext()
       : null;
   }
 
-  function isCurrentAssignmentMutation(operation) {
+  function isCurrentAssignmentMutation(operation: Operation<ResourceLoadContext>) {
     return (
       mutationTracker.isCurrent(operation) &&
       isCurrentAssignmentLoad(operation.ownerContext)
     );
   }
 
-  function nextAssignmentLoadContext(roleId) {
+  function nextAssignmentLoadContext(roleId: string | null) {
     return {
       generation: assignmentLoadGeneration + 1,
       resourceId: roleId || "",
@@ -693,7 +700,7 @@
     };
   }
 
-  function prepareAssignmentLoad(loadContext) {
+  function prepareAssignmentLoad(loadContext: ResourceLoadContext) {
     assignmentLoadGeneration = loadContext.generation;
     assignments = [];
     assignmentsOwnerRoleId = null;
@@ -701,12 +708,12 @@
     assignmentsLoading = Boolean(loadContext.resourceId);
   }
 
-  function commitRoleAssignments(loadContext, assignmentResponse) {
+  function commitRoleAssignments(loadContext: ResourceLoadContext, assignmentResponse: CollectionPayload<AssignmentView>) {
     assignments = collectionPage(assignmentResponse).items;
     assignmentsOwnerRoleId = loadContext.resourceId;
   }
 
-  async function loadRoleAssignments(roleId) {
+  async function loadRoleAssignments(roleId: string | null) {
     const loadContext = nextAssignmentLoadContext(roleId);
     prepareAssignmentLoad(loadContext);
     if (!loadContext.resourceId) return;
@@ -725,7 +732,7 @@
     }
   }
 
-  async function selectRole(roleId) {
+  async function selectRole(roleId: string) {
     mutationTracker.invalidate();
     selectedRoleId = roleId;
     showClone = false;
@@ -735,19 +742,19 @@
     await loadRoleAssignments(roleId);
   }
 
-  function reloadRoleAssignments(roleId) {
+  function reloadRoleAssignments(roleId: string) {
     if (saving) return;
     mutationTracker.invalidate();
     return loadRoleAssignments(roleId);
   }
 
-  function commitRoleCreation(createdRole) {
+  function commitRoleCreation(createdRole: RoleView) {
     if (createdRole?.id) selectedRoleId = createdRole.id;
     showCreate = false;
     newRole = { name: "", description: "" };
   }
 
-  async function selectCreatedRole(operation, roleName) {
+  async function selectCreatedRole(operation: RoleOperation, roleName: string) {
     if (!isActiveRoleListMutation(operation)) return;
     selectedRoleId =
       roles.find((role) => role.name === roleName)?.id || selectedRoleId;
@@ -769,13 +776,13 @@
       await loadRoles();
       if (!createdRole?.id) await selectCreatedRole(operation, roleName);
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  async function selectExistingTemplateRole(existingRole) {
+  async function selectExistingTemplateRole(existingRole: RoleView) {
     mutationTracker.invalidate();
     selectedRoleId = existingRole.id;
     assignmentMessage = formatText("roles.templateAlreadyExists", {
@@ -783,14 +790,14 @@
     });
     await loadRoleAssignments(existingRole.id);
     await tick();
-    const roleButton = roleListElement?.querySelector(
+    const roleButton = roleListElement?.querySelector<HTMLButtonElement>(
       `[data-role-id="${CSS.escape(existingRole.id)}"]`,
     );
     roleButton?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     roleButton?.focus();
   }
 
-  async function createTemplatePermissions(operation, template, roleId) {
+  async function createTemplatePermissions(operation: RoleOperation, template: RoleTemplate, roleId: string) {
     for (const permissionName of template.permissions) {
       const permission = PERMISSION_CATALOG.find(
         (candidate) => candidate.name === permissionName,
@@ -804,7 +811,7 @@
     return true;
   }
 
-  async function createdTemplateRole(operation, template) {
+  async function createdTemplateRole(operation: RoleOperation, template: RoleTemplate) {
     const createdRole = await createRole({
       name: template.name,
       description: t(template.descKey),
@@ -819,14 +826,14 @@
     return copied ? createdRole : null;
   }
 
-  function commitTemplateRole(createdRole, template) {
+  function commitTemplateRole(createdRole: RoleView, template: RoleTemplate) {
     selectedRoleId = createdRole.id;
     assignmentMessage = formatText("roles.templateCreated", {
       role: template.name,
     });
   }
 
-  async function handleCreateTemplate(template) {
+  async function handleCreateTemplate(template: RoleTemplate) {
     if (saving) return;
     const existing = roleByName(template.name);
     if (existing) {
@@ -841,19 +848,19 @@
       commitTemplateRole(createdRole, template);
       await loadRoles();
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  function startEdit(role) {
+  function startEdit(role: RoleView) {
     if (saving) return;
     editingRoleId = role.id;
     editRole = { name: role.name || "", description: role.description || "" };
   }
 
-  function startClone(role) {
+  function startClone(role: RoleView) {
     if (saving) return;
     showClone = true;
     cloneRole = {
@@ -862,7 +869,7 @@
     };
   }
 
-  async function handleUpdateRole(role) {
+  async function handleUpdateRole(role: RoleView) {
     const roleName = editRole.name.trim();
     if (saving || !roleName) return;
     const operation = mutationTracker.begin(roleListMutationContext(role.id));
@@ -872,18 +879,18 @@
     };
     error = null;
     try {
-      await updateRole(operation.ownerContext.ownerRoleId, roleUpdate);
+      await updateRole(operation.ownerContext.ownerRoleId || role.id, roleUpdate);
       if (!isCurrentRoleListMutation(operation)) return;
       editingRoleId = null;
       await loadRoles();
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  async function handleDelete(role) {
+  async function handleDelete(role: RoleView) {
     if (saving) return;
     if (
       !confirm(
@@ -894,18 +901,18 @@
     const operation = mutationTracker.begin(roleListMutationContext(role.id));
     error = null;
     try {
-      await deleteRole(operation.ownerContext.ownerRoleId);
+      await deleteRole(operation.ownerContext.ownerRoleId || role.id);
       if (!isCurrentRoleListMutation(operation)) return;
       selectedRoleId = null;
       await loadRoles();
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  function clonedPermissionPayloads(role) {
+  function clonedPermissionPayloads(role: RoleView) {
     return permissionsOf(role).map((permission) => ({
       name: permission.name,
       description:
@@ -920,12 +927,12 @@
     };
   }
 
-  function commitRoleClone(createdRole) {
+  function commitRoleClone(createdRole: RoleView) {
     showClone = false;
     selectedRoleId = createdRole.id;
   }
 
-  async function resolvedClonedRole(operation, cloneRequest) {
+  async function resolvedClonedRole(operation: RoleOperation, cloneRequest: ReturnType<typeof currentCloneRequest>) {
     const createdRole = await createRole(cloneRequest);
     if (!isCurrentRoleListMutation(operation)) return null;
     if (createdRole?.id) return createdRole;
@@ -934,7 +941,7 @@
     return roles.find((candidate) => candidate.name === cloneRequest.name);
   }
 
-  async function copyRolePermissions(operation, roleId, permissions) {
+  async function copyRolePermissions(operation: RoleOperation, roleId: string, permissions: ReturnType<typeof clonedPermissionPayloads>) {
     for (const permission of permissions) {
       if (!isActiveOwnedRoleMutation(operation)) return false;
       await createRolePermission(roleId, permission);
@@ -943,7 +950,7 @@
     return true;
   }
 
-  async function copyAndCommitClonedRole(operation, createdRole, permissions) {
+  async function copyAndCommitClonedRole(operation: RoleOperation, createdRole: RoleView, permissions: ReturnType<typeof clonedPermissionPayloads>) {
     const copied = await copyRolePermissions(
       operation,
       createdRole.id,
@@ -954,7 +961,7 @@
     return true;
   }
 
-  async function handleCloneRole(role) {
+  async function handleCloneRole(role: RoleView) {
     const cloneRequest = currentCloneRequest();
     if (saving || !cloneRequest.name) return;
     const operation = mutationTracker.begin(roleListMutationContext(role.id));
@@ -968,13 +975,13 @@
       if (!committed) return;
       await loadRoles();
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  function permissionCreatePayload(permission) {
+  function permissionCreatePayload(permission: PermissionDraft) {
     const meta = permissionMeta(permission.name);
     return {
       name: permission.name,
@@ -983,27 +990,27 @@
     };
   }
 
-  async function addPermission(operation, role, permission) {
+  async function addPermission(operation: RoleOperation, role: RoleView, permission: PermissionDraft) {
     const owned = permissionNames(role);
     if (owned.has(permission.name)) return true;
     await createRolePermission(
-      operation.ownerContext.ownerRoleId,
+      operation.ownerContext.ownerRoleId || role.id,
       permissionCreatePayload(permission),
     );
     return isCurrentRoleListMutation(operation);
   }
 
-  async function removePermission(operation, role, permissionName) {
+  async function removePermission(operation: RoleOperation, role: RoleView, permissionName: string) {
     const permission = findPermission(role, permissionName);
     if (!permission) return true;
     await deleteRolePermission(
-      operation.ownerContext.ownerRoleId,
+      operation.ownerContext.ownerRoleId || role.id,
       permission.id,
     );
     return isCurrentRoleListMutation(operation);
   }
 
-  async function toggleCatalogPermission(role, permission) {
+  async function toggleCatalogPermission(role: RoleView, permission: CatalogPermission) {
     if (saving) return;
     const removing = permissionNames(role).has(permission.name);
     const action = removing ? t("roles.revokeAction") : t("roles.grantAction");
@@ -1017,13 +1024,13 @@
       if (!current) return;
       await loadRoles();
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  function permissionGroupTargets(role, group, action) {
+  function permissionGroupTargets(role: RoleView, group: string, action: string) {
     const owned = permissionNames(role);
     return PERMISSION_CATALOG.filter(
       (permission) =>
@@ -1034,7 +1041,7 @@
     );
   }
 
-  function confirmedPermissionGroupTargets(role, group, action) {
+  function confirmedPermissionGroupTargets(role: RoleView, group: string, action: string) {
     const targets = permissionGroupTargets(role, group, action);
     if (targets.length === 0) return null;
     const actionLabel =
@@ -1047,7 +1054,7 @@
       : null;
   }
 
-  async function mutatePermissionGroup(operation, role, targets, action) {
+  async function mutatePermissionGroup(operation: RoleOperation, role: RoleView, targets: CatalogPermission[], action: string) {
     for (const permission of targets) {
       const current =
         action === "grant"
@@ -1058,7 +1065,7 @@
     return true;
   }
 
-  async function applyGroup(role, group, action) {
+  async function applyGroup(role: RoleView, group: string, action: string) {
     if (saving) return;
     const targets = confirmedPermissionGroupTargets(role, group, action);
     if (!targets) return;
@@ -1074,7 +1081,7 @@
       if (!current) return;
       await loadRoles();
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
@@ -1087,7 +1094,7 @@
       : null;
   }
 
-  async function handleAddCustomPermission(role) {
+  async function handleAddCustomPermission(role: RoleView) {
     const permission = customPermissionRequest();
     if (saving || !permission) return;
     if (permissionNames(role).has(permission.name)) {
@@ -1104,13 +1111,13 @@
       customPermission = { name: "", description: "" };
       await loadRoles();
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  async function handleDeletePermission(role, permission) {
+  async function handleDeletePermission(role: RoleView, permission: PermissionView) {
     if (saving) return;
     if (!confirmPermissionChange(t("roles.revokeAction"), [permission.name]))
       return;
@@ -1125,13 +1132,13 @@
       if (!current) return;
       await loadRoles();
     } catch (requestError) {
-      if (isActiveRoleListMutation(operation)) error = requestError.message;
+      if (isActiveRoleListMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  function roleAssignmentPayload(targetId) {
+  function roleAssignmentPayload(targetId: string) {
     const applicationId = assignmentForm.applicationId.trim();
     const organizationId = assignmentForm.organizationId.trim();
     const target =
@@ -1147,13 +1154,13 @@
     };
   }
 
-  function confirmRoleAssignment(role, targetId) {
+  function confirmRoleAssignment(role: RoleView, targetId: string) {
     return confirm(
       formatText("roles.confirmAssign", { role: role.name, target: targetId }),
     );
   }
 
-  function commitRoleAssignment(assignment) {
+  function commitRoleAssignment(assignment: AssignmentView) {
     assignmentForm = { ...assignmentForm, targetId: "", applicationId: "" };
     assignmentMessage = formatText("roles.assignmentCreated", {
       id: assignmentIdOf(assignment) || t("common.notAvailable"),
@@ -1161,7 +1168,7 @@
     error = null;
   }
 
-  async function handleAssignRole(role) {
+  async function handleAssignRole(role: RoleView) {
     if (saving) return;
     const mutationContext = currentAssignmentMutationContext(role);
     const targetId = assignmentForm.targetId.trim();
@@ -1178,19 +1185,19 @@
       commitRoleAssignment(assignment);
       await loadRoleAssignments(ownerRoleId);
     } catch (requestError) {
-      if (isCurrentAssignmentMutation(operation)) error = requestError.message;
+      if (isCurrentAssignmentMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }
   }
 
-  function handleRevokeAssignment(role) {
+  function handleRevokeAssignment(role: RoleView) {
     const assignmentId = assignmentForm.assignmentId.trim();
     if (saving || !assignmentId) return;
     return revokeAssignmentById(role, assignmentId);
   }
 
-  function confirmRoleRevocation(role, assignmentId) {
+  function confirmRoleRevocation(role: RoleView, assignmentId: string) {
     return confirm(
       formatText("roles.confirmRevokeAssignment", {
         role: role.name,
@@ -1199,7 +1206,7 @@
     );
   }
 
-  function commitRoleRevocation(assignmentId) {
+  function commitRoleRevocation(assignmentId: string) {
     assignmentForm = {
       ...assignmentForm,
       assignmentId:
@@ -1211,7 +1218,7 @@
     error = null;
   }
 
-  async function revokeAssignmentById(role, assignmentId) {
+  async function revokeAssignmentById(role: RoleView, assignmentId: string) {
     if (saving) return;
     const mutationContext = currentAssignmentMutationContext(role);
     if (!mutationContext || !confirmRoleRevocation(role, assignmentId)) return;
@@ -1223,7 +1230,7 @@
       commitRoleRevocation(assignmentId);
       await loadRoleAssignments(ownerRoleId);
     } catch (requestError) {
-      if (isCurrentAssignmentMutation(operation)) error = requestError.message;
+      if (isCurrentAssignmentMutation(operation)) error = errorMessage(requestError);
     } finally {
       mutationTracker.finish(operation);
     }

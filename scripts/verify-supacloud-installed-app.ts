@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
+import { definedStringOptions } from './cli-options.js';
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -134,7 +135,7 @@ function httpsRedirectProbeResult(name: string, cleartextUrl: URL, expectedUrl: 
     expectation: 'exact-308',
     ok,
     status: response.status,
-    error: ok ? undefined : `expected HTTP 308 Location ${expectedUrl}, got HTTP ${response.status} Location ${location || '<empty>'}`,
+    ...(ok ? {} : { error: `expected HTTP 308 Location ${expectedUrl}, got HTTP ${response.status} Location ${location || '<empty>'}` }),
   };
 }
 
@@ -158,10 +159,13 @@ async function probeHttpsRedirect(fetchImpl: FetchLike, name: string, baseUrl: s
 async function probe(fetchImpl: FetchLike, spec: ProbeSpec): Promise<ProbeResult> {
   const { name, url, expectation, allowedStatuses, expectedMediaType, headers } = spec;
   try {
-    const response = await fetchImpl(url, { method: 'GET', redirect: 'manual', headers });
+    const response = await fetchImpl(url, {
+      method: 'GET', redirect: 'manual', ...(headers === undefined ? {} : { headers }),
+    });
     const statusMatches = isExpectedStatus(response.status, expectation, allowedStatuses);
     const actualContentType = response.headers.get('content-type') || '';
-    const actualMediaType = actualContentType.split(';', 1)[0].trim().toLowerCase();
+    const [mediaType = ''] = actualContentType.split(';', 1);
+    const actualMediaType = mediaType.trim().toLowerCase();
     const contentTypeMatches = !expectedMediaType || actualMediaType === expectedMediaType.toLowerCase();
     const actualCacheControl = response.headers.get('cache-control') || '';
     const cacheControlMatches = expectation !== 'exact-404-no-store'
@@ -179,9 +183,9 @@ async function probe(fetchImpl: FetchLike, spec: ProbeSpec): Promise<ProbeResult
       expectation,
       ok,
       status: response.status,
-      error: ok
-        ? undefined
-        : `${describeExpectation(expectation, allowedStatuses)}, got HTTP ${response.status}${mismatchDetail}`,
+      ...(ok ? {} : {
+        error: `${describeExpectation(expectation, allowedStatuses)}, got HTTP ${response.status}${mismatchDetail}`,
+      }),
     };
   } catch (error) {
     return {
@@ -205,7 +209,7 @@ async function probeAny(fetchImpl: FetchLike, name: string, candidates: string[]
 }
 
 function failedAdminConsoleProbe(name: string, url: string, error: string, status?: number): ProbeResult {
-  return { name, url, expectation: 'exact-200', ok: false, status, error };
+  return { name, url, expectation: 'exact-200', ok: false, ...(status === undefined ? {} : { status }), error };
 }
 
 function canonicalAdminConsoleTarget(response: Response, entryUrl: string, expectedPath: string) {
@@ -266,7 +270,7 @@ async function probeSsoAuthorizeRedirect(fetchImpl: FetchLike, url: string, base
       expectation: 'route-exists',
       ok,
       status: authorizeResponse.status,
-      error: ok ? undefined : `hosted GoTrue authorize target failed: expected a non-404, non-5xx route response, got HTTP ${authorizeResponse.status} at ${location}`,
+      ...(ok ? {} : { error: `hosted GoTrue authorize target failed: expected a non-404, non-5xx route response, got HTTP ${authorizeResponse.status} at ${location}` }),
     };
   } catch (error) {
     return {
@@ -292,8 +296,7 @@ export async function verifySupacloudInstalledApp(input: {
   const root = resolve(input.root || new URL('..', import.meta.url).pathname);
   const offline = verifySupacloudAppArtifact({
     root,
-    artifactDir: input.artifactDir,
-    manifestPath: input.manifestPath,
+    ...definedStringOptions({ artifactDir: input.artifactDir, manifestPath: input.manifestPath }),
   });
   const result: InstalledAppVerificationResult = {
     ok: false,
@@ -411,14 +414,14 @@ export async function verifySupacloudInstalledApp(input: {
 
 if (import.meta.main) {
   const outputPath = option('output');
-  const result = await verifySupacloudInstalledApp({
+  const result = await verifySupacloudInstalledApp(definedStringOptions({
     artifactDir: option('artifact-dir'),
     manifestPath: option('manifest'),
-    baseUrl: option('base-url') || process.env.SUPAUTH_PUBLIC_URL || process.env.AUTH_PUBLIC_URL || process.env.SUPAUTH_INSTALLED_BASE_URL,
-    runtimeUrl: option('runtime-url') || process.env.SUPAUTH_INSTALLED_RUNTIME_URL,
-    expectedManifestHash: option('expected-manifest-hash') || process.env.SUPAUTH_EXPECTED_MANIFEST_HASH,
-    ssoAuthorizeProbeUrl: option('sso-authorize-probe-url') || process.env.SUPAUTH_SSO_AUTHORIZE_PROBE_URL,
-  });
+    baseUrl: option('base-url') || process.env["SUPAUTH_PUBLIC_URL"] || process.env["AUTH_PUBLIC_URL"] || process.env["SUPAUTH_INSTALLED_BASE_URL"],
+    runtimeUrl: option('runtime-url') || process.env["SUPAUTH_INSTALLED_RUNTIME_URL"],
+    expectedManifestHash: option('expected-manifest-hash') || process.env["SUPAUTH_EXPECTED_MANIFEST_HASH"],
+    ssoAuthorizeProbeUrl: option('sso-authorize-probe-url') || process.env["SUPAUTH_SSO_AUTHORIZE_PROBE_URL"],
+  }));
   const serialized = `${JSON.stringify(result, null, 2)}\n`;
 
   if (outputPath) {

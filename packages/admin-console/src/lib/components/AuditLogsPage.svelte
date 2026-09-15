@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from "@supauth/shared";
+  import { auditText, type AuditEntry } from "./audit-view.js";
   import { onMount } from "svelte";
   import { resolve } from "$app/paths";
   import AuditLogDetail from "$lib/components/AuditLogDetail.svelte";
@@ -15,15 +17,17 @@
     getAuditLog,
     listAuditLogs,
   } from "$lib/api/client.js";
-  import { collectionItems } from "$lib/resource-page.js";
+  import { collectionItems, errorMessage } from "$lib/resource-page.js";
 
-  let entries = $state([]);
+  type ExportJob = AdminEndpointResult<"getAuditExport">;
+  type Integrity = AdminEndpointResult<"getAuditIntegrity">;
+  let entries = $state<AuditEntry[]>([]);
   let total = $state(0);
-  let currentCursor = $state(null);
-  let nextCursor = $state(null);
-  let cursorHistory = $state([]);
+  let currentCursor = $state<string | null>(null);
+  let nextCursor = $state<string | null>(null);
+  let cursorHistory = $state<(string | null)[]>([]);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let filter = $state({
     event_type: "",
     resource_type: "",
@@ -32,45 +36,43 @@
     from: "",
     to: "",
   });
-  let selectedEntry = $state(null);
+  let selectedEntry = $state<AuditEntry | null>(null);
   let detailLoading = $state(false);
-  let integrity = $state(null);
-  let integrityError = $state(null);
-  let exportJob = $state(null);
+  let integrity = $state<Integrity | null>(null);
+  let integrityError = $state<string | null>(null);
+  let exportJob = $state<ExportJob | null>(null);
   let exporting = $state(false);
   let downloading = $state(false);
 
-  function resourceId(entry) {
-    return String(entry.resource_id || entry.resourceId || "-");
+  function resourceId(entry: AuditEntry) {
+    return auditText(entry, "resource_id", "resourceId") || "-";
   }
 
-  function entryId(entry) {
-    return entry?.id || entry?.log_id || entry?.logId || "";
+  function entryId(entry: AuditEntry) {
+    return auditText(entry, "id", "log_id", "logId");
   }
 
-  function entryTime(entry) {
-    const value = entry.created_at || entry.createdAt || entry.timestamp;
+  function entryTime(entry: AuditEntry) {
+    const value = auditText(entry, "created_at", "createdAt", "timestamp");
     return value ? new Date(value).toLocaleString() : "-";
   }
 
-  function exportId(job) {
-    return job?.id || job?.export_id || job?.exportId || "";
+  function exportId(job: ExportJob | null) {
+    return auditText(job, "id", "export_id", "exportId");
   }
 
-  function exportCompleted(job) {
+  function exportCompleted(job: ExportJob | null) {
     return String(job?.status || "").toLowerCase() === "completed";
   }
 
-  function checkpointSummary(checkpoint) {
+  function checkpointSummary(checkpoint: Integrity["checkpoint"]) {
     return (
-      checkpoint?.last_event_hash ||
-      checkpoint?.last_event_id ||
-      checkpoint?.checkpoint_id ||
+      auditText(checkpoint, "last_event_hash", "last_event_id", "checkpoint_id") ||
       "-"
     );
   }
 
-  async function openDetail(entry) {
+  async function openDetail(entry: AuditEntry) {
     selectedEntry = entry;
     const id = entryId(entry);
     if (!id) return;
@@ -78,26 +80,26 @@
     try {
       selectedEntry = await getAuditLog(id);
     } catch (requestError) {
-      error = requestError;
+      error = errorMessage(requestError);
     }
     detailLoading = false;
   }
 
-  async function loadPage(cursor) {
+  async function loadPage(cursor: string | null) {
     loading = true;
     error = null;
     try {
       const response = await listAuditLogs({
         ...filter,
-        cursor: cursor || undefined,
+        ...(cursor ? { cursor } : {}),
         limit: 50,
       });
-      entries = collectionItems(response);
+      entries = collectionItems<AuditEntry>(response);
       total = Number(response.total ?? entries.length);
       currentCursor = cursor;
       nextCursor = response.next_cursor || null;
     } catch (requestError) {
-      error = requestError;
+      error = errorMessage(requestError);
     }
     loading = false;
   }
@@ -112,7 +114,7 @@
       const fromDate = new Date(filter.from);
       const toDate = new Date(filter.to);
       if (fromDate > toDate) {
-        error = { message: t("auditLogs.timeRangeInvalid") };
+        error = t("auditLogs.timeRangeInvalid");
         return Promise.resolve();
       }
     }
@@ -130,7 +132,7 @@
 
   function previousPage() {
     if (cursorHistory.length === 0) return;
-    const previousCursor = cursorHistory[cursorHistory.length - 1];
+    const previousCursor = cursorHistory[cursorHistory.length - 1] ?? null;
     cursorHistory = cursorHistory.slice(0, -1);
     return loadPage(previousCursor);
   }
@@ -154,7 +156,7 @@
     try {
       integrity = await getAuditIntegrity();
     } catch (requestError) {
-      integrityError = requestError;
+      integrityError = errorMessage(requestError);
     }
   }
 
@@ -164,7 +166,7 @@
     try {
       exportJob = await exportAuditLogs(filter);
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
     exporting = false;
   }
@@ -176,7 +178,7 @@
     try {
       exportJob = await getAuditExport(id);
     } catch (requestError) {
-      error = requestError;
+      error = errorMessage(requestError);
     }
   }
 
@@ -195,7 +197,7 @@
       link.click();
       URL.revokeObjectURL(downloadUrl);
     } catch (requestError) {
-      error = requestError;
+      error = errorMessage(requestError);
     }
     downloading = false;
   }
@@ -234,7 +236,7 @@
 
 {#if error}
   <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">
-    {error.message || error}
+    {error}
   </div>
 {/if}
 
@@ -245,7 +247,7 @@
     </p>
     {#if integrityError}
       <p class="mt-2 text-sm text-red-700">
-        {integrityError.message || integrityError}
+        {integrityError}
       </p>
     {:else if integrity}
       <p class="mt-2 text-sm font-semibold text-surface-900">
@@ -392,14 +394,14 @@
             <td class="px-4 py-3"
               ><span
                 class="px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-medium"
-                >{entry.event_type || entry.eventType || "-"}</span
+                >{auditText(entry, "event_type", "eventType") || "-"}</span
               ></td
             >
             <td class="px-4 py-3 text-surface-600 text-xs"
-              >{entry.actor_type || entry.actorType || "-"}</td
+              >{auditText(entry, "actor_type", "actorType") || "-"}</td
             >
             <td class="px-4 py-3 text-surface-600 text-xs"
-              >{entry.resource_type || entry.resourceType || "-"}</td
+              >{auditText(entry, "resource_type", "resourceType") || "-"}</td
             >
             <td class="max-w-[13rem] px-4 py-3 font-mono text-xs text-surface-500">
               <span class="block truncate" title={resourceId(entry)}>{resourceId(entry)}</span>

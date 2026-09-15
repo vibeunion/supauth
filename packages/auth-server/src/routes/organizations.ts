@@ -1,9 +1,10 @@
 // Organization management routes with OpenAPI annotations
 
 import { Elysia, t } from 'elysia';
+import { managementContract, decodeEndpointBody, decodeManagementBody, decodeEndpointResponse, decodeManagementQuery } from '../utils/management-contract.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
-import { ApiContractError, capabilityUnavailable, pagedResponse } from '../utils/api-contract.js';
+import { ApiContractError, capabilityUnavailable, pagedResponse, isRecord } from '../utils/api-contract.js';
 
 const adapter = getSupaCloudAdapter();
 const ORGANIZATION_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -14,17 +15,17 @@ async function auditStrict(eventType: string, resourceType: string, resourceId: 
 
 async function requireOrganizationJitCapability() {
   const payload = await adapter.getCapabilities();
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw invalidCapabilityResponse();
-  const capabilities = (payload as Record<string, unknown>).capabilities;
-  if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)) {
+  if (!isRecord(payload)) throw invalidCapabilityResponse();
+  const capabilities = payload["capabilities"];
+  if (!isRecord(capabilities)) {
     throw invalidCapabilityResponse();
   }
-  const capability = (capabilities as Record<string, unknown>).business_organization_jit_v1;
-  if (capability && typeof capability === 'object' && !Array.isArray(capability)) {
-    const status = capability as Record<string, unknown>;
-    if (status.available === true) return;
-    const reasonCode = typeof status.reason_code === 'string'
-      ? status.reason_code
+  const capability = capabilities["business_organization_jit_v1"];
+  if (isRecord(capability)) {
+    const status = capability;
+    if (status["available"] === true) return;
+    const reasonCode = typeof status["reason_code"] === 'string'
+      ? status["reason_code"]
       : 'business_organization_jit_unavailable';
     throw new ApiContractError(
       501,
@@ -41,28 +42,28 @@ function invalidCapabilityResponse() {
 }
 
 function organizationCreatePayload(input: unknown): Record<string, unknown> {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+  if (!isRecord(input)) {
     throw new ApiContractError(
       400,
       'invalid_request_body',
       'Organization request body must be a JSON object',
     );
   }
-  const organization = input as Record<string, unknown>;
-  validateOrganizationName(organization.name);
-  validateOrganizationSlug(organization.slug);
+  const organization = input;
+  validateOrganizationName(organization["name"]);
+  validateOrganizationSlug(organization["slug"]);
   return Object.hasOwn(organization, 'jit_domains')
     ? organization
     : { ...organization, jit_domains: [] };
 }
 
 function organizationUpdatePayload(input: unknown): Record<string, unknown> {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+  if (!isRecord(input)) {
     throw new ApiContractError(400, 'invalid_request_body', 'Organization request body must be a JSON object');
   }
-  const organization = input as Record<string, unknown>;
-  if (Object.hasOwn(organization, 'name')) validateOrganizationName(organization.name);
-  if (Object.hasOwn(organization, 'slug')) validateOrganizationSlug(organization.slug);
+  const organization = input;
+  if (Object.hasOwn(organization, 'name')) validateOrganizationName(organization["name"]);
+  if (Object.hasOwn(organization, 'slug')) validateOrganizationSlug(organization["slug"]);
   return organization;
 }
 
@@ -86,105 +87,106 @@ function validateOrganizationSlug(slug: unknown): void {
 }
 
 export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
-  .get('/', async ({ query }) => {
+  .get('/', async ({ query: rawQuery }) => {
+    const query = decodeManagementQuery('listOrganizations', rawQuery);
     const organizations = await adapter.listOrganizations({
       page: query.page,
       limit: query.limit,
       search: query.search,
       application_id: query.application_id,
     });
-    return pagedResponse(organizations, { page: query.page, limit: query.limit });
-  }, {
+    return decodeEndpointResponse('listOrganizations', pagedResponse(organizations, { page: query.page, limit: query.limit }));
+  }, managementContract("GET", "/v1/organizations", {
     detail: { summary: 'List organizations', tags: ['Organizations'] },
-  })
+  }))
   .post('/', async ({ body }) => {
-    const created = await adapter.createOrganization(
-      organizationCreatePayload(body),
-    );
-    const record = created as Record<string, unknown>;
-    await auditStrict('organization.create', 'organization', String(record.id || ''), { name: record.name });
+    const created = decodeEndpointResponse('createOrganization', await adapter.createOrganization(
+      decodeManagementBody('createOrganization', organizationCreatePayload(body)),
+    ));
+    await auditStrict('organization.create', 'organization', created.id, { name: created.name });
     return created;
-  }, {
+  }, managementContract("POST", "/v1/organizations", {
     detail: { summary: 'Create organization', tags: ['Organizations'] },
-  })
+  }, ({ body }) => { organizationCreatePayload(body); }))
   .get('/:orgId', async ({ params }) => {
-    return adapter.getOrganization(params.orgId);
-  }, {
+    return decodeEndpointResponse('getOrganization', await adapter.getOrganization(params.orgId));
+  }, managementContract("GET", "/v1/organizations/:orgId", {
     detail: { summary: 'Get organization by ID', tags: ['Organizations'] },
-  })
+  }))
   .put('/:orgId', async ({ params, body }) => {
-    const updated = await adapter.updateOrganization(params.orgId, organizationUpdatePayload(body));
+    const updated = await adapter.updateOrganization(params.orgId, decodeManagementBody('updateOrganization', organizationUpdatePayload(body)));
     await auditStrict('organization.update', 'organization', params.orgId);
-    return updated;
-  }, {
+    return decodeEndpointResponse('updateOrganization', updated);
+  }, managementContract("PUT", "/v1/organizations/:orgId", {
     detail: { summary: 'Update organization', tags: ['Organizations'] },
-  })
+  }, ({ body }) => { organizationUpdatePayload(body); }))
   .delete('/:orgId', async ({ params }) => {
     const deleted = await adapter.deleteOrganization(params.orgId);
     await auditStrict('organization.delete', 'organization', params.orgId);
-    return deleted;
-  }, {
+    return decodeEndpointResponse('deleteOrganization', deleted);
+  }, managementContract("DELETE", "/v1/organizations/:orgId", {
     detail: { summary: 'Delete organization', tags: ['Organizations'] },
-  })
+  }))
   // ─── Members ───
-  .get('/:orgId/members', async ({ params, query }) => {
+  .get('/:orgId/members', async ({ params, query: rawQuery }) => {
+    const query = decodeManagementQuery('listOrganizationMembers', rawQuery);
     const members = await adapter.listOrganizationMembers(params.orgId, {
       page: query.page,
       limit: query.limit,
       search: query.search,
     });
-    return pagedResponse(members, { page: query.page, limit: query.limit });
-  }, {
+    return decodeEndpointResponse('listOrganizationMembers', pagedResponse(members, { page: query.page, limit: query.limit }));
+  }, managementContract("GET", "/v1/organizations/:orgId/members", {
     detail: { summary: 'List organization members', tags: ['Organizations', 'Members'] },
-  })
+  }))
   .post('/:orgId/members', async ({ params, body }) => {
-    const data = body as { user_id: string; role?: string };
-    const member = await adapter.addOrganizationMember(params.orgId, data as Record<string, unknown>);
+    const data = decodeEndpointBody('addOrganizationMember', body);
+    const member = await adapter.addOrganizationMember(params.orgId, data);
     await auditStrict('organization.add_member', 'organization', params.orgId, { user_id: data.user_id });
-    return member;
-  }, {
+    return decodeEndpointResponse('addOrganizationMember', member);
+  }, managementContract("POST", "/v1/organizations/:orgId/members", {
     detail: { summary: 'Add member to organization', tags: ['Organizations', 'Members'] },
-  })
+  }))
   .delete('/:orgId/members/:userId', async ({ params }) => {
     const removed = await adapter.removeOrganizationMember(params.orgId, params.userId);
     await auditStrict('organization.remove_member', 'organization', params.orgId, { user_id: params.userId });
-    return removed;
-  }, {
+    return decodeEndpointResponse('removeOrganizationMember', removed);
+  }, managementContract("DELETE", "/v1/organizations/:orgId/members/:userId", {
     detail: { summary: 'Remove member from organization', tags: ['Organizations', 'Members'] },
-  })
+  }))
   .patch('/:orgId/members/:userId', async ({ params, body }) => {
-    return adapter.updateOrganizationMember(params.orgId, params.userId, body);
-  }, {
+    return decodeEndpointResponse('updateOrganizationMemberRole', await adapter.updateOrganizationMember(params.orgId, params.userId, decodeEndpointBody('updateOrganizationMemberRole', body)));
+  }, managementContract("PATCH", "/v1/organizations/:orgId/members/:userId", {
     body: t.Object({ role: t.String() }, { additionalProperties: false }),
     detail: { summary: 'Update member role in organization', tags: ['Organizations', 'Members'] },
-  })
+  }))
   .get('/:orgId/roles', async ({ params }) => {
-    return pagedResponse(await adapter.getOrgRoleAssignments(params.orgId));
-  }, {
+    return decodeEndpointResponse('getOrgRoleAssignments', pagedResponse(await adapter.getOrgRoleAssignments(params.orgId)));
+  }, managementContract("GET", "/v1/organizations/:orgId/roles", {
     detail: { summary: 'Get role assignments for organization', tags: ['Organizations', 'RBAC'] },
-  })
+  }))
   .get('/:orgId/invitations', async ({ params }) => {
-    return pagedResponse(await adapter.listOrganizationInvitations(params.orgId));
-  }, {
+    return decodeEndpointResponse('listOrganizationInvitations', pagedResponse(await adapter.listOrganizationInvitations(params.orgId)));
+  }, managementContract("GET", "/v1/organizations/:orgId/invitations", {
     detail: { summary: 'List organization invitations', tags: ['Organizations', 'Invitations'] },
-  })
+  }))
   .post('/:orgId/invitations', async ({ params, body }) => {
-    const invitation = await adapter.createOrganizationInvitation(params.orgId, body);
+    const invitation = await adapter.createOrganizationInvitation(params.orgId, decodeEndpointBody('createOrganizationInvitation', body));
     await auditStrict('organization.invitation.create', 'organization', params.orgId, { email: body.email });
-    return invitation;
-  }, {
+    return decodeEndpointResponse('createOrganizationInvitation', invitation);
+  }, managementContract("POST", "/v1/organizations/:orgId/invitations", {
     body: t.Object({
       email: t.String(),
       role: t.Optional(t.String()),
       ttl_hours: t.Optional(t.Number({ minimum: 1, maximum: 720 })),
     }, { additionalProperties: false }),
     detail: { summary: 'Create organization invitation', tags: ['Organizations', 'Invitations'] },
-  })
+  }))
   .delete('/:orgId/invitations/:invitationId', async ({ params }) => {
     return revokeInvitation(params.orgId, params.invitationId);
-  }, {
+  }, managementContract("DELETE", "/v1/organizations/:orgId/invitations/:invitationId", {
     detail: { summary: 'Revoke an organization invitation', tags: ['Organizations', 'Invitations'] },
-  })
+  }))
   .post('/:orgId/invitations/:invitationId/:action', async ({ params }) => {
     if (params.action === 'revoked') return revokeInvitation(params.orgId, params.invitationId);
     if (params.action === 'accepted') {
@@ -194,60 +196,60 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
       );
     }
     throw capabilityUnavailable('business_organization_invitation_expiry_v1');
-  }, {
+  }, managementContract("POST", "/v1/organizations/:orgId/invitations/:invitationId/:action", {
     detail: { hide: true },
-  })
+  }))
   .get('/:orgId/jit', async ({ params }) => {
     await requireOrganizationJitCapability();
-    return adapter.getOrganizationJitSettings(params.orgId);
-  }, {
+    return decodeEndpointResponse('getOrganizationJitSettings', await adapter.getOrganizationJitSettings(params.orgId));
+  }, managementContract("GET", "/v1/organizations/:orgId/jit", {
     detail: { summary: 'Get organization JIT provisioning settings', tags: ['Organizations', 'JIT'] },
-  })
+  }))
   .put('/:orgId/jit', async ({ params, body }) => {
     await requireOrganizationJitCapability();
-    return adapter.updateOrganizationJitSettings(params.orgId, body);
-  }, {
+    return decodeEndpointResponse('updateOrganizationJitSettings', await adapter.updateOrganizationJitSettings(params.orgId, decodeEndpointBody('updateOrganizationJitSettings', body)));
+  }, managementContract("PUT", "/v1/organizations/:orgId/jit", {
     body: t.Object({
       enabled: t.Boolean(),
       domains: t.Array(t.String()),
     }, { additionalProperties: false }),
     detail: { summary: 'Update organization JIT provisioning settings', tags: ['Organizations', 'JIT'] },
-  })
+  }))
   .get('/:orgId/applications', async ({ params }) => {
-    return pagedResponse(await adapter.listOrganizationApplications(params.orgId));
-  }, {
+    return decodeEndpointResponse('listOrganizationApplications', pagedResponse(await adapter.listOrganizationApplications(params.orgId)));
+  }, managementContract("GET", "/v1/organizations/:orgId/applications", {
     detail: { summary: 'List organization application access', tags: ['Organizations', 'Applications'] },
-  })
+  }))
   .put('/:orgId/applications/:appId', async ({ params }) => {
-    return adapter.bindOrganizationApplication(params.orgId, params.appId);
-  }, {
+    return decodeEndpointResponse('bindOrganizationApplication', await adapter.bindOrganizationApplication(params.orgId, params.appId));
+  }, managementContract("PUT", "/v1/organizations/:orgId/applications/:appId", {
     detail: { summary: 'Grant or update organization application access', tags: ['Organizations', 'Applications'] },
-  })
+  }))
   .delete('/:orgId/applications/:appId', async ({ params }) => {
-    return adapter.deleteOrganizationApplication(params.orgId, params.appId);
-  }, {
+    return decodeEndpointResponse('removeOrganizationApplication', await adapter.deleteOrganizationApplication(params.orgId, params.appId));
+  }, managementContract("DELETE", "/v1/organizations/:orgId/applications/:appId", {
     detail: { summary: 'Remove organization application access', tags: ['Organizations', 'Applications'] },
-  })
+  }))
   .get('/:orgId/branding', async ({ params }) => {
-    return adapter.getOrganizationBranding(params.orgId);
-  }, {
+    return decodeEndpointResponse('getOrganizationBranding', await adapter.getOrganizationBranding(params.orgId));
+  }, managementContract("GET", "/v1/organizations/:orgId/branding", {
     detail: { summary: 'Get organization branding', tags: ['Organizations'] },
-  })
+  }))
   .put('/:orgId/branding', async ({ params, body }) => {
-    const branding = await adapter.updateOrganizationBranding(params.orgId, body as Record<string, unknown>);
+    const branding = await adapter.updateOrganizationBranding(params.orgId, decodeEndpointBody('updateOrganizationBranding', body));
     await auditStrict('organization.branding.update', 'organization', params.orgId);
-    return branding;
-  }, {
+    return decodeEndpointResponse('updateOrganizationBranding', branding);
+  }, managementContract("PUT", "/v1/organizations/:orgId/branding", {
     detail: { summary: 'Update organization branding', tags: ['Organizations'] },
-  });
+  }));
 
 export const publicOrganizationRoutes = new Elysia({ prefix: '/v1/organizations' })
   .post('/:orgId/invitations/:invitationId/accept', async ({ params, body, headers }) => {
-    const authorization = authenticatedGoTrueBearer(headers.authorization);
+    const authorization = authenticatedGoTrueBearer(headers["authorization"]);
     const accepted = await adapter.acceptOrganizationInvitation(
       params.orgId,
       params.invitationId,
-      { token: body.token },
+      decodeEndpointBody('acceptOrganizationInvitation', body),
       authorization,
     );
     const userId = acceptedInvitationUserId(accepted);
@@ -259,11 +261,11 @@ export const publicOrganizationRoutes = new Elysia({ prefix: '/v1/organizations'
       resourceId: params.orgId,
       details: { invitation_id: params.invitationId },
     });
-    return accepted;
-  }, {
+    return decodeEndpointResponse('acceptOrganizationInvitation', accepted);
+  }, managementContract("POST", "/v1/organizations/:orgId/invitations/:invitationId/accept", {
     body: t.Object({ token: t.String({ minLength: 1 }) }, { additionalProperties: false }),
     detail: { summary: 'Accept an organization invitation', tags: ['Organizations', 'Invitations'] },
-  });
+  }));
 
 function authenticatedGoTrueBearer(authorization: string | undefined): string {
   const token = authorization?.match(/^Bearer +([^\s]+)$/i)?.[1];
@@ -274,8 +276,8 @@ function authenticatedGoTrueBearer(authorization: string | undefined): string {
 }
 
 function acceptedInvitationUserId(accepted: unknown): string {
-  if (!accepted || typeof accepted !== 'object') throw invalidInvitationResponse();
-  const userId = (accepted as Record<string, unknown>).user_id;
+  if (!isRecord(accepted)) throw invalidInvitationResponse();
+  const userId = accepted["user_id"];
   if (typeof userId !== 'string' || !userId) throw invalidInvitationResponse();
   return userId;
 }
@@ -291,5 +293,5 @@ function invalidInvitationResponse() {
 async function revokeInvitation(orgId: string, invitationId: string) {
   const revoked = await adapter.revokeOrganizationInvitation(orgId, invitationId);
   await auditStrict('organization.invitation.revoke', 'organization', orgId, { invitation_id: invitationId });
-  return revoked;
+  return decodeEndpointResponse('revokeOrganizationInvitation', revoked);
 }

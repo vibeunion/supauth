@@ -1,10 +1,12 @@
 // Health / Project / Runtime routes with OpenAPI annotations
 
 import { Elysia } from 'elysia';
+import { isRecord } from '../utils/api-contract.js';
 import { getConfig } from '../config/index.js';
 import { runtimeEnv } from '../config/platform-env.js';
 import { getSupaCloudAdapter, getSupaCloudAdapterForProject } from '../supacloud/adapter.js';
 import { checkRuntimeHealth, getDiscovery, getJWKS } from '../runtime/index.js';
+import { operationContract, operationOutput } from '../utils/operation-contract.js';
 
 const config = getConfig();
 const adapter = getSupaCloudAdapter();
@@ -24,15 +26,13 @@ function publicAdminUrl(path: string): string {
 }
 
 function projectSummary(upstreamProject: unknown) {
-  const projectRecord = upstreamProject && typeof upstreamProject === 'object' && !Array.isArray(upstreamProject)
-    ? upstreamProject as Record<string, unknown>
-    : {};
-  return {
-    id: typeof projectRecord.id === 'string' ? projectRecord.id : undefined,
-    ref: typeof projectRecord.ref === 'string' ? projectRecord.ref : undefined,
-    project_ref: typeof projectRecord.project_ref === 'string' ? projectRecord.project_ref : undefined,
-    name: typeof projectRecord.name === 'string' ? projectRecord.name : undefined,
-  };
+  const projectRecord = isRecord(upstreamProject) ? upstreamProject : {};
+  return operationOutput('getProject', {
+    id: typeof projectRecord["id"] === 'string' ? projectRecord["id"] : undefined,
+    ref: typeof projectRecord["ref"] === 'string' ? projectRecord["ref"] : undefined,
+    project_ref: typeof projectRecord["project_ref"] === 'string' ? projectRecord["project_ref"] : undefined,
+    name: typeof projectRecord["name"] === 'string' ? projectRecord["name"] : undefined,
+  });
 }
 
 export function resolvePublicAdminSsoConfig() {
@@ -52,54 +52,54 @@ export function resolvePublicAdminSsoConfig() {
 }
 
 export const healthRoutes = new Elysia({ prefix: '/v1' })
-  .get('/health', () => ({
+  .get('/health', () => operationOutput('health', {
     status: 'ok',
     runtime_mode: config.runtimeMode,
     project_ref: config.projectRef || 'not configured',
-  }), {
+  }), operationContract('health', {
     detail: {
       summary: 'Server health check',
       tags: ['Health'],
     },
-  })
-  .get('/project', async () => projectSummary(await adapter.getProject()), {
+  }))
+  .get('/project', async () => projectSummary(await adapter.getProject()), operationContract('getProject', {
     detail: {
       summary: 'Get project info',
       tags: ['Project'],
     },
-  })
-  .get('/public/admin-sso-config', () => resolvePublicAdminSsoConfig(), {
+  }))
+  .get('/public/admin-sso-config', () => resolvePublicAdminSsoConfig(), operationContract('getPublicAdminSsoConfig', {
     detail: {
       summary: 'Get public admin SSO browser configuration',
       description: 'Returns only public OIDC client metadata needed by the Admin SPA. Secrets, allowlists, and token validation policy stay server-side.',
       tags: ['Auth'],
     },
-  });
+  }));
 
 export const runtimeRoutes = new Elysia({ prefix: '/v1/runtime' })
-  .get('/health', async () => checkRuntimeHealth(), {
+  .get('/health', async () => operationOutput('getRuntimeHealth', await checkRuntimeHealth()), operationContract('getRuntimeHealth', {
     detail: {
       summary: 'Check OIDC runtime health',
       tags: ['Runtime'],
     },
-  })
-  .get('/oauth-server', async () => oauthServerAdapter().getOAuthServerStatus(), {
+  }))
+  .get('/oauth-server', async () => operationOutput('getOAuthServerStatus', await oauthServerAdapter().getOAuthServerStatus()), operationContract('getOAuthServerStatus', {
     detail: {
       summary: 'Get OAuth server status',
       tags: ['Runtime'],
     },
-  })
-  .get('/discovery', async () => getDiscovery(), {
+  }))
+  .get('/discovery', async () => operationOutput('getDiscovery', await getDiscovery()), operationContract('getDiscovery', {
     detail: {
       summary: 'OIDC discovery document',
       description: 'Returns the OpenID Connect discovery document from the underlying GoTrue runtime',
       tags: ['Runtime'],
     },
-  })
-  .get('/jwks', async () => getJWKS(), {
+  }))
+  .get('/jwks', async () => operationOutput('getJWKS', await getJWKS()), operationContract('getJWKS', {
     detail: {
       summary: 'JWKS endpoint',
       description: 'Returns JSON Web Key Set from the underlying GoTrue runtime',
       tags: ['Runtime'],
     },
-  });
+  }));

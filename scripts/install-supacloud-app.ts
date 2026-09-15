@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { isRecord, isUnknownArray, parseJson, requireRecord } from './tooling-values.js';
+import { decodeArtifactManifest } from './supacloud-app-contract.js';
 /**
  * Install the SupAuth SupaCloud app artifact into an existing SupaCloud project.
  *
@@ -16,6 +18,7 @@ import { verifyRbacAgainstDatabase } from '../packages/auth-server/src/compatibi
 import { verifyAdminSsoAllowlist } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';
 import { parseAdminSsoRequireAal2 } from '../packages/auth-server/src/auth/admin-sso-aal2-policy.js';
 import { SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE } from './supacloud-app-contract.js';
+import { definedStringOptions } from './cli-options.js';
 import type { RbacDbVerification } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 import type { AdminSsoAllowlistVerification } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';
 
@@ -150,6 +153,7 @@ function parseEnvFile(path: string): Record<string, string> {
     const match = line.match(/^([^=\s]+)\s*=\s*(.*)$/);
     if (!match) continue;
     const [, key, rawValue] = match;
+    if (key === undefined || rawValue === undefined) continue;
     let value = rawValue.trim();
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
@@ -237,7 +241,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
     SUPAUTH_PUBLIC_URL: options.baseUrl,
     SUPAUTH_SITE_URL: options.siteUrl,
     SUPAUTH_API_URL: options.apiUrl,
-    CORS_ORIGINS: Array.isArray(options.corsOrigins) ? options.corsOrigins.join(',') : options.corsOrigins,
+    CORS_ORIGINS: isUnknownArray(options.corsOrigins) ? options.corsOrigins.join(',') : options.corsOrigins,
     SUPACLOUD_EDGE_RUNTIME_UPSTREAM: options.edgeRuntimeUpstream,
     SUPACLOUD_DATABASE_URL: options.databaseUrl,
     RUNTIME_MODE: options.runtimeMode,
@@ -298,7 +302,7 @@ function resolveConfig(options: InstallSupacloudAppOptions): ResolvedInstallConf
   return {
     root,
     artifactDir,
-    manifestPath: options.manifestPath,
+    ...definedStringOptions({ manifestPath: options.manifestPath }),
     supacloudApiUrl: stripTrailingSlash(supacloudApiUrl),
     projectRef,
     token,
@@ -400,7 +404,7 @@ function requireConfig(config: ResolvedInstallConfig) {
 
 function readManifest(root: string, artifactDir: string, manifestPath?: string) {
   const path = manifestPath ? resolve(root, manifestPath) : resolve(artifactDir, 'supacloud-app-manifest.json');
-  return JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>;
+  return decodeArtifactManifest(parseJson(readFileSync(path, 'utf8')));
 }
 
 function pathEscapesRoot(root: string, candidate: string) {
@@ -408,8 +412,12 @@ function pathEscapesRoot(root: string, candidate: string) {
   return relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath);
 }
 
-function artifactLocation(realRoot: string, manifest: Record<string, any>, key: string) {
-  const value = manifest.artifacts?.[key];
+function artifactLocation(
+  realRoot: string,
+  manifest: ReturnType<typeof decodeArtifactManifest>,
+  key: keyof ReturnType<typeof decodeArtifactManifest>['artifacts'],
+) {
+  const value = manifest.artifacts[key];
   if (!value || typeof value !== 'string') throw new Error(`Manifest artifact is missing: ${key}`);
   const declaredPath = resolve(realRoot, value);
   if (pathEscapesRoot(realRoot, declaredPath)) {
@@ -433,7 +441,7 @@ function assertNoSymlinkSegments(root: string, artifactPath: string, key: string
   }
 }
 
-function validatedDeployArtifactPaths(root: string, manifest: Record<string, any>) {
+function validatedDeployArtifactPaths(root: string, manifest: ReturnType<typeof decodeArtifactManifest>) {
   const realRoot = realpathSync(root);
   const functionBundle = artifactLocation(realRoot, manifest, 'function_bundle');
   const adminStaticDir = artifactLocation(realRoot, manifest, 'admin_static_dir');
@@ -624,13 +632,18 @@ function functionBundleFiles(functionBundlePath: string, adminStaticDirPath: str
 }
 
 function functionListEntry(entry: unknown) {
-  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+  if (!isRecord(entry)) {
     throw new Error('SupaCloud Function list response entries must be objects');
   }
-  if (typeof (entry as { slug?: unknown }).slug !== 'string') {
+  const slug = entry['slug'];
+  if (typeof slug !== 'string') {
     throw new Error('SupaCloud Function list response entry slug must be a string');
   }
-  return entry as { slug: string; version?: unknown; activation_id?: unknown };
+  return {
+    slug,
+    ...(Object.hasOwn(entry, 'version') ? { version: entry['version'] } : {}),
+    ...(Object.hasOwn(entry, 'activation_id') ? { activation_id: entry['activation_id'] } : {}),
+  };
 }
 
 const SUPACLOUD_ACTIVATION_ID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -642,16 +655,16 @@ interface ExpectedFunctionState {
 }
 
 function expectedActiveFunctionState(functions: unknown): ExpectedFunctionState {
-  if (!Array.isArray(functions)) throw new Error('SupaCloud Function list response must be an array');
+  if (!isUnknownArray(functions)) throw new Error('SupaCloud Function list response must be an array');
   const matchingFunctions = functions.map(functionListEntry).filter(({ slug }) => slug === 'supauth');
   if (matchingFunctions.length > 1) {
     throw new Error('SupaCloud Function list response contains duplicate supauth entries');
   }
-  if (matchingFunctions.length === 0) {
+  const matchingFunction = matchingFunctions[0];
+  if (!matchingFunction) {
     return { activeVersion: 'absent', activationId: 'legacy', activationIdWasReported: false };
   }
 
-  const matchingFunction = matchingFunctions[0];
   const version = matchingFunction.version;
   if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 0) {
     throw new Error('SupaCloud Function supauth version must be a non-negative safe integer');
@@ -810,7 +823,7 @@ async function configureGatewayRoutes(input: {
     projectRef: input.projectRef,
     corsOrigins: input.corsOrigins,
     edgeRuntimeUpstream: input.edgeRuntimeUpstream,
-    upstreamHostHeader,
+    ...definedStringOptions({ upstreamHostHeader }),
   };
 
   await upsertGatewayRoute({
@@ -1042,15 +1055,15 @@ async function adminSsoAllowlistInstallStep(config: ResolvedInstallConfig, verif
 }
 
 function recordFromEnvelope(payload: unknown, errorMessage: string): Record<string, unknown> {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+  if (!isRecord(payload)) {
     throw new Error(errorMessage);
   }
-  const envelope = payload as Record<string, unknown>;
-  const candidate = Object.hasOwn(envelope, 'data') ? envelope.data : envelope;
-  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+  const envelope = payload;
+  const candidate = Object.hasOwn(envelope, 'data') ? envelope["data"] : envelope;
+  if (!isRecord(candidate)) {
     throw new Error(errorMessage);
   }
-  return candidate as Record<string, unknown>;
+  return candidate;
 }
 
 async function responseRecord(response: Response, errorMessage: string) {
@@ -1065,7 +1078,7 @@ async function responseRecord(response: Response, errorMessage: string) {
 }
 
 function hasExactStringSet(candidate: unknown, expected: string[]) {
-  if (!Array.isArray(candidate) || !candidate.every((entry) => typeof entry === 'string')) return false;
+  if (!isUnknownArray(candidate) || !candidate.every((entry) => typeof entry === 'string')) return false;
   const actualStrings = [...candidate].sort();
   const expectedStrings = [...expected].sort();
   return actualStrings.length === expectedStrings.length
@@ -1073,15 +1086,15 @@ function hasExactStringSet(candidate: unknown, expected: string[]) {
 }
 
 function assertAdminOAuthClient(oauthClient: Record<string, unknown>, input: AdminSsoOAuthClientVerificationInput) {
-  if (oauthClient.client_id !== input.clientId) throw new Error('Admin OAuth client read-back returned a different client_id');
-  if (oauthClient.client_type !== 'public') throw new Error('Admin OAuth client must have client_type=public');
-  if (oauthClient.token_endpoint_auth_method !== 'none') {
+  if (oauthClient["client_id"] !== input.clientId) throw new Error('Admin OAuth client read-back returned a different client_id');
+  if (oauthClient["client_type"] !== 'public') throw new Error('Admin OAuth client must have client_type=public');
+  if (oauthClient["token_endpoint_auth_method"] !== 'none') {
     throw new Error('Admin OAuth client must have token_endpoint_auth_method=none');
   }
-  if (!hasExactStringSet(oauthClient.redirect_uris, [input.redirectUri])) {
+  if (!hasExactStringSet(oauthClient["redirect_uris"], [input.redirectUri])) {
     throw new Error('Admin OAuth client must have exactly the configured Admin redirect URI');
   }
-  if (!hasExactStringSet(oauthClient.grant_types, ['authorization_code', 'refresh_token'])) {
+  if (!hasExactStringSet(oauthClient["grant_types"], ['authorization_code', 'refresh_token'])) {
     throw new Error('Admin OAuth client grant_types must contain only authorization_code and refresh_token');
   }
 }
@@ -1095,8 +1108,8 @@ async function assertIssuerSupportsPkceS256(input: AdminSsoOAuthClientVerificati
     issuerMetadataResponse,
     'Admin SSO issuer metadata returned an invalid response',
   );
-  if (!Array.isArray(issuerMetadata.code_challenge_methods_supported)
-    || !issuerMetadata.code_challenge_methods_supported.includes('S256')) {
+  if (!isUnknownArray(issuerMetadata["code_challenge_methods_supported"])
+    || !issuerMetadata["code_challenge_methods_supported"].includes('S256')) {
     throw new Error('Admin SSO issuer metadata must advertise PKCE S256');
   }
 }
@@ -1180,8 +1193,8 @@ function plannedAuthSiteUrlStep(config: ResolvedInstallConfig, desiredSiteUrl: s
 
 async function readAuthSiteUrl(client: SupacloudClient, path: string): Promise<string> {
   const response = await client.request(path);
-  const authConfig = await response.json() as Record<string, unknown>;
-  const rawSiteUrl = authConfig.site_url;
+  const authConfig = requireRecord(await response.json(), 'SupaCloud auth config');
+  const rawSiteUrl = authConfig["site_url"];
   if (rawSiteUrl !== undefined && rawSiteUrl !== null && typeof rawSiteUrl !== 'string') {
     throw new Error('SupaCloud auth config returned a non-string site_url');
   }
@@ -1239,7 +1252,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
   const offline = verifySupacloudAppArtifact({
     root: config.root,
     artifactDir: config.artifactDir,
-    manifestPath: config.manifestPath,
+    ...definedStringOptions({ manifestPath: config.manifestPath }),
   });
   steps.push({ name: 'artifact-verification', status: 'done', detail: offline.ok ? 'ok' : 'failed' });
   if (!offline.ok) {
@@ -1384,7 +1397,7 @@ export async function installSupacloudApp(options: InstallSupacloudAppOptions = 
     runtimeUrl: config.runtimeUrl,
     functionSlug: 'supauth',
     steps,
-    directFunctionProbe: probe,
+    ...(probe === undefined ? {} : { directFunctionProbe: probe }),
     warnings,
   };
 }
@@ -1402,32 +1415,34 @@ if (import.meta.main) {
   try {
     const output = option('output');
     const result = await installSupacloudApp({
-      artifactDir: option('artifact-dir'),
-      manifestPath: option('manifest'),
-      envFile: option('env-file'),
-      supacloudApiUrl: option('supacloud-api-url'),
-      projectRef: option('project-ref'),
-      token: option('token'),
-      bffSigningSecret: option('bff-signing-secret'),
-      gatewayAdminToken: option('gateway-admin-token'),
-      runtimeUrl: option('runtime-url'),
-      runtimeInternalUrl: option('runtime-internal-url'),
-      oauthAuthorizationProjectRef: option('oauth-authorization-project-ref'),
-      baseUrl: option('base-url'),
-      siteUrl: option('site-url'),
-      apiUrl: option('api-url'),
-      corsOrigins: option('cors-origins'),
-      edgeRuntimeUpstream: option('edge-runtime-upstream'),
-      databaseUrl: option('database-url'),
-      adminSsoIssuer: option('admin-sso-issuer'),
-      adminSsoClientId: option('admin-sso-client-id'),
-      adminSsoJwksUri: option('admin-sso-jwks-uri'),
-      adminSsoAudience: option('admin-sso-audience'),
-      adminSsoRedirectUri: option('admin-sso-redirect-uri'),
-      adminSsoPostLogoutRedirectUri: option('admin-sso-post-logout-redirect-uri'),
-      adminSsoRequireAal2: option('admin-sso-require-aal2'),
-      adminSsoAllowedEmails: option('admin-sso-allowed-emails'),
-      adminSsoAllowedDomains: option('admin-sso-allowed-domains'),
+      ...definedStringOptions({
+        artifactDir: option('artifact-dir'),
+        manifestPath: option('manifest'),
+        envFile: option('env-file'),
+        supacloudApiUrl: option('supacloud-api-url'),
+        projectRef: option('project-ref'),
+        token: option('token'),
+        bffSigningSecret: option('bff-signing-secret'),
+        gatewayAdminToken: option('gateway-admin-token'),
+        runtimeUrl: option('runtime-url'),
+        runtimeInternalUrl: option('runtime-internal-url'),
+        oauthAuthorizationProjectRef: option('oauth-authorization-project-ref'),
+        baseUrl: option('base-url'),
+        siteUrl: option('site-url'),
+        apiUrl: option('api-url'),
+        corsOrigins: option('cors-origins'),
+        edgeRuntimeUpstream: option('edge-runtime-upstream'),
+        databaseUrl: option('database-url'),
+        adminSsoIssuer: option('admin-sso-issuer'),
+        adminSsoClientId: option('admin-sso-client-id'),
+        adminSsoJwksUri: option('admin-sso-jwks-uri'),
+        adminSsoAudience: option('admin-sso-audience'),
+        adminSsoRedirectUri: option('admin-sso-redirect-uri'),
+        adminSsoPostLogoutRedirectUri: option('admin-sso-post-logout-redirect-uri'),
+        adminSsoRequireAal2: option('admin-sso-require-aal2'),
+        adminSsoAllowedEmails: option('admin-sso-allowed-emails'),
+        adminSsoAllowedDomains: option('admin-sso-allowed-domains'),
+      }),
       dryRun: hasFlag('dry-run'),
       skipMigration: hasFlag('skip-migration'),
       skipMigrationVerify: hasFlag('skip-migration-verify'),
@@ -1458,15 +1473,15 @@ if (import.meta.main) {
       option('bff-signing-secret'),
       option('database-url'),
       ...allowlistSecrets,
-      process.env.SUPACLOUD_API_TOKEN,
-      process.env.SUPACLOUD_MASTER_TOKEN,
-      process.env.SUPACLOUD_INTERNAL_TOKEN,
-      process.env.SUPAOAUTH_BFF_SIGNING_SECRET,
-      process.env.SUPACLOUD_GATEWAY_ADMIN_TOKEN,
-      process.env.SUPACLOUD_ADMIN_TOKEN,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
-      process.env.SUPACLOUD_DATABASE_URL,
-      process.env.DATABASE_URL,
+      process.env["SUPACLOUD_API_TOKEN"],
+      process.env["SUPACLOUD_MASTER_TOKEN"],
+      process.env["SUPACLOUD_INTERNAL_TOKEN"],
+      process.env["SUPAOAUTH_BFF_SIGNING_SECRET"],
+      process.env["SUPACLOUD_GATEWAY_ADMIN_TOKEN"],
+      process.env["SUPACLOUD_ADMIN_TOKEN"],
+      process.env["SUPABASE_SERVICE_ROLE_KEY"],
+      process.env["SUPACLOUD_DATABASE_URL"],
+      process.env["DATABASE_URL"],
     ].filter((value): value is string => Boolean(value));
     const message = error instanceof Error ? error.message : String(error);
     console.error(redact(message, secrets));

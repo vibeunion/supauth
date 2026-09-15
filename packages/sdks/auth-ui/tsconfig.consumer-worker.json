@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.consumer-dom.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "WebWorker"]
+  },
+  "include": ["tests/consumers/worker.ts"]
+}

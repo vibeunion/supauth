@@ -6,6 +6,8 @@ import { runtimeEnv } from '../config/platform-env.js';
 import * as secRepo from '../repositories/security-config.js';
 import * as auditRepo from '../repositories/audit.js';
 import { validatedSecurityConfigUpdate } from './security-config-input.js';
+import { configurationContract, decodeConfigurationInput } from '../utils/configuration-contract.js';
+import { definedFields, requiredRow } from '../utils/defined-fields.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -13,28 +15,31 @@ async function audit(eventType: string, resourceType: string, resourceId: string
 
 export const securityConfigRoutes = new Elysia({ prefix: '/v1/security-config' })
   .get('/', async () => {
+    decodeConfigurationInput('getSecurityConfig', {});
     const config = await secRepo.getSecurityConfig();
     if (!config) return new Response('Security config not found. Run migration first.', { status: 404 });
     return config;
-  }, {
+  }, configurationContract('getSecurityConfig', {
     detail: { summary: 'Get security configuration', tags: ['Security'] },
-  })
+  }))
 
   .put('/', async ({ body }) => {
     const principal = currentAdminRequestContext()?.principal;
-    const update = validatedSecurityConfigUpdate(body, {
+    const update = validatedSecurityConfigUpdate(body, definedFields({
       currentAdminEmail: principal?.email,
       authorizationSource: principal?.authorization_source,
       runtimeEnvironment: runtimeEnv('NODE_ENV') || 'development',
-    });
-    const updatedConfig = await secRepo.updateSecurityConfig(update);
+    }));
+    decodeConfigurationInput('updateSecurityConfig', { body: update });
+    const updatedConfig = requiredRow(await secRepo.updateSecurityConfig(update));
     await audit('security_config.update', 'security_config', updatedConfig.id, update);
     return updatedConfig;
-  }, {
+  }, configurationContract('updateSecurityConfig', {
     detail: { summary: 'Update security configuration', tags: ['Security'] },
-  })
+  }))
 
   .get('/status', async () => {
+    decodeConfigurationInput('getSecurityStatus', {});
     const config = await secRepo.getSecurityConfig();
     const tokenAuthAllowed = secRepo.isTokenAuthAllowed(config);
 
@@ -53,6 +58,6 @@ export const securityConfigRoutes = new Elysia({ prefix: '/v1/security-config' }
         ...(!config ? ['Security config not initialized — run migration'] : []),
       ],
     };
-  }, {
+  }, configurationContract('getSecurityStatus', {
     detail: { summary: 'Get security status summary', tags: ['Security'] },
-  });
+  }));

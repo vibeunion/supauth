@@ -1,5 +1,3 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { describe, expect, mock, test } from 'bun:test';
 import {
   isLegacyCustomUiServiceWorkerScope,
@@ -8,22 +6,44 @@ import {
 
 const ADMIN_ORIGIN = 'https://admin.example.test';
 
-function registration(scope, unregisterImplementation = async () => true) {
-  return {
-    scope,
-    unregister: mock(unregisterImplementation),
+function registration(scope: string, unregisterImplementation = async () => true) {
+  // 未使用的浏览器能力明确失败，避免薄 fixture 冒充完整 DOM 对象。
+  return new class extends EventTarget implements ServiceWorkerRegistration {
+    readonly scope = scope;
+    readonly active = null;
+    readonly installing = null;
+    readonly waiting = null;
+    readonly updateViaCache = 'imports';
+    onupdatefound = null;
+    unregister = mock(unregisterImplementation);
+    get cookies(): never { throw new Error('Unexpected cookies access'); }
+    get navigationPreload(): never { throw new Error('Unexpected navigation preload access'); }
+    get pushManager(): never { throw new Error('Unexpected push manager access'); }
+    async getNotifications(): Promise<never> { throw new Error('Unexpected notifications read'); }
+    async showNotification(): Promise<never> { throw new Error('Unexpected notification'); }
+    async update(): Promise<never> { throw new Error('Unexpected worker update'); }
   };
 }
 
-function registrationContainer(...snapshots) {
+type RegistrationSnapshot = readonly ReturnType<typeof registration>[] | Error;
+
+function registrationContainer(...snapshots: RegistrationSnapshot[]) {
   let readIndex = 0;
-  return {
-    getRegistrations: mock(async () => {
+  return new class extends EventTarget implements ServiceWorkerContainer {
+    readonly controller = null;
+    oncontrollerchange = null;
+    onmessage = null;
+    onmessageerror = null;
+    get ready(): never { throw new Error('Unexpected ready access'); }
+    async getRegistration(): Promise<never> { throw new Error('Unexpected individual registration read'); }
+    async register(): Promise<never> { throw new Error('Unexpected worker registration'); }
+    startMessages(): never { throw new Error('Unexpected worker messaging'); }
+    getRegistrations = mock(async () => {
       const snapshot = snapshots[Math.min(readIndex, snapshots.length - 1)] ?? [];
       readIndex += 1;
       if (snapshot instanceof Error) throw snapshot;
       return snapshot;
-    }),
+    });
   };
 }
 
@@ -141,12 +161,12 @@ describe('legacy Custom UI service-worker cleanup', () => {
       'initial enumeration',
       [new Error('enumeration rejected')],
       'registration_enumeration_failed',
-    ],
+    ] as const,
     [
       'authority read-back',
       [[registration(`${ADMIN_ORIGIN}/custom-ui/`)], new Error('read-back rejected')],
       'authority_readback_failed',
-    ],
+    ] as const,
   ])('fails closed when %s rejects', async (_label, snapshots, expectedCode) => {
     const serviceWorkers = registrationContainer(...snapshots);
 

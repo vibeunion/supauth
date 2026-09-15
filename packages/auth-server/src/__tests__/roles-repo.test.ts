@@ -25,9 +25,9 @@ describe('Roles repository — module structure', () => {
       'createPermission', 'deletePermission', 'listRolePermissions',
       'assignRole', 'listRoleAssignments', 'revokeRole', 'getUserRoleAssignments',
       'getOrgRoleAssignments', 'resolveUserPermissions',
-    ];
+    ] as const;
     for (const fn of expectedFns) {
-      expect(typeof (roles as any)[fn]).toBe('function');
+      expect(typeof roles[fn]).toBe('function');
     }
   });
 });

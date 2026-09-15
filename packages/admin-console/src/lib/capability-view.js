@@ -3,6 +3,7 @@ const WAITING_REASON_CODES = new Set([
   "capability_negotiation_unavailable",
 ]);
 
+/** @param {Record<string, import('@supauth/shared').CapabilityStatus>} capabilities */
 export function groupCapabilityEntries(capabilities) {
   const entries = Object.entries(capabilities);
   const waiting = entries.filter(([, capability]) =>

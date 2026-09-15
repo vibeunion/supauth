@@ -79,8 +79,8 @@ function blockedAdminUpdateFields(input: Record<string, unknown>) {
     }
   }
 
-  if (isRecord(input.app_metadata)) {
-    for (const key of Object.keys(input.app_metadata)) {
+  if (isRecord(input["app_metadata"])) {
+    for (const key of Object.keys(input["app_metadata"])) {
       if (BLOCKED_APP_METADATA_KEYS.has(key) || key.startsWith('supaoauth:')) {
         fields.push(`app_metadata.${key}`);
       }
@@ -94,7 +94,7 @@ function unwrapUserRecord(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) return {};
   for (const key of ['user', 'data']) {
     const nested = value[key];
-    if (isRecord(nested) && typeof nested.id === 'string') return nested;
+    if (isRecord(nested) && typeof nested["id"] === 'string') return nested;
   }
   return value;
 }
@@ -120,7 +120,7 @@ export function sanitizeAdminUserUpdatePayload(body: unknown): UserUpdatePolicyR
     };
   }
 
-  if ('app_metadata' in body && !isRecord(body.app_metadata)) {
+  if ('app_metadata' in body && !isRecord(body["app_metadata"])) {
     return {
       ok: false,
       status: 400,
@@ -146,7 +146,7 @@ export function sanitizeAdminUserCreatePayload(body: unknown): UserUpdatePolicyR
     return policyFailure('invalid_user_create_payload', 'User create payload must be a JSON object.');
   }
   const blockedFields = blockedAdminUpdateFields(body);
-  if (isRecord(body.app_metadata)) blockedFields.push('app_metadata');
+  if (isRecord(body["app_metadata"])) blockedFields.push('app_metadata');
   if (blockedFields.length > 0) {
     return policyFailure(
       'reserved_user_create_field',
@@ -161,7 +161,7 @@ export function sanitizeAdminUserCreatePayload(body: unknown): UserUpdatePolicyR
   if (!validCreateFieldTypes(body)) {
     return policyFailure('invalid_user_create_payload', 'User create fields have invalid types.');
   }
-  if (!body.email && !body.phone) {
+  if (!body["email"] && !body["phone"]) {
     return policyFailure('missing_user_identifier', 'Provide an email address or phone number.');
   }
   return { ok: true, data: { ...body } };
@@ -172,7 +172,7 @@ function validCreateFieldTypes(body: Record<string, unknown>): boolean {
   if (stringFields.some((key) => body[key] !== undefined && typeof body[key] !== 'string')) return false;
   const booleanFields = ['email_confirm', 'phone_confirm'];
   if (booleanFields.some((key) => body[key] !== undefined && typeof body[key] !== 'boolean')) return false;
-  return body.user_metadata === undefined || isRecord(body.user_metadata);
+  return body["user_metadata"] === undefined || isRecord(body["user_metadata"]);
 }
 
 function policyFailure(code: string, message: string, fields?: string[]): UserUpdatePolicyFailure {
@@ -183,16 +183,16 @@ export function mergeAdminUserAppMetadata(
   payload: Record<string, unknown>,
   existingUserResponse: unknown,
 ): Record<string, unknown> {
-  if (!isRecord(payload.app_metadata)) return payload;
+  if (!isRecord(payload["app_metadata"])) return payload;
 
   const existingUser = unwrapUserRecord(existingUserResponse);
-  const existingAppMetadata = isRecord(existingUser.app_metadata) ? existingUser.app_metadata : {};
-  const existingSupaOAuth = existingAppMetadata.supaoauth;
+  const existingAppMetadata = isRecord(existingUser["app_metadata"]) ? existingUser["app_metadata"] : {};
+  const existingSupaOAuth = existingAppMetadata["supaoauth"];
   return {
     ...payload,
     app_metadata: {
       ...existingAppMetadata,
-      ...payload.app_metadata,
+      ...payload["app_metadata"],
       ...(existingSupaOAuth === undefined ? {} : { supaoauth: existingSupaOAuth }),
     },
   };
@@ -200,10 +200,10 @@ export function mergeAdminUserAppMetadata(
 
 export function sanitizeSelfProfileUpdatePayload(body: unknown): UserUpdatePolicyResult {
   const input = isRecord(body) ? body : {};
-  const source = isRecord(input.data)
-    ? input.data
-    : isRecord(input.user_metadata)
-      ? input.user_metadata
+  const source = isRecord(input["data"])
+    ? input["data"]
+    : isRecord(input["user_metadata"])
+      ? input["user_metadata"]
       : input;
   const userMetadata: Record<string, unknown> = {};
 

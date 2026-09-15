@@ -1,25 +1,13 @@
 import { Elysia } from 'elysia';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
-import { ApiContractError } from '../utils/api-contract.js';
+import { ApiContractError, isRecord } from '../utils/api-contract.js';
+import { operationContract } from '../utils/operation-contract.js';
+import type { CapabilityStatus, CapabilitiesResponse } from '../../../shared/src/core.js';
+export type { CapabilityStatus, CapabilitiesResponse } from '../../../shared/src/core.js';
 
 const adapter = getSupaCloudAdapter();
 
-// Keep this package-local until project references replace the shared-source path alias.
-type CapabilitySource = 'gotrue' | 'supacloud' | 'supaoauth';
-
-export type CapabilityStatus = {
-  source: CapabilitySource;
-  version: string | null;
-  last_verified_at: string;
-} & (
-  | { available: true; reason_code: null }
-  | { available: false; reason_code: string }
-);
-
-export interface CapabilitiesResponse {
-  runtime_mode: 'gotrue';
-  capabilities: Record<string, CapabilityStatus>;
-}
+type CapabilitySource = CapabilityStatus['source'];
 
 const FAIL_CLOSED_CAPABILITY_SOURCES = {
   gotrue_admin_user_sessions: 'gotrue',
@@ -36,12 +24,12 @@ const FAIL_CLOSED_CAPABILITY_SOURCES = {
 const RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 
 export const capabilityRoutes = new Elysia({ prefix: '/v1' })
-  .get('/capabilities', negotiatedCapabilityResponse, {
+  .get('/capabilities', negotiatedCapabilityResponse, operationContract('getCapabilities', {
     detail: {
       summary: 'Get negotiated GoTrue and SupaCloud capabilities',
       tags: ['Project'],
     },
-  });
+  }));
 
 async function negotiatedCapabilityResponse() {
   try {
@@ -50,7 +38,7 @@ async function negotiatedCapabilityResponse() {
   } catch (error) {
     if (!(error instanceof ApiContractError)
       || error.code !== 'capability_unavailable'
-      || error.details?.capability !== 'project_capabilities_v1') throw error;
+      || error.details?.["capability"] !== 'project_capabilities_v1') throw error;
     return capabilityResponse(
       {},
       new Date().toISOString(),
@@ -82,27 +70,25 @@ export function negotiatedCapabilities(
 }
 
 function platformCapabilities(payload: unknown, verifiedAt: string): Record<string, CapabilityStatus> {
-  if (!payload || typeof payload !== 'object') throw invalidCapabilityResponse();
-  const record = payload as Record<string, unknown>;
-  const rawCapabilities = record.capabilities ?? record;
-  if (!rawCapabilities || typeof rawCapabilities !== 'object' || Array.isArray(rawCapabilities)) {
+  if (!isRecord(payload)) throw invalidCapabilityResponse();
+  const record = payload;
+  const rawCapabilities = record["capabilities"] ?? record;
+  if (!isRecord(rawCapabilities)) {
     throw invalidCapabilityResponse();
   }
 
   return Object.fromEntries(
-    Object.entries(rawCapabilities as Record<string, unknown>)
+    Object.entries(rawCapabilities)
       .map(([name, status]) => [name, capabilityStatus(name, status, verifiedAt)]),
   );
 }
 
 function capabilityStatus(name: string, status: unknown, verifiedAt: string): CapabilityStatus {
-  if (!status || typeof status !== 'object') throw invalidCapabilityResponse(name);
-  const record = status as Record<string, unknown>;
-  if (typeof record.available !== 'boolean') throw invalidCapabilityResponse(name);
-  const source = capabilitySource(record.source);
-  const expectedSource = FAIL_CLOSED_CAPABILITY_SOURCES[
-    name as keyof typeof FAIL_CLOSED_CAPABILITY_SOURCES
-  ];
+  if (!isRecord(status)) throw invalidCapabilityResponse(name);
+  const record = status;
+  if (typeof record["available"] !== 'boolean') throw invalidCapabilityResponse(name);
+  const source = capabilitySource(record["source"]);
+  const expectedSource = Object.entries(FAIL_CLOSED_CAPABILITY_SOURCES).find(([key]) => key === name)?.[1];
   if (expectedSource && source !== expectedSource) throw invalidCapabilityResponse(name);
   const reasonCode = nullableCapabilityString(name, record, 'reason_code');
   const commonStatus = {
@@ -110,7 +96,7 @@ function capabilityStatus(name: string, status: unknown, verifiedAt: string): Ca
     version: nullableCapabilityString(name, record, 'version'),
     last_verified_at: capabilityVerifiedAt(name, record, verifiedAt),
   };
-  if (record.available) {
+  if (record["available"]) {
     if (reasonCode !== null) throw invalidCapabilityResponse(name);
     return { ...commonStatus, available: true, reason_code: null };
   }
@@ -151,7 +137,7 @@ function failClosedCapabilities(
 
 function capabilityVerifiedAt(name: string, status: Record<string, unknown>, fallback: string) {
   if (!Object.hasOwn(status, 'last_verified_at')) return fallback;
-  return capabilityTimestamp(name, status.last_verified_at);
+  return capabilityTimestamp(name, status["last_verified_at"]);
 }
 
 function capabilityTimestamp(name: string, candidate: unknown) {

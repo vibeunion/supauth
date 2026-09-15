@@ -1,6 +1,8 @@
+// @ts-check
 const INVALID_SIGNUP_AUTHORITY =
   "GoTrue signup configuration read-back is invalid";
 
+/** @param {unknown} candidate @returns {candidate is Record<string, unknown>} */
 function isRecord(candidate) {
   return (
     candidate !== null &&
@@ -13,6 +15,7 @@ function invalidSignupAuthority() {
   return new TypeError(INVALID_SIGNUP_AUTHORITY);
 }
 
+/** @param {Record<string, unknown>} record @param {string} fieldName @returns {{present: false} | {present: true, booleanValue: boolean}} */
 function optionalBooleanField(record, fieldName) {
   if (!Object.hasOwn(record, fieldName)) return { present: false };
   const booleanValue = record[fieldName];
@@ -20,6 +23,7 @@ function optionalBooleanField(record, fieldName) {
   return { present: true, booleanValue };
 }
 
+/** @param {unknown} authConfig @returns {boolean} */
 export function resolveAuthoritativeSignupEnabled(authConfig) {
   if (!isRecord(authConfig)) throw invalidSignupAuthority();
   const enableSignup = optionalBooleanField(authConfig, "enable_signup");
@@ -32,7 +36,7 @@ export function resolveAuthoritativeSignupEnabled(authConfig) {
     enableSignup.booleanValue === disableSignup.booleanValue
   )
     throw invalidSignupAuthority();
-  return enableSignup.present
-    ? enableSignup.booleanValue
-    : !disableSignup.booleanValue;
+  if (enableSignup.present) return enableSignup.booleanValue;
+  if (disableSignup.present) return !disableSignup.booleanValue;
+  throw invalidSignupAuthority();
 }

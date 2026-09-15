@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'b
 import postgres from 'postgres';
 import { MIGRATION_V12_SQL } from '../db/migrate.js';
 
-const DATABASE_URL = process.env.ACCOUNT_CLAIM_POSTGRES_URL || '';
+const DATABASE_URL = process.env["ACCOUNT_CLAIM_POSTGRES_URL"] || '';
 const CLAIM_SECRET = 'account-claim-postgres-integration-secret';
 const CLAIM_PROOF = 'claim-proof-postgres-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const INITIAL_PASSWORD = 'Init123!';
@@ -27,7 +27,7 @@ function isDisposableDatabaseUrl(databaseUrl: string): boolean {
   }
 }
 
-const postgresGateRequested = process.env.RUN_ACCOUNT_CLAIM_POSTGRES_TESTS === '1';
+const postgresGateRequested = process.env["RUN_ACCOUNT_CLAIM_POSTGRES_TESTS"] === '1';
 if (postgresGateRequested && !isDisposableDatabaseUrl(DATABASE_URL)) {
   throw new Error('Account claim PostgreSQL tests require a loopback disposable *_claim_test database');
 }
@@ -44,9 +44,7 @@ let metadataSql: ReturnType<typeof postgres>;
 let closeMetadataDb: () => Promise<void>;
 
 function deferredSignal() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((complete) => { resolve = complete; });
-  return { promise, resolve };
+  return Promise.withResolvers<void>();
 }
 
 function passwordClaimInput(updatePassword: NonNullable<AccountClaimInput['updatePassword']>) {
@@ -72,7 +70,7 @@ async function waitForBlockedReservation(): Promise<void> {
           AND query ILIKE '%update%account_provisioning_records%'
       ) AS blocked
     `;
-    if (activity.blocked) return;
+    if (activity?.blocked) return;
     await Bun.sleep(20);
   }
   throw new Error('Timed out waiting for the claim reservation CAS to block');
@@ -80,8 +78,8 @@ async function waitForBlockedReservation(): Promise<void> {
 
 describePostgres('account claim PostgreSQL linearization', () => {
   beforeAll(async () => {
-    process.env.ACCOUNT_CLAIM_SECRET = CLAIM_SECRET;
-    process.env.SUPACLOUD_DATABASE_URL = DATABASE_URL;
+    process.env["ACCOUNT_CLAIM_SECRET"] = CLAIM_SECRET;
+    process.env["SUPACLOUD_DATABASE_URL"] = DATABASE_URL;
     metadataSql = postgres(DATABASE_URL, { max: 4 });
     await metadataSql.unsafe(`
       DROP SCHEMA IF EXISTS supaoauth CASCADE;
@@ -149,7 +147,7 @@ describePostgres('account claim PostgreSQL linearization', () => {
 
   test('deactivation committed before the reservation CAS prevents the external update', async () => {
     const updatePassword = mock(async () => {});
-    let claimPromise!: ReturnType<AccountProvisioningModule['claimAccount']>;
+    const claim = Promise.withResolvers<Awaited<ReturnType<AccountProvisioningModule['claimAccount']>>>();
 
     await metadataSql.begin(async transaction => {
       await transaction`
@@ -158,7 +156,7 @@ describePostgres('account claim PostgreSQL linearization', () => {
         WHERE id = ${RECORD_ID}::uuid
         FOR UPDATE
       `;
-      claimPromise = accountProvisioning.claimAccount(passwordClaimInput(updatePassword));
+      claim.resolve(accountProvisioning.claimAccount(passwordClaimInput(updatePassword)));
       await waitForBlockedReservation();
       await transaction`
         UPDATE supaoauth.account_provisioning_records
@@ -167,7 +165,7 @@ describePostgres('account claim PostgreSQL linearization', () => {
       `;
     });
 
-    await expect(claimPromise).resolves.toEqual({ status: 'unavailable' });
+    await expect(claim.promise).resolves.toEqual({ status: 'unavailable' });
     expect(updatePassword).not.toHaveBeenCalled();
     const [record] = await metadataSql`
       SELECT source_status, initial_password_claimed, claim_state
@@ -224,9 +222,10 @@ describePostgres('account claim PostgreSQL linearization', () => {
       FROM supaoauth.account_provisioning_records
       WHERE id = ${RECORD_ID}::uuid
     `;
-    expect(unknownRecord.claim_state).toBe('password_update_unknown');
-    expect(unknownRecord.claim_password_hash).toBeString();
-    expect(unknownRecord.claim_operation_id).not.toBeNull();
+    if (!unknownRecord) throw new Error('Claim record must remain present after an unknown password update');
+    expect(unknownRecord["claim_state"]).toBe('password_update_unknown');
+    expect(unknownRecord["claim_password_hash"]).toBeString();
+    expect(unknownRecord["claim_operation_id"]).not.toBeNull();
     await metadataSql`
       UPDATE supaoauth.account_provisioning_records
       SET claim_lease_expires_at = now() - interval '1 second'

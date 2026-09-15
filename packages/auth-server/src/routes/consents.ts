@@ -1,5 +1,6 @@
 import { Elysia } from 'elysia';
 import { capabilityUnavailable } from '../utils/api-contract.js';
+import { hostedContract } from '../utils/hosted-contract.js';
 
 function adminGrantRouteUnavailable(): never {
   throw capabilityUnavailable(
@@ -8,7 +9,7 @@ function adminGrantRouteUnavailable(): never {
   );
 }
 
-const hiddenRoute = { detail: { hide: true } };
+const hiddenRoute = hostedContract('retired', { hide: true });
 
 export const consentRoutes = new Elysia({ prefix: '/v1/consents' })
   .get('/', adminGrantRouteUnavailable, hiddenRoute)

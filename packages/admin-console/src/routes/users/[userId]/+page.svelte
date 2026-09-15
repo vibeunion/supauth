@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  import type { UserView, UserRoleView, UserPermissionView, ApplicationView, OrganizationView, AuditEntryView, UserGrantView, CapabilitiesView } from "$lib/management-view-types.js";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import DetailTabs from "$lib/components/DetailTabs.svelte";
@@ -37,35 +38,35 @@
     "gotrue_admin_oauth_grants",
   ];
 
-  let user = $state(null);
-  let roles = $state([]);
-  let permissions = $state([]);
-  let applications = $state([]);
+  let user = $state<UserView | null>(null);
+  let roles = $state<UserRoleView[]>([]);
+  let permissions = $state<UserPermissionView[]>([]);
+  let applications = $state<ApplicationView[]>([]);
   let selectedApplicationId = $state("");
-  let logs = $state([]);
-  let organizations = $state([]);
-  let grants = $state([]);
-  let capabilities = $state({});
+  let logs = $state<AuditEntryView[]>([]);
+  let organizations = $state<OrganizationView[]>([]);
+  let grants = $state<UserGrantView[]>([]);
+  let capabilities = $state<CapabilitiesView["capabilities"]>({});
   let capabilitiesLoading = $state(false);
-  let capabilitiesError = $state(null);
+  let capabilitiesError = $state<unknown>(null);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<unknown>(null);
   let saving = $state(false);
   let activeTab = $derived(
     tabFromRoute(page.params.tab, tabValues, "settings"),
   );
-  let userId = $derived(page.params.userId);
+  let userId = $derived(page.params.userId || "");
   let applicationContextUserId = "";
   let loadGeneration = 0;
 
-  function timestamp(value) {
+  function timestamp(value: string | null | undefined) {
     return value ? new Date(value).toLocaleString() : t("common.notAvailable");
   }
 
   function userName() {
     return (
-      user?.user_metadata?.full_name ||
-      user?.user_metadata?.name ||
+      user?.user_metadata?.["full_name"] ||
+      user?.user_metadata?.["name"] ||
       user?.email ||
       userId
     );
@@ -77,7 +78,7 @@
     );
   }
 
-  function applicationId(application) {
+  function applicationId(application: ApplicationView) {
     return (
       application?.client_id ||
       application?.clientId ||
@@ -87,23 +88,23 @@
     );
   }
 
-  function applicationLabel(application) {
+  function applicationLabel(application: ApplicationView) {
     const id = applicationId(application);
     return [application?.name || application?.client_name || application?.clientName, id]
       .filter(Boolean)
       .join(" · ");
   }
 
-  function roleFromAssignment(assignment) {
+  function roleFromAssignment(assignment: UserRoleView) {
     return assignment?.role || assignment;
   }
 
-  function roleKey(assignment) {
+  function roleKey(assignment: UserRoleView) {
     const role = roleFromAssignment(assignment);
     return assignment?.id || assignment?.assignment_id || role?.id || role?.role_id;
   }
 
-  function normalizedPermission(permission) {
+  function normalizedPermission(permission: UserPermissionView) {
     if (typeof permission === "string") return { name: permission };
     return {
       ...permission,
@@ -111,12 +112,14 @@
     };
   }
 
-  function permissionKey(permission) {
+  function permissionKey(permission: UserPermissionView) {
     const normalized = normalizedPermission(permission);
     return normalized.id || normalized.name;
   }
 
-  function isCurrentLoad(loadContext) {
+  type UserLoadContext = { generation: number; userId: string; tab: string; applicationId: string };
+
+  function isCurrentLoad(loadContext: UserLoadContext) {
     const applicationContext =
       activeTab === "roles" ? selectedApplicationId : "";
     return (
@@ -127,7 +130,7 @@
     );
   }
 
-  async function loadUserCapabilities(loadContext) {
+  async function loadUserCapabilities(loadContext: UserLoadContext) {
     capabilitiesLoading = true;
     capabilitiesError = null;
     capabilities = {};
@@ -187,19 +190,19 @@
             ),
           ]);
         if (!isCurrentLoad(loadContext)) return;
-        applications = collectionItems(applicationResponse);
-        roles = collectionItems(roleResponse);
+        applications = collectionItems<ApplicationView>(applicationResponse);
+        roles = collectionItems<UserRoleView>(roleResponse);
         permissions =
           permissionResponse?.permissions || collectionItems(permissionResponse);
       } else if (loadContext.tab === "logs") {
         const logResponse = await listUserLogs(loadContext.userId, { limit: 50 });
-        if (isCurrentLoad(loadContext)) logs = collectionItems(logResponse);
+        if (isCurrentLoad(loadContext)) logs = collectionItems<AuditEntryView>(logResponse);
       } else if (loadContext.tab === "organizations") {
         const organizationResponse = await listUserOrganizations(loadContext.userId);
-        if (isCurrentLoad(loadContext)) organizations = collectionItems(organizationResponse);
+        if (isCurrentLoad(loadContext)) organizations = collectionItems<OrganizationView>(organizationResponse);
       } else if (loadContext.tab === "grants") {
         const grantResponse = await listUserGrants(loadContext.userId);
-        if (isCurrentLoad(loadContext)) grants = collectionItems(grantResponse);
+        if (isCurrentLoad(loadContext)) grants = collectionItems<UserGrantView>(grantResponse);
       }
     } catch (requestError) {
       if (isCurrentLoad(loadContext)) error = requestError;
@@ -213,7 +216,7 @@
     error = null;
     try {
       if (isSuspended()) await unsuspendUser(userId);
-      else await suspendUser(userId, { reason: "admin_console" });
+      else await suspendUser(userId, {});
       await loadUser();
     } catch (requestError) {
       error = requestError;
@@ -456,7 +459,7 @@
       <div class="space-y-3">
         {#each organizations as organization (organization.id || organization.organization_id)}<a
             href={resolve(
-              `/organizations/${encodeURIComponent(organization.id || organization.organization_id)}/settings`,
+              `/organizations/${encodeURIComponent(organization.id || organization.organization_id || "")}/settings`,
             )}
             class="console-card console-card-hover block p-4"
             ><p class="font-semibold text-surface-900">

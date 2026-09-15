@@ -1,3 +1,5 @@
+import { parseJson, requireRecord } from './tooling-values.js';
+import { Type, StringKeySchema, decodeSchema, type Static } from '../packages/shared/src/schema.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -17,43 +19,63 @@ const privatePackageDirs = [
   'packages/admin-console',
 ];
 
-const shouldWrite = process.argv.includes('--write');
+const StringMapSchema = Type.Record(StringKeySchema, Type.String());
+const PackageManifestSchema = Type.Object({
+  name: Type.String({ minLength: 1 }),
+  version: Type.String({ minLength: 1 }),
+  private: Type.Optional(Type.Boolean()),
+  files: Type.Optional(Type.Array(Type.String())),
+  dependencies: Type.Optional(StringMapSchema),
+  peerDependencies: Type.Optional(StringMapSchema),
+  optionalDependencies: Type.Optional(StringMapSchema),
+});
 
-function readJson(filePath: string) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+export function decodePackageManifest(value: unknown): Record<string, unknown> & Static<typeof PackageManifestSchema> {
+  const source = requireRecord(value, 'package.json');
+  return { ...source, ...decodeSchema(PackageManifestSchema, source) };
+}
+
+export function readPackageManifest(filePath: string) {
+  return decodePackageManifest(parseJson(fs.readFileSync(filePath, 'utf8')));
 }
 
 function writeJson(filePath: string, value: unknown) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-// Collect all package versions
-const allDirs = [...npmPackageDirs, ...privatePackageDirs];
-const versions = Object.fromEntries(
-  allDirs.map((dir) => {
-    const pkg = readJson(path.join(dir, 'package.json'));
-    return [pkg.name, pkg.version] as [string, string];
-  }),
-);
+export function rewritePackageDependencies(
+  pkg: ReturnType<typeof decodePackageManifest>,
+  versions: Readonly<Record<string, string>>,
+): boolean {
+  let changed = false;
+  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
+    const dependencies = pkg[field];
+    if (dependencies === undefined) continue;
+    for (const [name, version] of Object.entries(dependencies)) {
+      const workspaceVersion = versions[name];
+      if (version === 'workspace:*' && workspaceVersion !== undefined) {
+        dependencies[name] = `^${workspaceVersion}`;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
 
-function rewriteWorkspaceDeps(dir: string, enforcePublic = false) {
+function rewriteWorkspaceDeps(
+  dir: string,
+  versions: Readonly<Record<string, string>>,
+  shouldWrite: boolean,
+  enforcePublic = false,
+) {
   const packageJsonPath = path.join(dir, 'package.json');
-  const pkg = readJson(packageJsonPath);
+  const pkg = readPackageManifest(packageJsonPath);
 
   if (enforcePublic && pkg.private === true) {
     throw new Error(`${pkg.name} is still private and cannot be published to npm`);
   }
 
-  let changed = false;
-  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
-    if (!pkg[field]) continue;
-    for (const [name, version] of Object.entries(pkg[field])) {
-      if (version === 'workspace:*' && versions[name]) {
-        pkg[field][name] = `^${versions[name]}`;
-        changed = true;
-      }
-    }
-  }
+  const changed = rewritePackageDependencies(pkg, versions);
 
   if (changed && shouldWrite) {
     writeJson(packageJsonPath, pkg);
@@ -63,27 +85,36 @@ function rewriteWorkspaceDeps(dir: string, enforcePublic = false) {
   }
 }
 
-// Validate and rewrite npm-publishable packages
-for (const dir of npmPackageDirs) {
-  const pkg = readJson(path.join(dir, 'package.json'));
+function main() {
+  const shouldWrite = process.argv.includes('--write');
+  const versions: Record<string, string> = {};
+  for (const dir of [...npmPackageDirs, ...privatePackageDirs]) {
+    const pkg = readPackageManifest(path.join(dir, 'package.json'));
+    versions[pkg.name] = pkg.version;
+  }
+  for (const dir of npmPackageDirs) {
+    const pkg = readPackageManifest(path.join(dir, 'package.json'));
 
-  if (pkg.private === true) {
-    throw new Error(`${pkg.name} is still private and cannot be published`);
-  }
-  if (!pkg.files?.includes('dist')) {
-    throw new Error(`${pkg.name} package.json must include dist in files`);
-  }
-  if (!fs.existsSync(path.join(dir, 'dist', 'index.js'))) {
-    throw new Error(`${pkg.name} is missing dist/index.js`);
-  }
-  if (!fs.existsSync(path.join(dir, 'dist', 'index.d.ts'))) {
-    throw new Error(`${pkg.name} is missing dist/index.d.ts`);
+    if (pkg.private === true) {
+      throw new Error(`${pkg.name} is still private and cannot be published`);
+    }
+    if (!pkg.files?.includes('dist')) {
+      throw new Error(`${pkg.name} package.json must include dist in files`);
+    }
+    if (!fs.existsSync(path.join(dir, 'dist', 'index.js'))) {
+      throw new Error(`${pkg.name} is missing dist/index.js`);
+    }
+    if (!fs.existsSync(path.join(dir, 'dist', 'index.d.ts'))) {
+      throw new Error(`${pkg.name} is missing dist/index.d.ts`);
+    }
+
+    rewriteWorkspaceDeps(dir, versions, shouldWrite, true);
   }
 
-  rewriteWorkspaceDeps(dir, true);
+  // Rewrite workspace deps in private packages for reproducible version references
+  for (const dir of privatePackageDirs) {
+    rewriteWorkspaceDeps(dir, versions, shouldWrite, false);
+  }
 }
 
-// Rewrite workspace deps in private packages for reproducible version references
-for (const dir of privatePackageDirs) {
-  rewriteWorkspaceDeps(dir, false);
-}
+if (import.meta.main) main();

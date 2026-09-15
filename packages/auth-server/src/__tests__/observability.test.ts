@@ -64,11 +64,11 @@ describe('Observability — request ID format', () => {
 describe('Observability — URL privacy', () => {
   afterEach(() => {
     mock.restore();
-    delete process.env.LOG_LEVEL;
+    delete process.env["LOG_LEVEL"];
   });
 
   it('does not log OAuth query or fragment components', async () => {
-    process.env.LOG_LEVEL = 'debug';
+    process.env["LOG_LEVEL"] = 'debug';
     const { observabilityMiddleware } = await import('../middleware/index.js');
     const info = mock(() => {});
     const originalLog = console.log;

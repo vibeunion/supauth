@@ -10,37 +10,38 @@ import {
   generateCompatibilityHelper,
 } from '../repositories/rbac-bridge.js';
 import type { MigrationPolicy } from '../repositories/rbac-bridge.js';
+import { operationContract, operationInput, operationOutput } from '../utils/operation-contract.js';
 
 export const rbacBridgeRoutes = new Elysia({ prefix: '/v1/rbac-bridge' })
   .get('/default-policy', () => {
     return buildDefaultPolicy();
-  }, {
+  }, operationContract('getRbacMigrationPolicy', {
     detail: {
       summary: 'Get the default RBAC migration policy',
       description: 'Returns the default mapping from legacy app_metadata.role values to SupaOAuth roles.',
       tags: ['RBAC Bridge'],
     },
-  })
+  }))
 
   .post('/dry-run', async ({ body }) => {
-    const policy = (body as Partial<MigrationPolicy>) || {};
+    const policy = operationInput('dryRunRbacMigration', body === undefined ? {} : { body }).body || {};
     const fullPolicy: MigrationPolicy = {
       ...buildDefaultPolicy(),
       ...policy,
       dryRun: true,
     };
     const result = await importLegacyRoles(fullPolicy);
-    return result;
-  }, {
+    return operationOutput('dryRunRbacMigration', result);
+  }, operationContract('dryRunRbacMigration', {
     detail: {
       summary: 'Dry-run legacy role import',
       description: 'Reports what would be migrated without making any changes.',
       tags: ['RBAC Bridge'],
     },
-  })
+  }))
 
   .post('/import', async ({ body }) => {
-    const policy = (body as Partial<MigrationPolicy>) || {};
+    const policy = operationInput('importRbacMigration', body === undefined ? {} : { body }).body || {};
     const fullPolicy: MigrationPolicy = {
       ...buildDefaultPolicy(),
       ...policy,
@@ -56,22 +57,22 @@ export const rbacBridgeRoutes = new Elysia({ prefix: '/v1/rbac-bridge' })
     }
 
     const result = await importLegacyRoles(fullPolicy);
-    return result;
-  }, {
+    return operationOutput('importRbacMigration', result);
+  }, operationContract('importRbacMigration', {
     detail: {
       summary: 'Execute legacy role import',
       description: 'Imports legacy app_metadata.role values into SupaOAuth role assignments. Use dry-run first to preview.',
       tags: ['RBAC Bridge'],
     },
-  })
+  }))
 
   .get('/compatibility-helper', ({ query }) => {
-    const projectRef = (query.project_ref as string) || 'YOUR_PROJECT_REF';
+    const projectRef = operationInput('getRbacCompatibilityHelper', { query }).query?.project_ref || 'YOUR_PROJECT_REF';
     return { sql: generateCompatibilityHelper(projectRef) };
-  }, {
+  }, operationContract('getRbacCompatibilityHelper', {
     detail: {
       summary: 'Generate SQL compatibility helper',
       description: 'Returns a SQL function that bridges SupaOAuth roles to legacy app_metadata.role for backward compatibility.',
       tags: ['RBAC Bridge'],
     },
-  });
+  }));

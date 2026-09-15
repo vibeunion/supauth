@@ -1,7 +1,53 @@
+// @ts-check
 import { settleWritesThenReadBack } from "./mutation-reconciliation.js";
+
+/**
+ * @typedef {ReadonlyArray<FrozenSettingsValue>} FrozenSettingsArray
+ * @typedef {{readonly [key: string]: FrozenSettingsValue}} FrozenSettingsRecord
+ * @typedef {null | string | boolean | number | FrozenSettingsArray | FrozenSettingsRecord} FrozenSettingsValue
+ */
+/**
+ * @template T
+ * @typedef {T extends object ? {readonly [Key in keyof T]: DeepReadonly<T[Key]>} : T} DeepReadonly
+ */
+/**
+ * @template T
+ * @typedef {T extends null | string | boolean | number ? T : T extends (...args: never[]) => unknown ? never : T extends object ? {[Key in keyof T]: SettingsDraftInput<T[Key]>} : never} SettingsDraftInput
+ */
+/**
+ * @template T
+ * @template {string} Key
+ * @typedef {unknown extends T ? unknown : T extends readonly unknown[] | ((...args: never[]) => unknown) ? undefined : T extends object ? Key extends keyof T ? string extends keyof T ? T[Key] | undefined : T[Key] : undefined : undefined} SettingsField
+ */
+/**
+ * @template T
+ * @template {string} Key
+ * @typedef {unknown extends T ? unknown : T extends readonly unknown[] | ((...args: never[]) => unknown) ? undefined : T extends object ? Extract<Key, keyof T> extends never ? undefined : string extends keyof T ? T[Extract<Key, keyof T>] | undefined : T[Extract<Key, keyof T>] : undefined} CompatibleSettingsField
+ */
+/**
+ * @template T
+ * @typedef {unknown extends T ? unknown : T extends readonly unknown[] | ((...args: never[]) => unknown) ? T : T extends {organization: infer Organization} ? Organization : T extends {organization?: infer Organization} ? T | Organization : T} OrganizationRecord
+ */
+/**
+ * @template T
+ * @typedef {T extends string ? string | null : T} BlankStringAsNull
+ */
+/**
+ * @template T
+ * @typedef {T extends string ? string : T} TrimmedString
+ */
+/**
+ * @template Command, Authority
+ * @typedef {{command: Command & SettingsDraftInput<Command>, authority: Authority & SettingsDraftInput<Authority>}} SettingsMutationDraft
+ */
+/**
+ * @template Command, Authority, Snapshot
+ * @typedef {{draft: SettingsMutationDraft<Command, Authority>, writeCommands: (command: DeepReadonly<Command>) => readonly import("./mutation-reconciliation.js").WriteCommand[], readSnapshot: () => Snapshot | PromiseLike<Snapshot>, authorityFromSnapshot: (snapshot: Snapshot) => unknown}} SettingsMutationOptions
+ */
 
 const READ_BACK_MISMATCH_CODE = "authoritative_readback_mismatch";
 
+/** @param {unknown} candidate @returns {candidate is Record<string, unknown>} */
 function isRecord(candidate) {
   return (
     candidate !== null &&
@@ -11,6 +57,7 @@ function isRecord(candidate) {
 }
 
 export class AuthoritativeSettingsReadBackError extends Error {
+  /** @param {readonly string[]} fields */
   constructor(fields) {
     super(`Authoritative settings read-back did not match: ${fields.join(", ")}`);
     this.name = "AuthoritativeSettingsReadBackError";
@@ -19,30 +66,65 @@ export class AuthoritativeSettingsReadBackError extends Error {
   }
 }
 
+/** @param {string} path @returns {never} */
 function unsupportedDraft(path) {
   throw new TypeError(`Settings draft contains an unsupported value at ${path}`);
 }
 
-function frozenDraftArray(entries, path) {
-  return Object.freeze(
-    entries.map((entry, index) => frozenDraftValue(entry, `${path}[${index}]`)),
-  );
+/** @param {readonly unknown[]} entries @param {string} path @param {WeakSet<object>} ancestors @returns {readonly FrozenSettingsValue[]} */
+function frozenDraftArray(entries, path, ancestors) {
+  if (Object.getPrototypeOf(entries) !== Array.prototype) unsupportedDraft(path);
+  /** @type {FrozenSettingsValue[]} */
+  const frozen = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entryPath = `${path}[${index}]`;
+    const descriptor = Object.getOwnPropertyDescriptor(entries, index);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, "value")) {
+      unsupportedDraft(entryPath);
+    }
+    /** @type {unknown} */
+    const entry = descriptor.value;
+    frozen.push(frozenDraftValue(entry, entryPath, ancestors));
+  }
+  if (Reflect.ownKeys(entries).length !== entries.length + 1) unsupportedDraft(path);
+  return Object.freeze(frozen);
 }
 
-function frozenDraftRecord(record, path) {
-  return Object.freeze(
-    Object.fromEntries(
-      Object.entries(record).map(([key, entry]) => [
-        key,
-        frozenDraftValue(entry, `${path}.${key}`),
-      ]),
-    ),
-  );
+/** @param {object} record @param {string} path @param {WeakSet<object>} ancestors @returns {{readonly [key: string]: FrozenSettingsValue}} */
+function frozenDraftRecord(record, path, ancestors) {
+  /** @type {unknown} */
+  const prototype = Object.getPrototypeOf(record);
+  if (prototype !== Object.prototype && prototype !== null) unsupportedDraft(path);
+  /** @type {[string, FrozenSettingsValue][]} */
+  const frozen = [];
+  for (const key of Reflect.ownKeys(record)) {
+    if (typeof key !== "string") unsupportedDraft(path);
+    const entryPath = `${path}.${key}`;
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    // 只接收自有、可枚举的数据字段，不能静默丢掉类型承诺的属性或执行 getter。
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, "value")) {
+      unsupportedDraft(entryPath);
+    }
+    /** @type {unknown} */
+    const entry = descriptor.value;
+    frozen.push([key, frozenDraftValue(entry, entryPath, ancestors)]);
+  }
+  return Object.freeze(Object.fromEntries(frozen));
 }
 
-function frozenDraftValue(candidate, path) {
-  if (Array.isArray(candidate)) return frozenDraftArray(candidate, path);
-  if (isRecord(candidate)) return frozenDraftRecord(candidate, path);
+/** @param {unknown} candidate @param {string} path @param {WeakSet<object>} ancestors @returns {FrozenSettingsValue} */
+function frozenDraftValue(candidate, path, ancestors) {
+  if (candidate !== null && typeof candidate === "object") {
+    if (ancestors.has(candidate)) unsupportedDraft(path);
+    ancestors.add(candidate);
+    try {
+      return Array.isArray(candidate)
+        ? frozenDraftArray(candidate, path, ancestors)
+        : frozenDraftRecord(candidate, path, ancestors);
+    } finally {
+      ancestors.delete(candidate);
+    }
+  }
   if (
     candidate === null ||
     typeof candidate === "string" ||
@@ -54,11 +136,17 @@ function frozenDraftValue(candidate, path) {
   return unsupportedDraft(path);
 }
 
+/** @template Command, Authority @overload @param {SettingsMutationDraft<Command, Authority>} draft @returns {DeepReadonly<{command: Command, authority: Authority}>} */
+/** @template T @overload @param {T & SettingsDraftInput<T>} draft @returns {DeepReadonly<T>} */
+/** @overload @param {unknown} draft @returns {FrozenSettingsValue} */
+/** @param {unknown} draft @returns {FrozenSettingsValue} */
 export function freezeSettingsDraft(draft) {
-  return frozenDraftValue(draft, "draft");
+  return frozenDraftValue(draft, "draft", new WeakSet());
 }
 
+/** @param {readonly unknown[]} expected @param {unknown} observed @param {string} path @param {string[]} fields */
 function collectArrayMismatch(expected, observed, path, fields) {
+  /** @type {string[]} */
   const entryMismatches = [];
   if (Array.isArray(observed) && expected.length === observed.length) {
     expected.forEach((entry, index) =>
@@ -70,6 +158,7 @@ function collectArrayMismatch(expected, observed, path, fields) {
   if (entryMismatches.length > 0) fields.push(path || "$root");
 }
 
+/** @param {Record<string, unknown>} expected @param {unknown} observed @param {string} path @param {string[]} fields */
 function collectRecordMismatch(expected, observed, path, fields) {
   if (!isRecord(observed)) {
     fields.push(path || "$root");
@@ -82,6 +171,7 @@ function collectRecordMismatch(expected, observed, path, fields) {
   }
 }
 
+/** @param {unknown} expected @param {unknown} observed @param {string} path @param {string[]} fields */
 function collectMismatchFields(expected, observed, path, fields) {
   if (Array.isArray(expected)) {
     collectArrayMismatch(expected, observed, path, fields);
@@ -94,7 +184,9 @@ function collectMismatchFields(expected, observed, path, fields) {
   if (!Object.is(expected, observed)) fields.push(path || "$root");
 }
 
+/** @param {unknown} expected @param {unknown} observed */
 export function assertAuthoritativeSettingsReadBack(expected, observed) {
+  /** @type {string[]} */
   const fields = [];
   collectMismatchFields(expected, observed, "", fields);
   if (fields.length > 0) {
@@ -102,26 +194,45 @@ export function assertAuthoritativeSettingsReadBack(expected, observed) {
   }
 }
 
-function stringArray(stringEntries, fieldPath) {
-  if (
-    !Array.isArray(stringEntries) ||
-    stringEntries.some((entry) => typeof entry !== "string")
-  ) {
-    throw new AuthoritativeSettingsReadBackError([fieldPath]);
-  }
-  return stringEntries;
+/** @param {unknown} value @returns {value is unknown[]} */
+function unknownArray(value) {
+  return Array.isArray(value);
 }
 
+/** @param {unknown} stringEntries @param {string} fieldPath @returns {string[]} */
+function stringArray(stringEntries, fieldPath) {
+  if (!unknownArray(stringEntries)) {
+    throw new AuthoritativeSettingsReadBackError([fieldPath]);
+  }
+  /** @type {string[]} */
+  const strings = [];
+  for (let index = 0; index < stringEntries.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(stringEntries, index);
+    /** @type {unknown} */
+    const entry = descriptor && Object.hasOwn(descriptor, "value")
+      ? descriptor.value
+      : undefined;
+    if (typeof entry !== "string") {
+      throw new AuthoritativeSettingsReadBackError([fieldPath]);
+    }
+    strings.push(entry);
+  }
+  return strings;
+}
+
+/** @param {unknown} stringEntries @param {string} fieldPath @returns {string[]} */
 export function canonicalOrderedStrings(stringEntries, fieldPath) {
   return stringArray(stringEntries, fieldPath)
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
+/** @param {unknown} stringEntries @param {string} fieldPath @returns {string[]} */
 export function canonicalStringSet(stringEntries, fieldPath) {
   return [...new Set(stringArray(stringEntries, fieldPath))].sort();
 }
 
+/** @param {unknown} stringEntries @param {string} fieldPath @returns {string[]} */
 export function canonicalTrimmedStringSet(stringEntries, fieldPath) {
   return canonicalStringSet(
     canonicalOrderedStrings(stringEntries, fieldPath),
@@ -129,20 +240,27 @@ export function canonicalTrimmedStringSet(stringEntries, fieldPath) {
   );
 }
 
+/** @template T @template {string} Key @overload @param {T} record @param {Key} fieldName @returns {SettingsField<T, Key>} */
+/** @param {unknown} record @param {string} fieldName @returns {unknown} */
 function field(record, fieldName) {
   return isRecord(record) ? record[fieldName] : undefined;
 }
 
+/** @template T @overload @param {T} candidate @returns {BlankStringAsNull<T>} */
+/** @param {unknown} candidate @returns {unknown} */
 function blankStringAsNull(candidate) {
   return typeof candidate === "string" && candidate.trim() === ""
     ? null
     : candidate;
 }
 
+/** @template T @overload @param {T} candidate @returns {TrimmedString<T>} */
+/** @param {unknown} candidate @returns {unknown} */
 function trimmedString(candidate) {
   return typeof candidate === "string" ? candidate.trim() : candidate;
 }
 
+/** @param {unknown} candidate @param {string} fieldPath @returns {string | null} */
 function nullableTrimmedString(candidate, fieldPath) {
   if (candidate !== null && typeof candidate !== "string") {
     throw new AuthoritativeSettingsReadBackError([fieldPath]);
@@ -150,13 +268,16 @@ function nullableTrimmedString(candidate, fieldPath) {
   return blankStringAsNull(trimmedString(candidate));
 }
 
+/** @template T @template {string} Key @overload @param {T} record @param {readonly Key[]} fieldNames @param {string} mismatchPath @returns {CompatibleSettingsField<T, Key>} */
+/** @param {unknown} record @param {readonly string[]} fieldNames @param {string} mismatchPath @returns {unknown} */
 function compatibleField(record, fieldNames, mismatchPath) {
   if (!isRecord(record)) return undefined;
   const presentFields = fieldNames.filter((fieldName) =>
     Object.hasOwn(record, fieldName),
   );
-  if (presentFields.length === 0) return undefined;
-  const authoritativeValue = record[presentFields[0]];
+  const firstField = presentFields[0];
+  if (firstField === undefined) return undefined;
+  const authoritativeValue = record[firstField];
   if (
     presentFields.some(
       (fieldName) => !Object.is(record[fieldName], authoritativeValue),
@@ -167,6 +288,7 @@ function compatibleField(record, fieldNames, mismatchPath) {
   return authoritativeValue;
 }
 
+/** @template Config @param {Config} configValue */
 function accountCenterProfileAuthority(configValue) {
   const profile = field(configValue, "profile");
   return {
@@ -178,6 +300,7 @@ function accountCenterProfileAuthority(configValue) {
   };
 }
 
+/** @template Config @param {Config} configValue */
 function accountCenterSecurityAuthority(configValue) {
   const security = field(configValue, "security");
   return {
@@ -188,6 +311,7 @@ function accountCenterSecurityAuthority(configValue) {
   };
 }
 
+/** @template Config @param {Config} configValue */
 function accountCenterDeletionAuthority(configValue) {
   const deleteAccount = field(configValue, "delete_account");
   return {
@@ -201,6 +325,7 @@ function accountCenterDeletionAuthority(configValue) {
   };
 }
 
+/** @template Config @param {Config} config */
 export function accountCenterSettingsAuthority(config) {
   const configValue = field(config, "value");
   return {
@@ -213,6 +338,7 @@ export function accountCenterSettingsAuthority(config) {
   };
 }
 
+/** @template Snapshot @param {Snapshot} snapshot */
 export function signInMethodsSettingsAuthority(snapshot) {
   const experience = field(snapshot, "signInExperience");
   const authConfig = field(snapshot, "authConfig");
@@ -231,6 +357,7 @@ export function signInMethodsSettingsAuthority(snapshot) {
   };
 }
 
+/** @param {unknown} signInExperience */
 export function brandingSettingsAuthority(signInExperience) {
   const branding = field(signInExperience, "branding");
   return {
@@ -251,6 +378,7 @@ export function brandingSettingsAuthority(signInExperience) {
   };
 }
 
+/** @template Snapshot @param {Snapshot} snapshot */
 export function passwordPolicySettingsAuthority(snapshot) {
   const authConfig = field(snapshot, "authConfig");
   return {
@@ -262,6 +390,7 @@ export function passwordPolicySettingsAuthority(snapshot) {
   };
 }
 
+/** @template Config @param {Config} captchaConfig */
 export function captchaSettingsAuthority(captchaConfig) {
   const captchaValue = field(captchaConfig, "value");
   return {
@@ -271,6 +400,7 @@ export function captchaSettingsAuthority(captchaConfig) {
   };
 }
 
+/** @param {unknown} authHookValue @param {string} fieldName */
 function blocklistStringSet(authHookValue, fieldName) {
   return canonicalTrimmedStringSet(
     field(authHookValue, fieldName),
@@ -278,6 +408,7 @@ function blocklistStringSet(authHookValue, fieldName) {
   );
 }
 
+/** @template Config @param {Config} authHookConfig */
 export function blocklistSettingsAuthority(authHookConfig) {
   const authHookValue = field(authHookConfig, "value");
   return {
@@ -301,6 +432,7 @@ export function blocklistSettingsAuthority(authHookConfig) {
   };
 }
 
+/** @template Config @param {Config} authConfig */
 function generalAuthAuthority(authConfig) {
   return {
     jwt_expiry: field(authConfig, "jwt_expiry"),
@@ -312,6 +444,7 @@ function generalAuthAuthority(authConfig) {
   };
 }
 
+/** @template Config @param {Config} securityConfig */
 function generalRuntimeSecurityAuthority(securityConfig) {
   return {
     brute_force_protection: compatibleField(
@@ -332,6 +465,7 @@ function generalRuntimeSecurityAuthority(securityConfig) {
   };
 }
 
+/** @template Snapshot @param {Snapshot} snapshot */
 export function generalSecuritySettingsAuthority(snapshot) {
   const authConfig = field(snapshot, "authConfig");
   const securityConfig = field(snapshot, "securityConfig");
@@ -341,13 +475,16 @@ export function generalSecuritySettingsAuthority(snapshot) {
   };
 }
 
+/** @template Response @overload @param {Response} response @returns {OrganizationRecord<Response>} */
+/** @param {unknown} response @returns {unknown} */
 function organizationRecord(response) {
   if (isRecord(response) && Object.hasOwn(response, "organization")) {
-    return response.organization;
+    return field(response, "organization");
   }
   return response;
 }
 
+/** @template Settings @param {Settings} settings */
 function organizationIdentityAuthority(settings) {
   const organization = organizationRecord(field(settings, "organizationResponse"));
   return {
@@ -359,6 +496,7 @@ function organizationIdentityAuthority(settings) {
   };
 }
 
+/** @template Settings @param {Settings} settings */
 function organizationJitAuthority(settings) {
   const jitResponse = field(settings, "jitResponse");
   return {
@@ -370,16 +508,24 @@ function organizationJitAuthority(settings) {
   };
 }
 
+/** @template Settings @param {Settings} settings */
 export function organizationSettingsAuthority(settings) {
   const jitEnabled = field(settings, "jitEnabled");
   const authority = {
     ...organizationIdentityAuthority(settings),
     jit_capability: jitEnabled,
   };
-  if (jitEnabled === true) authority.jit = organizationJitAuthority(settings);
+  if (jitEnabled === true) {
+    return { ...authority, jit_capability: true, jit: organizationJitAuthority(settings) };
+  }
   return authority;
 }
 
+/**
+ * @template Command, Authority, Snapshot
+ * @param {SettingsMutationOptions<Command, Authority, Snapshot>} options
+ * @returns {Promise<import("./mutation-reconciliation.js").MutationReconciliation<Snapshot>>}
+ */
 export async function settleAuthoritativeSettingsMutation({
   draft,
   writeCommands,

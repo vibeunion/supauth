@@ -1,3 +1,7 @@
+import { aggregateErrors } from './tooling-test-values.js';
+import { requireArray, requireRecord } from '../scripts/tooling-values.js';
+import { requireError } from "./tooling-test-values.js";
+import { parseJson, requireDefined } from "../scripts/tooling-values.js";
 import { afterEach, describe, expect, test } from 'bun:test';
 import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -37,6 +41,7 @@ describe('account provisioning manifest', () => {
 
     const process = Bun.spawn([
       'bun',
+      '--no-env-file',
       'run',
       'scripts/generate-account-provisioning-manifest.ts',
       inputPath,
@@ -51,8 +56,8 @@ describe('account provisioning manifest', () => {
     ]);
 
     expect(exitCode, stderr).toBe(0);
-    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-    expect(manifest.records[0]).not.toHaveProperty('claim_proof');
+    const manifest = parseJson(await readFile(manifestPath, 'utf8'));
+    expect(requireDefined(requireArray(requireRecord(manifest)['records'])[0])).not.toHaveProperty('claim_proof');
     expect(stdout).not.toContain('claim_proof');
     expect(await readFile(reviewPath, 'utf8')).not.toContain('claim_proof');
     expect((await stat(manifestPath)).mode & 0o777).toBe(0o600);
@@ -72,6 +77,7 @@ describe('account provisioning manifest', () => {
 
     const process = Bun.spawn([
       'bun',
+      '--no-env-file',
       'run',
       'scripts/generate-account-provisioning-manifest.ts',
       inputPath,
@@ -112,6 +118,7 @@ describe('account provisioning manifest', () => {
     try {
       const process = Bun.spawn([
         'bun',
+        '--no-env-file',
         'run',
         'scripts/generate-account-provisioning-manifest.ts',
         inputPath,
@@ -128,8 +135,8 @@ describe('account provisioning manifest', () => {
       expect(await unlockReview.exited).toBe(0);
     }
 
-    expect(exitCode!).not.toBe(0);
-    expect(stderr!).not.toContain('claim_proof');
+    expect(requireDefined(exitCode)).not.toBe(0);
+    expect(requireDefined(stderr)).not.toContain('claim_proof');
     expect(await readFile(manifestPath, 'utf8')).toBe('ORIGINAL_MANIFEST');
     expect(await readFile(reviewPath, 'utf8')).toBe('ORIGINAL_REVIEW');
     expect((await stat(manifestPath)).mode & 0o777).toBe(0o640);
@@ -226,7 +233,7 @@ describe('account provisioning manifest', () => {
     }
 
     expect(transactionError).toBeInstanceOf(AggregateError);
-    expect((transactionError as AggregateError).errors.join('\n')).toContain('not owned by this transaction');
+    expect(aggregateErrors(transactionError).join('\n')).toContain('not owned by this transaction');
     expect(await readFile(manifestPath, 'utf8')).toBe('FOREIGN_MANIFEST');
     expect(await readFile(reviewPath, 'utf8')).toBe('ORIGINAL_REVIEW');
     const preservedForeignIdentity = await stat(manifestPath);
@@ -238,6 +245,7 @@ describe('account provisioning manifest', () => {
     expect(remainingFiles.filter(name => /\.(tmp|recovery|cleanup|lock)$/.test(name))).toEqual([]);
     const recoverySnapshots = remainingFiles.filter(name => name.endsWith('.backup'));
     expect(recoverySnapshots).toHaveLength(1);
+    if (recoverySnapshots[0] === undefined) throw new Error('Expected preserved recovery backup');
     expect(await readFile(join(temporaryDirectory, recoverySnapshots[0]), 'utf8')).toBe('ORIGINAL_MANIFEST');
   });
 
@@ -287,14 +295,14 @@ describe('account provisioning manifest', () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'supauth-account-manifest-concurrent-'));
     const manifestPath = join(temporaryDirectory, 'manifest.json');
     const reviewPath = join(temporaryDirectory, 'review.csv');
-    let announceFirstCommit!: () => void;
-    let resumeFirstCommit!: () => void;
+    let announceFirstCommit: (() => void) | undefined;
+    let resumeFirstCommit: (() => void) | undefined;
     const firstCommitStarted = new Promise<void>(resolve => { announceFirstCommit = resolve; });
     const firstCommitMayReturn = new Promise<void>(resolve => { resumeFirstCommit = resolve; });
     const pausingCommit = {
       afterCommit: async ({ targetPath }: { targetPath: string }): Promise<void> => {
         if (targetPath !== manifestPath) return;
-        announceFirstCommit();
+        requireDefined(announceFirstCommit, 'First-commit signal resolver')();
         await firstCommitMayReturn;
       },
     };
@@ -314,7 +322,7 @@ describe('account provisioning manifest', () => {
         reviewContent: 'SECOND_REVIEW',
       })).rejects.toThrow(/EEXIST/);
     } finally {
-      resumeFirstCommit();
+      requireDefined(resumeFirstCommit, 'First-commit continuation resolver')();
     }
     await firstWriter;
 
@@ -353,7 +361,7 @@ describe('account provisioning manifest', () => {
     }
 
     expect(rollbackFailure).toBeInstanceOf(AggregateError);
-    expect((rollbackFailure as AggregateError).errors.join('\n')).toContain('not owned by this transaction');
+    expect(aggregateErrors(rollbackFailure).join('\n')).toContain('not owned by this transaction');
     expect(await readFile(manifestPath, 'utf8')).toBe('FOREIGN_MANIFEST');
     expect(await readFile(reviewPath, 'utf8')).toBe('ORIGINAL_REVIEW');
     const restoredForeignIdentity = await stat(manifestPath);
@@ -365,6 +373,7 @@ describe('account provisioning manifest', () => {
     expect(remainingFiles.filter(name => /\.(tmp|recovery|cleanup|lock)$/.test(name))).toEqual([]);
     const recoverySnapshots = remainingFiles.filter(name => name.endsWith('.backup'));
     expect(recoverySnapshots).toHaveLength(1);
+    if (recoverySnapshots[0] === undefined) throw new Error('Expected preserved recovery backup');
     expect(await readFile(join(temporaryDirectory, recoverySnapshots[0]), 'utf8')).toBe('ORIGINAL_MANIFEST');
   });
 
@@ -401,6 +410,7 @@ describe('account provisioning manifest', () => {
     expect(remainingFiles.filter(name => /\.(tmp|recovery|cleanup|lock)$/.test(name))).toEqual([]);
     const recoverySnapshots = remainingFiles.filter(name => name.endsWith('.backup'));
     expect(recoverySnapshots).toHaveLength(1);
+    if (recoverySnapshots[0] === undefined) throw new Error('Expected preserved recovery backup');
     expect(await readFile(join(temporaryDirectory, recoverySnapshots[0]), 'utf8')).toBe('ORIGINAL_MANIFEST');
   });
 
@@ -437,6 +447,7 @@ describe('account provisioning manifest', () => {
     expect(remainingFiles.filter(name => /\.(tmp|recovery|cleanup|lock)$/.test(name))).toEqual([]);
     const recoverySnapshots = remainingFiles.filter(name => name.endsWith('.backup'));
     expect(recoverySnapshots).toHaveLength(1);
+    if (recoverySnapshots[0] === undefined) throw new Error('Expected preserved recovery backup');
     expect(await readFile(join(temporaryDirectory, recoverySnapshots[0]), 'utf8')).toBe('ORIGINAL_REVIEW');
   });
 
@@ -499,7 +510,7 @@ describe('account provisioning manifest', () => {
     }
 
     expect(transactionError).toBeInstanceOf(AggregateError);
-    expect((transactionError as AggregateError).errors.join('\n')).toContain('not owned by this transaction');
+    expect(aggregateErrors(transactionError).join('\n')).toContain('not owned by this transaction');
     expect(await readFile(manifestPath, 'utf8')).toBe('FOREIGN_MANIFEST');
     const restoredForeignIdentity = await stat(manifestPath);
     expect([restoredForeignIdentity.dev, restoredForeignIdentity.ino]).toEqual([
@@ -514,6 +525,9 @@ describe('account provisioning manifest', () => {
     const recoveryFiles = remainingFiles.filter(name => name.endsWith('.recovery'));
     expect(stagedFiles).toHaveLength(1);
     expect(recoveryFiles).toHaveLength(1);
+    if (stagedFiles[0] === undefined || recoveryFiles[0] === undefined) {
+      throw new Error('Expected both staged output and foreign-file recovery artifact');
+    }
     expect(await readFile(join(temporaryDirectory, stagedFiles[0]), 'utf8')).toBe('NEW_MANIFEST');
     expect((await stat(join(temporaryDirectory, stagedFiles[0]))).mode & 0o777).toBe(0o600);
     expect(await readFile(join(temporaryDirectory, recoveryFiles[0]), 'utf8')).toBe('FOREIGN_MANIFEST');
@@ -554,8 +568,8 @@ describe('account provisioning manifest', () => {
     }
 
     expect(cleanupError).toBeInstanceOf(AggregateError);
-    expect((cleanupError as Error).message).toContain('cleanup failed');
-    expect((cleanupError as AggregateError).errors.join('\n')).toContain('not owned by this transaction');
+    expect((requireError(cleanupError)).message).toContain('cleanup failed');
+    expect(aggregateErrors(cleanupError).join('\n')).toContain('not owned by this transaction');
     expect(await readFile(manifestPath, 'utf8')).toBe('NEW_MANIFEST');
     expect(await readFile(reviewPath, 'utf8')).toBe('NEW_REVIEW');
 

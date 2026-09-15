@@ -9,9 +9,9 @@ describe('Provisioning repository — module structure', () => {
       'updateStepStatus',
       'isProjectFullyProvisioned',
       'resetProjectProvisioning',
-    ];
+    ] as const;
     for (const fn of expectedFns) {
-      expect(typeof (prov as any)[fn]).toBe('function');
+      expect(typeof prov[fn]).toBe('function');
     }
   });
 });

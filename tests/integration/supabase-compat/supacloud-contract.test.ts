@@ -1,3 +1,4 @@
+import { isUnknownArray } from "../../../scripts/tooling-values.js";
 /**
  * SupaCloud adapter contract verification tests (P0-13)
  *
@@ -61,7 +62,7 @@ describe('SupaCloud adapter contract verification', () => {
     // Supabase Storage API expects { prefixes: string[] } for DELETE
     const payload = { prefixes: ['avatars/123/avatar'] };
     expect(payload.prefixes).toBeDefined();
-    expect(Array.isArray(payload.prefixes)).toBe(true);
+    expect(isUnknownArray(payload.prefixes)).toBe(true);
   });
 
   it('Storage upload uses x-upsert header', () => {

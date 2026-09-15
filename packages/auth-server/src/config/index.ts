@@ -46,6 +46,13 @@ function isHttpUrl(value: string) {
   }
 }
 
+function logLevelEnv(): ServerConfig['logLevel'] {
+  const value = runtimeEnv('LOG_LEVEL');
+  if (value === undefined || value === '') return 'info';
+  if (value === 'debug' || value === 'info' || value === 'warn' || value === 'error') return value;
+  throw new Error('LOG_LEVEL must be debug, info, warn, or error');
+}
+
 export function loadConfig(): ServerConfig {
   const runtimeUrl = env('OAUTH_RUNTIME_URL', 'SUPACLOUD_RUNTIME_URL', 'SUPABASE_URL');
 
@@ -82,7 +89,7 @@ export function loadConfig(): ServerConfig {
     runtimeMode: 'gotrue',
     databaseUrl: env('SUPACLOUD_DATABASE_URL', 'SUPABASE_DB_URL', 'DATABASE_URL'),
     corsOrigins: (runtimeEnv('CORS_ORIGINS') || 'http://localhost:5173').split(','),
-    logLevel: (runtimeEnv('LOG_LEVEL') as ServerConfig['logLevel']) || 'info',
+    logLevel: logLevelEnv(),
   };
   return _config;
 }

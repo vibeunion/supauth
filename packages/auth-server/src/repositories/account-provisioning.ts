@@ -158,7 +158,7 @@ export function generateInitialPassword(length = 12): string {
 
 function accountProvisioningClaimState(existing?: AccountProvisioningRow): AccountClaimState {
   if (existing?.initialPasswordClaimed) return 'claimed';
-  return (existing?.claimState || 'ready') as AccountClaimState;
+  return existing ? storedClaimState(existing) : 'ready';
 }
 
 function importedInitialPassword(
@@ -293,7 +293,10 @@ async function findAccountByExternalId(input: AccountClaimInput) {
 
 function storedClaimState(record: AccountProvisioningRow): AccountClaimState {
   if (record.initialPasswordClaimed) return 'claimed';
-  return record.claimState as AccountClaimState;
+  const state = record.claimState;
+  if (state === 'ready' || state === 'pending' || state === 'password_applied'
+    || state === 'password_update_unknown' || state === 'claimed') return state;
+  throw new Error('Invalid stored account claim state');
 }
 
 function sourceStatusAllowsClaim(sourceStatus: string): boolean {
@@ -519,9 +522,11 @@ async function applyReservedPassword(
 ): Promise<void> {
   if (reservation.passwordApplied) return;
   const record = reservation.record;
+  const userId = record.userId;
+  if (!userId) throw new Error('Account claim reservation has no user ID');
   try {
     await input.updatePassword({
-      userId: record.userId!,
+      userId,
       email: record.email,
       externalId: record.externalId,
       externalType: record.externalType,

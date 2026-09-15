@@ -1,7 +1,5 @@
-// Bun runs this module directly; the Svelte check does not include Bun's test globals.
-// @ts-nocheck
 import { describe, expect, it } from 'bun:test';
-import { isNavigationEntryActive, navigationSections } from './navigation.js';
+import { isNavigationEntryActive, navigationSections, resolveConsolePath } from './navigation.js';
 
 describe('admin navigation', () => {
   it('keeps the Logto section order and visible entry count', () => {
@@ -38,5 +36,18 @@ describe('admin navigation', () => {
     expect(isNavigationEntryActive('/admin/applications/client-1/settings', '/admin', '/applications')).toBe(true);
     expect(isNavigationEntryActive('/admin/applications-other', '/admin', '/applications')).toBe(false);
     expect(isNavigationEntryActive('/admin/dashboard/', '/admin', '/dashboard')).toBe(true);
+  });
+
+  it('resolves dynamic resource paths within the configured console base', () => {
+    expect(resolveConsolePath('/applications/client%2F1/settings?tab=details#fields', '/admin'))
+      .toBe('/admin/applications/client%2F1/settings?tab=details#fields');
+    expect(resolveConsolePath('/dashboard', '')).toBe('/dashboard');
+    expect(resolveConsolePath('/../dashboard', '/admin')).toBe('/admin/dashboard');
+  });
+
+  it('rejects external, relative and browser-normalized network paths', () => {
+    for (const path of ['https://example.invalid', '//example.invalid', '/\\example.invalid', 'dashboard', '/\n/example.invalid']) {
+      expect(() => resolveConsolePath(path, '/admin')).toThrow(TypeError);
+    }
   });
 });

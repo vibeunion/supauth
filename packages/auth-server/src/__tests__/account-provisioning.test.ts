@@ -73,7 +73,7 @@ describe('account provisioning and claiming', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(claimRequestBody()),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
@@ -312,10 +312,10 @@ describe('account provisioning and claiming', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(claimRequestBody()),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(403);
-    expect(body.error.code).toBe('account_claim_disabled');
+    expect(strictProperty(body, 'error', 'code')).toBe('account_claim_disabled');
     expect(claimCalls).toBe(0);
     expect(passwordPolicyCalls).toBe(0);
   });
@@ -340,7 +340,7 @@ describe('account provisioning and claiming', () => {
     }));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/config'));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
@@ -379,11 +379,11 @@ describe('account provisioning and claiming', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(claimRequestBody()),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body.success).toBe(false);
-    expect(body.error.code).toBe('password_too_short');
+    expect(strictProperty(body, 'success')).toBe(false);
+    expect(strictProperty(body, 'error', 'code')).toBe('password_too_short');
   });
 
   test('public claim route rejects a numeric password against the live character policy', async () => {
@@ -413,10 +413,10 @@ describe('account provisioning and claiming', () => {
         new_password: '1234567890',
       })),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body.error.code).toBe('password_requires_uppercase');
+    expect(strictProperty(body, 'error', 'code')).toBe('password_requires_uppercase');
     expect(claimCalled).toBe(false);
   });
 
@@ -442,10 +442,10 @@ describe('account provisioning and claiming', () => {
         new_password: 'NewPass123!',
       })),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body.error.code).toBe('weak_password');
+    expect(strictProperty(body, 'error', 'code')).toBe('weak_password');
   });
 
   test('public claim route hides upstream failure details', async () => {
@@ -460,10 +460,10 @@ describe('account provisioning and claiming', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(claimRequestBody()),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(503);
-    expect(body.error).toEqual({
+    expect(strictProperty(body, 'error')).toEqual({
       code: 'account_claim_unavailable',
       message: 'Account claiming is temporarily unavailable. Please try again later.',
     });
@@ -500,7 +500,7 @@ describe('account provisioning and claiming', () => {
         new_password: 'NewPass123!',
       })),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual({
@@ -509,7 +509,7 @@ describe('account provisioning and claiming', () => {
       email: 'zhangsan@example.com',
       password_set: true,
     });
-    expect(body.initial_password).toBeUndefined();
+    expect(strictProperty(body, 'initial_password')).toBeUndefined();
     expect(receivedInput).toMatchObject({
       passwordMode: 'set_on_claim',
       newPassword: 'NewPass123!',
@@ -560,7 +560,7 @@ describe('account provisioning and claiming', () => {
         new_password: 'NewPass123!',
       })),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(409);
     expect(body).toEqual({
@@ -570,9 +570,9 @@ describe('account provisioning and claiming', () => {
         message: 'Account cannot be claimed with the supplied credentials.',
       },
     });
-    expect(body.email).toBeUndefined();
-    expect(body.initial_password).toBeUndefined();
-    expect(body.password_set).toBeUndefined();
+    expect(strictProperty(body, 'email')).toBeUndefined();
+    expect(strictProperty(body, 'initial_password')).toBeUndefined();
+    expect(strictProperty(body, 'password_set')).toBeUndefined();
   });
 
   test('public claim route does not return password after it was claimed', async () => {
@@ -588,7 +588,7 @@ describe('account provisioning and claiming', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(claimRequestBody()),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(409);
     expect(body).toEqual({
@@ -598,8 +598,8 @@ describe('account provisioning and claiming', () => {
         message: 'Account cannot be claimed with the supplied credentials.',
       },
     });
-    expect(body.email).toBeUndefined();
-    expect(body.initial_password).toBeUndefined();
+    expect(strictProperty(body, 'email')).toBeUndefined();
+    expect(strictProperty(body, 'initial_password')).toBeUndefined();
   });
 
   test('public claim route rejects incomplete requests', async () => {
@@ -613,16 +613,16 @@ describe('account provisioning and claiming', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ display_name: '张三' }),
     }));
-    const body = await response.json();
+    const body: unknown = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body.success).toBe(false);
-    expect(body.error.code).toBe('invalid_request');
+    expect(strictProperty(body, 'success')).toBe(false);
+    expect(strictProperty(body, 'error', 'code')).toBe('invalid_request');
   });
 
   test('reuses an unclaimed encrypted initial password for import updates', () => {
-    const previousSecret = process.env.ACCOUNT_CLAIM_SECRET;
-    process.env.ACCOUNT_CLAIM_SECRET = 'account-claim-secret-for-test';
+    const previousSecret = process.env["ACCOUNT_CLAIM_SECRET"];
+    process.env["ACCOUNT_CLAIM_SECRET"] = 'account-claim-secret-for-test';
     try {
       const encrypted = encryptInitialPassword('Reset123!');
       const password = resolveProvisioningInitialPassword({
@@ -637,8 +637,8 @@ describe('account provisioning and claiming', () => {
 
       expect(password).toBe('Reset123!');
     } finally {
-      if (previousSecret === undefined) delete process.env.ACCOUNT_CLAIM_SECRET;
-      else process.env.ACCOUNT_CLAIM_SECRET = previousSecret;
+      if (previousSecret === undefined) delete process.env["ACCOUNT_CLAIM_SECRET"];
+      else process.env["ACCOUNT_CLAIM_SECRET"] = previousSecret;
     }
   });
 
@@ -683,3 +683,4 @@ describe('account provisioning and claiming', () => {
     expect(payload).not.toHaveProperty('app_metadata');
   });
 });
+import { strictProperty } from './helpers/strict-values.js';

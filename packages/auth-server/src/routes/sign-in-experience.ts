@@ -4,11 +4,16 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 import * as connectorRepo from '../repositories/connectors.js';
-import { ApiContractError } from '../utils/api-contract.js';
+import { ApiContractError, isRecord } from '../utils/api-contract.js';
+import { readUpstreamObject, decodeProviderReadback, decodeAuthConfigReadback } from '../utils/upstream-contract.js';
 import { containsSecret, withoutSecrets } from '../utils/secrets.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as consentRepo from '../repositories/consents.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
+import { configurationContract, decodeConfigurationInput, decodeConfigurationResponse } from '../utils/configuration-contract.js';
+import { OAuthAuthorizationResultSchema, OAuthRedirectResultSchema, BuiltinOAuthProvidersSchema } from '../../../shared/src/server-configuration.js';
+import { AuthConfigResponseSchema } from '../../../shared/src/sdk-models.js';
+import { definedFields, requiredRow } from '../utils/defined-fields.js';
 import { getConfig } from '../config/index.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -79,13 +84,7 @@ function goTrueApiBaseCandidates() {
 }
 
 async function readJsonResponse(response: Response) {
-  const text = await response.text();
-  if (!text.trim()) return null;
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  return readUpstreamObject(response);
 }
 
 function upstreamFailureError(failure: PublicUpstreamFailure) {
@@ -114,18 +113,25 @@ async function fetchGoTrueJson(path: string, init: RequestInit = {}, fetchImpl: 
         continue;
       }
 
+      if (directInternal && index === 0 && response.status === 404) {
+        lastProtocolError = new Error(`GoTrue ${path} returned 404 from raw internal route`);
+        continue;
+      }
       let payload: Record<string, unknown> | null;
       try {
         payload = await readJsonResponse(response);
       } catch (error) {
-        throw upstreamFailureError(upstreamNetworkFailure(error));
+        if (error instanceof ApiContractError) {
+          if (response.ok) throw error;
+          payload = null;
+        } else {
+          throw upstreamFailureError(upstreamNetworkFailure(error));
+        }
       }
       if (response.ok && !payload) {
-        lastProtocolError = new Error(`GoTrue ${path} returned an empty success response`);
-        continue;
-      }
-      if (directInternal && index === 0 && response.status === 404) {
-        lastProtocolError = new Error(`GoTrue ${path} returned 404 from raw internal route`);
+        lastProtocolError = new ApiContractError(502, 'invalid_upstream_response', 'GoTrue returned an empty success response');
+        // 写请求可能已提交；缺少回执不能作为向另一 runtime 再次写入的理由。
+        if (init.method && init.method !== 'GET' && init.method !== 'HEAD') throw lastProtocolError;
         continue;
       }
       return { response, payload };
@@ -138,9 +144,7 @@ async function fetchGoTrueJson(path: string, init: RequestInit = {}, fetchImpl: 
 
 function normalizeSupaCloudSignInSource(request: Promise<unknown>) {
   return request.then(
-    (source): Record<string, unknown> | null => source && typeof source === 'object'
-      ? source as Record<string, unknown>
-      : null,
+    (source): Record<string, unknown> | null => isRecord(source) ? source : null,
     () => null,
   );
 }
@@ -204,7 +208,7 @@ export function resolvePublicConnectors(
   const upstreamConnectors = providers
     .filter(provider => {
       if (!provider.id || CREDENTIAL_PROVIDER_IDS.has(provider.id)) return false;
-      return provider.enabled === true && enabledByProviderId.has(provider.id);
+      return provider["enabled"] === true && enabledByProviderId.has(provider.id);
     })
     .map(provider => sanitizeConnector(provider, enabledByProviderId.get(provider.id)));
   const upstreamIds = new Set(upstreamConnectors.map(connector => connector.id));
@@ -219,11 +223,11 @@ export function resolvePublicConnectors(
 
 async function getEnabledConnectors(): Promise<Array<{ id: string; name: string; type: string; runtime_kind: string }>> {
   try {
-    const [providers, connectorConfigs] = await Promise.all([
-      adapter.listProviders() as Promise<ProviderInfo[]>,
+    const [upstreamProviders, connectorConfigs] = await Promise.all([
+      adapter.listProviders(),
       connectorRepo.listEnabledConnectorConfigs(),
     ]);
-    if (!Array.isArray(providers)) return [];
+    const providers = decodeConfigurationResponse(BuiltinOAuthProvidersSchema, upstreamProviders);
     return resolvePublicConnectors(providers, connectorConfigs);
   } catch {
     return [];
@@ -231,26 +235,26 @@ async function getEnabledConnectors(): Promise<Array<{ id: string; name: string;
 }
 
 export function resolveDesiredSignupEnabled(authConfig: Record<string, unknown>): boolean {
-  if (authConfig.disable_signup === true) return false;
-  if (authConfig.enable_signup === false) return false;
-  if (typeof authConfig.disable_signup === 'boolean') return authConfig.disable_signup === false;
-  if (typeof authConfig.enable_signup === 'boolean') return authConfig.enable_signup;
+  if (authConfig["disable_signup"] === true) return false;
+  if (authConfig["enable_signup"] === false) return false;
+  if (typeof authConfig["disable_signup"] === 'boolean') return authConfig["disable_signup"] === false;
+  if (typeof authConfig["enable_signup"] === 'boolean') return authConfig["enable_signup"];
   return true;
 }
 
 export function resolveRuntimeSignupEnabled(runtimeSettings: Record<string, unknown>): boolean {
-  if (typeof runtimeSettings.disable_signup === 'boolean') return runtimeSettings.disable_signup === false;
+  if (typeof runtimeSettings["disable_signup"] === 'boolean') return runtimeSettings["disable_signup"] === false;
   return true;
 }
 
 export async function getAuthConfigRuntimeConsistency(fetchImpl: typeof fetch = fetch) {
-  const authConfig = await adapter.getAuthConfig() as Record<string, unknown>;
+  const authConfig = decodeAuthConfigReadback(await adapter.getAuthConfig());
   const { response: runtimeRes, payload } = await fetchGoTrueJson('/settings', {}, fetchImpl);
-  const runtimeSettings = (payload || {}) as Record<string, unknown>;
 
   if (!runtimeRes.ok) {
     throw new Error(`Runtime settings probe failed with HTTP ${runtimeRes.status}`);
   }
+  const runtimeSettings = decodeAuthConfigReadback(payload);
 
   const desiredSignupEnabled = resolveDesiredSignupEnabled(authConfig);
   const runtimeSignupEnabled = resolveRuntimeSignupEnabled(runtimeSettings);
@@ -260,12 +264,12 @@ export async function getAuthConfigRuntimeConsistency(fetchImpl: typeof fetch = 
     consistent: desiredSignupEnabled === runtimeSignupEnabled,
     desired: {
       signups_enabled: desiredSignupEnabled,
-      enable_signup: authConfig.enable_signup ?? null,
-      disable_signup: authConfig.disable_signup ?? null,
+      enable_signup: authConfig["enable_signup"] ?? null,
+      disable_signup: authConfig["disable_signup"] ?? null,
     },
     runtime: {
       signups_enabled: runtimeSignupEnabled,
-      disable_signup: runtimeSettings.disable_signup ?? null,
+      disable_signup: runtimeSettings["disable_signup"] ?? null,
     },
   };
 }
@@ -277,8 +281,9 @@ async function getEnabledConnector(connectorId: string) {
     if (['custom_oidc', 'saml'].includes(connectorConfig.runtime_kind)) {
       return sanitizeConnector({ id: connectorId }, connectorConfig);
     }
-    const provider = await adapter.getProvider(connectorId) as ProviderInfo | null;
-    if (!provider) return null;
+    const payload = await adapter.getProvider(connectorId);
+    if (payload === null) return null;
+    const provider = decodeProviderReadback(payload, connectorId);
     return resolvePublicConnectors([provider], [connectorConfig])[0] || null;
   } catch {
     return null;
@@ -484,15 +489,15 @@ function auditDeliveryCanProgress(
 }
 
 function auditReadBackItems(response: unknown): Record<string, unknown>[] | null {
-  if (!response || typeof response !== 'object' || Array.isArray(response)) return null;
-  const envelope = response as Record<string, unknown>;
-  const items = envelope.items;
-  const total = envelope.total;
+  if (!isRecord(response)) return null;
+  const envelope = response;
+  const items = envelope["items"];
+  const total = envelope["total"];
   if (!Array.isArray(items) || typeof total !== 'number' || !Number.isInteger(total)) return null;
   if (total < 0 || total > AUDIT_READ_BACK_LIMIT) return null;
-  if (items.length !== total || envelope.next_cursor !== null) return null;
-  if (!items.every(item => Boolean(item) && typeof item === 'object' && !Array.isArray(item))) return null;
-  return items as Record<string, unknown>[];
+  if (items.length !== total || envelope["next_cursor"] !== null) return null;
+  if (!items.every(isRecord)) return null;
+  return items;
 }
 
 function auditReadBackMatches(
@@ -500,22 +505,22 @@ function auditReadBackMatches(
   event: CustomUiAuditPendingEvent,
   manifest: CustomUiManifest,
 ) {
-  const details = candidate.details;
-  if (!details || typeof details !== 'object' || Array.isArray(details)) return false;
-  const detailRecord = details as Record<string, unknown>;
-  return candidate.event_type === event.event_type
-    && candidate.actor_id === event.actor_id
-    && candidate.actor_type === event.actor_type
-    && candidate.resource_type === 'custom_ui_assets'
-    && candidate.resource_id === manifest.assets_id
-    && candidate.request_id === event.request_id
-    && candidate.source === 'supauth'
-    && candidate.method === 'EVENT'
-    && candidate.status === 200
-    && detailRecord.event_id === event.event_id
-    && detailRecord.file_count === event.file_count
-    && detailRecord.content_sha256 === event.content_sha256
-    && detailRecord.cleanup_pending === event.cleanup_pending;
+  const details = candidate["details"];
+  if (!isRecord(details)) return false;
+  const detailRecord = details;
+  return candidate["event_type"] === event.event_type
+    && candidate["actor_id"] === event.actor_id
+    && candidate["actor_type"] === event.actor_type
+    && candidate["resource_type"] === 'custom_ui_assets'
+    && candidate["resource_id"] === manifest.assets_id
+    && candidate["request_id"] === event.request_id
+    && candidate["source"] === 'supauth'
+    && candidate["method"] === 'EVENT'
+    && candidate["status"] === 200
+    && detailRecord["event_id"] === event.event_id
+    && detailRecord["file_count"] === event.file_count
+    && detailRecord["content_sha256"] === event.content_sha256
+    && detailRecord["cleanup_pending"] === event.cleanup_pending;
 }
 
 async function auditDeliveryHasUniqueReadBack(
@@ -564,9 +569,11 @@ async function flushPendingAudit(configRecord: CustomUiConfigRecord, manifest: C
   if (event.delivery_state !== 'ready') return recoverStaleAuditDelivery(configRecord, manifest);
   const claimed = await writeAuditDeliveryState(configRecord, manifest, 'sending');
   if (!claimed) return { configRecord, manifest, pending: true };
+  const claimedEvent = claimed.manifest.audit_pending_event;
+  if (!claimedEvent) return { ...claimed, pending: true };
   let delivery: 'delivered' | 'rejected';
   try {
-    delivery = await recordCustomUiAudit(claimed.manifest.audit_pending_event!, claimed.manifest);
+    delivery = await recordCustomUiAudit(claimedEvent, claimed.manifest);
   } catch {
     const unknown = await writeAuditDeliveryState(claimed.configRecord, claimed.manifest, 'delivery_unknown');
     return { ...(unknown || claimed), pending: true };
@@ -652,7 +659,7 @@ function claimedCleanupBatch(batch: CustomUiCleanupBatch, claimToken: string): C
     assets_id: batch.assets_id,
     created_at: batch.created_at,
     state: 'cleanup_claimed',
-    lease_token: batch.lease_token,
+    ...(batch.lease_token !== undefined ? { lease_token: batch.lease_token } : {}),
     claim_token: claimToken,
     claimed_at: new Date().toISOString(),
     object_keys: batch.object_keys,
@@ -672,7 +679,7 @@ async function releaseCleanupClaim(assetsId: string, claimToken: string) {
       assets_id: batch.assets_id,
       created_at: batch.created_at,
       state: 'pending',
-      lease_token: batch.lease_token,
+      ...(batch.lease_token !== undefined ? { lease_token: batch.lease_token } : {}),
       object_keys: batch.object_keys,
     };
   });
@@ -751,10 +758,12 @@ async function writeCustomUiManifest(
 
 async function deleteDeactivatedConfig(configRecord: CustomUiConfigRecord) {
   try {
+    const revision = configRevision(configRecord);
+    if (revision === null) throw new Error('Custom UI revision is missing');
     return await tenantConfigRepo.deleteTenantConfigIfRevision(
       CUSTOM_UI_CONFIG_TYPE,
       CUSTOM_UI_CONFIG_KEY,
-      configRevision(configRecord)!,
+      revision,
     );
   } catch {
     throw customUiUnavailable('custom_ui_config_unavailable', 'Custom UI cleanup could not be finalized.');
@@ -870,32 +879,44 @@ export async function deleteCustomUiAssets() {
 }
 
 export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
-  .get('/', async () => sieRepo.getSignInExperience(), {
+  .get('/', async () => {
+    decodeConfigurationInput('getSignInExperience', {});
+    return sieRepo.getSignInExperience();
+  }, configurationContract('getSignInExperience', {
     detail: { summary: 'Get sign-in experience configuration', tags: ['Sign-in Experience'] },
-  })
+  }))
 
   .get('/resolve', async ({ query }) => {
-    const applicationId = (query as Record<string, unknown>).application_id;
-    const appId = typeof applicationId === 'string' ? applicationId : undefined;
+    const { query: input } = decodeConfigurationInput('resolveSignInExperience', { query });
+    const appId = input?.application_id;
     return sieRepo.resolveSignInExperience(appId, await getSupaCloudSignInSource(appId));
-  }, {
+  }, configurationContract('resolveSignInExperience', {
     detail: { summary: 'Resolve effective sign-in experience for an application', tags: ['Sign-in Experience', 'Applications'] },
-  })
+  }))
 
   .put('/', async ({ body }) => {
-    const updated = await sieRepo.updateSignInExperience(body as Parameters<typeof sieRepo.updateSignInExperience>[0]);
+    const input = decodeConfigurationInput('updateSignInExperience', { body });
+    const updated = requiredRow(await sieRepo.updateSignInExperience(definedFields({
+      ...input.body,
+      branding: input.body.branding ?? undefined,
+      password_policy: input.body.password_policy ?? undefined,
+    })));
     await audit('sign_in_experience.update', 'sign_in_experience', updated.id);
     return sieRepo.getSignInExperience();
-  }, {
+  }, configurationContract('updateSignInExperience', {
     detail: { summary: 'Update sign-in experience configuration', tags: ['Sign-in Experience'] },
-  })
+  }))
 
   // ─── Custom UI Assets management ────────────────────────────────────
-  .get('/custom-ui-assets', customUiStatus, {
+  .get('/custom-ui-assets', () => {
+    decodeConfigurationInput('getCustomUiStatus', {});
+    return customUiStatus();
+  }, configurationContract('getCustomUiStatus', {
     detail: { summary: 'Get safe Custom UI lifecycle status', tags: ['Sign-in Experience', 'Custom UI Assets'] },
-  })
+  }))
 
   .post('/custom-ui-assets', () => {
+    decodeConfigurationInput('uploadCustomUiAssets', {});
     throw new ApiContractError(
       501,
       'capability_unavailable',
@@ -905,20 +926,21 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
         reason_code: 'custom_ui_isolated_origin_required',
       },
     );
-  }, {
+  }, configurationContract('uploadCustomUiAssets', {
     detail: { summary: 'Custom UI upload availability', tags: ['Sign-in Experience', 'Custom UI Assets'] },
-  })
+  }))
 
   .delete('/custom-ui-assets', async ({ set }) => {
+    decodeConfigurationInput('deleteCustomUiAssets', {});
     const deletionResult = await deleteCustomUiAssets();
     if ('audit_pending' in deletionResult && deletionResult.audit_pending) set.status = 202;
     return deletionResult;
-  }, {
+  }, configurationContract('deleteCustomUiAssets', {
     detail: { summary: 'Delete custom UI assets, revert to default sign-in page', tags: ['Sign-in Experience', 'Custom UI Assets'] },
-  });
+  }));
 
 interface PublicSignInExperienceOptions {
-  getExperience?: (applicationId?: string) => Promise<Record<string, unknown>>;
+  getExperience?: (applicationId?: string) => Promise<Record<string, unknown> | null>;
   getConnectors?: () => Promise<unknown[]>;
   getAuthConfig?: () => Promise<unknown>;
 }
@@ -943,32 +965,35 @@ export async function resolvePublicSignInExperience(
     sieRepo.resolveSignInExperience(
       resolvedApplicationId,
       await getSupaCloudSignInSource(resolvedApplicationId),
-    ) as Promise<Record<string, unknown>>
+    )
   ));
   const [experience, connectors, passwordPolicy] = await Promise.all([
     getExperience(applicationId),
     (options.getConnectors || getEnabledConnectors)(),
     authoritativePublicPasswordPolicy(options.getAuthConfig || (() => adapter.getAuthConfig())),
   ]);
+  if (experience === null) {
+    throw new ApiContractError(503, 'sign_in_experience_unavailable', 'Sign-in experience is unavailable');
+  }
   return {
     ...experience,
     connectors,
-    sign_up_enabled: experience.sign_up_enabled ?? true,
+    sign_up_enabled: experience["sign_up_enabled"] ?? true,
     password_policy: passwordPolicy,
   };
 }
 
 export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sign-in-experience' })
   .get('/resolve', async ({ query }) => {
-    const q = query as Record<string, unknown>;
-    const applicationId = typeof q.application_id === 'string' ? q.application_id : undefined;
+    const { query: q } = decodeConfigurationInput('resolvePublicSignInExperience', { query });
+    const applicationId = q?.application_id;
     const experience = await resolvePublicSignInExperience(applicationId);
-    return typeof q.authorization_id === 'string'
+    return typeof q?.authorization_id === 'string'
       ? { ...experience, authorization_pending_authentication: true }
       : experience;
-  }, {
+  }, configurationContract('resolvePublicSignInExperience', {
     detail: { summary: 'Resolve public effective sign-in experience for hosted login pages', tags: ['Sign-in Experience', 'Public'] },
-  });
+  }));
 
 export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors' })
   .get('/:connectorId/authorize', async ({ params, query, set }) => {
@@ -978,10 +1003,10 @@ export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors
       return { error: 'connector_not_enabled' };
     }
 
-    const q = query as Record<string, unknown>;
-    const redirectUri = typeof q.redirect_uri === 'string' ? q.redirect_uri : '';
-    const authorizationId = typeof q.authorization_id === 'string' ? q.authorization_id : '';
-    const state = typeof q.state === 'string' ? q.state : '';
+    const { query: q } = decodeConfigurationInput('authorizePublicConnector', { params, query });
+    const redirectUri = q.redirect_uri || '';
+    const authorizationId = q.authorization_id || '';
+    const state = q.state || '';
 
     const isSaml = connector.runtime_kind === 'saml';
     let redirectTarget = redirectUri || config.publicBaseUrl;
@@ -1002,7 +1027,7 @@ export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors
     goTrueUrl.searchParams.set('redirect_to', redirectTarget);
     if (state) goTrueUrl.searchParams.set('state', state);
 
-    const forwardedParams = ['client_id', 'redirect_uri', 'response_type', 'scope', 'code_challenge', 'code_challenge_method', 'nonce', 'resource'];
+    const forwardedParams = ['client_id', 'redirect_uri', 'response_type', 'scope', 'code_challenge', 'code_challenge_method', 'nonce', 'resource'] as const;
     for (const parameterName of forwardedParams) {
       const parameterValue = q[parameterName];
       if (typeof parameterValue === 'string') goTrueUrl.searchParams.set(parameterName, parameterValue);
@@ -1011,40 +1036,44 @@ export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors
     set.status = 302;
     set.headers['location'] = goTrueUrl.toString();
     return { redirect: goTrueUrl.toString() };
-  }, {
+  }, configurationContract('authorizePublicConnector', {
     detail: { summary: 'Redirect to social/SSO connector authorization', tags: ['Public', 'Connectors'] },
-  });
+  }));
 
 export const publicPhrasesRoutes = new Elysia({ prefix: '/v1/public/phrases' })
   .get('/:languageTag', async ({ params }) => {
+    decodeConfigurationInput('getPublicPhrases', { params });
     const phrase = await tenantConfigRepo.getTenantConfig('phrase', params.languageTag);
     if (!phrase || !phrase.enabled) {
       // Return empty object so the login page can fall back to defaults
       return { language_tag: params.languageTag, phrases: {} };
     }
     return { language_tag: params.languageTag, phrases: phrase.value || {} };
-  }, {
+  }, configurationContract('getPublicPhrases', {
     detail: { summary: 'Get custom phrases for a language tag', tags: ['Public', 'Tenant Config'] },
-  });
+  }));
 
 export const publicCustomUiRoutes = new Elysia({ prefix: '/v1/public/custom-ui' })
-  .get('/*', () => {
+  .get('/*', ({ params }) => {
+    decodeConfigurationInput('getPublicCustomUi', { params });
     return Response.json({ error: 'not_found' }, {
       status: 404,
       headers: { 'cache-control': 'no-store' },
     });
-  }, {
+  }, configurationContract('getPublicCustomUi', {
     detail: { hide: true },
-  });
+  }));
 
 function oauthBearerToken(headers: Record<string, string | undefined>) {
-  return headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1] || null;
+  return headers["authorization"]?.match(/^Bearer\s+(.+)$/i)?.[1] || null;
 }
 
 async function getGoTrueAuthorization(authorizationId: string, accessToken: string) {
-  return fetchGoTrueJson(`/oauth/authorizations/${authorizationId}`, {
+  const result = await fetchGoTrueJson(`/oauth/authorizations/${authorizationId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  if (result.response.ok) decodeConfigurationResponse(OAuthAuthorizationResultSchema, result.payload);
+  return result;
 }
 
 async function submitGoTrueConsent(
@@ -1052,7 +1081,7 @@ async function submitGoTrueConsent(
   accessToken: string,
   action: 'approve' | 'deny',
 ) {
-  return fetchGoTrueJson(`/oauth/authorizations/${authorizationId}/consent`, {
+  const result = await fetchGoTrueJson(`/oauth/authorizations/${authorizationId}/consent`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -1060,6 +1089,8 @@ async function submitGoTrueConsent(
     },
     body: JSON.stringify({ action }),
   });
+  if (result.response.ok) decodeConfigurationResponse(OAuthRedirectResultSchema, result.payload);
+  return result;
 }
 
 function oauthErrorPayload(failure: PublicUpstreamFailure) {
@@ -1085,9 +1116,9 @@ function caughtOAuthFailure(error: unknown): PublicUpstreamFailure {
 }
 
 function consentDecisionContext(payload: Record<string, unknown> | null) {
-  const client = payload?.client as Record<string, unknown> | undefined;
-  const user = payload?.user as Record<string, unknown> | undefined;
-  if (typeof client?.id !== 'string' || typeof user?.id !== 'string') {
+  const client = payload?.["client"];
+  const user = payload?.["user"];
+  if (!isRecord(client) || !isRecord(user) || typeof client["id"] !== 'string' || typeof user["id"] !== 'string') {
     throw new ApiContractError(
       502,
       'invalid_upstream_response',
@@ -1095,10 +1126,10 @@ function consentDecisionContext(payload: Record<string, unknown> | null) {
     );
   }
   return {
-    applicationId: client.id,
-    userId: user.id,
-    requestedScopes: typeof payload?.scope === 'string'
-      ? payload.scope.split(/\s+/).filter(Boolean)
+    applicationId: client["id"],
+    userId: user["id"],
+    requestedScopes: typeof payload?.["scope"] === 'string'
+      ? payload["scope"].split(/\s+/).filter(Boolean)
       : [],
   };
 }
@@ -1109,7 +1140,7 @@ async function completeGoTrueConsent(
   action: 'approve' | 'deny',
 ) {
   const authorization = await getGoTrueAuthorization(authorizationId, accessToken);
-  if (!authorization.response.ok || typeof authorization.payload?.redirect_url === 'string') {
+  if (!authorization.response.ok || typeof authorization.payload?.["redirect_url"] === 'string') {
     return authorization;
   }
   const decisionContext = consentDecisionContext(authorization.payload);
@@ -1144,6 +1175,7 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
       set.status = 401;
       return { error: 'missing_bearer_token' };
     }
+    decodeConfigurationInput('getOAuthAuthorization', { params, headers });
     try {
       return goTrueOAuthPayload(
         await getGoTrueAuthorization(params.authorizationId, accessToken),
@@ -1158,23 +1190,24 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
       set.status = failure.status;
       return oauthErrorPayload(failure);
     }
-  }, {
+  }, configurationContract('getOAuthAuthorization', {
     detail: { summary: 'Get authoritative GoTrue OAuth authorization details', tags: ['Public', 'Consent'] },
-  })
+  }))
   .post('/authorizations/:authorizationId/consent', async ({ headers, params, body, set }) => {
     const accessToken = oauthBearerToken(headers);
     if (!accessToken) {
       set.status = 401;
       return { error: 'missing_bearer_token' };
     }
-    const action = (body as { action?: unknown } | null)?.action;
+    const action = body && typeof body === 'object' && 'action' in body ? body.action : undefined;
     if (action !== 'approve' && action !== 'deny') {
       set.status = 400;
       return { error: 'validation_failed', message: "action must be 'approve' or 'deny'" };
     }
+    const input = decodeConfigurationInput('submitOAuthConsent', { params, headers, body });
     try {
       return goTrueOAuthPayload(
-        await completeGoTrueConsent(params.authorizationId, accessToken, action),
+        await completeGoTrueConsent(params.authorizationId, accessToken, input.body.action),
         set,
         {
           code: 'gotrue_consent_failed',
@@ -1186,41 +1219,48 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
       set.status = failure.status;
       return oauthErrorPayload(failure);
     }
-  }, {
+  }, configurationContract('submitOAuthConsent', {
     detail: { summary: 'Submit an authoritative GoTrue OAuth consent decision', tags: ['Public', 'Consent'] },
-  });
+  }));
 
 export const authConfigRoutes = new Elysia({ prefix: '/v1/auth-config' })
-  .get('/', async () => withoutSecrets(await adapter.getAuthConfig()), {
+  .get('/', async () => {
+    decodeConfigurationInput('getAuthConfig', {});
+    return withoutSecrets(await adapter.getAuthConfig());
+  }, configurationContract('getAuthConfig', {
     detail: { summary: 'Get auth configuration (GoTrue)', tags: ['Auth Config'] },
-  })
-  .get('/runtime-consistency', async () => getAuthConfigRuntimeConsistency(), {
+  }))
+  .get('/runtime-consistency', async () => {
+    decodeConfigurationInput('getAuthConfigRuntimeConsistency', {});
+    return getAuthConfigRuntimeConsistency();
+  }, configurationContract('getAuthConfigRuntimeConsistency', {
     detail: { summary: 'Compare desired auth config with GoTrue runtime settings', tags: ['Auth Config'] },
-  })
+  }))
   .patch('/', async ({ body }) => {
-    const requested = authConfigPatch(body);
+    const { body: requested } = decodeConfigurationInput('updateAuthConfig', { body: authConfigPatch(body) });
     await adapter.updateAuthConfig(requested);
-    const updated = await adapter.getAuthConfig() as Record<string, unknown>;
+    const updated = await adapter.getAuthConfig();
     assertAuthConfigReadBack(requested, updated);
+    const result = decodeConfigurationResponse(AuthConfigResponseSchema, withoutSecrets(updated));
     await audit('auth_config.update', 'auth_config', config.projectRef);
-    return withoutSecrets(updated);
-  }, {
+    return result;
+  }, configurationContract('updateAuthConfig', {
     detail: { summary: 'Update auth configuration (GoTrue)', tags: ['Auth Config'] },
-  });
+  }));
 
 function authConfigPatch(body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+  if (!isRecord(body)) {
     throw new ApiContractError(400, 'invalid_auth_config', 'Auth configuration must be an object');
   }
-  const requested = body as Record<string, unknown>;
+  const requested = body;
   if (containsSecret(requested)) {
     throw new ApiContractError(400, 'secret_not_allowed', 'Use a secret-backed typed configuration endpoint for auth secrets');
   }
-  const minimumLength = requested.password_min_length;
+  const minimumLength = requested["password_min_length"];
   if (minimumLength !== undefined && (!Number.isInteger(minimumLength) || Number(minimumLength) < 6 || Number(minimumLength) > 128)) {
     throw new ApiContractError(400, 'invalid_password_policy', 'password_min_length must be an integer from 6 to 128');
   }
-  const requiredCharacters = requested.password_required_characters;
+  const requiredCharacters = requested["password_required_characters"];
   if (requiredCharacters !== undefined && (
     typeof requiredCharacters !== 'string'
     || !SUPPORTED_GOTRUE_PASSWORD_CHARACTER_POLICIES.has(requiredCharacters)
@@ -1230,10 +1270,11 @@ function authConfigPatch(body: unknown): Record<string, unknown> {
   return requested;
 }
 
-function assertAuthConfigReadBack(requested: Record<string, unknown>, runtime: Record<string, unknown>) {
+function assertAuthConfigReadBack(requested: Record<string, unknown>, runtime: unknown) {
+  const runtimeRecord = runtime && typeof runtime === 'object' ? Object.fromEntries(Object.entries(runtime)) : {};
   const mismatched = Object.entries(requested)
     .filter(([key]) => key === 'password_min_length' || key === 'password_required_characters')
-    .filter(([key, value]) => runtime[key] !== value)
+    .filter(([key, value]) => runtimeRecord[key] !== value)
     .map(([key]) => key);
   if (mismatched.length > 0) {
     throw new ApiContractError(502, 'runtime_config_mismatch', 'GoTrue auth configuration read-back did not match the requested policy', {

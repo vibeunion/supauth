@@ -23,18 +23,21 @@ import type { CapabilitiesResponse, CapabilityStatus } from '../index.js';
 
 describe('Shared types', () => {
   it('compile-checks optional authorized-party metadata', () => {
+    const config = ts.getParsedCommandLineOfConfigFile(
+      fileURLToPath(new URL('../../tsconfig.json', import.meta.url)),
+      {},
+      {
+        ...ts.sys,
+        onUnRecoverableConfigFileDiagnostic: diagnostic => {
+          throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+        },
+      },
+    );
+    if (!config) throw new Error('Shared compiler configuration is unavailable');
     const program = ts.createProgram([
       fileURLToPath(new URL('./claims-contract-types.ts', import.meta.url)),
-    ], {
-      target: ts.ScriptTarget.ESNext,
-      module: ts.ModuleKind.ESNext,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      strict: true,
-      noEmit: true,
-      skipLibCheck: true,
-      types: [],
-    });
-    const diagnostics = ts.getPreEmitDiagnostics(program);
+    ], { ...config.options, noEmit: true });
+    const diagnostics = [...config.errors, ...ts.getPreEmitDiagnostics(program)];
 
     expect(diagnostics.map((diagnostic) =>
       ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
@@ -55,7 +58,7 @@ describe('Shared types', () => {
       },
     };
 
-    expect(response.capabilities.example.last_verified_at)
+    expect(response.capabilities['example']?.last_verified_at)
       .toBe('2026-08-04T00:00:00.000Z');
   });
 

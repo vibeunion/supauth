@@ -2,6 +2,7 @@
 // SupaOAuth validates application metadata and redirects to GoTrue for runtime auth.
 
 import { Elysia } from 'elysia';
+import { accountContract, accountOutput, readAccountInput } from '../utils/account-contract.js';
 import { getConfig, type ServerConfig } from '../config/index.js';
 
 type AuthorizeQuery = Record<string, unknown>;
@@ -82,9 +83,9 @@ export function createSsoAuthorizeRoutes(
 ) {
   return new Elysia({ prefix })
     .get('/authorize', async ({ query, request, set }) => {
-      const clientId = stringParam(query as AuthorizeQuery, 'client_id');
-      const redirectUri = stringParam(query as AuthorizeQuery, 'redirect_uri');
-      const responseType = stringParam(query as AuthorizeQuery, 'response_type') || 'code';
+      const clientId = stringParam(query, 'client_id');
+      const redirectUri = stringParam(query, 'redirect_uri');
+      const responseType = stringParam(query, 'response_type') || 'code';
 
       if (!clientId || !redirectUri) {
         set.status = 400;
@@ -109,16 +110,17 @@ export function createSsoAuthorizeRoutes(
       // 生产 Function 不能把公网登录入口依赖在 Management API 可达性上；
       // OAuth client 与 redirect_uri 的权威校验交给 GoTrue authorize 端点完成。
       const publicBaseUrl = normalizePublicBaseUrl(config.publicBaseUrl) || publicOriginFromRequest(request, config.trustProxyHeaders);
-      const goTrueUrl = buildGoTrueOAuthAuthorizeUrl(publicBaseUrl, query as AuthorizeQuery);
+      const input = readAccountInput('authorize', request, { query });
+      const goTrueUrl = buildGoTrueOAuthAuthorizeUrl(publicBaseUrl, input.query);
       set.status = 302;
       set.headers.location = goTrueUrl.toString();
-      return { redirect: goTrueUrl.toString() };
-    }, {
+      return accountOutput('authorize', { redirect: goTrueUrl.toString() });
+    }, accountContract('authorize', {
       detail: {
         summary: 'Validate OAuth request and redirect to GoTrue authorization endpoint',
         tags: ['Public', 'SSO', 'Consent'],
       },
-    });
+    }));
 }
 
 export const ssoAuthorizeRoutes = new Elysia()

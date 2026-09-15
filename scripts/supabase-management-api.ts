@@ -1,4 +1,23 @@
+import { isUnknownArray, requireDefined } from "./tooling-values.js";
+import { Type, decodeSchema } from '../packages/shared/src/schema.js';
 type ManagementApiRequestMethod = 'POST' | 'DELETE';
+const UserSchema = Type.Object({
+  id: Type.String({ minLength: 1 }),
+  email: Type.Optional(Type.String()),
+});
+const UsersEnvelopeSchema = Type.Object({
+  items: Type.Optional(Type.Array(UserSchema)),
+  users: Type.Optional(Type.Array(UserSchema)),
+  data: Type.Optional(Type.Array(UserSchema)),
+});
+
+export function decodeCompatibilityUsers(value: unknown) {
+  const payload = decodeSchema(UsersEnvelopeSchema, value);
+  if (payload.items === undefined && payload.users === undefined && payload.data === undefined) {
+    throw new Error('Compatibility user response is missing a user list');
+  }
+  return [...(payload.items ?? []), ...(payload.users ?? []), ...(payload.data ?? [])];
+}
 
 export async function requestProjectAuthUser(
   managementApiBases: string[],
@@ -28,7 +47,7 @@ export async function requestProjectAuthUser(
     lastResponse = response;
     if (response.status !== 404) return response;
   }
-  return lastResponse!;
+  return requireDefined(lastResponse);
 }
 
 export async function lookupCompatibilityUserId(
@@ -57,14 +76,9 @@ export async function lookupCompatibilityUserId(
         throw new Error(`Unable to look up compatibility user: status=${response.status} for ${managementApiBase}`);
       }
 
-      const payload = await response.json().catch(() => null) as { items?: Array<Record<string, unknown>>; users?: Array<Record<string, unknown>>; data?: Array<Record<string, unknown>> } | null;
-      const candidates = [
-        ...(Array.isArray(payload?.items) ? payload.items : []),
-        ...(Array.isArray(payload?.users) ? payload.users : []),
-        ...(Array.isArray(payload?.data) ? payload.data : []),
-      ];
-      const match = candidates.find((item) => typeof item?.id === 'string' && typeof item?.email === 'string' && item.email.toLowerCase() === email.toLowerCase());
-      if (typeof match?.id === 'string') return match.id;
+      const candidates = decodeCompatibilityUsers(await response.json());
+      const match = candidates.find((item) => typeof item?.["id"] === 'string' && typeof item?.["email"] === 'string' && item["email"].toLowerCase() === email.toLowerCase());
+      if (typeof match?.["id"] === 'string') return match["id"];
     }
     if (attempt < 5) await delay(250);
   }

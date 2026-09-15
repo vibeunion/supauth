@@ -4,14 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { apiVersionLog } from '../db/schema.js';
+import type { VersionEntry as VersionWireEntry } from '../../../shared/src/server-operations.js';
 
-export interface VersionEntry {
-  id: string;
-  version: string;
-  changeType: 'added' | 'deprecated' | 'breaking' | 'removed';
-  path: string;
-  method: string;
-  description: string | null;
+export interface VersionEntry extends Omit<VersionWireEntry, 'createdAt'> {
   createdAt: Date;
 }
 

@@ -39,42 +39,42 @@ function productionEnvWithoutRequiredConfig(): Record<string, string | undefined
 
 describe('ServerConfig', () => {
   beforeEach(() => {
-    delete process.env.PORT;
-    delete process.env.HOST;
+    delete process.env["PORT"];
+    delete process.env["HOST"];
     delete process.env.NODE_ENV;
-    delete process.env.SUPACLOUD_API_URL;
-    delete process.env.SUPACLOUD_INTERNAL_API_URL;
-    delete process.env.SUPACLOUD_MANAGEMENT_API_URL;
-    delete process.env.SUPACLOUD_INTERNAL_SUPABASE_URL;
-    delete process.env.SUPACLOUD_MASTER_TOKEN;
-    delete process.env.SUPACLOUD_INTERNAL_TOKEN;
-    delete process.env.SUPACLOUD_SERVICE_TOKEN;
-    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    delete process.env.SUPAOAUTH_BFF_SIGNING_SECRET;
-    delete process.env.PROJECT_REF;
-    delete process.env.SUPACLOUD_PROJECT_REF;
-    delete process.env.SUPABASE_PROJECT_REF;
-    delete process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF;
-    delete process.env.OAUTH_AUTHORIZATION_PROJECT_REF;
-    delete process.env.GOTRUE_AUTHORIZATION_PROJECT_REF;
-    delete process.env.OAUTH_RUNTIME_URL;
-    delete process.env.SUPACLOUD_RUNTIME_URL;
-    delete process.env.SUPABASE_URL;
-    delete process.env.OAUTH_RUNTIME_INTERNAL_URL;
-    delete process.env.GOTRUE_INTERNAL_URL;
-    delete process.env.SUPACLOUD_RUNTIME_INTERNAL_URL;
-    delete process.env.SUPAUTH_PUBLIC_URL;
-    delete process.env.AUTH_PUBLIC_URL;
-    delete process.env.SUPAUTH_INSTALLED_BASE_URL;
-    delete process.env.SUPAUTH_BASE_URL;
-    delete process.env.OAUTH_PUBLIC_BASE_URL;
-    delete process.env.TRUST_PROXY_HEADERS;
-    delete process.env.RUNTIME_MODE;
-    delete process.env.CORS_ORIGINS;
-    delete process.env.LOG_LEVEL;
-    delete process.env.DATABASE_URL;
-    delete process.env.SUPACLOUD_DATABASE_URL;
-    delete process.env.SUPABASE_DB_URL;
+    delete process.env["SUPACLOUD_API_URL"];
+    delete process.env["SUPACLOUD_INTERNAL_API_URL"];
+    delete process.env["SUPACLOUD_MANAGEMENT_API_URL"];
+    delete process.env["SUPACLOUD_INTERNAL_SUPABASE_URL"];
+    delete process.env["SUPACLOUD_MASTER_TOKEN"];
+    delete process.env["SUPACLOUD_INTERNAL_TOKEN"];
+    delete process.env["SUPACLOUD_SERVICE_TOKEN"];
+    delete process.env["SUPABASE_SERVICE_ROLE_KEY"];
+    delete process.env["SUPAOAUTH_BFF_SIGNING_SECRET"];
+    delete process.env["PROJECT_REF"];
+    delete process.env["SUPACLOUD_PROJECT_REF"];
+    delete process.env["SUPABASE_PROJECT_REF"];
+    delete process.env["SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF"];
+    delete process.env["OAUTH_AUTHORIZATION_PROJECT_REF"];
+    delete process.env["GOTRUE_AUTHORIZATION_PROJECT_REF"];
+    delete process.env["OAUTH_RUNTIME_URL"];
+    delete process.env["SUPACLOUD_RUNTIME_URL"];
+    delete process.env["SUPABASE_URL"];
+    delete process.env["OAUTH_RUNTIME_INTERNAL_URL"];
+    delete process.env["GOTRUE_INTERNAL_URL"];
+    delete process.env["SUPACLOUD_RUNTIME_INTERNAL_URL"];
+    delete process.env["SUPAUTH_PUBLIC_URL"];
+    delete process.env["AUTH_PUBLIC_URL"];
+    delete process.env["SUPAUTH_INSTALLED_BASE_URL"];
+    delete process.env["SUPAUTH_BASE_URL"];
+    delete process.env["OAUTH_PUBLIC_BASE_URL"];
+    delete process.env["TRUST_PROXY_HEADERS"];
+    delete process.env["RUNTIME_MODE"];
+    delete process.env["CORS_ORIGINS"];
+    delete process.env["LOG_LEVEL"];
+    delete process.env["DATABASE_URL"];
+    delete process.env["SUPACLOUD_DATABASE_URL"];
+    delete process.env["SUPABASE_DB_URL"];
   });
 
   it('returns defaults when env vars are not set', () => {
@@ -100,27 +100,27 @@ describe('ServerConfig', () => {
   });
 
   it('passes validation with all required fields', () => {
-    process.env.SUPACLOUD_API_URL = 'http://localhost:9090';
-    process.env.SUPACLOUD_MASTER_TOKEN = 'test-token';
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'test-bff-signing-secret-0123456789abcdef';
-    process.env.PROJECT_REF = 'test-ref';
-    process.env.OAUTH_RUNTIME_URL = 'http://localhost:9999';
-    process.env.DATABASE_URL = 'postgres://localhost/supaoauth';
+    process.env["SUPACLOUD_API_URL"] = 'http://localhost:9090';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = 'test-token';
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] = 'test-storage-token';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'test-bff-signing-secret-0123456789abcdef';
+    process.env["PROJECT_REF"] = 'test-ref';
+    process.env["OAUTH_RUNTIME_URL"] = 'http://localhost:9999';
+    process.env["DATABASE_URL"] = 'postgres://localhost/supaoauth';
     const config = loadConfig();
     const errors = validateConfig(config);
     expect(errors).toHaveLength(0);
   });
 
   it('uses SupaCloud project injected env aliases', () => {
-    process.env.SUPACLOUD_INTERNAL_API_URL = 'http://supacloud.internal';
-    process.env.SUPACLOUD_INTERNAL_TOKEN = 'internal-token';
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'internal-bff-signing-secret-0123456789abcdef';
-    process.env.SUPACLOUD_PROJECT_REF = 'project-from-supacloud';
-    process.env.SUPACLOUD_RUNTIME_URL = 'https://runtime.example.test';
-    process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://supacloud/project';
+    process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
+    process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'internal-token';
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] = 'test-storage-token';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'internal-bff-signing-secret-0123456789abcdef';
+    process.env["SUPACLOUD_PROJECT_REF"] = 'project-from-supacloud';
+    process.env["SUPACLOUD_RUNTIME_URL"] = 'https://runtime.example.test';
+    process.env["SUPAUTH_PUBLIC_URL"] = 'https://auth.example.test';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://supacloud/project';
     const config = loadConfig();
     expect(config.supacloudApiUrl).toBe('http://supacloud.internal');
     expect(config.supacloudMasterToken).toBe('internal-token');
@@ -133,14 +133,14 @@ describe('ServerConfig', () => {
   });
 
   it('accepts the SupaCloud edge-runtime internal management URL alias', () => {
-    process.env.SUPACLOUD_INTERNAL_SUPABASE_URL = 'http://127.0.0.1:9090';
-    process.env.SUPACLOUD_INTERNAL_TOKEN = 'internal-token';
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-storage-token';
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'edge-bff-signing-secret-0123456789abcdef';
-    process.env.SUPACLOUD_PROJECT_REF = 'project-from-supacloud';
-    process.env.SUPACLOUD_RUNTIME_URL = 'https://runtime.example.test';
-    process.env.SUPAUTH_PUBLIC_URL = 'https://auth.example.test';
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://supacloud/project';
+    process.env["SUPACLOUD_INTERNAL_SUPABASE_URL"] = 'http://127.0.0.1:9090';
+    process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'internal-token';
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] = 'test-storage-token';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'edge-bff-signing-secret-0123456789abcdef';
+    process.env["SUPACLOUD_PROJECT_REF"] = 'project-from-supacloud';
+    process.env["SUPACLOUD_RUNTIME_URL"] = 'https://runtime.example.test';
+    process.env["SUPAUTH_PUBLIC_URL"] = 'https://auth.example.test';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://supacloud/project';
 
     const config = loadConfig();
 
@@ -149,8 +149,8 @@ describe('ServerConfig', () => {
   });
 
   it('supports legacy installed base URL while preferring neutral public URL names', () => {
-    process.env.AUTH_PUBLIC_URL = 'https://auth-neutral.example.test';
-    process.env.SUPAUTH_INSTALLED_BASE_URL = 'https://auth-installed.example.test';
+    process.env["AUTH_PUBLIC_URL"] = 'https://auth-neutral.example.test';
+    process.env["SUPAUTH_INSTALLED_BASE_URL"] = 'https://auth-installed.example.test';
 
     const config = loadConfig();
 
@@ -158,7 +158,7 @@ describe('ServerConfig', () => {
   });
 
   it('rejects invalid public auth URL at config validation time', () => {
-    process.env.SUPAUTH_PUBLIC_URL = 'not a url';
+    process.env["SUPAUTH_PUBLIC_URL"] = 'not a url';
 
     const config = loadConfig();
     const errors = validateConfig(config);
@@ -202,10 +202,10 @@ describe('ServerConfig', () => {
     const sensitiveStorageToken = 'sensitive-storage-token-0123456789abcdef';
     const sensitivePublicUrl = 'sensitive-public-url-value';
     process.env.NODE_ENV = 'production';
-    process.env.SUPACLOUD_MASTER_TOKEN = sensitiveToken;
-    process.env.SUPABASE_SERVICE_ROLE_KEY = sensitiveStorageToken;
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = sensitiveToken;
-    process.env.SUPAUTH_PUBLIC_URL = sensitivePublicUrl;
+    process.env["SUPACLOUD_MASTER_TOKEN"] = sensitiveToken;
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] = sensitiveStorageToken;
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = sensitiveToken;
+    process.env["SUPAUTH_PUBLIC_URL"] = sensitivePublicUrl;
     const config = loadConfig();
     let startupErrorMessage = '';
 
@@ -237,7 +237,7 @@ describe('ServerConfig', () => {
   });
 
   it('enables trusted proxy headers only when explicitly configured', () => {
-    process.env.TRUST_PROXY_HEADERS = 'true';
+    process.env["TRUST_PROXY_HEADERS"] = 'true';
 
     const config = loadConfig();
 
@@ -245,15 +245,15 @@ describe('ServerConfig', () => {
   });
 
   it('prefers the SupaCloud project database URL over a platform DATABASE_URL', () => {
-    process.env.SUPACLOUD_DATABASE_URL = 'postgres://supacloud/project';
-    process.env.DATABASE_URL = 'postgres://platform/meta';
+    process.env["SUPACLOUD_DATABASE_URL"] = 'postgres://supacloud/project';
+    process.env["DATABASE_URL"] = 'postgres://platform/meta';
     const config = loadConfig();
     expect(config.databaseUrl).toBe('postgres://supacloud/project');
   });
 
   it('fails closed for every non-GoTrue runtime mode', () => {
     for (const runtimeMode of ['external_oidc', 'invalid']) {
-      process.env.RUNTIME_MODE = runtimeMode;
+      process.env["RUNTIME_MODE"] = runtimeMode;
       expect(() => loadConfig()).toThrow('RUNTIME_MODE must be "gotrue"');
     }
   });
@@ -262,32 +262,32 @@ describe('ServerConfig', () => {
     const missing = validateConfig(loadConfig());
     expect(missing).toContain('SUPAOAUTH_BFF_SIGNING_SECRET is required');
 
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'short-secret';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'short-secret';
     expect(validateConfig(loadConfig())).toContain('SUPAOAUTH_BFF_SIGNING_SECRET must be at least 32 characters');
 
-    process.env.SUPACLOUD_MASTER_TOKEN = 'shared-token-that-is-at-least-32-characters';
-    process.env.SUPAOAUTH_BFF_SIGNING_SECRET = 'shared-token-that-is-at-least-32-characters';
+    process.env["SUPACLOUD_MASTER_TOKEN"] = 'shared-token-that-is-at-least-32-characters';
+    process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'shared-token-that-is-at-least-32-characters';
     expect(validateConfig(loadConfig())).toContain('SUPAOAUTH_BFF_SIGNING_SECRET must be independent from the SupaCloud token');
   });
 
   it('uses custom port from env', () => {
-    process.env.PORT = '8080';
+    process.env["PORT"] = '8080';
     const config = loadConfig();
     expect(config.port).toBe(8080);
   });
 
   it('uses dedicated internal runtime URL when provided', () => {
-    process.env.OAUTH_RUNTIME_URL = 'https://api.example.com/auth/v1';
-    process.env.OAUTH_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3210';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://api.example.com/auth/v1';
+    process.env["OAUTH_RUNTIME_INTERNAL_URL"] = 'http://127.0.0.1:3210';
     const config = loadConfig();
     expect(config.oauthRuntimeUrl).toBe('https://api.example.com/auth/v1');
     expect(config.oauthRuntimeInternalUrl).toBe('http://127.0.0.1:3210');
   });
 
   it('prefers dedicated OAuth internal runtime URL over stale SupaCloud runtime URL', () => {
-    process.env.OAUTH_RUNTIME_URL = 'https://auth.example.test/auth/v1';
-    process.env.OAUTH_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3372';
-    process.env.SUPACLOUD_RUNTIME_INTERNAL_URL = 'http://127.0.0.1:3367';
+    process.env["OAUTH_RUNTIME_URL"] = 'https://auth.example.test/auth/v1';
+    process.env["OAUTH_RUNTIME_INTERNAL_URL"] = 'http://127.0.0.1:3372';
+    process.env["SUPACLOUD_RUNTIME_INTERNAL_URL"] = 'http://127.0.0.1:3367';
 
     const config = loadConfig();
 
@@ -295,8 +295,8 @@ describe('ServerConfig', () => {
   });
 
   it('uses a dedicated OAuth authorization project ref when configured', () => {
-    process.env.PROJECT_REF = 'business-project';
-    process.env.SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF = 'central-idp-project';
+    process.env["PROJECT_REF"] = 'business-project';
+    process.env["SUPAUTH_OAUTH_AUTHORIZATION_PROJECT_REF"] = 'central-idp-project';
 
     const config = loadConfig();
 

@@ -1,3 +1,5 @@
+// @ts-check
+/** @type {Readonly<Record<string, string>>} */
 const CHECK_LABELS = {
   "sc-1-discovery": "discovery",
   "sc-2-jwks": "jwks",
@@ -11,16 +13,18 @@ const CHECK_LABELS = {
   "rb-6-schema-isolation": "schemaIsolation",
 };
 
+/** @param {unknown} compatibilityCheck @param {(key: string, params?: {checkId: string}) => string} translate */
 export function compatibilityCheckLabel(compatibilityCheck, translate) {
-  const checkId = compatibilityCheck?.check_id;
+  const checkId = compatibilityCheck && typeof compatibilityCheck === "object" && "check_id" in compatibilityCheck
+    ? compatibilityCheck.check_id : undefined;
   const checkLabel = typeof checkId === "string" && Object.hasOwn(CHECK_LABELS, checkId)
     ? CHECK_LABELS[checkId]
     : null;
   if (!checkLabel) {
     return translate("jwt.compatibility.unknown", {
-      checkId: checkId || translate("common.notAvailable"),
+      checkId: typeof checkId === "string" && checkId ? checkId : translate("common.notAvailable"),
     });
   }
-  const outcome = compatibilityCheck.status === "pass" ? "pass" : "attention";
+  const outcome = compatibilityCheck && typeof compatibilityCheck === "object" && "status" in compatibilityCheck && compatibilityCheck.status === "pass" ? "pass" : "attention";
   return translate(`jwt.compatibility.${checkLabel}.${outcome}`);
 }

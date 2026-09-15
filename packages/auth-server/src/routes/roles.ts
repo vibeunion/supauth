@@ -1,9 +1,10 @@
 // Role and Permission management routes with OpenAPI annotations
 
 import { Elysia } from 'elysia';
+import { managementContract, decodeEndpointBody, decodeEndpointResponse, decodeManagementQuery } from '../utils/management-contract.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
-import { ApiContractError, pagedResponse } from '../utils/api-contract.js';
+import { ApiContractError, pagedResponse, isRecord } from '../utils/api-contract.js';
 
 const adapter = getSupaCloudAdapter();
 const RBAC_NAME_MAX_LENGTH = 255;
@@ -19,91 +20,89 @@ async function auditStrict(eventType: string, resourceType: string, resourceId: 
 
 export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
   .get('/', async () => {
-    return pagedResponse(await adapter.listRoles());
-  }, {
+    return decodeEndpointResponse('listRoles', pagedResponse(await adapter.listRoles()));
+  }, managementContract("GET", "/v1/roles", {
     detail: { summary: 'List roles', tags: ['RBAC'] },
-  })
+  }))
   .post('/', async ({ body }) => {
-    const input = roleCreateInput(body);
-    const created = await createRole(input);
-    const record = created as Record<string, unknown>;
-    await auditStrict('role.create', 'role', String(record.id || ''), { name: record.name });
+    const input = roleCreateInput(decodeEndpointBody('createRole', body));
+    const created = decodeEndpointResponse('createRole', await createRole(input));
+    await auditStrict('role.create', 'role', created.id, { name: created.name });
     return created;
-  }, {
+  }, managementContract("POST", "/v1/roles", {
     detail: { summary: 'Create role', tags: ['RBAC'] },
-  })
+  }, ({ body }) => { roleCreateInput(body); }))
   .get('/:roleId', async ({ params }) => {
-    return adapter.getRole(params.roleId);
-  }, {
+    return decodeEndpointResponse('getRole', await adapter.getRole(params.roleId));
+  }, managementContract("GET", "/v1/roles/:roleId", {
     detail: { summary: 'Get role by ID', tags: ['RBAC'] },
-  })
+  }))
   .put('/:roleId', async ({ params, body }) => {
-    const updated = await adapter.updateRole(params.roleId, roleUpdateInput(body));
+    const updated = await adapter.updateRole(params.roleId, roleUpdateInput(decodeEndpointBody('updateRole', body)));
     await auditStrict('role.update', 'role', params.roleId);
-    return updated;
-  }, {
+    return decodeEndpointResponse('updateRole', updated);
+  }, managementContract("PUT", "/v1/roles/:roleId", {
     detail: { summary: 'Update role', tags: ['RBAC'] },
-  })
+  }, ({ body }) => { roleUpdateInput(body); }))
   .delete('/:roleId', async ({ params }) => {
     await adapter.deleteRole(params.roleId);
     await auditStrict('role.delete', 'role', params.roleId);
-  }, {
+  }, managementContract("DELETE", "/v1/roles/:roleId", {
     detail: { summary: 'Delete role', tags: ['RBAC'] },
-  })
+  }))
 
   // ─── Permissions ───
   .post('/:roleId/permissions', async ({ params, body }) => {
-    const data = body as { name: string; description?: string; scope_id?: string };
-    const perm = await adapter.createPermission(params.roleId, data as Record<string, unknown>);
-    const record = perm as Record<string, unknown>;
-    await auditStrict('permission.create', 'permission', String(record.id || ''), { role_id: params.roleId });
+    const data = decodeEndpointBody('createRolePermission', body);
+    const perm = decodeEndpointResponse('createRolePermission', await adapter.createPermission(params.roleId, data));
+    await auditStrict('permission.create', 'permission', perm.id, { role_id: params.roleId });
     return perm;
-  }, {
+  }, managementContract("POST", "/v1/roles/:roleId/permissions", {
     detail: { summary: 'Create permission under role', tags: ['RBAC', 'Permissions'] },
-  })
+  }))
   .delete('/:roleId/permissions/:permissionId', async ({ params }) => {
     await adapter.deletePermission(params.roleId, params.permissionId);
     await auditStrict('permission.delete', 'permission', params.permissionId);
-  }, {
+  }, managementContract("DELETE", "/v1/roles/:roleId/permissions/:permissionId", {
     detail: { summary: 'Delete permission', tags: ['RBAC', 'Permissions'] },
-  })
+  }))
   .get('/:roleId/permissions', async ({ params }) => {
-    return pagedResponse(await adapter.listRolePermissions(params.roleId));
-  }, {
+    return decodeEndpointResponse('listRolePermissions', pagedResponse(await adapter.listRolePermissions(params.roleId)));
+  }, managementContract("GET", "/v1/roles/:roleId/permissions", {
     detail: { summary: 'List permissions for role', tags: ['RBAC', 'Permissions'] },
-  })
+  }))
 
   // ─── Role Assignments ───
-  .get('/:roleId/assign', async ({ params, query }) => {
-    return pagedResponse(await adapter.listRoleAssignments(params.roleId, {
+  .get('/:roleId/assign', async ({ params, query: rawQuery }) => {
+    const query = decodeManagementQuery('listRoleAssignments', rawQuery);
+    return decodeEndpointResponse('listRoleAssignments', pagedResponse(await adapter.listRoleAssignments(params.roleId, {
       target_type: query.target_type,
       page: query.page,
       limit: query.limit,
-    }), { page: query.page, limit: query.limit });
-  }, {
+    }), { page: query.page, limit: query.limit }));
+  }, managementContract("GET", "/v1/roles/:roleId/assign", {
     detail: { summary: 'List role assignments for role', tags: ['RBAC', 'Assignments'] },
-  })
+  }))
   .post('/:roleId/assign', async ({ params, body }) => {
-    const data = body as { user_id?: string; organization_id?: string; application_id?: string };
+    const data = decodeEndpointBody('assignRole', body);
     await validateAssignmentTarget(data);
-    const assignment = await adapter.assignRole(params.roleId, data as Record<string, unknown>);
-    const record = assignment as Record<string, unknown>;
+    const assignment = decodeEndpointResponse('assignRole', await adapter.assignRole(params.roleId, data));
     await auditStrict('role.assign', 'role', params.roleId, {
-      assignment_id: record.id,
+      assignment_id: assignment.id,
       user_id: data.user_id,
       application_id: data.application_id,
       organization_id: data.organization_id,
     });
     return assignment;
-  }, {
+  }, managementContract("POST", "/v1/roles/:roleId/assign", {
     detail: { summary: 'Assign role to a user or machine-to-machine application', tags: ['RBAC', 'Assignments'] },
-  })
+  }))
   .delete('/:roleId/assign/:assignmentId', async ({ params }) => {
     await adapter.revokeRole(params.roleId, params.assignmentId);
     await auditStrict('role.revoke', 'role', params.roleId, { assignment_id: params.assignmentId });
-  }, {
+  }, managementContract("DELETE", "/v1/roles/:roleId/assign/:assignmentId", {
     detail: { summary: 'Revoke role assignment', tags: ['RBAC', 'Assignments'] },
-  });
+  }));
 
 function invalidRoleInput(field: string) {
   return new ApiContractError(
@@ -115,8 +114,8 @@ function invalidRoleInput(field: string) {
 }
 
 function roleInputRecord(body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) throw invalidRoleInput('body');
-  return body as Record<string, unknown>;
+  if (!isRecord(body)) throw invalidRoleInput('body');
+  return body;
 }
 
 function normalizedRbacName(candidate: unknown, field = 'name') {
@@ -128,15 +127,15 @@ function normalizedRbacName(candidate: unknown, field = 'name') {
 
 function optionalDescription(input: Record<string, unknown>): { description?: string | null } {
   if (!Object.hasOwn(input, 'description')) return {};
-  if (input.description !== null && typeof input.description !== 'string') {
+  if (input["description"] !== null && typeof input["description"] !== 'string') {
     throw invalidRoleInput('description');
   }
-  return { description: input.description };
+  return { description: input["description"] };
 }
 
 function normalizedPermissions(candidate: unknown) {
   if (!Array.isArray(candidate)) throw invalidRoleInput('permissions');
-  const permissions = candidate.map(permission => normalizedRbacName(permission, 'permissions'));
+  const permissions = candidate.map((permission: unknown) => normalizedRbacName(permission, 'permissions'));
   const uniqueNames = new Set(permissions.map(permission => permission.toLowerCase()));
   if (uniqueNames.size !== permissions.length) throw invalidRoleInput('permissions');
   return permissions;
@@ -146,9 +145,9 @@ function roleCreateInput(body: unknown): RoleCreateInput {
   const input = roleInputRecord(body);
   if (!Object.hasOwn(input, 'name')) throw invalidRoleInput('name');
   return {
-    role: { name: normalizedRbacName(input.name), ...optionalDescription(input) },
+    role: { name: normalizedRbacName(input["name"]), ...optionalDescription(input) },
     ...(Object.hasOwn(input, 'permissions')
-      ? { permissions: normalizedPermissions(input.permissions) }
+      ? { permissions: normalizedPermissions(input["permissions"]) }
       : {}),
   };
 }
@@ -156,25 +155,25 @@ function roleCreateInput(body: unknown): RoleCreateInput {
 function roleUpdateInput(body: unknown) {
   const input = roleInputRecord(body);
   return {
-    ...(Object.hasOwn(input, 'name') ? { name: normalizedRbacName(input.name) } : {}),
+    ...(Object.hasOwn(input, 'name') ? { name: normalizedRbacName(input["name"]) } : {}),
     ...optionalDescription(input),
   };
 }
 
 function createdRoleId(created: unknown) {
-  if (!created || typeof created !== 'object' || Array.isArray(created)) throw roleCreationOutcomeUnknown();
-  const roleId = (created as Record<string, unknown>).id;
+  if (!isRecord(created)) throw roleCreationOutcomeUnknown();
+  const roleId = created["id"];
   if (typeof roleId !== 'string' || !roleId.trim()) throw roleCreationOutcomeUnknown();
   return roleId;
 }
 
 function authoritativePermissionNames(role: unknown) {
-  if (!role || typeof role !== 'object' || Array.isArray(role)) return null;
-  const permissions = (role as Record<string, unknown>).permissions;
+  if (!isRecord(role)) return null;
+  const permissions = role["permissions"];
   if (!Array.isArray(permissions)) return null;
-  const names = permissions.map(permission => {
-    if (!permission || typeof permission !== 'object' || Array.isArray(permission)) return null;
-    const name = (permission as Record<string, unknown>).name;
+  const names = permissions.map((permission: unknown) => {
+    if (!isRecord(permission)) return null;
+    const name = permission["name"];
     return typeof name === 'string' ? name : null;
   });
   return names.every((name): name is string => name !== null) ? names : null;

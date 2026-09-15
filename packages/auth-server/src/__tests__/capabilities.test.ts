@@ -8,14 +8,14 @@ describe('negotiated capability truth', () => {
   it('adds explicit fail-closed status for capabilities not advertised upstream', () => {
     const capabilities = negotiatedCapabilities({ capabilities: {} }, verifiedAt);
 
-    expect(capabilities.gotrue_admin_user_sessions).toEqual({
+    expect(capabilities["gotrue_admin_user_sessions"]).toEqual({
       available: false,
       source: 'gotrue',
       version: null,
       reason_code: 'not_advertised_by_upstream',
       last_verified_at: verifiedAt,
     });
-    expect(capabilities.supacloud_identity_analytics_v1).toMatchObject({
+    expect(capabilities["supacloud_identity_analytics_v1"]).toMatchObject({
       available: false,
       source: 'supacloud',
       reason_code: 'not_advertised_by_upstream',
@@ -36,7 +36,7 @@ describe('negotiated capability truth', () => {
       },
     }, verifiedAt);
 
-    expect(capabilities.gotrue_admin_user_sessions).toEqual({
+    expect(capabilities["gotrue_admin_user_sessions"]).toEqual({
       available: true,
       source: 'gotrue',
       version: '2.194.0',
@@ -53,7 +53,9 @@ describe('negotiated capability truth', () => {
       },
     }, verifiedAt);
 
-    expect(capabilities.custom_capability.last_verified_at).toBe(verifiedAt);
+    const capability = capabilities["custom_capability"];
+    if (!capability) throw new Error('Expected negotiated custom capability');
+    expect(capability.last_verified_at).toBe(verifiedAt);
   });
 
   it('accepts missing and explicit null optional metadata for available capabilities', () => {
@@ -69,8 +71,8 @@ describe('negotiated capability truth', () => {
       },
     }, verifiedAt);
 
-    expect(capabilities.missing).toMatchObject({ version: null, reason_code: null });
-    expect(capabilities.explicit_null).toMatchObject({ version: null, reason_code: null });
+    expect(capabilities["missing"]).toMatchObject({ version: null, reason_code: null });
+    expect(capabilities["explicit_null"]).toMatchObject({ version: null, reason_code: null });
   });
 
   it('requires a non-empty reason only for unavailable capabilities', () => {
@@ -84,7 +86,9 @@ describe('negotiated capability truth', () => {
       },
     }, verifiedAt);
 
-    expect(capabilities.unavailable.reason_code).toBe('not_supported_by_runtime');
+    const capability = capabilities["unavailable"];
+    if (!capability) throw new Error('Expected unavailable capability');
+    expect(capability.reason_code).toBe('not_supported_by_runtime');
   });
 
   it('distinguishes an unavailable negotiation endpoint from an unadvertised capability', () => {
@@ -94,7 +98,9 @@ describe('negotiated capability truth', () => {
       'capability_negotiation_unavailable',
     );
 
-    expect(capabilities.gotrue_admin_user_sessions.reason_code)
+    const capability = capabilities["gotrue_admin_user_sessions"];
+    if (!capability) throw new Error('Expected fail-closed session capability');
+    expect(capability.reason_code)
       .toBe('capability_negotiation_unavailable');
   });
 

@@ -6,27 +6,46 @@ import { getDb } from '../db/index.js';
 import { organizationTemplateInstantiations, organizationTemplates } from '../db/schema.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { ApiContractError } from '../utils/api-contract.js';
+import { Type, decodeSchema, type Static, type TSchema } from '../../../shared/src/schema.js';
+import { InstantiatedOrganizationSchema, OrganizationTemplateSchema } from '../../../shared/src/sdk-models.js';
 
-export interface OrgTemplate {
-  id: string;
-  name: string;
-  description: string | null;
-  templateRoles: Array<{ name: string; permissions: string[] }>;
-  templateScopes: Array<{ name: string; description?: string }>;
-  isDefault: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+export type OrgTemplate = typeof organizationTemplates.$inferSelect;
+export type OrganizationTemplateInstantiationResult = Static<typeof InstantiatedOrganizationSchema> & { replayed?: boolean };
+
+type CreatedResourceKind = 'organization' | 'role' | 'permission';
+const receiptId = Type.String({ minLength: 1, pattern: '\\S' });
+const OrganizationReceiptSchema = Type.Union([
+  Type.Object({ id: receiptId, organization_id: Type.Optional(receiptId), name: Type.Optional(Type.String()) }),
+  Type.Object({ id: Type.Optional(receiptId), organization_id: receiptId, name: Type.Optional(Type.String()) }),
+]);
+const RoleReceiptSchema = Type.Union([
+  Type.Object({ id: receiptId, role_id: Type.Optional(receiptId) }),
+  Type.Object({ id: Type.Optional(receiptId), role_id: receiptId }),
+]);
+const PermissionReceiptSchema = Type.Union([
+  Type.Object({ id: receiptId, permission_id: Type.Optional(receiptId) }),
+  Type.Object({ id: Type.Optional(receiptId), permission_id: receiptId }),
+]);
+
+function decodeCreationReceipt<S extends TSchema>(schema: S, value: unknown): Static<S> {
+  try {
+    return decodeSchema(schema, value);
+  } catch {
+    throw new ApiContractError(502, 'invalid_upstream_response', 'SupaCloud creation returned an invalid receipt');
+  }
 }
 
-export interface OrganizationTemplateInstantiationResult {
-  org: Record<string, unknown> & { id: string };
-  template: OrgTemplate;
-  rolesCreated: number;
-  replayed?: boolean;
+function confirmedReceiptId(primary: string | undefined, legacy: string | undefined): string {
+  const id = primary ?? legacy;
+  if (!id?.trim()) {
+    throw new ApiContractError(502, 'invalid_upstream_response', 'SupaCloud creation returned an invalid receipt');
+  }
+  return id;
 }
 
 const DEFAULT_TEMPLATE_LOCK_KEY = 'supaoauth.organization_templates.default';
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._~:+/-]{1,255}$/;
+type TemplateExecutor = Pick<ReturnType<typeof getDb>, 'select' | 'update' | 'insert' | 'delete'>;
 export const ORGANIZATION_TEMPLATE_DEFAULT_UNIQUE_INDEX_SQL = `
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_organization_templates_single_default"
 ON "supaoauth"."organization_templates" ("is_default")
@@ -35,14 +54,14 @@ WHERE "is_default" = true
 
 async function withDefaultTemplateLock<T>(
   db: ReturnType<typeof getDb>,
-  operation: (transaction: ReturnType<typeof getDb>) => Promise<T>,
+  operation: (transaction: TemplateExecutor) => Promise<T>,
 ) {
   return db.transaction(async (transaction) => {
     // The unique partial index is installed by the hosted migration. The
     // advisory lock keeps replacement ordered while older installations are
     // being upgraded.
     await transaction.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${DEFAULT_TEMPLATE_LOCK_KEY}, 0))`);
-    return operation(transaction as unknown as ReturnType<typeof getDb>);
+    return operation(transaction);
   });
 }
 
@@ -77,7 +96,7 @@ export async function createTemplate(data: {
   isDefault?: boolean;
 }) {
   const db = getDb();
-  const write = async (executor: ReturnType<typeof getDb>) => {
+  const write = async (executor: TemplateExecutor) => {
     if (data.isDefault) {
       await executor.update(organizationTemplates)
         .set({ isDefault: false, updatedAt: new Date() })
@@ -106,7 +125,7 @@ export async function updateTemplate(id: string, data: {
   isDefault?: boolean;
 }) {
   const db = getDb();
-  const write = async (executor: ReturnType<typeof getDb>) => {
+  const write = async (executor: TemplateExecutor) => {
     const [current] = await executor.select({ id: organizationTemplates.id })
       .from(organizationTemplates)
       .where(eq(organizationTemplates.id, id))
@@ -184,7 +203,17 @@ async function reserveInstantiation(idempotencyKey: string, templateId: string, 
         { recovery_required: true },
       );
     }
-    return existing.result;
+    try {
+      // JSONB 回放是独立信任边界，不能把持久化 JSON 假定为带 Date 的数据库行。
+      return decodeSchema(InstantiatedOrganizationSchema, existing.result);
+    } catch {
+      throw new ApiContractError(
+        503,
+        'idempotency_state_unavailable',
+        'Completed instantiation has an invalid persisted result',
+        { recovery_required: true },
+      );
+    }
   }
   if (existing.status === 'recovery_required') {
     throw new ApiContractError(
@@ -277,12 +306,18 @@ export async function instantiateFromTemplate(templateId: string, orgData: {
   if (!template) {
     throw new ApiContractError(404, 'organization_template_not_found', 'Organization template was not found');
   }
+  // 持久化 JSON 的静态列类型不构成校验；必须在任何远端写入前拒绝畸形模板。
+  const templateRolesData = decodeSchema(
+    OrganizationTemplateSchema.properties.templateRoles,
+    template.templateRoles ?? [],
+  );
+  decodeSchema(OrganizationTemplateSchema.properties.templateScopes, template.templateScopes ?? []);
   const hash = requestHash(templateId, orgData);
   if (idempotencyKey) {
     const replay = await reserveInstantiation(idempotencyKey, templateId, hash);
     if (replay) {
       return {
-        ...(replay as unknown as OrganizationTemplateInstantiationResult),
+        ...replay,
         replayed: true,
       };
     }
@@ -291,53 +326,50 @@ export async function instantiateFromTemplate(templateId: string, orgData: {
   let org: Record<string, unknown> | undefined;
   let orgId = '';
   let remoteOrganizationMutationStarted = false;
+  let remoteResourceIdUnknown: CreatedResourceKind | null = null;
   const createdRoles: Array<{ roleId: string; permissionIds: string[] }> = [];
 
   try {
     remoteOrganizationMutationStarted = true;
-    org = await adapter.createOrganization({
+    const organizationReceipt = await adapter.createOrganization({
       name: orgData.name,
       description: orgData.description,
-    }) as Record<string, unknown>;
-    orgId = String(org.id || org.organization_id || '');
-    const orgName = String(org.name || orgData.name);
-    if (!orgId) {
-      throw new ApiContractError(
-        502,
-        'invalid_upstream_response',
-        'SupaCloud organization creation returned no organization id',
-      );
-    }
+    });
+    // 远端写入已发生或结果未知；只有解码成功的 ID 才可用于后续写入和补偿。
+    remoteResourceIdUnknown = 'organization';
+    const createdOrganization = decodeCreationReceipt(OrganizationReceiptSchema, organizationReceipt);
+    orgId = confirmedReceiptId(createdOrganization.id, createdOrganization.organization_id);
+    org = createdOrganization;
+    remoteResourceIdUnknown = null;
+    const orgName = createdOrganization.name || orgData.name;
 
     await adapter.addOrganizationMember(orgId, {
       user_id: orgData.creatorUserId,
       role: 'owner',
     });
 
-    const templateRolesData = template.templateRoles as Array<{ name: string; permissions: string[] }> || [];
     for (const roleDef of templateRolesData) {
-      const role = await adapter.createRole({
+      const roleReceipt = await adapter.createRole({
         name: `${orgName.toLowerCase().replace(/\s+/g, '_')}_${roleDef.name}`,
         description: `Auto-generated from template "${template.name}" for org "${orgName}"`,
         organization_id: orgId,
-      }) as Record<string, unknown>;
-      const roleId = String(role.id || role.role_id || '');
-      if (!roleId) {
-        throw new ApiContractError(
-          502,
-          'invalid_upstream_response',
-          'SupaCloud role creation returned no role id',
-        );
-      }
+      });
+      remoteResourceIdUnknown = 'role';
+      const role = decodeCreationReceipt(RoleReceiptSchema, roleReceipt);
+      const roleId = confirmedReceiptId(role.id, role.role_id);
+      remoteResourceIdUnknown = null;
 
-      const createdRole = { roleId, permissionIds: [] as string[] };
+      const createdRole: { roleId: string; permissionIds: string[] } = { roleId, permissionIds: [] };
       createdRoles.push(createdRole);
       for (const permName of roleDef.permissions) {
-        const permission = await adapter.createPermission(roleId, {
+        const permissionReceipt = await adapter.createPermission(roleId, {
           name: permName,
-        }) as Record<string, unknown>;
-        const permissionId = String(permission?.id || permission?.permission_id || '');
-        if (permissionId) createdRole.permissionIds.push(permissionId);
+        });
+        remoteResourceIdUnknown = 'permission';
+        const permission = decodeCreationReceipt(PermissionReceiptSchema, permissionReceipt);
+        const permissionId = confirmedReceiptId(permission.id, permission.permission_id);
+        createdRole.permissionIds.push(permissionId);
+        remoteResourceIdUnknown = null;
       }
 
       await adapter.assignRole(roleId, {
@@ -346,15 +378,20 @@ export async function instantiateFromTemplate(templateId: string, orgData: {
       });
     }
 
-    const result = {
-      org: { ...org, id: orgId, name: String(org.name || orgData.name) },
+    const result: {
+      org: Record<string, unknown> & { id: string; name: string };
+      template: OrgTemplate;
+      rolesCreated: number;
+      replayed?: boolean;
+    } = {
+      org: { ...org, id: orgId, name: orgName },
       template,
       rolesCreated: templateRolesData.length,
     };
     if (idempotencyKey) {
       try {
         await finishInstantiation(idempotencyKey, hash, 'completed', {
-          result: result as unknown as Record<string, unknown>,
+          result,
           organizationId: orgId,
         });
       } catch (cause) {
@@ -366,7 +403,7 @@ export async function instantiateFromTemplate(templateId: string, orgData: {
         );
       }
     }
-    return result as OrganizationTemplateInstantiationResult;
+    return result;
   } catch (cause) {
     const rollbackFailures: unknown[] = [];
     for (const createdRole of [...createdRoles].reverse()) {
@@ -390,12 +427,13 @@ export async function instantiateFromTemplate(templateId: string, orgData: {
         rollbackFailures.push(error);
       }
     }
-    if (rollbackFailures.length > 0 || (remoteOrganizationMutationStarted && !orgId)) {
+    if (rollbackFailures.length > 0 || remoteResourceIdUnknown || (remoteOrganizationMutationStarted && !orgId)) {
       const error = new OrganizationTemplateInstantiationError(
         orgId || null,
         rollbackFailures,
         cause,
         remoteOrganizationMutationStarted && !orgId,
+        remoteResourceIdUnknown,
       );
       if (idempotencyKey) {
         await finishInstantiationBestEffort(idempotencyKey, hash, 'recovery_required', {
@@ -404,6 +442,7 @@ export async function instantiateFromTemplate(templateId: string, orgData: {
             organization_id: orgId || null,
             rollback_failures: rollbackFailures.length,
             remote_organization_id_unknown: remoteOrganizationMutationStarted && !orgId,
+            ...(remoteResourceIdUnknown ? { remote_resource_id_unknown: remoteResourceIdUnknown } : {}),
             recovery_required: true,
           },
         });
@@ -425,17 +464,21 @@ export class OrganizationTemplateInstantiationError extends ApiContractError {
     readonly rollbackFailures: unknown[],
     cause: unknown,
     readonly remoteOrganizationIdUnknown = false,
+    readonly remoteResourceIdUnknown: CreatedResourceKind | null = null,
   ) {
     super(
       502,
       'organization_template_compensation_incomplete',
-      organizationId
+      remoteResourceIdUnknown
+        ? 'Organization template creation returned an invalid receipt; the remote outcome requires recovery'
+        : organizationId
         ? `Organization template instantiation failed and compensation is incomplete for organization ${organizationId}`
         : 'Organization template instantiation failed and the remote organization identity is unknown',
       {
         organization_id: organizationId,
         rollback_failures: rollbackFailures.length,
         remote_organization_id_unknown: remoteOrganizationIdUnknown,
+        ...(remoteResourceIdUnknown ? { remote_resource_id_unknown: remoteResourceIdUnknown } : {}),
         recovery_required: true,
       },
     );

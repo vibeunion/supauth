@@ -1,4 +1,8 @@
-<script>
+<script lang="ts">
+  import type { OrganizationView, OrganizationMemberView, OrganizationApplicationView, OrganizationJitView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import type { SdkEndpointResult } from "@supauth/shared";
+  import type { DeepReadonly } from "$lib/authoritative-settings-readback.js";
+  import type { WriteCommand } from "$lib/mutation-reconciliation.js";
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
@@ -48,14 +52,16 @@
   ];
   const tabValues = tabs.map((tab) => tab.value);
 
-  let organization = $state(null);
-  let members = $state([]);
-  let invitations = $state([]);
-  let applications = $state([]);
-  let jit = $state({ enabled: false, domains: [] });
+  type RemovalAction = "remove-member" | "unlink-application";
+  type OrganizationLocks = DurableMutationLocks<RemovalAction>;
+  let organization = $state<OrganizationView | null>(null);
+  let members = $state<OrganizationMemberView[]>([]);
+  let invitations = $state<SdkEndpointResult<"listOrganizationInvitations">["items"]>([]);
+  let applications = $state<OrganizationApplicationView[]>([]);
+  let jit = $state<OrganizationJitView>({ enabled: false, domains: [] });
   let jitDomains = $state("");
   let jitAvailable = $state(false);
-  let branding = $state({ logo_url: "", primary_color: "" });
+  let branding = $state<SdkEndpointResult<"getOrganizationBranding">>({ logo_url: "", primary_color: "" });
   let organizationForm = $state({ name: "", description: "" });
   let inviteEmail = $state("");
   let newMember = $state({ user_id: "", role: "member" });
@@ -63,31 +69,31 @@
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
-  let reconciliationStatus = $state(null);
+  let reconciliationStatus = $state<string | null>(null);
   const mutationTracker = createOperationTracker((pending) => {
     saving = pending;
   });
-  let error = $state(null);
-  let mutationLocks = $state({});
+  let error = $state<unknown>(null);
+  let mutationLocks = $state<OrganizationLocks>({});
   let mutationStorageReady = $state(false);
-  let mutationStorageError = $state(null);
+  let mutationStorageError = $state<string | null>(null);
   const mutationLockStore = createDurableMutationLockStore({
     storageKey: "supaoauth.admin.organization-detail-mutation-locks.v1",
     allowedActions: ["remove-member", "unlink-application"],
     storageProvider: () => globalThis.localStorage,
   });
-  let orgId = $derived(page.params.orgId);
+  let orgId = $derived(page.params.orgId || "");
   let activeTab = $derived(
     tabFromRoute(page.params.tab, tabValues, "settings"),
   );
   let loadGeneration = 0;
-  let loadedOrganizationContext = $state(null);
+  let loadedOrganizationContext = $state<ResourceLoadContext | null>(null);
 
   function currentLoadContext() {
     return { generation: loadGeneration, resourceId: orgId, tab: activeTab };
   }
 
-  function isCurrentLoad(loadContext) {
+  function isCurrentLoad(loadContext: ResourceLoadContext) {
     return isLatestResourceLoad(loadContext, currentLoadContext());
   }
 
@@ -97,7 +103,7 @@
       : null;
   }
 
-  function isCurrentMutation(operation) {
+  function isCurrentMutation(operation: Operation<ResourceLoadContext>) {
     return (
       mutationTracker.isCurrent(operation) &&
       isCurrentLoad(operation.ownerContext)
@@ -111,7 +117,7 @@
     });
   }
 
-  function updateMutationLocks(lockCommand) {
+  function updateMutationLocks(lockCommand: () => OrganizationLocks) {
     try {
       mutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -127,11 +133,11 @@
     updateMutationLocks(() => mutationLockStore.restore());
   }
 
-  function removalLock(action, targetId, ownerId = orgId) {
+  function removalLock(action: RemovalAction, targetId: string, ownerId = orgId) {
     return { action, ownerId, targetId };
   }
 
-  function removalUnknown(action, targetId) {
+  function removalUnknown(action: RemovalAction, targetId: string) {
     return Boolean(
       orgId &&
         targetId &&
@@ -142,7 +148,7 @@
     );
   }
 
-  function stageRemoval(action, targetId, ownerId) {
+  function stageRemoval(action: RemovalAction, targetId: string, ownerId: string) {
     return updateMutationLocks(() =>
       mutationLockStore.stage(
         mutationLocks,
@@ -151,7 +157,7 @@
     );
   }
 
-  function clearRemoval(action, targetId, ownerId) {
+  function clearRemoval(action: RemovalAction, targetId: string, ownerId = orgId) {
     return updateMutationLocks(() =>
       mutationLockStore.clear(
         mutationLocks,
@@ -160,7 +166,7 @@
     );
   }
 
-  function acknowledgeRemoval(action, targetId) {
+  function acknowledgeRemoval(action: RemovalAction, targetId: string) {
     if (!confirm(t("I have reconciled the authoritative organization state."))) {
       return;
     }
@@ -168,23 +174,23 @@
     clearRemoval(action, targetId);
   }
 
-  function memberIdentity(member) {
+  function memberIdentity(member: OrganizationMemberView) {
     const identity = member?.user_id || member?.userId;
     return typeof identity === "string" ? identity : "";
   }
 
-  function applicationIdentity(application) {
+  function applicationIdentity(application: OrganizationApplicationView) {
     const identity = application?.application_id || application?.applicationId;
     return typeof identity === "string" ? identity : "";
   }
 
-  function completeMemberList(response) {
+  function completeMemberList(response: CollectionPayload<OrganizationMemberView>) {
     const listedMembers = completeCollectionItems(response);
     if (listedMembers.every((member) => memberIdentity(member))) return listedMembers;
     throw new Error("Management API returned an organization member without an identity");
   }
 
-  function completeApplicationList(response) {
+  function completeApplicationList(response: CollectionPayload<OrganizationApplicationView>) {
     const listedApplications = completeCollectionItems(response);
     if (listedApplications.every((entry) => applicationIdentity(entry))) {
       return listedApplications;
@@ -192,7 +198,7 @@
     throw new Error("Management API returned an organization application without an identity");
   }
 
-  async function readOrganizationSettings(resourceId) {
+  async function readOrganizationSettings(resourceId: string) {
     const [organizationResponse, capabilities] = await Promise.all([
       getOrganization(resourceId),
       getCapabilities(),
@@ -212,7 +218,7 @@
     };
   }
 
-  function organizationJitDomains(jitResponse) {
+  function organizationJitDomains(jitResponse: OrganizationJitView) {
     return (
       jitResponse?.domains ||
       jitResponse?.emailDomains ||
@@ -221,14 +227,14 @@
     );
   }
 
-  function applyOrganizationSettings(settings) {
+  function applyOrganizationSettings(settings: Awaited<ReturnType<typeof readOrganizationSettings>>) {
     applyOrganizationIdentity(settings.organizationResponse);
     jitAvailable = settings.jitEnabled;
     jit = settings.jitResponse;
     jitDomains = settings.jitDomainValues.join(", ");
   }
 
-  function applyOrganizationIdentity(organizationResponse) {
+  function applyOrganizationIdentity(organizationResponse: OrganizationView) {
     organization = organizationResponse;
     organizationForm = {
       name: organizationResponse.name || "",
@@ -271,8 +277,8 @@
           listOrganizationInvitations(loadContext.resourceId),
         ]);
         if (!isCurrentLoad(loadContext)) return;
-        members = collectionItems(memberResponse);
-        invitations = collectionItems(invitationResponse);
+        members = collectionItems<OrganizationMemberView>(memberResponse);
+        invitations = collectionItems<SdkEndpointResult<"listOrganizationInvitations">["items"][number]>(invitationResponse);
       } else if (loadContext.tab === "m2m") {
         const organizationResponse = await getOrganization(loadContext.resourceId);
         if (!isCurrentLoad(loadContext)) return;
@@ -281,7 +287,7 @@
           loadContext.resourceId,
         );
         if (!isCurrentLoad(loadContext)) return;
-        applications = collectionItems(applicationResponse);
+        applications = collectionItems<OrganizationApplicationView>(applicationResponse);
       } else if (loadContext.tab === "branding") {
         const organizationResponse = await getOrganization(loadContext.resourceId);
         if (!isCurrentLoad(loadContext)) return;
@@ -300,7 +306,7 @@
     }
   }
 
-  async function runMutation(command) {
+  async function runMutation(command: (context: ResourceLoadContext, operation: Operation<ResourceLoadContext>) => Promise<unknown>) {
     if (saving) return;
     const mutationContext = currentMutationContext();
     if (!mutationContext) return;
@@ -318,7 +324,7 @@
     }
   }
 
-  function organizationSettingsMutationDraft(operation) {
+  function organizationSettingsMutationDraft(operation: Operation<ResourceLoadContext>) {
     const resourceId = operation.ownerContext.resourceId;
     const organizationResponse = {
       id: resourceId,
@@ -342,8 +348,8 @@
     return { command, authority: organizationSettingsAuthority(command) };
   }
 
-  function organizationSettingsWriteCommands(command) {
-    const writeCommands = [
+  function organizationSettingsWriteCommands(command: DeepReadonly<ReturnType<typeof organizationSettingsMutationDraft>["command"]>) {
+    const writeCommands: WriteCommand[] = [
       () =>
         updateOrganization(command.resourceId, {
           name: command.organizationResponse.name,
@@ -352,13 +358,16 @@
     ];
     if (command.jitEnabled) {
       writeCommands.push(() =>
-        updateOrganizationJit(command.resourceId, command.jitResponse),
+        updateOrganizationJit(command.resourceId, {
+          enabled: command.jitResponse.enabled,
+          domains: [...command.jitResponse.domains],
+        }),
       );
     }
     return writeCommands;
   }
 
-  function applySettingsSaveStatus(reconciliation) {
+  function applySettingsSaveStatus(reconciliation: { status: string }) {
     saved = reconciliation.status === "success";
     reconciliationStatus = saved ? null : reconciliation.status;
   }
@@ -417,7 +426,7 @@
     });
   }
 
-  async function removeMember(userId) {
+  async function removeMember(userId: string) {
     if (saving || !mutationStorageReady || !userId) return;
     if (removalUnknown("remove-member", userId)) return;
     const mutationContext = currentMutationContext();
@@ -481,7 +490,7 @@
     }
   }
 
-  async function unlinkApplication(appId) {
+  async function unlinkApplication(appId: string) {
     if (saving || !mutationStorageReady || !appId) return;
     if (removalUnknown("unlink-application", appId)) return;
     const mutationContext = currentMutationContext();
@@ -754,7 +763,7 @@
         emptyTitle="No applications yet"
         ><div class="space-y-3">
           {#each applications as application (application.application_id || application.applicationId)}{@const appId =
-              application.application_id || application.applicationId}
+              applicationIdentity(application)}
             <div
               class="console-card flex items-center justify-between gap-4 p-4"
             >

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { renderHostedPage } from '../packages/admin-console/src/hosted/build.js';
 import {
   GOTRUE_CLAIMS_STRATEGY,
   SUPABASE_METADATA_CLAIMS,
@@ -194,14 +195,14 @@ describe('Supabase claims compatibility contract', () => {
     expect(docs).not.toContain('SupaOAuth adds claims under the `supaoauth` namespace');
   });
 
-  it('documents the default product boundary as GoTrue-backed, not a replacement issuer', () => {
+  it('documents the default product boundary as GoTrue-backed, not a replacement issuer', async () => {
     const readme = readFileSync('README.md', 'utf8');
     const consentFlow = readFileSync('docs/consent-flow.md', 'utf8');
     const authServer = readFileSync('packages/auth-server/src/index.ts', 'utf8');
     const compatibilityDocs = readFileSync('docs/supabase-compatibility.md', 'utf8');
     const enterpriseBoundaryDocs = readFileSync('docs/enterprise-iam-supabase-boundary.md', 'utf8');
     const adminI18n = readFileSync('packages/admin-console/src/lib/i18n.js', 'utf8');
-    const hostedAuthorizeHtml = readFileSync('packages/admin-console/static/authorize.html', 'utf8');
+    const hostedAuthorizeHtml = await renderHostedPage('authorize');
     const generatedHostedPages = readFileSync('packages/auth-server/src/generated/hosted-pages.ts', 'utf8');
 
     expect(readme).toContain('it enhances Supabase Auth instead of replacing it');
@@ -214,6 +215,7 @@ describe('Supabase claims compatibility contract', () => {
     expect(readme).not.toContain('SupaOAuth 是一个独立身份提供方');
     expect(adminI18n).toMatch(/["']layout\.subtitle["']\s*:\s*["']User Center["']/);
     expect(adminI18n).toMatch(/["']layout\.subtitle["']\s*:\s*["']用户中心["']/);
+    expect(hostedAuthorizeHtml).not.toContain('data-hosted-entry=');
     expect(hostedAuthorizeHtml).toContain('SupaOAuth User Center');
     expect(hostedAuthorizeHtml).toContain('SupaOAuth 用户中心');
     expect(hostedAuthorizeHtml).not.toContain('Identity Provider');
@@ -247,8 +249,11 @@ describe('Supabase claims compatibility contract', () => {
 
     expect(releaseGate).toContain("RUN_SUPABASE_RUNTIME_COMPAT: '1'");
     expect(releaseGate).toContain("RUN_SUPABASE_OAUTH21_COMPAT: '1'");
-    expect(releaseGate).toContain("run(['bun', 'test', '--isolate'])");
-    expect(releaseGate).toContain("RELEASE_ENVIRONMENT === 'production'");
+    expect(releaseGate).toContain("run(['bun', '--no-env-file', 'test', '--isolate'])");
+    expect(releaseGate).toContain("run(['bun', '--no-env-file', 'run', 'scripts/real-contract-acceptance.ts']");
+    expect(releaseGate).toContain('LEGACY_COMPAT_FIXTURE_OWNERSHIP_REQUIRED');
+    expect(releaseGate).toContain('env: options.env ?? staticEnvironment');
+    expect(releaseGate).toContain('process.env["RELEASE_ENVIRONMENT"] === \'production\'');
     expect(releaseGate).toContain('live verification requires both Supabase runtime and OAuth 2.1 compatibility suites');
     expect(strictEnvCount).toBeGreaterThanOrEqual(2);
     expect(systemCaLiveTestCount).toBe(2);

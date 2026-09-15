@@ -1115,7 +1115,7 @@ export const HOSTED_MIGRATIONS = [
 ] as const;
 
 export async function runMigration(databaseUrl?: string) {
-  const url = databaseUrl || process.env.SUPACLOUD_DATABASE_URL || process.env.DATABASE_URL || '';
+  const url = databaseUrl || process.env["SUPACLOUD_DATABASE_URL"] || process.env["DATABASE_URL"] || '';
   if (!url) throw new Error('SUPACLOUD_DATABASE_URL or DATABASE_URL is required for migration');
   const sql = postgres(url, { max: 1 });
 

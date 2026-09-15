@@ -62,9 +62,10 @@ if (!build.success) {
   throw new Error(`SupAuth Function 构建失败${details ? `：\n${details}` : ''}`);
 }
 
-if (build.outputs.length !== 1) {
+const [bundle] = build.outputs;
+if (build.outputs.length !== 1 || !bundle) {
   const outputs = build.outputs.map((output) => output.path).join(', ') || '(无输出)';
   throw new Error(`SupAuth Function 必须生成单文件 bundle，实际输出 ${build.outputs.length} 个：${outputs}`);
 }
 
-console.log(`Built SupAuth Function bundle: ${build.outputs[0].path}`);
+console.log(`Built SupAuth Function bundle: ${bundle.path}`);

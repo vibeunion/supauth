@@ -6,6 +6,7 @@ import {
   normalizeCustomUiAssetPath,
   parseCustomUiCleanupQueue,
   parseCustomUiManifest,
+  type CustomUiManifestFile,
 } from '../utils/custom-ui-assets.js';
 
 function manifestContentHash(files: Array<{ path: string; sha256: string; size: number }>) {
@@ -30,7 +31,7 @@ describe('Custom UI manifest and request paths', () => {
       size: 20,
       content_type: 'text/html; charset=utf-8',
     },
-  ];
+  ] satisfies [CustomUiManifestFile, CustomUiManifestFile];
   const manifest = {
     schema_version: 1,
     assets_id: 'b3da34de-b368-472d-8ff6-dbd53ae2fbaa',
@@ -101,6 +102,31 @@ describe('Custom UI manifest and request paths', () => {
         (_, index) => `overflow-${index}`,
       ),
     })).toBeNull();
+  });
+
+  it('rejects non-string lifecycle values without removing legacy defaults', () => {
+    for (const lifecycle_state of [['active'], ['objects_deleted'], { toString: () => 'active' }, 1, true]) {
+      expect(parseCustomUiManifest({ ...manifest, lifecycle_state })).toBeNull();
+    }
+    const { lifecycle_state: _state, audit_pending_event: _event, ...legacy } = manifest;
+    expect(parseCustomUiManifest(legacy)).toMatchObject({
+      lifecycle_state: 'active', audit_pending_event: null,
+    });
+    expect(parseCustomUiManifest({ ...manifest, lifecycle_state: null })).toMatchObject({ lifecycle_state: 'active' });
+  });
+
+  it('rejects coerced cleanup states before lease and claim checks', () => {
+    const batch = {
+      assets_id: manifest.assets_id, created_at: manifest.uploaded_at,
+      state: 'pending', object_keys: [files[0].object_key],
+    };
+    expect(parseCustomUiCleanupQueue({ schema_version: 1, batches: [batch] })).not.toBeNull();
+    for (const state of [['reserved'], ['pending'], ['upload_outcome_unknown'], ['cleanup_claimed'], { toString: () => 'pending' }]) {
+      expect(parseCustomUiCleanupQueue({
+        schema_version: 1, batches: [{ ...batch, state }],
+      })).toBeNull();
+    }
+    expect(parseCustomUiCleanupQueue({ schema_version: 1, batches: [{ ...batch, state: 'reserved' }] })).toBeNull();
   });
 
   it('exposes a safe lifecycle status without storage object keys', () => {

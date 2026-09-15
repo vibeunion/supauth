@@ -11,9 +11,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const mode = args[0] || 'backup';
-const backupDir = process.env.BACKUP_DIR || 'backups/latest';
-const databaseUrl = process.env.DATABASE_URL || '';
-const restoreDatabaseUrl = process.env.RESTORE_DATABASE_URL || '';
+const backupDir = process.env["BACKUP_DIR"] || 'backups/latest';
+const databaseUrl = process.env["DATABASE_URL"] || '';
+const restoreDatabaseUrl = process.env["RESTORE_DATABASE_URL"] || '';
 
 function run(command: string[], env: Record<string, string | undefined> = {}) {
   const result = Bun.spawnSync(command, {

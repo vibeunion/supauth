@@ -1,3 +1,4 @@
+import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { describe, it, expect } from 'bun:test';
 import { Elysia } from 'elysia';
 
@@ -16,7 +17,7 @@ describe('Legacy metadata sync routes', () => {
 
     expect(responses.map((response) => response.status)).toEqual([501, 501]);
     for (const response of responses) {
-      const payload = await response.json() as { error: { code: string; details: { capability: string } } };
+      const payload = strictDecodeSchema(StrictType.Object({ "error": StrictType.Object({ "code": StrictType.String(), "details": StrictType.Object({ "capability": StrictType.String() }) }) }), await response.json());
       expect(payload.error.code).toBe('capability_unavailable');
       expect(payload.error.details.capability).toBe('supacloud_rbac_metadata_sync');
     }

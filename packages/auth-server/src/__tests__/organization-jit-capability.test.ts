@@ -1,3 +1,5 @@
+import { strictProperty } from './helpers/strict-values.js';
+import { strictRecord } from './helpers/strict-values.js';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 
@@ -83,11 +85,11 @@ describe('organization JIT capability gate', () => {
     });
 
     const response = await app.handle(new Request('http://localhost/v1/organizations/org-one/jit'));
-    const body = await response.json() as any;
+    const body = strictRecord(await response.json());
 
     expect(response.status).toBe(501);
-    expect(body.code).toBe('capability_unavailable');
-    expect(body.details.reason_code).toBe('gotrue_custom_access_token_hook_not_enabled');
+    expect(body["code"]).toBe('capability_unavailable');
+    expect(strictProperty(body["details"], "reason_code")).toBe('gotrue_custom_access_token_hook_not_enabled');
     expect(getOrganizationJitSettings).not.toHaveBeenCalled();
   });
 });

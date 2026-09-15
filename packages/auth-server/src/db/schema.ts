@@ -2,6 +2,7 @@
 // Does NOT touch `auth` schema (GoTrue owns that)
 
 import { pgSchema, uuid, varchar, text, boolean, integer, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import type { JsonValue } from '../../../shared/src/schema.js';
 
 const supaoauth = pgSchema('supaoauth');
 
@@ -82,7 +83,7 @@ export const signInExperience = supaoauth.table('sign_in_experience', {
   backgroundUrl: text('background_url'),
   buttonLabel: varchar('button_label', { length: 255 }),
   customCss: text('custom_css'),
-  content: jsonb('content').$type<Record<string, unknown> | null>(),
+  content: jsonb('content').$type<JsonValue>(),
   // Auth flow
   signInMethods: jsonb('sign_in_methods').$type<string[]>().default([]),
   signUpEnabled: boolean('sign_up_enabled').default(true).notNull(),
@@ -110,7 +111,7 @@ export const applicationSignInExperience = supaoauth.table('application_sign_in_
   backgroundUrl: text('background_url'),
   buttonLabel: varchar('button_label', { length: 255 }),
   customCss: text('custom_css'),
-  content: jsonb('content').$type<Record<string, unknown> | null>(),
+  content: jsonb('content').$type<JsonValue>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [

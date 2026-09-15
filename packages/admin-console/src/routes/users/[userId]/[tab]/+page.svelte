@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import UserDetailPage from '../+page.svelte';
 </script>
 

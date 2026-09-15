@@ -1,3 +1,4 @@
+import { requireRecord } from "../../../scripts/tooling-values.js";
 /**
  * Real Supabase component compatibility checks.
  *
@@ -11,20 +12,20 @@ import { createClient, type RealtimeChannel, type SupabaseClient } from '@supaba
 import { resolveSupabaseAdminKey, resolveSupabasePublicKey } from '../../../scripts/supabase-compat-env.js';
 import { CleanupStack } from './cleanup.js';
 
-const STRICT_COMPAT = process.env.REQUIRE_SUPABASE_AUTH_COMPAT === '1';
-const RUN_FULL_STACK = STRICT_COMPAT || process.env.RUN_SUPABASE_FULL_STACK_COMPAT === '1';
+const STRICT_COMPAT = process.env["REQUIRE_SUPABASE_AUTH_COMPAT"] === '1';
+const RUN_FULL_STACK = STRICT_COMPAT || process.env["RUN_SUPABASE_FULL_STACK_COMPAT"] === '1';
 const RUNTIME_URL = trimTrailingSlash(
-  process.env.SUPABASE_FULLSTACK_URL || process.env.OAUTH_RUNTIME_URL || '',
+  process.env["SUPABASE_FULLSTACK_URL"] || process.env["OAUTH_RUNTIME_URL"] || '',
 );
 const PUBLIC_KEY = resolveSupabasePublicKey(process.env, { fullStack: true });
 const ADMIN_KEY = resolveSupabaseAdminKey(process.env, { fullStack: true });
-const TEST_PASSWORD = process.env.SUPABASE_FULLSTACK_TEST_PASSWORD
-  || process.env.SUPABASE_TEST_PASSWORD
+const TEST_PASSWORD = process.env["SUPABASE_FULLSTACK_TEST_PASSWORD"]
+  || process.env["SUPABASE_TEST_PASSWORD"]
   || 'GotrueCompat123!';
-const RLS_TABLE = process.env.SUPABASE_COMPAT_RLS_TABLE || 'gotrue_compat_items';
-const STORAGE_BUCKET = process.env.SUPABASE_COMPAT_STORAGE_BUCKET || 'gotrue-compat-private';
-const FUNCTION_NAME = process.env.SUPABASE_COMPAT_FUNCTION_NAME || 'compat-claims';
-const TEST_TIMEOUT_MS = parseInt(process.env.SUPABASE_FULLSTACK_TIMEOUT_MS || '30000', 10);
+const RLS_TABLE = process.env["SUPABASE_COMPAT_RLS_TABLE"] || 'gotrue_compat_items';
+const STORAGE_BUCKET = process.env["SUPABASE_COMPAT_STORAGE_BUCKET"] || 'gotrue-compat-private';
+const FUNCTION_NAME = process.env["SUPABASE_COMPAT_FUNCTION_NAME"] || 'compat-claims';
+const TEST_TIMEOUT_MS = positiveIntegerFromEnv(process.env['SUPABASE_FULLSTACK_TIMEOUT_MS'], 30_000, 'SUPABASE_FULLSTACK_TIMEOUT_MS');
 const RUN_ID = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
 if (STRICT_COMPAT) {
@@ -115,8 +116,8 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
     registerRowCleanup(adminClient, insertedRow.id, cleanup);
 
     const payload = await observation.event;
-    expect(payload.id).toBe(insertedRow.id);
-    expect(payload.owner_id).toBe(primary.userId);
+    expect(payload["id"]).toBe(insertedRow.id);
+    expect(payload["owner_id"]).toBe(primary.userId);
   });
 
   fullStackIt('invokes a JWT-protected Edge Function with the GoTrue session', async () => {
@@ -222,7 +223,10 @@ async function insertOwnedRow(fixture: AuthenticatedFixture, payload: string): P
     .select('id')
     .single();
   if (inserted.error || !inserted.data) throw new Error(`Unable to insert RLS fixture: ${inserted.error?.message}`);
-  return inserted.data as { id: string };
+  const row = requireRecord(inserted.data, 'Inserted RLS fixture');
+  const id = row['id'];
+  if (typeof id !== 'string' || !id) throw new Error('Inserted RLS fixture must have an id');
+  return { id };
 }
 
 function waitForSubscription(channel: RealtimeChannel): Promise<void> {
@@ -261,7 +265,7 @@ function observeOwnerInsert(client: SupabaseClient, expectedPayload: string) {
       { event: 'INSERT', schema: 'public', table: RLS_TABLE, filter: `payload=eq.${expectedPayload}` },
       ({ new: insertedRow }) => {
         clearTimeout(timer);
-        resolve(insertedRow as Record<string, unknown>);
+        resolve(requireRecord(insertedRow));
       },
     );
   });
@@ -278,3 +282,4 @@ function assertRequiredValues(values: Record<string, string>) {
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
+import { positiveIntegerFromEnv } from '../../../scripts/tooling-values.js';

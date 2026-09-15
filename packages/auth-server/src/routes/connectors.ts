@@ -10,8 +10,13 @@ import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import * as connectorRepo from '../repositories/connectors.js';
-import { ApiContractError, pagedResponse } from '../utils/api-contract.js';
+import { ApiContractError, pagedResponse, isRecord } from '../utils/api-contract.js';
 import { withoutSecrets } from '../utils/secrets.js';
+import { configurationContract, decodeConfigurationInput, decodeConfigurationResponse } from '../utils/configuration-contract.js';
+import { BuiltinOAuthProvidersSchema, ConnectorFactoryStoredConfigSchema } from '../../../shared/src/server-configuration.js';
+import { definedFields } from '../utils/defined-fields.js';
+import { decodeProviderReadback, type ProviderReadback as ProviderInfo } from '../utils/upstream-contract.js';
+export type { ProviderReadback as ProviderInfo } from '../utils/upstream-contract.js';
 
 const adapter = getSupaCloudAdapter();
 const MAX_CONNECTOR_CLIENT_ID_LENGTH = 255;
@@ -22,14 +27,6 @@ async function audit(eventType: string, resourceType: string, resourceId: string
 
 async function fireWebhook(eventType: string, data: Record<string, unknown>) {
   await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data));
-}
-
-export interface ProviderInfo {
-  id: string;
-  name?: string;
-  type?: string;
-  enabled?: boolean;
-  [key: string]: unknown;
 }
 
 interface ConnectorConfigInfo {
@@ -98,25 +95,20 @@ function nonEmptyProviderSetting(provider: ProviderInfo, field: string) {
 function builtinConnectorConfigured(provider: ProviderInfo) {
   const clientConfigured = nonEmptyProviderSetting(provider, 'client_id')
     || nonEmptyProviderSetting(provider, 'clientId');
-  const secretConfigured = provider.secret_configured === true
+  const secretConfigured = provider["secret_configured"] === true
     || nonEmptyProviderSetting(provider, 'client_secret')
     || nonEmptyProviderSetting(provider, 'clientSecret');
   return clientConfigured && secretConfigured;
 }
 
 function providerInfo(payload: unknown, fallbackId: string): ProviderInfo {
-  if (!payload || typeof payload !== 'object') {
-    throw new ApiContractError(502, 'invalid_upstream_response', 'Connector readback has an invalid shape');
-  }
-  return { ...(payload as Record<string, unknown>), id: fallbackId } as ProviderInfo;
+  return decodeProviderReadback(payload, fallbackId);
 }
 
 function connectorRuntimeKind(config?: ConnectorConfigInfo | null): ConnectorRuntimeKind {
   const runtimeKind = config?.runtime_kind || 'builtin_oauth';
-  if (!['builtin_oauth', 'custom_oidc', 'saml'].includes(runtimeKind)) {
-    throw new ApiContractError(500, 'invalid_connector_runtime_kind', 'Connector runtime kind is invalid');
-  }
-  return runtimeKind as ConnectorRuntimeKind;
+  if (runtimeKind === 'builtin_oauth' || runtimeKind === 'custom_oidc' || runtimeKind === 'saml') return runtimeKind;
+  throw new ApiContractError(500, 'invalid_connector_runtime_kind', 'Connector runtime kind is invalid');
 }
 
 async function authoritativeConnector(providerId: string, runtimeKind: ConnectorRuntimeKind) {
@@ -131,8 +123,8 @@ async function updateConnectorRuntime(
   updateInput: Record<string, unknown>,
 ) {
   if (runtimeKind === 'builtin_oauth') return updateBuiltinConnectorRuntime(providerId, updateInput);
-  if (updateInput.enabled === undefined) return authoritativeConnector(providerId, runtimeKind);
-  const enabledUpdate = enterpriseConnectorEnabledUpdate(runtimeKind, updateInput.enabled === true);
+  if (updateInput["enabled"] === undefined) return authoritativeConnector(providerId, runtimeKind);
+  const enabledUpdate = enterpriseConnectorEnabledUpdate(runtimeKind, updateInput["enabled"] === true);
   if (runtimeKind === 'custom_oidc') return adapter.updateCustomOidcProvider(providerId, enabledUpdate);
   return adapter.updateSamlProvider(providerId, enabledUpdate);
 }
@@ -152,19 +144,19 @@ const defaultEnabledUpdateDependencies: ConnectorEnabledUpdateDependencies = {
 };
 
 function runtimeEnabled(payload: unknown, runtimeKind: ConnectorRuntimeKind) {
-  if (!payload || typeof payload !== 'object') {
+  if (!isRecord(payload)) {
     throw new ApiContractError(502, 'invalid_upstream_response', 'Connector runtime readback has an invalid shape');
   }
-  const runtime = payload as Record<string, unknown>;
+  const runtime = payload;
   if (runtimeKind === 'saml') {
     if (!Object.prototype.hasOwnProperty.call(runtime, 'disabled')) {
       throw new ApiContractError(502, 'invalid_upstream_response', 'SAML connector readback did not include its disabled state');
     }
-    if (runtime.disabled === true) return false;
-    if (runtime.disabled === false || runtime.disabled === null) return true;
+    if (runtime["disabled"] === true) return false;
+    if (runtime["disabled"] === false || runtime["disabled"] === null) return true;
     throw new ApiContractError(502, 'invalid_upstream_response', 'SAML connector disabled state is invalid');
   }
-  const enabled = runtime.enabled;
+  const enabled = runtime["enabled"];
   if (typeof enabled !== 'boolean') {
     throw new ApiContractError(502, 'invalid_upstream_response', 'Connector runtime readback did not include its enabled state');
   }
@@ -249,8 +241,8 @@ async function persistUpdatedOverlay(
   } catch {
     throw updateOutcomeUnknown();
   }
-  if (!connectorOverlayMatches(overlay, expected)) throw updateOutcomeUnknown();
-  return overlay as ConnectorConfigInfo;
+  if (!overlay || !connectorOverlayMatches(overlay, expected)) throw updateOutcomeUnknown();
+  return overlay;
 }
 
 function mergedConnectorState(
@@ -376,7 +368,7 @@ function requiredString(input: Record<string, unknown>, field: string) {
 }
 
 function connectorClientId(input: Record<string, unknown>) {
-  const clientId = input.client_id;
+  const clientId = input["client_id"];
   if (typeof clientId !== 'string'
     || !clientId.trim()
     || clientId.length > MAX_CONNECTOR_CLIENT_ID_LENGTH) {
@@ -417,8 +409,10 @@ function customProviderIdentifier(input: Record<string, unknown>) {
 function optionalStringList(input: Record<string, unknown>, field: string) {
   const fieldValue = input[field];
   if (fieldValue === undefined || fieldValue === '') return undefined;
-  if (Array.isArray(fieldValue) && fieldValue.every(entry => typeof entry === 'string' && entry.trim())) {
-    return fieldValue.map(entry => String(entry).trim());
+  if (Array.isArray(fieldValue) && fieldValue.every(
+    (entry: unknown): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+  )) {
+    return fieldValue.map(entry => entry.trim());
   }
   if (typeof fieldValue === 'string') return fieldValue.split(',').map(entry => entry.trim()).filter(Boolean);
   throw new ApiContractError(400, 'invalid_connector_factory_input', `${field} must be a string list`);
@@ -443,10 +437,10 @@ function optionalRecord(input: Record<string, unknown>, field: string) {
   } catch {
     throw new ApiContractError(400, 'invalid_connector_factory_input', `${field} must be valid JSON`);
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     throw new ApiContractError(400, 'invalid_connector_factory_input', `${field} must be a JSON object`);
   }
-  return parsed as Record<string, unknown>;
+  return parsed;
 }
 
 export function customOidcFactoryRequest(input: Record<string, unknown>) {
@@ -458,7 +452,7 @@ export function customOidcFactoryRequest(input: Record<string, unknown>) {
     client_id: connectorClientId(input),
     client_secret: requiredString(input, 'client_secret'),
     issuer: requiredString(input, 'issuer'),
-    enabled: input.enabled === true,
+    enabled: input["enabled"] === true,
     pkce_enabled: true,
     ...(scopes ? { scopes } : {}),
   };
@@ -483,14 +477,14 @@ export function samlFactoryRequest(input: Record<string, unknown>): Record<strin
     ...(metadataXml ? { metadata_xml: metadataXml } : {}),
     ...(domains ? { domains } : {}),
     ...(attributeMapping ? { attribute_mapping: attributeMapping } : {}),
-    disabled: input.enabled !== true,
+    disabled: input["enabled"] !== true,
   };
 }
 
 function upstreamConnectorId(payload: unknown, runtimeKind: ConnectorRuntimeKind) {
-  if (!payload || typeof payload !== 'object') return '';
-  const record = payload as Record<string, unknown>;
-  const identifier = runtimeKind === 'custom_oidc' ? record.identifier : record.id;
+  if (!isRecord(payload)) return '';
+  const record = payload;
+  const identifier = runtimeKind === 'custom_oidc' ? record["identifier"] : record["id"];
   return typeof identifier === 'string' ? identifier : '';
 }
 
@@ -646,7 +640,7 @@ async function persistConnectorOverlay(
   } catch {
     throw creationOutcomeUnknown();
   }
-  if (connectorOverlayMatches(overlay, input)) return overlay as ConnectorConfigInfo;
+  if (overlay && connectorOverlayMatches(overlay, input)) return overlay;
   if (overlay) throw creationOutcomeUnknown();
   return rollbackCreatedConnector(
     input.providerId,
@@ -674,70 +668,78 @@ export async function instantiateConnectorFactory(
     runtimeKind,
     name: connectorDisplayName(factory, data, readbackProvider, runtimeKind),
     category: factory.category,
-    enabled: data.enabled === true,
-    config: withoutSecrets(request),
+    enabled: data["enabled"] === true,
+    config: decodeConfigurationResponse(ConnectorFactoryStoredConfigSchema, withoutSecrets(request)),
   }, runtimeKind, dependencies);
   return withoutSecrets({ ...readbackProvider, ...connectorConfig });
 }
 
 export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
   .get('/', async () => {
-    const [providers, connectorConfigs] = await Promise.all([
-      adapter.listProviders() as Promise<ProviderInfo[]>,
+    decodeConfigurationInput('listConnectors', {});
+    const [upstreamProviders, connectorConfigs] = await Promise.all([
+      adapter.listProviders(),
       connectorRepo.listConnectorConfigs(),
     ]);
-    const providerPage = pagedResponse<ProviderInfo>(providers);
-    return pagedResponse(withoutSecrets(mergeProvidersWithConnectorConfigs(providerPage.items, connectorConfigs)));
-  }, {
+    const providers = decodeConfigurationResponse(BuiltinOAuthProvidersSchema, pagedResponse(upstreamProviders).items);
+    return pagedResponse(withoutSecrets(mergeProvidersWithConnectorConfigs(providers, connectorConfigs)));
+  }, configurationContract('listConnectors', {
     detail: { summary: 'List connectors (identity providers)', tags: ['Connectors'] },
-  })
+  }))
   .get('/factories', async ({ query }) => {
-    const items = await tenantConfigRepo.listConnectorFactories(query.category as string | undefined);
+    const input = decodeConfigurationInput('listConnectorFactories', { query });
+    const items = await tenantConfigRepo.listConnectorFactories(input.query?.category);
     return { items, total: items.length };
-  }, {
+  }, configurationContract('listConnectorFactories', {
     detail: { summary: 'List connector factory catalog', tags: ['Connectors', 'Connector Factory'] },
-  })
+  }))
   .put('/factories/:factoryId', async ({ params, body }) => {
-    const data = body as {
-      name: string;
-      protocol: string;
-      category: string;
-      config_schema?: Record<string, unknown>;
-      enabled?: boolean;
-    };
-    return tenantConfigRepo.upsertConnectorFactory(params.factoryId, {
+    const { body: data } = decodeConfigurationInput('upsertConnectorFactory', { params, body });
+    return tenantConfigRepo.upsertConnectorFactory(params.factoryId, definedFields({
       name: data.name,
       protocol: data.protocol,
       category: data.category,
-      configSchema: data.config_schema,
-      enabled: data.enabled,
-    });
-  }, {
+      configSchema: data.config_schema ?? undefined,
+      enabled: data.enabled ?? undefined,
+    }));
+  }, configurationContract('upsertConnectorFactory', {
     detail: { summary: 'Create or update connector factory definition', tags: ['Connectors', 'Connector Factory'] },
-  })
+  }))
   .post('/from-factory/:factoryId', async ({ params, body }) => {
-    const data = body as Record<string, unknown>;
     const factory = await tenantConfigRepo.getConnectorFactory(params.factoryId);
     if (!factory) throw new ApiContractError(404, 'connector_factory_not_found', 'Connector factory was not found');
+    if (!factory.enabled) throw new ApiContractError(409, 'connector_factory_disabled', 'Connector factory is disabled');
+    if (!['oidc', 'saml'].includes(factory.protocol)) {
+      throw new ApiContractError(501, 'connector_factory_runtime_unavailable', 'Connector factory has no runtime adapter');
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new ApiContractError(400, 'invalid_connector_factory_input', 'Connector factory input must be an object');
+    }
+    if (factory.protocol === 'oidc') customOidcFactoryRequest(Object.fromEntries(Object.entries(body)));
+    else samlFactoryRequest(Object.fromEntries(Object.entries(body)));
+    const { body: data } = decodeConfigurationInput('createConnectorFromFactory', { params, body });
     const connector = await instantiateConnectorFactory(factory, data);
     await auditCommittedConnectorFactory(params.factoryId);
     return connector;
-  }, {
+  }, configurationContract('createConnectorFromFactory', {
     detail: { summary: 'Instantiate or update connector from factory', tags: ['Connectors', 'Connector Factory'] },
-  })
+  }))
   .get('/:connectorId', async ({ params }) => {
+    decodeConfigurationInput('getConnector', { params });
     const config = await connectorRepo.getConnectorConfig(params.connectorId);
     return verifiedConnectorState(params.connectorId, config);
-  }, {
+  }, configurationContract('getConnector', {
     detail: { summary: 'Get connector by ID', tags: ['Connectors'] },
-  })
+  }))
   .get('/:connectorId/authorization-uri', async ({ params, query }) => {
+    const input = decodeConfigurationInput('getConnectorAuthorizationUri', { params, query });
     const config = await connectorRepo.getConnectorConfig(params.connectorId);
-    const provider = await authoritativeConnector(
+    const payload = await authoritativeConnector(
       params.connectorId,
       connectorRuntimeKind(config),
-    ) as Record<string, unknown> | null;
-    if (!provider) return new Response('Not found', { status: 404 });
+    );
+    if (payload === null) return new Response('Not found', { status: 404 });
+    const provider = decodeProviderReadback(payload, params.connectorId);
     const authorizationEndpoint = provider.authorization_endpoint || provider.authorizationEndpoint;
     if (!authorizationEndpoint) {
       return {
@@ -747,26 +749,30 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
       };
     }
     const url = new URL(String(authorizationEndpoint));
-    if (query.redirect_uri) url.searchParams.set('redirect_uri', String(query.redirect_uri));
-    if (query.state) url.searchParams.set('state', String(query.state));
-    if (query.scope) url.searchParams.set('scope', String(query.scope));
+    if (input.query?.redirect_uri) url.searchParams.set('redirect_uri', input.query.redirect_uri);
+    if (input.query?.state) url.searchParams.set('state', input.query.state);
+    if (input.query?.scope) url.searchParams.set('scope', input.query.scope);
     return {
       connector_id: params.connectorId,
       authorization_uri: url.toString(),
     };
-  }, {
+  }, configurationContract('getConnectorAuthorizationUri', {
     detail: { summary: 'Build connector authorization URI preflight', tags: ['Connectors', 'Connector Factory'] },
-  })
+  }))
   .patch('/:connectorId', async ({ params, body }) => {
-    const data = body as Record<string, unknown>;
     const existingConfig = await connectorRepo.getConnectorConfig(params.connectorId);
     const runtimeKind = connectorRuntimeKind(existingConfig);
-    if (data.enabled !== undefined && typeof data.enabled !== 'boolean') {
+    if (body && typeof body === 'object' && 'enabled' in body
+      && body.enabled !== undefined && typeof body.enabled !== 'boolean') {
       throw new ApiContractError(400, 'invalid_connector_enabled_state', 'Connector enabled state must be a boolean');
     }
-    if (runtimeKind !== 'builtin_oauth' && Object.keys(data).some(field => field !== 'enabled')) {
+    if (body && typeof body === 'object' && runtimeKind !== 'builtin_oauth'
+      && Object.keys(body).some(field => field !== 'enabled')) {
       throw new ApiContractError(400, 'enterprise_connector_update_requires_factory', 'Enterprise connector settings must use their typed runtime contract');
     }
+    if (runtimeKind === 'builtin_oauth' && body && typeof body === 'object'
+      && 'client_id' in body) builtinConnectorUpdateRequest(body);
+    const { body: data } = decodeConfigurationInput('updateConnector', { params, body });
     if (typeof data.enabled === 'boolean') {
       if (runtimeKind === 'builtin_oauth') builtinConnectorUpdateRequest(data);
       const updated = await updateConnectorEnabledState({
@@ -783,13 +789,14 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
     await notifyCommittedConnectorUpdate(params.connectorId);
     const config = await connectorRepo.getConnectorConfig(params.connectorId);
     return withoutSecrets(mergeProvidersWithConnectorConfigs([updated], config ? [config] : [])[0]);
-  }, {
+  }, configurationContract('updateConnector', {
     detail: { summary: 'Update connector configuration', tags: ['Connectors'] },
-  })
+  }))
   .post('/:connectorId/test', async ({ params }) => {
+    decodeConfigurationInput('testConnector', { params });
     const connectorConfig = await connectorRepo.getConnectorConfig(params.connectorId);
     const runtimeKind = connectorRuntimeKind(connectorConfig);
     return adapter.preflightProviderAuthorization(params.connectorId, runtimeKind);
-  }, {
+  }, configurationContract('testConnector', {
     detail: { summary: 'Check connector runtime configuration', tags: ['Connectors'] },
-  });
+  }));

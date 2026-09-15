@@ -1,3 +1,4 @@
+import { strictDefined, strictProperty, strictString } from './helpers/strict-values.js';
 import { describe, expect, it } from 'bun:test';
 import { GOTRUE_PASSWORD_CHARACTER_POLICIES } from '../utils/password-policy.js';
 
@@ -12,10 +13,10 @@ describe('Sign-in experience repository — module structure', () => {
       'deleteApplicationSignInExperience',
       'resolveSignInExperience',
       'mergeSupaCloudBrandingDefaults',
-    ];
+    ] as const;
 
     for (const fn of expectedFns) {
-      expect(typeof (repo as Record<string, unknown>)[fn]).toBe('function');
+      expect(typeof repo[fn]).toBe('function');
     }
   });
 
@@ -162,7 +163,7 @@ describe('Sign-in experience repository — module structure', () => {
       }
     }
 
-    expect(await sourceRequest!).toEqual({
+    expect(await strictDefined(sourceRequest)).toEqual({
       project: null,
       application: { client_name: 'Application One' },
     });
@@ -208,7 +209,7 @@ describe('Sign-in experience repository — module structure', () => {
 
   it('resolves the public password policy from authoritative GoTrue config', async () => {
     const routes = await import('../routes/sign-in-experience.js');
-    const resolvePublicSignInExperience = (routes as any).resolvePublicSignInExperience;
+    const { resolvePublicSignInExperience } = routes;
     const cases = [
       {
         authConfig: {
@@ -268,7 +269,7 @@ describe('Sign-in experience repository — module structure', () => {
 
   it('fails public resolve closed when GoTrue password policy is unavailable or invalid', async () => {
     const routes = await import('../routes/sign-in-experience.js');
-    const resolvePublicSignInExperience = (routes as any).resolvePublicSignInExperience;
+    const { resolvePublicSignInExperience } = routes;
     const baseOptions = {
       getExperience: async () => ({ sign_up_enabled: true }),
       getConnectors: async () => [],
@@ -283,8 +284,9 @@ describe('Sign-in experience repository — module structure', () => {
         throw new Error('Public sign-in experience unexpectedly resolved.');
       } catch (error) {
         expect(error).toMatchObject({ status: 503, code: 'password_policy_unavailable' });
-        expect(String((error as Error).message)).not.toContain('auth.internal');
-        expect(String((error as Error).message)).not.toContain('secret');
+        const message = strictString(strictProperty(error, 'message'));
+        expect(message).not.toContain('auth.internal');
+        expect(message).not.toContain('secret');
       }
     }
   });

@@ -1,3 +1,5 @@
+import { requireRecord, requireString } from "../../../scripts/tooling-values.js";
+import { isUnknownArray, parseJson } from "../../../scripts/tooling-values.js";
 /**
  * Supabase Auth compatibility fixture (P0-16).
  *
@@ -26,15 +28,15 @@ import {
   SUPAOAUTH_CLAIM_KEYS,
 } from '../../../packages/shared/src/index.js';
 
-const RUNTIME_URL = trimTrailingSlash(process.env.OAUTH_RUNTIME_URL || 'http://localhost:9999');
-const MANAGEMENT_PORT = parseInt(process.env.PORT || '4010', 10);
-const MANAGEMENT_URL = trimTrailingSlash(process.env.MANAGEMENT_URL || `http://localhost:${MANAGEMENT_PORT}`);
-const STRICT_COMPAT = process.env.REQUIRE_SUPABASE_AUTH_COMPAT === '1';
-const RUN_LIVE = STRICT_COMPAT || process.env.RUN_SUPABASE_RUNTIME_COMPAT === '1' || process.env.RUN_SUPABASE_OAUTH21_COMPAT === '1';
+const RUNTIME_URL = trimTrailingSlash(process.env["OAUTH_RUNTIME_URL"] || 'http://localhost:9999');
+const MANAGEMENT_PORT = positiveIntegerFromEnv(process.env['PORT'], 4010, 'PORT', 65_535);
+const MANAGEMENT_URL = trimTrailingSlash(process.env["MANAGEMENT_URL"] || `http://localhost:${MANAGEMENT_PORT}`);
+const STRICT_COMPAT = process.env["REQUIRE_SUPABASE_AUTH_COMPAT"] === '1';
+const RUN_LIVE = STRICT_COMPAT || process.env["RUN_SUPABASE_RUNTIME_COMPAT"] === '1' || process.env["RUN_SUPABASE_OAUTH21_COMPAT"] === '1';
 const SUPABASE_PUBLIC_KEY = resolveSupabasePublicKey();
 const SUPABASE_ADMIN_KEY = resolveSupabaseAdminKey();
-const TEST_EMAIL = process.env.SUPABASE_TEST_EMAIL || '';
-const TEST_PASSWORD = process.env.SUPABASE_TEST_PASSWORD || '';
+const TEST_EMAIL = process.env["SUPABASE_TEST_EMAIL"] || '';
+const TEST_PASSWORD = process.env["SUPABASE_TEST_PASSWORD"] || '';
 
 type LiveTestHandler = () => void | Promise<unknown>;
 
@@ -73,27 +75,27 @@ describe('Supabase runtime compatibility', () => {
     const res = await fetch(`${RUNTIME_URL}/auth/v1/.well-known/openid-configuration`);
     expect(res.ok).toBe(true);
 
-    const body = await res.json();
-    expect(body.issuer).toBeDefined();
-    expect(body.authorization_endpoint).toBeDefined();
-    expect(body.token_endpoint).toBeDefined();
-    expect(body.runtime_mode).toBeUndefined();
+    const body = requireRecord(await res.json());
+    expect(requireString(body['issuer'])).not.toBe('');
+    expect(requireString(body['authorization_endpoint'])).not.toBe('');
+    expect(requireString(body['token_endpoint'])).not.toBe('');
+    expect(body['runtime_mode']).toBeUndefined();
   });
 
   liveIt('/auth/v1/.well-known/jwks.json returns JWKS', async () => {
     const res = await fetch(`${RUNTIME_URL}/auth/v1/.well-known/jwks.json`);
     expect(res.ok).toBe(true);
 
-    const body = await res.json();
-    expect(Array.isArray(body.keys)).toBe(true);
+    const body = requireRecord(await res.json());
+    expect(isUnknownArray(body['keys'])).toBe(true);
   });
 
   liveIt('deployed SupAuth Function health returns the SupAuth response', async () => {
     const res = await fetch(`${RUNTIME_URL}/functions/v1/supauth/api/v1/health`);
     expect(res.ok).toBe(true);
 
-    const body = await res.json();
-    expect(body.runtime_mode).toBe('gotrue');
+    const body = requireRecord(await res.json());
+    expect(body['runtime_mode']).toBe('gotrue');
   });
 
   supabaseJsIt('supabase-js can initialize and read current session', async () => {
@@ -138,15 +140,15 @@ describe('Supabase runtime compatibility', () => {
 
     const token = signIn.data.session?.access_token || '';
     const payload = decodeJwtPayload(token);
-    expect(payload.sub).toBe(user.data.user?.id);
-    expect(SUPABASE_RUNTIME_ROLES).toContain(payload.role as (typeof SUPABASE_RUNTIME_ROLES)[number]);
+    expect(payload["sub"]).toBe(user.data.user?.id);
+    expect(SUPABASE_RUNTIME_ROLES.some(role => role === payload['role'])).toBe(true);
     for (const claim of SUPABASE_REQUIRED_CLAIMS) {
       expect(payload).toHaveProperty(claim);
     }
     for (const claim of SUPABASE_METADATA_CLAIMS) {
       expect(payload).toHaveProperty(claim);
     }
-    expect(payload.supaoauth).toBeUndefined();
+    expect(payload["supaoauth"]).toBeUndefined();
     for (const claim of SUPAOAUTH_CLAIM_KEYS) {
       expect(payload).not.toHaveProperty(claim);
     }
@@ -175,19 +177,19 @@ describe('Supabase runtime compatibility', () => {
       expect(factorId).toBeTruthy();
       expect(secret).toBeTruthy();
 
-      const challenge = await client.auth.mfa.challenge({ factorId: factorId as string });
+      const challenge = await client.auth.mfa.challenge({ factorId: requireString(factorId) });
       expect(challenge.error).toBeNull();
       expect(challenge.data?.id).toBeTruthy();
 
       const verification = await client.auth.mfa.verify({
-        factorId: factorId as string,
-        challengeId: challenge.data?.id as string,
-        code: await generateTotpCode(secret as string),
+        factorId: requireString(factorId),
+        challengeId: requireString(challenge.data?.id),
+        code: await generateTotpCode(requireString(secret)),
       });
       expect(verification.error).toBeNull();
       expect(verification.data?.access_token).toBeDefined();
       const verifiedPayload = decodeJwtPayload(verification.data?.access_token || '');
-      expect(verifiedPayload.aal).toBe('aal2');
+      expect(verifiedPayload["aal"]).toBe('aal2');
       expect(amrMethods(verifiedPayload)).toContain('totp');
       expect(amrEntries(verifiedPayload).every((entry) => !('factor_type' in entry))).toBe(true);
 
@@ -200,8 +202,8 @@ describe('Supabase runtime compatibility', () => {
           auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
         });
         const deletion = await adminClient.auth.admin.mfa.deleteFactor({
-          userId: signIn.data.user?.id as string,
-          id: factorId as string,
+          userId: requireString(signIn.data.user?.id),
+          id: requireString(factorId),
         });
         expect(deletion.error).toBeNull();
         factorRemoved = true;
@@ -209,11 +211,11 @@ describe('Supabase runtime compatibility', () => {
         const downgraded = await client.auth.refreshSession();
         expect(downgraded.error).toBeNull();
         const downgradedPayload = decodeJwtPayload(downgraded.data.session?.access_token || '');
-        expect(downgradedPayload.aal).toBe('aal1');
+        expect(downgradedPayload["aal"]).toBe('aal1');
         expect(amrMethods(downgradedPayload)).not.toContain('totp');
         expect(amrEntries(downgradedPayload).every((entry) => !('factor_type' in entry))).toBe(true);
       } else {
-        const unenroll = await client.auth.mfa.unenroll({ factorId: factorId as string });
+        const unenroll = await client.auth.mfa.unenroll({ factorId: requireString(factorId) });
         expect(unenroll.error).toBeNull();
         factorRemoved = true;
       }
@@ -260,38 +262,41 @@ describe('Supabase runtime compatibility', () => {
 function decodeJwtPayload(token: string): Record<string, unknown> {
   const [, payload] = token.split('.');
   expect(payload).toBeDefined();
+  if (payload === undefined) throw new Error('JWT must contain a payload segment');
   const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-  return JSON.parse(atob(padded)) as Record<string, unknown>;
+  return requireRecord(parseJson(atob(padded)));
 }
 
 function amrEntries(payload: Record<string, unknown>): Array<Record<string, unknown>> {
-  if (!Array.isArray(payload.amr)) return [];
-  return payload.amr.filter((entry): entry is Record<string, unknown> => (
+  if (!isUnknownArray(payload["amr"])) return [];
+  return payload["amr"].filter((entry): entry is Record<string, unknown> => (
     typeof entry === 'object' && entry !== null
   ));
 }
 
 function amrMethods(payload: Record<string, unknown>): string[] {
   return amrEntries(payload)
-    .map((entry) => entry.method)
+    .map((entry) => entry["method"])
     .filter((method): method is string => typeof method === 'string');
 }
 
 async function readGotrueVersion(): Promise<string> {
   const response = await fetch(`${RUNTIME_URL}/auth/v1/health`);
   if (!response.ok) throw new Error(`Unable to read GoTrue version: HTTP ${response.status}`);
-  const body = await response.json() as { version?: unknown };
-  if (typeof body.version !== 'string') throw new Error('GoTrue health response is missing version');
-  return body.version;
+  const body = requireRecord(await response.json(), 'GoTrue health');
+  if (typeof body['version'] !== 'string') throw new Error('GoTrue health response is missing version');
+  return body['version'];
 }
 
 function versionAtLeast(version: string, minimum: readonly [number, number, number]): boolean {
   const match = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
   if (!match) throw new Error(`Invalid GoTrue version: ${version}`);
   const actual = match.slice(1, 4).map(Number);
-  for (let index = 0; index < minimum.length; index += 1) {
-    if (actual[index] !== minimum[index]) return actual[index] > minimum[index];
+  for (const [index, minimumPart] of minimum.entries()) {
+    const actualPart = actual[index];
+    if (actualPart === undefined) throw new Error(`Incomplete GoTrue version: ${version}`);
+    if (actualPart !== minimumPart) return actualPart > minimumPart;
   }
   return true;
 }
@@ -326,11 +331,12 @@ async function generateTotpCode(secret: string, now = Date.now()): Promise<strin
     ['sign'],
   );
   const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, counterBytes));
-  const offset = digest[digest.length - 1] & 0x0f;
-  const binaryCode = ((digest[offset] & 0x7f) << 24)
-    | (digest[offset + 1] << 16)
-    | (digest[offset + 2] << 8)
-    | digest[offset + 3];
+  const lastByte = digest[digest.length - 1];
+  if (lastByte === undefined) throw new Error('HMAC digest must not be empty');
+  const offset = lastByte & 0x0f;
+  if (offset + 4 > digest.byteLength) throw new Error('HMAC digest is too short for TOTP truncation');
+  const binaryCode = new DataView(digest.buffer, digest.byteOffset, digest.byteLength)
+    .getUint32(offset, false) & 0x7fffffff;
   return String(binaryCode % 1_000_000).padStart(6, '0');
 }
 
@@ -352,3 +358,4 @@ function decodeBase32(value: string): Uint8Array<ArrayBuffer> {
   }
   return new Uint8Array(bytes);
 }
+import { positiveIntegerFromEnv } from '../../../scripts/tooling-values.js';

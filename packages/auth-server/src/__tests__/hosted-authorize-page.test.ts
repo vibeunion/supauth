@@ -4,14 +4,33 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getConfig } from '../config/index.js';
+import { renderHostedPage } from '../../../admin-console/src/hosted/build.js';
 import {
   adminConsoleRedirectLocation,
   adminConsoleSpaCandidates,
-  hostedPageRoutes,
+  createHostedPageRoutes,
   readFirstAvailableText,
   resolveHostedPagePaths,
   serveAdminConsolePage,
 } from '../routes/hosted-pages.js';
+
+const hostedPageRoutes = createHostedPageRoutes({
+  authorize: await renderHostedPage('authorize'),
+  claim: await renderHostedPage('claim'),
+  account: await renderHostedPage('account'),
+  changePassword: await renderHostedPage('change-password'),
+  logout: await renderHostedPage('logout'),
+});
+
+function expectHosted(body: string) {
+  // 断言浏览器实际产物，忽略打包器的引号、空白和声明关键字格式。
+  const normalize = (value: string) => value.replaceAll('"', "'")
+    .replace(/\b(?:const|let)\s/g, 'var ').replace(/\s+/g, ' ').trim();
+  return {
+    toContain: (expected: string) => expect(normalize(body).includes(normalize(expected)), expected).toBe(true),
+    not: { toContain: (expected: string) => expect(normalize(body).includes(normalize(expected)), expected).toBe(false) },
+  };
+}
 
 function request(url: string, init?: RequestInit) {
   const app = new Elysia().use(hostedPageRoutes);
@@ -113,16 +132,14 @@ describe('hostedPageRoutes', () => {
     const availablePath = join(buildDir, 'authorize.html');
     const deniedPath = '/opt/supacloud/admin-console/static/authorize.html';
     const failedPath = '/opt/supacloud/admin-console/static/failed.html';
-    const bunApi = Bun as unknown as Record<string, unknown>;
     const originalBunFile = Bun.file;
     writeFileSync(availablePath, '<main>Embedded fallback</main>');
-    bunApi.file = (...args: unknown[]) => {
-      if (args[0] === deniedPath) {
+    Bun.file = strictBunFile(originalBunFile, (path) => {
+      if (path === deniedPath) {
         throw new Error(`Access denied: path "${deniedPath}" is outside the project directory`);
       }
-      if (args[0] === failedPath) throw new Error('hosted page read failed');
-      return Reflect.apply(originalBunFile, Bun, args);
-    };
+      if (path === failedPath) throw new Error('hosted page read failed');
+    });
 
     try {
       await expect(readFirstAvailableText([deniedPath, availablePath])).resolves
@@ -130,7 +147,7 @@ describe('hostedPageRoutes', () => {
       await expect(readFirstAvailableText([deniedPath])).resolves.toBeNull();
       await expect(readFirstAvailableText([failedPath])).rejects.toThrow('hosted page read failed');
     } finally {
-      bunApi.file = originalBunFile;
+      Bun.file = originalBunFile;
       rmSync(buildDir, { recursive: true, force: true });
     }
   });
@@ -140,18 +157,16 @@ describe('hostedPageRoutes', () => {
     const deniedDir = '/opt/supacloud/admin-console/restricted';
     const failedDir = '/opt/supacloud/admin-console/failed';
     const assetPath = join(buildDir, '_app', 'app.js');
-    const bunApi = Bun as unknown as Record<string, unknown>;
     const originalBunFile = Bun.file;
     mkdirSync(join(buildDir, '_app'), { recursive: true });
     writeFileSync(assetPath, 'export const ready = true;');
-    bunApi.file = (...args: unknown[]) => {
-      const candidate = String(args[0]);
+    Bun.file = strictBunFile(originalBunFile, (path) => {
+      const candidate = String(path);
       if (candidate.startsWith(deniedDir)) {
         throw new Error(`Access denied: path "${candidate}" is outside the project directory`);
       }
       if (candidate.startsWith(failedDir)) throw new Error('static asset read failed');
-      return Reflect.apply(originalBunFile, Bun, args);
-    };
+    });
 
     try {
       const response = serveAdminConsolePage([deniedDir, buildDir], '_app/app.js');
@@ -160,7 +175,7 @@ describe('hostedPageRoutes', () => {
       expect(() => serveAdminConsolePage([failedDir, buildDir], '_app/app.js'))
         .toThrow('static asset read failed');
     } finally {
-      bunApi.file = originalBunFile;
+      Bun.file = originalBunFile;
       rmSync(buildDir, { recursive: true, force: true });
     }
   });
@@ -231,8 +246,8 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
-    expect(body).toContain('<title>SupaOAuth Sign In</title>');
-    expect(body).toContain('[hidden] { display: none !important; }');
+    expectHosted(body).toContain('<title>SupaOAuth Sign In</title>');
+    expectHosted(body).toContain('[hidden] { display: none !important; }');
   });
 
   test('GET /login.html serves the same authorize page', async () => {
@@ -241,7 +256,7 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
-    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+    expectHosted(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
   test('GET /login serves the same authorize page', async () => {
@@ -250,7 +265,7 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
-    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+    expectHosted(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
   test('GET /authorize.html serves the same authorize page', async () => {
@@ -259,9 +274,9 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
-    expect(body).toContain('<title>SupaOAuth Sign In</title>');
-    expect(body).toContain("params.get('prompt')");
-    expect(body).toContain("hostedAuth.signOut({ scope: 'local' })");
+    expectHosted(body).toContain('<title>SupaOAuth Sign In</title>');
+    expectHosted(body).toContain("params.get('prompt')");
+    expectHosted(body).toContain("hostedAuth.signOut({ scope: 'local' })");
   });
 
   test('GET /hosted-auth.js serves the embedded session client without stale caching', async () => {
@@ -271,8 +286,8 @@ describe('hostedPageRoutes', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('application/javascript');
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(body).toContain('supaoauth.hosted.auth.session');
-    expect(body).toContain('/auth/v1');
+    expectHosted(body).toContain('supaoauth.hosted.auth.session');
+    expectHosted(body).toContain('/auth/v1');
   });
 
   test('GET /logout serves a no-store same-origin hosted logout page', async () => {
@@ -285,8 +300,8 @@ describe('hostedPageRoutes', () => {
     expect(response.headers.get('referrer-policy')).toBe('no-referrer');
     expect(response.headers.get('content-security-policy')).toContain("connect-src 'self'");
     expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
-    expect(body).toContain("hostedAuth.signOut({ scope: 'local' })");
-    expect(body).toContain(new URL(
+    expectHosted(body).toContain("hostedAuth.signOut({ scope: 'local' })");
+    expectHosted(body).toContain(new URL(
       '/login?logged_out=1',
       getConfig().publicBaseUrl || requestUrl,
     ).toString());
@@ -297,36 +312,36 @@ describe('hostedPageRoutes', () => {
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).toContain('<p id="intro" class="intro" style="display:none"></p>');
-    expect(body).toContain('class="split-layout"');
-    expect(body).toContain('class="brand-panel"');
-    expect(body).toContain('class="auth-panel"');
-    expect(body).toContain("grid.className = 'feature-grid';");
-    expect(body).toContain("card.className = 'feature-card';");
-    expect(body).toContain('#custom-content > .feature-grid {');
-    expect(body).toContain('grid-column: 1 / -1;');
-    expect(body).toContain('branding.description && branding.description.trim()');
-    expect(body).toContain('intro.textContent = branding.description.trim();');
-    expect(body).toContain("intro.style.display = 'block';");
-    expect(body).toContain('branding.background_url');
-    expect(body).toContain('document.body.style.backgroundImage');
-    expect(body).toContain('branding.button_label');
-    expect(body).toContain('branding.custom_css');
-    expect(body).toContain('id="custom-style"');
-    expect(body).toContain('id="brand-illustration"');
-    expect(body).toContain('id="custom-content"');
-    expect(body).toContain('branding.content');
-    expect(body).toContain('const illustrationThemes = {');
-    expect(body).toContain('function renderBrandIllustration(content)');
-    expect(body).toContain('function renderBrandingContent(content)');
-    expect(body).toContain('function renderFeatureCards(container, items)');
-    expect(body).toContain('renderBrandingContent(branding.content);');
-    expect(body).not.toContain('function sanitizeLegacyHtml');
-    expect(body).not.toContain('JSON.parse(raw)');
-    expect(body).not.toContain("document.getElementById('custom-content').innerHTML = branding.content");
+    expectHosted(body).toContain('<p id="intro" class="intro" style="display:none"></p>');
+    expectHosted(body).toContain('class="split-layout"');
+    expectHosted(body).toContain('class="brand-panel"');
+    expectHosted(body).toContain('class="auth-panel"');
+    expectHosted(body).toContain("grid.className = 'feature-grid';");
+    expectHosted(body).toContain("card.className = 'feature-card';");
+    expectHosted(body).toContain('#custom-content > .feature-grid {');
+    expectHosted(body).toContain('grid-column: 1 / -1;');
+    expectHosted(body).toContain('branding.description && branding.description.trim()');
+    expectHosted(body).toContain('intro.textContent = branding.description.trim();');
+    expectHosted(body).toContain("intro.style.display = 'block';");
+    expectHosted(body).toContain('branding.background_url');
+    expectHosted(body).toContain('document.body.style.backgroundImage');
+    expectHosted(body).toContain('branding.button_label');
+    expectHosted(body).toContain('branding.custom_css');
+    expectHosted(body).toContain('id="custom-style"');
+    expectHosted(body).toContain('id="brand-illustration"');
+    expectHosted(body).toContain('id="custom-content"');
+    expectHosted(body).toContain('branding.content');
+    expectHosted(body).toContain('const illustrationThemes = {');
+    expectHosted(body).toContain('function renderBrandIllustration(content)');
+    expectHosted(body).toContain('function renderBrandingContent(content)');
+    expectHosted(body).toContain('function renderFeatureCards(container, items)');
+    expectHosted(body).toContain('renderBrandingContent(branding.content);');
+    expectHosted(body).not.toContain('function sanitizeLegacyHtml');
+    expectHosted(body).not.toContain('JSON.parse(raw)');
+    expectHosted(body).not.toContain("document.getElementById('custom-content').innerHTML = branding.content");
 
-    expect(body).not.toContain('experience.authorization_error');
-    expect(body).not.toContain('experience.authorization');
+    expectHosted(body).not.toContain('experience.authorization_error');
+    expectHosted(body).not.toContain('experience.authorization');
   });
 
   test('GET /claim serves the account claim page with same-origin public API base', async () => {
@@ -335,46 +350,46 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
-    expect(body).toContain('<title>SupaOAuth Account Claim</title>');
-    expect(body).toContain('<h1 id="claim-title">领取 SupAuth 账号</h1>');
-    expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
-    expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
-    expect(body).toContain('fetch(`${apiBase}/account-claims/config`, { credentials: \'include\' })');
-    expect(body).toContain('fetch(`${apiBase}/phrases/${encodeURIComponent(locale)}`)');
-    expect(body).toContain('const LOCALE_STORAGE_KEY = \'supaoauth.locale\';');
-    expect(body).toContain('mergePhraseOverrides(claimConfig.phrases);');
-    expect(body).toContain("require_uppercase: false");
-    expect(body).toContain("password.mode === 'set_on_claim'");
-    expect(body).toContain("password.require_uppercase === true");
-    expect(body).toContain("password.require_lowercase === true");
-    expect(body).toContain("password.require_numbers === true");
-    expect(body).toContain("password.require_symbols === true");
-    expect(body).toContain('passwordPolicyHint.textContent');
-    expect(body).toContain('#password-fields {\n      margin-top: 16px;\n    }');
-    expect(body).toContain('.password-hint {\n      margin: 8px 0 0;');
-    expect(body).not.toContain('.password-hint {\n      margin: -8px 0 16px;');
-    expect(body).toContain('type="submit" disabled');
-    expect(body).not.toContain('id="claim-proof" name="claim_proof"');
-    expect(body).toContain('enabled: next.enabled === true');
-    expect(body).toContain("setMessage('error', t('claimUnavailable'))");
-    expect(body).toContain("return 'passwordRequiresUppercase'");
-    expect(body).toContain("return 'passwordRequiresSymbol'");
-    expect(body).toContain("code === 'password_requires_uppercase'");
-    expect(body).toContain("'weak_password'].includes(code)");
-    expect(body).toContain('领取账号并设置密码');
-    expect(body).not.toContain('claim_proof: claimProof');
-    expect(body).not.toContain('name-label');
-    expect(body).not.toContain('claim-proof-label');
-    expect(body).toContain('payload.new_password = newPassword;');
-    expect(body).toContain('title.textContent = branding.page_title;');
-    expect(body).toContain('/account-claims/claim');
-    expect(body).toContain('data.password_set');
-    expect(body).toContain('function claimErrorMessage(response, data = {})');
-    expect(body).toContain("return t('claimRejected')");
-    expect(body).not.toContain("code === 'account_already_claimed'");
-    expect(body).toContain("if (response.status >= 500) return t('serverError');");
-    expect(body).not.toContain('http://auth.example.com/v1/public');
-    expect(body).not.toContain('Example User Center');
+    expectHosted(body).toContain('<title>SupaOAuth Account Claim</title>');
+    expectHosted(body).toContain('<h1 id="claim-title">领取 SupAuth 账号</h1>');
+    expectHosted(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
+    expectHosted(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
+    expectHosted(body).toContain('fetch(`${apiBase}/account-claims/config`, { credentials: \'include\' })');
+    expectHosted(body).toContain('fetch(`${apiBase}/phrases/${encodeURIComponent(locale)}`)');
+    expectHosted(body).toContain('const LOCALE_STORAGE_KEY = \'supaoauth.locale\';');
+    expectHosted(body).toContain('mergePhraseOverrides(claimConfig.phrases);');
+    expectHosted(body).toContain("require_uppercase: false");
+    expectHosted(body).toContain("password.mode === 'set_on_claim'");
+    expectHosted(body).toContain("password.require_uppercase === true");
+    expectHosted(body).toContain("password.require_lowercase === true");
+    expectHosted(body).toContain("password.require_numbers === true");
+    expectHosted(body).toContain("password.require_symbols === true");
+    expectHosted(body).toContain('passwordPolicyHint.textContent');
+    expectHosted(body).toContain('#password-fields {\n      margin-top: 16px;\n    }');
+    expectHosted(body).toContain('.password-hint {\n      margin: 8px 0 0;');
+    expectHosted(body).not.toContain('.password-hint {\n      margin: -8px 0 16px;');
+    expectHosted(body).toContain('type="submit" disabled');
+    expectHosted(body).not.toContain('id="claim-proof" name="claim_proof"');
+    expectHosted(body).toContain('enabled: next.enabled === true');
+    expectHosted(body).toContain("setMessage('error', t('claimUnavailable'))");
+    expectHosted(body).toContain("return 'passwordRequiresUppercase'");
+    expectHosted(body).toContain("return 'passwordRequiresSymbol'");
+    expectHosted(body).toContain("code === 'password_requires_uppercase'");
+    expectHosted(body).toContain("'weak_password'].includes(code)");
+    expectHosted(body).toContain('领取账号并设置密码');
+    expectHosted(body).not.toContain('claim_proof: claimProof');
+    expectHosted(body).not.toContain('name-label');
+    expectHosted(body).not.toContain('claim-proof-label');
+    expectHosted(body).toContain('...mustSetPassword ? { new_password: newPassword } : {}');
+    expectHosted(body).toContain('title.textContent = branding.page_title;');
+    expectHosted(body).toContain('/account-claims/claim');
+    expectHosted(body).toContain('data.password_set');
+    expectHosted(body).toContain('function claimErrorMessage(response, data = {})');
+    expectHosted(body).toContain("return t('claimRejected')");
+    expectHosted(body).not.toContain("code === 'account_already_claimed'");
+    expectHosted(body).toContain("if (response.status >= 500) return t('serverError');");
+    expectHosted(body).not.toContain('http://auth.example.com/v1/public');
+    expectHosted(body).not.toContain('Example User Center');
   });
 
   test('GET /account/password serves hosted password change page with same-origin public API base', async () => {
@@ -383,13 +398,13 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
-    expect(body).toContain('<title>SupaOAuth Change Password</title>');
-    expect(body).toContain('<h1 id="page-title">修改密码</h1>');
-    expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
-    expect(body).toContain('/account-password/change');
-    expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
-    expect(body).not.toContain('http://auth.example.com/v1/public');
-    expect(body).not.toContain('Example User Center');
+    expectHosted(body).toContain('<title>SupaOAuth Change Password</title>');
+    expectHosted(body).toContain('<h1 id="page-title">修改密码</h1>');
+    expectHosted(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
+    expectHosted(body).toContain('/account-password/change');
+    expectHosted(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
+    expectHosted(body).not.toContain('http://auth.example.com/v1/public');
+    expectHosted(body).not.toContain('Example User Center');
   });
 
   test('GET /account serves hosted account center page with same-origin public API base', async () => {
@@ -399,81 +414,81 @@ describe('hostedPageRoutes', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toContain('text/html');
-      expect(body).toContain('<title>SupaOAuth 账户中心</title>');
-      expect(body).toContain('<h1 id="account-title">账户中心</h1>');
-      expect(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
-      expect(body).toContain('<script src="/hosted-auth.js"></script>');
-      expect(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
-      expect(body).toContain('fetch(`${apiBase}/account/config`, { credentials: \'include\' })');
-      expect(body).toContain(`hostedAuth.authenticatedFetch(\`\${apiBase}\${path}\`, {`);
-      expect(body).toContain("accountFetch('/account/me')");
-      expect(body).toContain("accountFetch('/account/profile'");
-      expect(body).not.toContain("load('sessions', '/account/sessions')");
-      expect(body).toContain("path: '/account/grants'");
-      expect(body).toContain("path: '/account/identities'");
-      expect(body).toContain("path: '/account/mfa'");
-      expect(body).toContain('id="start-totp-enroll"');
-      expect(body).toContain('id="totp-qr"');
-      expect(body).toContain('id="totp-verify-form"');
-      expect(body).toContain("accountFetch('/account/mfa/totp/enroll'");
-      expect(body).toContain("`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`");
-      expect(body).toContain('await hostedAuth.setSession({');
-      expect(body).toContain("action: 'unenroll-mfa'");
-      expect(body).toContain('removeAccountModuleItem(moduleDefinition, id)');
-      expect(body).not.toContain('/account/passkeys');
-      expect(body).toContain("accountFetch('/account/email'");
-      expect(body).toContain("accountFetch('/account/phone'");
-      expect(body).toContain("accountFetch('/account',");
-      expect(body).not.toContain("button.dataset.action === 'revoke-session'");
-      expect(body).toContain("action: 'revoke-grant'");
-      expect(body).toContain("action: 'unlink-identity'");
-      expect(body).not.toContain("button.dataset.action === 'revoke-passkey'");
-      expect(body).toContain('class="account-actions"');
-      expect(body).toContain('登录 / 重新登录');
-      expect(body).toContain('id="sign-out"');
-      expect(body).toContain('退出当前设备');
-      expect(body).toContain('data-logout-scope="others"');
-      expect(body).toContain('data-logout-scope="global"');
-      expect(body).not.toContain('/account/logout?scope=');
-      expect(body).toContain('hostedAuth.getSession()');
-      expect(body).toContain("event === 'TOKEN_REFRESHED'");
-      expect(body).toContain("event === 'SIGNED_OUT'");
-      expect(body).toContain('hostedAuth.signOut({ scope })');
-      expect(body).toContain('未检测到登录状态。请先登录，登录完成后会自动回到账户中心。');
-      expect(body).toContain('function showSignedOutState()');
-      expect(body).toContain('function resetAccountView()');
-      expect(body).toContain('class="account-section-card active"');
-      expect(body).toContain('<section class="account-section-grid" aria-label="账户中心功能区" hidden>');
-      expect(body).toContain('<img id="totp-qr" class="mfa-qr" alt="Authenticator 二维码" hidden>');
-      expect(body).not.toContain('Account center sections');
-      expect(body).not.toContain('Authenticator QR code');
-      expect(body).toContain('<form id="profile-form" class="profile-form" hidden>');
-      expect(body).toContain('<form id="email-form" class="inline-form" hidden>');
-      expect(body).toContain('<form id="phone-form" class="inline-form" hidden>');
-      expect(body).toContain('<form id="delete-account-form" class="inline-form" hidden>');
-      expect(body).toContain('let accountConfigLoaded = false;');
-      expect(body).toContain("let accountConfig = {\n      enabled: false,");
-      expect(body).toContain('accountSectionGrid.hidden = true;');
-      expect(body).toContain('accountSectionGrid.hidden = false;');
-      expect(body).toContain('if (!accountConfigLoaded || !accountConfig.enabled)');
-      expect(body).toContain('const accountCenterAvailable = await loadAccountConfig();');
-      expect(body).toContain('if (!accountCenterAvailable) return;');
-      expect(body).toContain('href="/account/password" data-section="security"');
-      expect(body).toContain('href="#account-panel" data-section="profile"');
-      expect(body).toContain('data-section="profile"');
-      expect(body).not.toContain('data-section="sessions"');
-      expect(body).toContain('data-section="grants"');
-      expect(body).toContain('data-section="identities"');
-      expect(body).toContain('data-section="mfa"');
-      expect(body).toContain('data-section="contact"');
-      expect(body).toContain('data-section="delete-account"');
-      expect(body).not.toContain('class="card active"');
-      expect(body).not.toContain('/v1/my-account');
-      expect(body).not.toContain('id="manual-token-panel"');
-      expect(body).not.toContain('supaoauth.account.access_token');
-      expect(body).not.toContain('#access_token');
-      expect(body).not.toContain('http://auth.example.com/v1/public');
-      expect(body).not.toContain('Example User Center');
+      expectHosted(body).toContain('<title>SupaOAuth 账户中心</title>');
+      expectHosted(body).toContain('<h1 id="account-title">账户中心</h1>');
+      expectHosted(body).toContain('window.__SUPAOAUTH_PUBLIC_API_BASE__ = "/v1/public";');
+      expectHosted(body).toContain('<script src="/hosted-auth.js"></script>');
+      expectHosted(body).toContain('fetch(`${apiBase}/sign-in-experience/resolve`, { credentials: \'include\' })');
+      expectHosted(body).toContain('fetch(`${apiBase}/account/config`, { credentials: \'include\' })');
+      expectHosted(body).toContain(`hostedAuth.authenticatedFetch(\`\${apiBase}\${path}\`, {`);
+      expectHosted(body).toContain("accountFetch('/account/me', accountResponses.user)");
+      expectHosted(body).toContain("accountFetch('/account/profile'");
+      expectHosted(body).not.toContain("load('sessions', '/account/sessions')");
+      expectHosted(body).toContain("path: '/account/grants'");
+      expectHosted(body).toContain("path: '/account/identities'");
+      expectHosted(body).toContain("path: '/account/mfa'");
+      expectHosted(body).toContain('id="start-totp-enroll"');
+      expectHosted(body).toContain('id="totp-qr"');
+      expectHosted(body).toContain('id="totp-verify-form"');
+      expectHosted(body).toContain("accountFetch('/account/mfa/totp/enroll'");
+      expectHosted(body).toContain("`/account/mfa/${encodeURIComponent(pendingTotpFactorId)}/verify`");
+      expectHosted(body).toContain('await hostedAuth.setSession({');
+      expectHosted(body).toContain("action: 'unenroll-mfa'");
+      expectHosted(body).toContain('removeAccountModuleItem(moduleDefinition, id)');
+      expectHosted(body).not.toContain('/account/passkeys');
+      expectHosted(body).toContain("accountFetch('/account/email'");
+      expectHosted(body).toContain("accountFetch('/account/phone'");
+      expectHosted(body).toContain("accountFetch('/account',");
+      expectHosted(body).not.toContain("button.dataset.action === 'revoke-session'");
+      expectHosted(body).toContain("action: 'revoke-grant'");
+      expectHosted(body).toContain("action: 'unlink-identity'");
+      expectHosted(body).not.toContain("button.dataset.action === 'revoke-passkey'");
+      expectHosted(body).toContain('class="account-actions"');
+      expectHosted(body).toContain('登录 / 重新登录');
+      expectHosted(body).toContain('id="sign-out"');
+      expectHosted(body).toContain('退出当前设备');
+      expectHosted(body).toContain('data-logout-scope="others"');
+      expectHosted(body).toContain('data-logout-scope="global"');
+      expectHosted(body).not.toContain('/account/logout?scope=');
+      expectHosted(body).toContain('hostedAuth.getSession()');
+      expectHosted(body).toContain("event === 'TOKEN_REFRESHED'");
+      expectHosted(body).toContain("event === 'SIGNED_OUT'");
+      expectHosted(body).toContain('hostedAuth.signOut({ scope })');
+      expectHosted(body).toContain('未检测到登录状态。请先登录，登录完成后会自动回到账户中心。');
+      expectHosted(body).toContain('function showSignedOutState()');
+      expectHosted(body).toContain('function resetAccountView()');
+      expectHosted(body).toContain('class="account-section-card active"');
+      expectHosted(body).toContain('<section class="account-section-grid" aria-label="账户中心功能区" hidden>');
+      expectHosted(body).toContain('<img id="totp-qr" class="mfa-qr" alt="Authenticator 二维码" hidden>');
+      expectHosted(body).not.toContain('Account center sections');
+      expectHosted(body).not.toContain('Authenticator QR code');
+      expectHosted(body).toContain('<form id="profile-form" class="profile-form" hidden>');
+      expectHosted(body).toContain('<form id="email-form" class="inline-form" hidden>');
+      expectHosted(body).toContain('<form id="phone-form" class="inline-form" hidden>');
+      expectHosted(body).toContain('<form id="delete-account-form" class="inline-form" hidden>');
+      expectHosted(body).toContain('let accountConfigLoaded = false;');
+      expectHosted(body).toContain("let accountConfig = {\n      enabled: false,");
+      expectHosted(body).toContain('accountSectionGrid.hidden = true;');
+      expectHosted(body).toContain('accountSectionGrid.hidden = false;');
+      expectHosted(body).toContain('if (!accountConfigLoaded || !accountConfig.enabled)');
+      expectHosted(body).toContain('const accountCenterAvailable = await loadAccountConfig();');
+      expectHosted(body).toContain('if (!accountCenterAvailable) return;');
+      expectHosted(body).toContain('href="/account/password" data-section="security"');
+      expectHosted(body).toContain('href="#account-panel" data-section="profile"');
+      expectHosted(body).toContain('data-section="profile"');
+      expectHosted(body).not.toContain('data-section="sessions"');
+      expectHosted(body).toContain('data-section="grants"');
+      expectHosted(body).toContain('data-section="identities"');
+      expectHosted(body).toContain('data-section="mfa"');
+      expectHosted(body).toContain('data-section="contact"');
+      expectHosted(body).toContain('data-section="delete-account"');
+      expectHosted(body).not.toContain('class="card active"');
+      expectHosted(body).not.toContain('/v1/my-account');
+      expectHosted(body).not.toContain('id="manual-token-panel"');
+      expectHosted(body).not.toContain('supaoauth.account.access_token');
+      expectHosted(body).not.toContain('#access_token');
+      expectHosted(body).not.toContain('http://auth.example.com/v1/public');
+      expectHosted(body).not.toContain('Example User Center');
     }
   });
 
@@ -482,51 +497,51 @@ describe('hostedPageRoutes', () => {
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).toContain('<form id="login-form" novalidate>');
-    expect(body).toContain('<script src="/hosted-auth.js"></script>');
-    expect(body).toContain('function normalizeEmailInput(value)');
-    expect(body).toContain("invalidLoginCredentials: 'Account or password does not match. Please check and try again.'");
-    expect(body).toContain("invalidLoginCredentials: '账号或密码不匹配，请检查后重试。'");
-    expect(body).toContain("value.includes('invalid login credentials')");
-    expect(body).toContain("value.includes('invalid_credentials')");
-    expect(body).toContain("setMessage('error', loginResponseMessage(error))");
-    expect(body).toContain('const email = normalizeEmailInput(emailInput.value);');
-    expect(body).toContain("setMessage('error', t('emailInvalid'))");
-    expect(body).toContain("setMessage('error', t('passwordRequired'))");
-    expect(body).toContain("setMessage('error', error && error.message ? error.message : t('networkError'))");
-    expect(body).toContain('hostedAuth.signInWithPassword({ email, password })');
-    expect(body).toContain('function completeStandaloneLogin()');
-    expect(body).toContain("window.location.href = '/account';");
-    expect(body).toContain('completeStandaloneLogin();');
-    expect(body).toContain('function safeRedirectUrl(value, allowExternal = false)');
-    expect(body).toContain("url.protocol !== 'http:' && url.protocol !== 'https:'");
-    expect(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");
-    expect(body).toContain('return allowExternal ? url.toString() : `${url.pathname}${url.search}${url.hash}`;');
-    expect(body).toContain('await continueAuthorization(session.access_token);');
-    expect(body).toContain('const magicLinkSession = await hostedAuth.consumeMagicLinkSessionFromUrl();');
-    expect(body).toContain('await continueAuthorization(magicLinkSession.access_token);');
-    expect(body).not.toContain('continueAuthorizationWithMfaStepUp');
-    expect(body).not.toContain('supaoauth.admin.mfa-step-up');
-    expect(body).not.toContain('isAdminMfaStepUpFlow');
-    expect(body).not.toContain('challengeAndVerifyTotp');
-    expect(body).toContain('function showConsent(authorization, accessToken)');
-    expect(body).toContain("void submitConsent('approve')");
-    expect(body).toContain("void submitConsent('deny')");
-    expect(body).toContain("authorizationRequest('/consent', authorizationAccessToken");
-    expect(body).not.toContain('/approve');
-    expect(body).toContain('? `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`');
-    expect(body).toContain(': `${publicApiBase()}/sign-in-experience/resolve`;');
-    expect(body).not.toContain('if (!authorizationId) return;');
-    expect(body).not.toContain('grant_type=password');
-    expect(body).not.toContain('supaoauth.account.access_token');
-    expect(body).not.toContain('#access_token');
+    expectHosted(body).toContain('<form id="login-form" novalidate>');
+    expectHosted(body).toContain('<script src="/hosted-auth.js"></script>');
+    expectHosted(body).toContain('function normalizeEmailInput(value)');
+    expectHosted(body).toContain("invalidLoginCredentials: 'Account or password does not match. Please check and try again.'");
+    expectHosted(body).toContain("invalidLoginCredentials: '账号或密码不匹配，请检查后重试。'");
+    expectHosted(body).toContain("value.includes('invalid login credentials')");
+    expectHosted(body).toContain("value.includes('invalid_credentials')");
+    expectHosted(body).toContain("setMessage('error', loginResponseMessage(error))");
+    expectHosted(body).toContain('const email = normalizeEmailInput(emailInput.value);');
+    expectHosted(body).toContain("setMessage('error', t('emailInvalid'))");
+    expectHosted(body).toContain("setMessage('error', t('passwordRequired'))");
+    expectHosted(body).toContain("setMessage('error', responseMessage(error, t('networkError')))");
+    expectHosted(body).toContain('hostedAuth.signInWithPassword({ email, password })');
+    expectHosted(body).toContain('function completeStandaloneLogin()');
+    expectHosted(body).toContain("window.location.href = '/account';");
+    expectHosted(body).toContain('completeStandaloneLogin();');
+    expectHosted(body).toContain('function safeRedirectUrl(value, allowExternal = false)');
+    expectHosted(body).toContain("url.protocol !== 'http:' && url.protocol !== 'https:'");
+    expectHosted(body).toContain("if (!allowExternal && url.origin !== window.location.origin) return '';");
+    expectHosted(body).toContain('return allowExternal ? url.toString() : `${url.pathname}${url.search}${url.hash}`;');
+    expectHosted(body).toContain('await continueAuthorization(session.access_token);');
+    expectHosted(body).toContain('const magicLinkSession = await hostedAuth.consumeMagicLinkSessionFromUrl();');
+    expectHosted(body).toContain('await continueAuthorization(magicLinkSession.access_token);');
+    expectHosted(body).not.toContain('continueAuthorizationWithMfaStepUp');
+    expectHosted(body).not.toContain('supaoauth.admin.mfa-step-up');
+    expectHosted(body).not.toContain('isAdminMfaStepUpFlow');
+    expectHosted(body).not.toContain('challengeAndVerifyTotp');
+    expectHosted(body).toContain('function showConsent(authorization, accessToken)');
+    expectHosted(body).toContain("submitConsent('approve')");
+    expectHosted(body).toContain("submitConsent('deny')");
+    expectHosted(body).toContain("authorizationRequest('/consent', authorizationAccessToken");
+    expectHosted(body).not.toContain('/approve');
+    expectHosted(body).toContain('? `${publicApiBase()}/sign-in-experience/resolve?authorization_id=${encodeURIComponent(authorizationId)}`');
+    expectHosted(body).toContain(': `${publicApiBase()}/sign-in-experience/resolve`;');
+    expectHosted(body).not.toContain('if (!authorizationId) return;');
+    expectHosted(body).not.toContain('grant_type=password');
+    expectHosted(body).not.toContain('supaoauth.account.access_token');
+    expectHosted(body).not.toContain('#access_token');
   });
 
   test('hosted login page renders connector names as text instead of executable HTML', async () => {
     const response = await request('http://localhost/login.html');
     const html = await response.text();
 
-    expect(html).toContain("connectorLabel.textContent = String(c.name || c.id || 'SSO')");
+    expectHosted(html).toContain("connectorLabel.textContent = String(c.name || c.id || 'SSO')");
     expect(html).not.toContain('`${icon}<span>${c.name}</span>`');
   });
 
@@ -552,18 +567,18 @@ describe('hostedPageRoutes', () => {
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).toContain("authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.'");
-    expect(body).toContain("authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。'");
-    expect(body).toContain("authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。'");
-    expect(body).toContain("const authorization = await authorizationRequest('', accessToken);");
-    expect(body).toContain('if (authorization.redirect_url) {');
-    expect(body).toContain('showConsent(authorization, accessToken);');
-    expect(body).toContain('id="consent-client-name"');
-    expect(body).toContain('id="consent-scopes"');
-    expect(body).toContain('id="consent-approve"');
-    expect(body).toContain('id="consent-deny"');
-    expect(body).not.toContain('authorizationAvailable');
-    expect(body).not.toContain('experience.authorization');
+    expectHosted(body).toContain("authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.'");
+    expectHosted(body).toContain("authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。'");
+    expectHosted(body).toContain("authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。'");
+    expectHosted(body).toContain("const authorization = await authorizationRequest('', accessToken);");
+    expectHosted(body).toContain("if ('redirect_url' in authorization) {");
+    expectHosted(body).toContain('showConsent(authorization, accessToken);');
+    expectHosted(body).toContain('id="consent-client-name"');
+    expectHosted(body).toContain('id="consent-scopes"');
+    expectHosted(body).toContain('id="consent-approve"');
+    expectHosted(body).toContain('id="consent-deny"');
+    expectHosted(body).not.toContain('authorizationAvailable');
+    expectHosted(body).not.toContain('experience.authorization');
   });
 
   test('GET / serves the same authorize page', async () => {
@@ -572,7 +587,7 @@ describe('hostedPageRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
-    expect(body).toContain('<title>SupaOAuth Sign In</title>');
+    expectHosted(body).toContain('<title>SupaOAuth Sign In</title>');
   });
 
   test('GET /favicon.ico and /favicon.svg serve the hosted favicon', async () => {
@@ -582,7 +597,8 @@ describe('hostedPageRoutes', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toContain('image/svg+xml');
-      expect(body).toContain('<svg');
+      expectHosted(body).toContain('<svg');
     }
   });
 });
+import { strictBunFile } from './helpers/strict-bun-file.js';

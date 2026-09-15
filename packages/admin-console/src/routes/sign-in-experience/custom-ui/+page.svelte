@@ -1,4 +1,8 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from "@supauth/shared";
+  import type { DurableMutationLocks, MutationLockDescriptor } from "$lib/mutation-reconciliation.js";
+  type CustomUiStatus = AdminEndpointResult<"getCustomUiStatus">;
+  type MutationAction = "delete" | "upload";
   import { onMount } from "svelte";
   import RequestState from "$lib/components/RequestState.svelte";
   import {
@@ -13,38 +17,40 @@
   } from "$lib/custom-ui-reconciliation.js";
   import { t } from "$lib/i18n.js";
   import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
-  import { errorMessage, mutationOutcomeUnknown } from "$lib/resource-page.js";
+  import { errorMessage } from "$lib/resource-page.js";
+  import { deleteCustomUiCommand } from "$lib/custom-ui-command.js";
 
   const CUSTOM_UI_LOCK_OWNER = "sign-in-experience";
   // 保留 upload 仅为恢复升级前的持久锁；新上传在 UI 与服务端均被阻断。
-  const customUiMutationLockStore = createDurableMutationLockStore({
+  const customUiMutationLockStore = createDurableMutationLockStore<MutationAction>({
     storageKey: "supaoauth.admin.custom-ui-mutation-locks.v1",
     allowedActions: ["delete", "upload"],
     storageProvider: () => globalThis.localStorage,
   });
 
-  let customUiStatus = $state(null);
+  let customUiStatus = $state<CustomUiStatus | null>(null);
   let loading = $state(true);
   let mutating = $state(false);
-  let loadError = $state(null);
-  let mutationError = $state(null);
-  let reconciliationError = $state(null);
-  let mutationStorageError = $state(null);
-  let mutationLocks = $state({});
+  let loadError = $state<unknown>(null);
+  let mutationError = $state<unknown>(null);
+  let reconciliationError = $state<unknown>(null);
+  let mutationStorageError = $state<unknown>(null);
+  let mutationLocks = $state<DurableMutationLocks<MutationAction>>({});
   let mutationStorageReady = $state(false);
+  let pageDisposed = false;
   let notice = $state("");
   let outcomeUnknown = $derived(Object.keys(mutationLocks).length > 0);
   let statusReady = $derived(
     !loading && !loadError && customUiStatusReady(customUiStatus),
   );
 
-  function timestamp(isoTimestamp) {
+  function timestamp(isoTimestamp: string | null | undefined) {
     return isoTimestamp
       ? new Date(isoTimestamp).toLocaleString()
       : t("common.notAvailable");
   }
 
-  function fileSize(bytes) {
+  function fileSize(bytes: number) {
     if (!Number.isFinite(bytes)) return t("common.notAvailable");
     if (bytes < 1024) return `${bytes} B`;
     return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -68,7 +74,7 @@
     }
   }
 
-  function updateMutationLocks(lockCommand) {
+  function updateMutationLocks(lockCommand: () => DurableMutationLocks<MutationAction>) {
     try {
       mutationLocks = lockCommand();
       mutationStorageReady = true;
@@ -85,11 +91,11 @@
     return updateMutationLocks(() => customUiMutationLockStore.restore());
   }
 
-  function mutationDescriptor(action, targetId) {
+  function mutationDescriptor(action: MutationAction, targetId: string): MutationLockDescriptor<MutationAction> {
     return { action, ownerId: CUSTOM_UI_LOCK_OWNER, targetId };
   }
 
-  function stageMutation(action, targetId) {
+  function stageMutation(action: MutationAction, targetId: string) {
     if (!restoreMutationLocks() || Object.keys(mutationLocks).length > 0) return false;
     return updateMutationLocks(() => customUiMutationLockStore.stage(
       mutationLocks,
@@ -97,14 +103,15 @@
     ));
   }
 
-  function clearMutation(action, targetId) {
+  function clearMutation(action: MutationAction, targetId: string) {
+    if (pageDisposed) return false;
     return updateMutationLocks(() => customUiMutationLockStore.clear(
       mutationLocks,
       mutationDescriptor(action, targetId),
     ));
   }
 
-  function mutationAllowed(action) {
+  function mutationAllowed(action: MutationAction) {
     return mutationStorageReady
       && !mutating
       && !outcomeUnknown
@@ -112,7 +119,7 @@
       && customUiActionAllowed(action, customUiStatus);
   }
 
-  function beginMutation(action) {
+  function beginMutation(action: MutationAction) {
     if (!mutationAllowed(action)) return null;
     const targetId = customUiMutationTarget(customUiStatus);
     if (!stageMutation(action, targetId)) return null;
@@ -123,47 +130,40 @@
     return targetId;
   }
 
-  async function reconcileLockedMutation(action, targetId) {
-    reconciliationError = null;
-    try {
-      const status = await readCustomUiStatus();
-      if (!customUiReadBackConfirms(action, targetId, status)) return false;
-      if (!clearMutation(action, targetId)) return false;
-      mutationError = null;
-      return true;
-    } catch (readBackError) {
-      reconciliationError = readBackError;
-      return false;
-    }
-  }
-
-  async function recordMutationFailure(action, targetId, requestError) {
-    mutationError = requestError;
-    if (!mutationOutcomeUnknown(requestError)) {
-      clearMutation(action, targetId);
-      return;
-    }
-    if (await reconcileLockedMutation(action, targetId)) {
-      notice = t("customUi.authoritativeReadBackConfirmed");
-    }
-  }
-
   async function removeCustomUi() {
-    if (!mutationAllowed("delete")) return;
+    if (pageDisposed || !mutationAllowed("delete")) return;
     if (!confirm(t("customUi.deleteConfirm"))) return;
     const targetId = beginMutation("delete");
     if (!targetId) return;
     try {
-      const deletion = await deleteCustomUiAssets();
-      if (await reconcileLockedMutation("delete", targetId)) {
-        notice = deletion?.cleanup_pending || deletion?.audit_pending
-          ? t("customUi.deletionPending")
-          : t("customUi.deleted");
+      const outcome = await deleteCustomUiCommand(
+        { targetId, status: customUiStatus },
+        {
+          deleteAssets: () => deleteCustomUiAssets({ authenticationRetry: "never" }),
+          readStatus: getCustomUiStatus,
+        },
+      );
+      if (pageDisposed) return;
+      if (outcome.kind === "invalid" || outcome.kind === "denied") {
+        mutationError = outcome.error;
+        clearMutation("delete", targetId);
+        return;
+      }
+      if (outcome.authority) customUiStatus = outcome.authority;
+      mutationError = outcome.writeError;
+      reconciliationError = outcome.readError;
+      if (outcome.kind === "confirmed" && clearMutation("delete", targetId)) {
+        mutationError = null;
+        notice = outcome.acknowledgement
+          ? outcome.acknowledgement.cleanup_pending || outcome.acknowledgement.audit_pending
+            ? t("customUi.deletionPending")
+            : t("customUi.deleted")
+          : t("customUi.authoritativeReadBackConfirmed");
       }
     } catch (requestError) {
-      await recordMutationFailure("delete", targetId, requestError);
+      if (!pageDisposed) mutationError = requestError;
     } finally {
-      mutating = false;
+      if (!pageDisposed) mutating = false;
     }
   }
 
@@ -178,7 +178,7 @@
     return false;
   }
 
-  function clearConfirmedMutations(status) {
+  function clearConfirmedMutations(status: CustomUiStatus) {
     for (const lock of Object.values(mutationLocks)) {
       if (customUiReadBackConfirms(lock.action, lock.targetId, status)) {
         if (!clearMutation(lock.action, lock.targetId)) return false;
@@ -216,6 +216,9 @@
   onMount(() => {
     restoreMutationLocks();
     void loadStatus();
+    return () => {
+      pageDisposed = true;
+    };
   });
 </script>
 

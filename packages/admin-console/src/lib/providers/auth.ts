@@ -3,6 +3,10 @@
 
 import type { AuthProvider, Identity, AuthActionResult, CheckResult } from '@svadmin/core';
 import {
+  AdminIdentitySchema, AdminLoginResponseSchema, AdminPrincipalSchema, AdminSsoConfigSchema,
+  AdminOidcDiscoverySchema, decodeSchema, type Static, type TSchema,
+} from '@supauth/shared';
+import {
   createSSOAuthProvider,
   generateChallenge,
   generateState,
@@ -39,14 +43,7 @@ interface AdminSsoConfig {
   endSessionEndpoint: string;
 }
 
-interface RuntimeAdminSsoConfigResponse {
-  enabled?: boolean;
-  issuer?: string;
-  client_id?: string;
-  redirect_uri?: string;
-  post_logout_redirect_uri?: string;
-  end_session_endpoint?: string;
-}
+type RuntimeAdminSsoConfigResponse = Partial<Static<typeof AdminSsoConfigSchema>>;
 
 interface AdminEndSessionInput {
   endpoint: string;
@@ -55,21 +52,13 @@ interface AdminEndSessionInput {
   postLogoutRedirectUri: string;
 }
 
-interface AdminPrincipalPermissions {
-  roles: string[];
-  permissions: string[];
-  authorization_source: string;
-}
+type AdminPrincipalPermissions = Pick<Static<typeof AdminPrincipalSchema>, 'roles' | 'permissions' | 'authorization_source'>;
 
 interface AdminAuthInitializationOptions {
   signal?: AbortSignal;
 }
 
-interface AdminOidcDiscovery extends Record<string, unknown> {
-  authorization_endpoint: string;
-  token_endpoint: string;
-  userinfo_endpoint: string;
-}
+type AdminOidcDiscovery = Static<typeof AdminOidcDiscoverySchema>;
 
 interface DeferredAdminLoginResult extends AuthActionResult {
   commitRedirect: (signal: AbortSignal) => Promise<void>;
@@ -109,10 +98,10 @@ const ADMIN_OAUTH_CALLBACK_PARAMS = [
 const ADMIN_SSO_AUTH_LOCK = `${ADMIN_SSO_STORAGE_KEY}:auth`;
 
 const COMPILED_SSO_CONFIG = normalizeAdminSsoConfig({
-  issuer: import.meta.env.VITE_ADMIN_SSO_ISSUER || import.meta.env.VITE_SSO_ISSUER || '',
-  client_id: import.meta.env.VITE_ADMIN_SSO_CLIENT_ID || import.meta.env.VITE_SSO_CLIENT_ID || '',
-  redirect_uri: import.meta.env.VITE_ADMIN_SSO_REDIRECT_URI || defaultRedirectUri(),
-  post_logout_redirect_uri: import.meta.env.VITE_ADMIN_SSO_POST_LOGOUT_REDIRECT_URI || defaultLoginUri(),
+  issuer: import.meta.env["VITE_ADMIN_SSO_ISSUER"] || import.meta.env["VITE_SSO_ISSUER"] || '',
+  client_id: import.meta.env["VITE_ADMIN_SSO_CLIENT_ID"] || import.meta.env["VITE_SSO_CLIENT_ID"] || '',
+  redirect_uri: import.meta.env["VITE_ADMIN_SSO_REDIRECT_URI"] || defaultRedirectUri(),
+  post_logout_redirect_uri: import.meta.env["VITE_ADMIN_SSO_POST_LOGOUT_REDIRECT_URI"] || defaultLoginUri(),
 });
 let runtimeSsoConfigPromise: Promise<AdminSsoConfig | null> | null = null;
 let currentSsoProvider: SSOAuthProvider | null = null;
@@ -183,24 +172,29 @@ async function loadRuntimeAdminSsoConfig(
 async function requestRuntimeAdminSsoConfig(
   signal?: AbortSignal,
 ): Promise<AdminSsoConfig | null> {
-  const response = await adminApiRequest('/v1/public/admin-sso-config', { signal });
-  if (!response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new AdminApiError(
-      'Admin SSO config returned an invalid response',
-      502,
-      'invalid_upstream_response',
-      response,
-    );
-  }
-  return normalizeAdminSsoConfig(response as RuntimeAdminSsoConfigResponse);
+  const response = await adminApiRequest('/v1/public/admin-sso-config', signal ? { signal } : {});
+  return normalizeAdminSsoConfig(decodeAdminResponse(AdminSsoConfigSchema, response));
 }
 
-function isStringArray(candidate: unknown): candidate is string[] {
-  return Array.isArray(candidate) && candidate.every((entry) => typeof entry === 'string');
+function decodeAdminResponse<S extends TSchema>(schema: S, response: unknown): Static<S> {
+  try {
+    return decodeSchema(schema, response);
+  } catch {
+    throw new AdminApiError('Admin response does not match its contract', 502, 'invalid_upstream_response');
+  }
+}
+
+function adminIdentity(response: unknown): Identity {
+  const { avatar, ...identity } = decodeAdminResponse(AdminIdentitySchema, response);
+  return { ...identity, ...(avatar === null ? {} : { avatar }) };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Admin authentication request failed';
 }
 
 function adminCheckSignal(params: Record<string, unknown>): AbortSignal | undefined {
-  const candidate = params.signal;
+  const candidate = params["signal"];
   return typeof AbortSignal !== 'undefined' && candidate instanceof AbortSignal
     ? candidate
     : undefined;
@@ -212,7 +206,7 @@ function abortSignal(params: Record<string, unknown>): AbortSignal {
 
 function adminAuthErrorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
-  const code = (error as { code?: unknown }).code;
+  const code = 'code' in error ? error.code : undefined;
   return typeof code === 'string' ? code : null;
 }
 
@@ -239,14 +233,16 @@ function requiredAdminOidcEndpoint(endpointCandidate: unknown): string {
 }
 
 function readAdminOidcDiscovery(discoveryPayload: unknown): AdminOidcDiscovery {
-  if (!discoveryPayload || typeof discoveryPayload !== 'object' || Array.isArray(discoveryPayload)) {
+  let discovery: AdminOidcDiscovery;
+  try {
+    discovery = decodeSchema(AdminOidcDiscoverySchema, discoveryPayload);
+  } catch {
     throw new AdminApiError(
       'Admin OIDC discovery returned an invalid response',
       502,
       'invalid_discovery_document',
     );
   }
-  const discovery = discoveryPayload as Record<string, unknown>;
   return {
     ...discovery,
     authorization_endpoint: requiredAdminOidcEndpoint(discovery.authorization_endpoint),
@@ -445,21 +441,8 @@ async function prepareAdminSsoLogin(
 }
 
 function adminPrincipalPermissions(identity: unknown): AdminPrincipalPermissions {
-  if (!identity || typeof identity !== 'object' || Array.isArray(identity)) {
-    throw new AdminApiError('Admin identity returned an invalid response', 502, 'invalid_upstream_response', identity);
-  }
-  const principal = identity as Record<string, unknown>;
-  const roles = principal.roles;
-  const permissions = principal.permissions;
-  const authorizationSource = principal.authorization_source;
-  if (
-    !isStringArray(roles)
-    || !isStringArray(permissions)
-    || typeof authorizationSource !== 'string'
-  ) {
-    throw new AdminApiError('Admin identity is missing authorization data', 502, 'invalid_upstream_response', identity);
-  }
-  return { roles, permissions, authorization_source: authorizationSource };
+  const { roles, permissions, authorization_source } = decodeAdminResponse(AdminPrincipalSchema, identity);
+  return { roles, permissions, authorization_source };
 }
 
 async function getAdminPrincipalPermissions(): Promise<AdminPrincipalPermissions> {
@@ -472,19 +455,19 @@ const tokenAuthProvider: AuthProvider = {
       const result = await adminApiRequest('/v1/auth/login', {
         method: 'POST',
         body: JSON.stringify({
-          token: params.token || params.password,
-          email: params.email,
-          password: params.password,
+          token: params["token"] || params["password"],
+          email: params["email"],
+          password: params["password"],
         }),
       });
-      const token = (result as { token?: string })?.token;
-      if (token) {
-        setStoredAdminToken(token);
+      const login = decodeAdminResponse(AdminLoginResponseSchema, result);
+      if (login.success) {
+        setStoredAdminToken(login.token);
         return { success: true, redirectTo: '/admin/dashboard' };
       }
       return { success: false, error: { message: 'Login failed' } };
     } catch (e) {
-      return { success: false, error: { message: (e as Error).message } };
+      return { success: false, error: { message: errorMessage(e) } };
     }
   },
 
@@ -497,16 +480,15 @@ const tokenAuthProvider: AuthProvider = {
     }
     clearStoredAdminToken();
     if (revokeError) {
-      return { success: false, error: { message: (revokeError as Error).message } };
+      return { success: false, error: { message: errorMessage(revokeError) } };
     }
     return { success: true, redirectTo: '/admin/login' };
   },
 
   check: async (params = {}): Promise<CheckResult> => {
     try {
-      await adminApiRequest('/v1/auth/identity', {
-        signal: adminCheckSignal(params),
-      });
+      const signal = adminCheckSignal(params);
+      adminIdentity(await adminApiRequest('/v1/auth/identity', signal ? { signal } : {}));
       return { authenticated: true };
     } catch (error) {
       return adminCheckFailure(error);
@@ -516,7 +498,7 @@ const tokenAuthProvider: AuthProvider = {
   getIdentity: async (): Promise<Identity | null> => {
     try {
       const identity = await adminApiRequest('/v1/auth/identity');
-      return identity as Identity;
+      return adminIdentity(identity);
     } catch {
       return null;
     }
@@ -527,7 +509,7 @@ const tokenAuthProvider: AuthProvider = {
   },
 
   onError: async (error: unknown): Promise<{ redirectTo?: string; logout?: boolean }> => {
-    const status = (error as { statusCode?: number })?.statusCode;
+    const status = typeof error === 'object' && error && 'statusCode' in error ? error.statusCode : undefined;
     if (status === 401) {
       return { redirectTo: '/admin/login', logout: true };
     }
@@ -561,7 +543,7 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
     storageKey: ADMIN_SSO_STORAGE_KEY,
     legacyStorageKey: 'svadmin_sso',
     autoRefresh: false,
-    fetcher: fetchSsoRequest as typeof fetch,
+    fetcher: (fetchSsoRequest),
   });
   const authenticatedFetch = requireAdminAuthenticatedFetch(ssoProvider);
 
@@ -633,8 +615,8 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
       if (revokeError) {
         return {
           success: false,
-          error: { message: (revokeError as Error).message },
-          redirectTo: providerLogout.redirectTo,
+          error: { message: errorMessage(revokeError) },
+          ...(providerLogout.redirectTo === undefined ? {} : { redirectTo: providerLogout.redirectTo }),
         };
       }
       return providerLogout;
@@ -644,14 +626,14 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
       const signal = adminCheckSignal(params);
       const ssoCheck = await runBoundedAdminRequest(
         () => sharedSsoCheck(),
-        { signal },
+        signal ? { signal } : {},
       );
       if (!ssoCheck.authenticated) {
         return { ...ssoCheck, redirectTo: ssoCheck.redirectTo || '/admin/login' };
       }
 
       try {
-        await adminApiRequest('/v1/auth/identity', { signal });
+        adminIdentity(await adminApiRequest('/v1/auth/identity', signal ? { signal } : {}));
         return { authenticated: true };
       } catch (error) {
         return adminCheckFailure(error);
@@ -661,7 +643,7 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
     getIdentity: async (): Promise<Identity | null> => {
       try {
         const identity = await adminApiRequest('/v1/auth/identity');
-        return identity as Identity;
+        return adminIdentity(identity);
       } catch {
         return ssoProvider.getIdentity();
       }
@@ -672,8 +654,9 @@ function createSupaOAuthSSOProvider(config: AdminSsoConfig): AuthProvider {
     },
 
     onError: async (error: unknown): Promise<{ redirectTo?: string; logout?: boolean }> => {
-      const status = (error as { statusCode?: number; status?: number })?.statusCode
-        ?? (error as { status?: number })?.status;
+      const status = typeof error === 'object' && error
+        ? ('statusCode' in error ? error.statusCode : 'status' in error ? error.status : undefined)
+        : undefined;
       if (status === 403) return {};
       return ssoProvider.onError?.(error) ?? {};
     },
@@ -684,9 +667,15 @@ export async function getAdminMfaStepUpState(
   options: AdminAuthInitializationOptions = {},
 ): Promise<AdminMfaStepUpState> {
   if (!currentAdminMfaStepUp) throw new Error('管理员 MFA 会话尚未初始化，请重新登录。');
+  const stepUp = currentAdminMfaStepUp;
   return runBoundedAdminRequest(
-    () => currentAdminMfaStepUp!.state(),
-    { signal: options.signal },
+    () => {
+      if (currentAdminMfaStepUp !== stepUp) {
+        throw new Error('管理员 MFA 会话已变化，请重新登录。');
+      }
+      return stepUp.state();
+    },
+    options.signal ? { signal: options.signal } : {},
   );
 }
 

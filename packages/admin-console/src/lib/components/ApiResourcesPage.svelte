@@ -1,6 +1,9 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from "@supauth/shared";
+  import { collectionItems, errorMessage } from "$lib/resource-page.js";
+  import { resolveConsolePath } from "$lib/navigation.js";
   import { onMount } from "svelte";
-  import { resolve } from "$app/paths";
+  import { base } from "$app/paths";
   import { t } from "$lib/i18n.js";
   import {
     listResources,
@@ -8,9 +11,9 @@
     deleteResource,
   } from "$lib/api/client.js";
 
-  let resources = $state([]);
+  let resources = $state<AdminEndpointResult<"listResources">["items"]>([]);
   let loading = $state(true);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let showCreate = $state(false);
   let newResource = $state({ name: "", indicator: "", scopes: "" });
 
@@ -18,9 +21,9 @@
     loading = true;
     try {
       const res = await listResources();
-      resources = res.items || res.data || (Array.isArray(res) ? res : []);
+      resources = collectionItems<AdminEndpointResult<"listResources">["items"][number]>(res);
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     }
     loading = false;
   }
@@ -40,17 +43,17 @@
       newResource = { name: "", indicator: "", scopes: "" };
       await load();
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(id: string) {
     if (!confirm(t("Delete this resource?"))) return;
     try {
       await deleteResource(id);
       await load();
     } catch (e) {
-      error = e.message;
+      error = errorMessage(e);
     }
   }
 
@@ -145,8 +148,9 @@
         <div class="flex items-start justify-between">
           <div>
             <a
-              href={resolve(
+              href={resolveConsolePath(
                 `/api-resources/${encodeURIComponent(resource.id)}/general`,
+                base,
               )}
               class="font-semibold text-surface-900 hover:text-brand-700"
               >{resource.name}</a

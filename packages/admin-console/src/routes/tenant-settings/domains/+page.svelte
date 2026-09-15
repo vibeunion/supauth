@@ -1,14 +1,18 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from '@supauth/shared';
+  import { errorMessage } from '$lib/resource-page.js';
+  type Domain = AdminEndpointResult<'listTenantConfigs'>['items'][number];
+  type DomainCheck = AdminEndpointResult<'checkTenantDomain'> | {status: 'error'; error: string};
   import { onMount } from 'svelte';
   import { checkTenantDomain, deleteTenantConfig, listTenantConfigs, upsertTenantConfig } from '$lib/api/client.js';
   import { t } from '$lib/i18n.js';
 
   let loading = $state(true);
   let saving = $state(false);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let domainName = $state('');
-  let domains = $state([]);
-  let domainChecks = $state({});
+  let domains = $state<Domain[]>([]);
+  let domainChecks = $state<Record<string, DomainCheck>>({});
 
   async function loadDomains() {
     loading = true;
@@ -17,7 +21,7 @@
       const response = await listTenantConfigs('domain');
       domains = response.items || [];
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
     loading = false;
   }
@@ -32,26 +36,26 @@
       domainName = '';
       await loadDomains();
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
     saving = false;
   }
 
-  async function verifyDomain(domainConfig) {
+  async function verifyDomain(domainConfig: Domain) {
     try {
       domainChecks = { ...domainChecks, [domainConfig.key]: await checkTenantDomain(domainConfig.key) };
     } catch (requestError) {
-      domainChecks = { ...domainChecks, [domainConfig.key]: { status: 'error', error: requestError.message } };
+      domainChecks = { ...domainChecks, [domainConfig.key]: { status: 'error', error: errorMessage(requestError) } };
     }
   }
 
-  async function removeDomain(domainConfig) {
+  async function removeDomain(domainConfig: Domain) {
     if (!confirm(t('tenant.domainDeleteConfirm'))) return;
     try {
       await deleteTenantConfig('domain', domainConfig.key);
       await loadDomains();
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
   }
 

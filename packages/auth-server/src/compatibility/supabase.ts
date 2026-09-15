@@ -70,14 +70,14 @@ export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult
     results.push({
       check_id: 'sc-6-supacloud-reachable',
       status: 'fail',
-      message: `SupaCloud Management API unreachable: ${(e as Error).message}`,
+      message: `SupaCloud Management API unreachable: ${e instanceof Error ? e.message : 'Unknown upstream failure'}`,
     });
   }
 
   // SC-7: Discovery includes required scopes
   try {
     const disc = await getDiscovery();
-    const scopesSupported = (disc.scopes_supported as string[]) || [];
+    const scopesSupported = disc.scopes_supported || [];
     const requiredScopes = ['openid', 'profile', 'email', 'offline_access'];
     const missing = requiredScopes.filter(s => !scopesSupported.includes(s));
     results.push({

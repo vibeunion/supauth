@@ -1,0 +1,24 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index a697dac..dc7ee25 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -19,16 +19,19 @@ export declare const swagger: <Path extends string = "/swagger">({ provider, sca
+     macro: {};
+     macroFn: {};
+     parser: {};
++    response: {};
+ }, {}, {
+     derive: {};
+     resolve: {};
+     schema: {};
+     standaloneSchema: {};
++    response: {};
+ }, {
+     derive: {};
+     resolve: {};
+     schema: {};
+     standaloneSchema: {};
++    response: {};
+ }>;
+ export type { ElysiaSwaggerConfig };
+ export default swagger;

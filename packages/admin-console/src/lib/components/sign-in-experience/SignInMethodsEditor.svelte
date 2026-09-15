@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { MutationReconciliation } from "$lib/mutation-reconciliation.js";
+  import { errorMessage } from "$lib/resource-page.js";
   import { onMount } from "svelte";
   import {
     getAuthConfig,
@@ -22,13 +24,13 @@
 
   let loading = $state(true);
   let saving = $state(false);
-  let error = $state(null);
+  let error = $state<string | null>(null);
   let saved = $state(false);
-  let reconciliationStatus = $state(null);
+  let reconciliationStatus = $state<MutationReconciliation<unknown>["status"] | null>(null);
   let signUpEnabled = $state(true);
   let enabledMethods = $state(["password"]);
 
-  function setMethodEnabled(methodName, enabled) {
+  function setMethodEnabled(methodName: string, enabled: boolean) {
     if (enabled && !enabledMethods.includes(methodName))
       enabledMethods = [...enabledMethods, methodName];
     if (!enabled)
@@ -45,7 +47,7 @@
     return { signInExperience, authConfig };
   }
 
-  function applyMethodsSnapshot(snapshot) {
+  function applyMethodsSnapshot(snapshot: Awaited<ReturnType<typeof readMethodsSnapshot>>) {
     const { signInExperience, authConfig } = snapshot;
     signUpEnabled = resolveAuthoritativeSignupEnabled(authConfig);
     enabledMethods = (
@@ -67,7 +69,7 @@
     try {
       await readMethods();
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     } finally {
       loading = false;
     }
@@ -102,7 +104,10 @@
       const reconciliation = await settleAuthoritativeSettingsMutation({
         draft: mutationDraft,
         writeCommands: (command) => [
-          () => updateSignInExperience(command.signInExperience),
+          () => updateSignInExperience({
+            ...command.signInExperience,
+            sign_in_methods: [...command.signInExperience.sign_in_methods],
+          }),
           () => updateAuthConfig(command.authConfig),
         ],
         readSnapshot: readMethodsSnapshot,

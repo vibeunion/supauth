@@ -62,9 +62,9 @@ export function resolveManagementApiBaseCandidates(
   const candidates: string[] = [];
   const seen = new Set<string>();
   for (const baseUrl of [
-    env.MANAGEMENT_URL,
-    env.SUPABASE_FULLSTACK_URL,
-    env.SUPABASE_URL,
+    env["MANAGEMENT_URL"],
+    env["SUPABASE_FULLSTACK_URL"],
+    env["SUPABASE_URL"],
     runtimeUrl,
   ]) {
     for (const candidate of resolveManagementApiBases(baseUrl ?? '')) {

@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 import { describe, expect, test } from "bun:test";
 import { settleWritesThenReadBack } from "../../mutation-reconciliation.js";
 import { resolveAuthoritativeSignupEnabled } from "./signup-authority.js";
@@ -44,6 +44,7 @@ describe("GoTrue signup authority", () => {
     );
 
     expect(reconciliation.status).toBe("partial_failure");
+    if (reconciliation.status !== "partial_failure") throw new Error("Expected partial failure");
     expect(reconciliation.readBackValue).toBe(false);
   });
 
@@ -57,6 +58,7 @@ describe("GoTrue signup authority", () => {
     );
 
     expect(reconciliation.status).toBe("partial_failure");
+    if (reconciliation.status !== "partial_failure") throw new Error("Expected partial failure");
     expect(reconciliation.readBackValue).toBe(true);
   });
 
@@ -73,8 +75,9 @@ describe("GoTrue signup authority", () => {
       );
 
       expect(reconciliation.status).toBe("readback_failure");
+      if (reconciliation.status !== "readback_failure") throw new Error("Expected readback failure");
       expect(reconciliation.writeStatus).toBe("success");
-      expect(reconciliation.readBackValue).toBeUndefined();
+      expect("readBackValue" in reconciliation).toBe(false);
     },
   );
 });

@@ -1,5 +1,5 @@
-import { describe, expect, it, spyOn } from 'bun:test';
-import * as dbModule from '../db/index.js';
+import { describe, expect, it, mock } from 'bun:test';
+import { strictProperty } from './helpers/strict-values.js';
 
 const tenantRow = {
   id: 'tenant-sie',
@@ -26,7 +26,7 @@ const tenantRow = {
 
 describe('Sign-in experience repository fallback behavior', () => {
   it('keeps OAuth login usable when application sign-in experience storage is unavailable', async () => {
-    const getDbSpy = spyOn(dbModule, 'getDb').mockReturnValue({
+    const database = {
       select: () => ({
         from: () => ({
           limit: async () => [tenantRow],
@@ -37,7 +37,8 @@ describe('Sign-in experience repository fallback behavior', () => {
           }),
         }),
       }),
-    } as unknown as ReturnType<typeof dbModule.getDb>);
+    };
+    mock.module('../db/index.js', () => ({ getDb: () => database }));
 
     try {
       const { resolveSignInExperience } = await import('../repositories/sign-in-experience.js');
@@ -46,9 +47,9 @@ describe('Sign-in experience repository fallback behavior', () => {
 
       expect(experience?.branding.page_title).toBe('西谷智灯枢鉴系统');
       expect(experience?.branding.button_label).toBe('进入枢鉴');
-      expect((experience as { application?: unknown } | null)?.application).toBeNull();
+      expect(strictProperty(experience, 'application')).toBeNull();
     } finally {
-      getDbSpy.mockRestore();
+      mock.restore();
     }
   });
 });

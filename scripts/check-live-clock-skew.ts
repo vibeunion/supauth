@@ -69,7 +69,7 @@ function errorMessage(error: unknown): string {
 }
 
 async function main(): Promise<void> {
-  const runtimeUrl = process.env.OAUTH_RUNTIME_URL?.trim();
+  const runtimeUrl = process.env["OAUTH_RUNTIME_URL"]?.trim();
   if (!runtimeUrl) throw new Error('OAUTH_RUNTIME_URL is required for the live clock check');
   const clockSkewMs = await checkLiveClockSkew({ runtimeUrl });
   console.log(`GoTrue clock skew: ${formatClockSkew(clockSkewMs)}`);

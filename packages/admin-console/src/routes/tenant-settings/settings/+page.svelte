@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import type { AdminEndpointResult } from '@supauth/shared';
+  import { errorMessage } from '$lib/resource-page.js';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import { getAuthConfigRuntimeConsistency, getProject, getSecurityStatus } from '$lib/api/client.js';
@@ -6,10 +8,10 @@
   import { adminAuthModeLabelKey } from '$lib/tenant-settings.js';
 
   let loading = $state(true);
-  let error = $state(null);
-  let project = $state(null);
-  let securityStatus = $state(null);
-  let runtimeConsistency = $state(null);
+  let error = $state<string | null>(null);
+  let project = $state<AdminEndpointResult<'getProject'> | null>(null);
+  let securityStatus = $state<AdminEndpointResult<'getSecurityStatus'> | null>(null);
+  let runtimeConsistency = $state<AdminEndpointResult<'getAuthConfigRuntimeConsistency'> | null>(null);
 
   onMount(async () => {
     try {
@@ -19,7 +21,7 @@
         getAuthConfigRuntimeConsistency(),
       ]);
     } catch (requestError) {
-      error = requestError.message;
+      error = errorMessage(requestError);
     }
     loading = false;
   });

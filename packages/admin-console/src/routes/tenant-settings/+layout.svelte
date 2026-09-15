@@ -1,11 +1,12 @@
-<script>
-  import { onMount } from "svelte";
+<script lang="ts">
+  import type { AdminEndpointResult } from "@supauth/shared";
+  import { onMount, type Snippet } from "svelte";
   import PageTabs from "$lib/components/PageTabs.svelte";
   import RequestState from "$lib/components/RequestState.svelte";
   import { getCapabilities } from "$lib/api/client.js";
   import { capabilityAvailable } from "$lib/resource-page.js";
 
-  let { children } = $props();
+  let { children }: { children: Snippet } = $props();
 
   const baseTabs = [
     { path: "/tenant-settings/settings", labelKey: "tenant.tab.settings" },
@@ -17,8 +18,8 @@
       labelKey: "tenant.tab.diagnostics",
     },
   ];
-  let capabilities = $state(null);
-  let capabilityError = $state(null);
+  let capabilities = $state<AdminEndpointResult<"getCapabilities"> | null>(null);
+  let capabilityError = $state<unknown>(null);
   let capabilityLoading = $state(true);
   let tenantSettingsTabs = $derived(
     capabilityAvailable(capabilities, "tenant_collaborators_v1")

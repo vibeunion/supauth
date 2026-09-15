@@ -1,3 +1,4 @@
+import { requireArray, requireRecordArray, requireString } from './tooling-values.js';
 import * as XLSX from 'xlsx';
 import { pinyin } from 'pinyin-pro';
 import { dlopen, FFIType } from 'bun:ffi';
@@ -105,8 +106,8 @@ function parseArgs(): Args {
     csvOutput: option('csv', `.agents/state/${batch}/import-review.csv`),
     domain: option(
       'domain',
-      process.env.SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN
-        || process.env.ACCOUNT_PROVISIONING_EMAIL_DOMAIN
+      process.env["SUPAUTH_ACCOUNT_PROVISIONING_EMAIL_DOMAIN"]
+        || process.env["ACCOUNT_PROVISIONING_EMAIL_DOMAIN"]
         || 'example.com',
     ).replace(/^@/, '').toLowerCase(),
     batch,
@@ -116,7 +117,24 @@ function parseArgs(): Args {
 
 function cell(row: Record<string, unknown>, key: string): string {
   const value = row[key];
-  return value === undefined || value === null ? '' : String(value).trim();
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string' && typeof value !== 'boolean'
+    && (typeof value !== 'number' || !Number.isFinite(value))) {
+    throw new Error(`Worksheet column ${key} must contain a scalar value`);
+  }
+  return String(value).trim();
+}
+
+export function decodeWorksheetRows(value: unknown): NormalizedRow[] {
+  return requireRecordArray(value, 'Worksheet rows').map(row => ({
+    externalId: normalizeExternalIdForManifest(cell(row, '数字ID') || cell(row, 'external_id') || cell(row, 'External ID')),
+    displayName: cell(row, '姓名') || cell(row, 'display_name') || cell(row, 'Display Name'),
+    sourceStatus: cell(row, '状态') || cell(row, 'source_status') || 'active',
+    department: cell(row, '部门'),
+    company: cell(row, '企业'),
+    role: cell(row, '角色'),
+    sourceSeq: cell(row, '序号'),
+  })).filter(row => row.externalId && row.displayName);
 }
 
 function normalizeExternalIdForManifest(value: string): string {
@@ -128,7 +146,7 @@ function normalizeExternalIdForManifest(value: string): string {
 }
 
 function slugName(name: string): string {
-  const raw = pinyin(name, { toneType: 'none', type: 'array', v: true }) as string[];
+  const raw = requireArray(pinyin(name, { toneType: 'none', type: 'array', v: true })).map(value => requireString(value));
   const slug = raw.join('').toLowerCase().replace(/[^a-z0-9]/g, '');
   return slug || 'user';
 }
@@ -415,10 +433,16 @@ async function snapshotOutputs(outputPlans: OutputPlan[]): Promise<Array<OwnedFi
   }
 }
 
+function transactionItem<T>(items: readonly T[], index: number): T {
+  const item = items[index];
+  if (item === undefined) throw new Error(`Missing output transaction item at index ${index}`);
+  return item;
+}
+
 function commitEvent(transaction: OutputTransaction, index: number): OutputCommitEvent {
   return {
-    stagedPath: transaction.stagedFiles[index].path,
-    targetPath: transaction.outputPlans[index].targetPath,
+    stagedPath: transactionItem(transaction.stagedFiles, index).path,
+    targetPath: transactionItem(transaction.outputPlans, index).targetPath,
   };
 }
 
@@ -434,8 +458,8 @@ async function restoreForeignCommitTarget(
   index: number,
   displacedIdentity: FileIdentity | null,
 ): Promise<void> {
-  const plan = transaction.outputPlans[index];
-  const stagedFile = transaction.stagedFiles[index];
+  const plan = transactionItem(transaction.outputPlans, index);
+  const stagedFile = transactionItem(transaction.stagedFiles, index);
   atomicPathOperations().exchange(stagedFile.path, plan.targetPath);
   const [restoredStage, restoredTarget] = await Promise.all([
     currentIdentity(stagedFile.path),
@@ -457,7 +481,7 @@ async function rejectForeignExchange(
   index: number,
   displacedIdentity: FileIdentity | null,
 ): Promise<never> {
-  const plan = transaction.outputPlans[index];
+  const plan = transactionItem(transaction.outputPlans, index);
   const snapshot = transaction.snapshots[index];
   const failures: unknown[] = [];
   if (snapshot) transaction.preservedPaths.add(snapshot.path);
@@ -465,7 +489,7 @@ async function rejectForeignExchange(
     await restoreForeignCommitTarget(transaction, index, displacedIdentity);
   } catch (cause) {
     failures.push(cause);
-    transaction.preservedPaths.add(transaction.stagedFiles[index].path);
+    transaction.preservedPaths.add(transactionItem(transaction.stagedFiles, index).path);
   }
   throw transactionFailure(
     new Error(`Output changed during atomic commit; recovery material was retained for ${plan.targetPath}`),
@@ -474,8 +498,8 @@ async function rejectForeignExchange(
 }
 
 async function commitExistingOutput(transaction: OutputTransaction, index: number): Promise<void> {
-  const plan = transaction.outputPlans[index];
-  const stagedFile = transaction.stagedFiles[index];
+  const plan = transactionItem(transaction.outputPlans, index);
+  const stagedFile = transactionItem(transaction.stagedFiles, index);
   const snapshot = transaction.snapshots[index];
   if (!snapshot) throw new Error(`Missing snapshot for existing output: ${plan.targetPath}`);
   atomicPathOperations().exchange(stagedFile.path, plan.targetPath);
@@ -489,8 +513,8 @@ async function commitExistingOutput(transaction: OutputTransaction, index: numbe
 }
 
 async function commitMissingOutput(transaction: OutputTransaction, index: number): Promise<void> {
-  const stagedFile = transaction.stagedFiles[index];
-  const targetPath = transaction.outputPlans[index].targetPath;
+  const stagedFile = transactionItem(transaction.stagedFiles, index);
+  const targetPath = transactionItem(transaction.outputPlans, index).targetPath;
   await link(stagedFile.path, targetPath);
   transaction.stagePathFiles[index] = stagedFile;
 }
@@ -498,7 +522,7 @@ async function commitMissingOutput(transaction: OutputTransaction, index: number
 async function commitOutput(transaction: OutputTransaction, index: number): Promise<void> {
   const event = commitEvent(transaction, index);
   await invokeCommitHook(transaction.hooks.beforeCommit, event);
-  if (transaction.snapshots[index]) await commitExistingOutput(transaction, index);
+  if (transactionItem(transaction.snapshots, index)) await commitExistingOutput(transaction, index);
   else await commitMissingOutput(transaction, index);
   transaction.committedCount = index + 1;
   await invokeCommitHook(transaction.hooks.afterCommit, event);
@@ -509,7 +533,7 @@ async function restoreForeignRollbackTarget(
   index: number,
   displacedIdentity: FileIdentity | null,
 ): Promise<void> {
-  const plan = transaction.outputPlans[index];
+  const plan = transactionItem(transaction.outputPlans, index);
   const snapshot = transaction.snapshots[index];
   if (!snapshot) throw new Error(`Missing rollback snapshot: ${plan.targetPath}`);
   atomicPathOperations().exchange(snapshot.path, plan.targetPath);
@@ -528,7 +552,7 @@ async function rejectForeignRollback(
   index: number,
   displacedIdentity: FileIdentity | null,
 ): Promise<never> {
-  const plan = transaction.outputPlans[index];
+  const plan = transactionItem(transaction.outputPlans, index);
   const snapshot = transaction.snapshots[index];
   const failures: unknown[] = [];
   if (snapshot) transaction.preservedPaths.add(snapshot.path);
@@ -546,9 +570,9 @@ async function rejectForeignRollback(
 }
 
 async function restoreExistingOutput(transaction: OutputTransaction, index: number): Promise<void> {
-  const plan = transaction.outputPlans[index];
+  const plan = transactionItem(transaction.outputPlans, index);
   const snapshot = transaction.snapshots[index];
-  const stagedFile = transaction.stagedFiles[index];
+  const stagedFile = transactionItem(transaction.stagedFiles, index);
   if (!snapshot) throw new Error(`Missing rollback snapshot: ${plan.targetPath}`);
   atomicPathOperations().exchange(snapshot.path, plan.targetPath);
   const displacedIdentity = await currentIdentity(snapshot.path);
@@ -559,8 +583,8 @@ async function restoreExistingOutput(transaction: OutputTransaction, index: numb
 }
 
 async function restoreMissingOutput(transaction: OutputTransaction, index: number): Promise<void> {
-  const targetPath = transaction.outputPlans[index].targetPath;
-  const stagedFile = transaction.stagedFiles[index];
+  const targetPath = transactionItem(transaction.outputPlans, index).targetPath;
+  const stagedFile = transactionItem(transaction.stagedFiles, index);
   const recoveryPath = transactionPath(targetPath, 'recovery');
   try {
     atomicPathOperations().noReplace(targetPath, recoveryPath);
@@ -582,7 +606,7 @@ async function restoreMissingOutput(transaction: OutputTransaction, index: numbe
 }
 
 async function restoreOutput(transaction: OutputTransaction, index: number): Promise<void> {
-  if (transaction.snapshots[index]) await restoreExistingOutput(transaction, index);
+  if (transactionItem(transaction.snapshots, index)) await restoreExistingOutput(transaction, index);
   else await restoreMissingOutput(transaction, index);
 }
 
@@ -648,7 +672,7 @@ function outputTransaction(
   request: SensitiveOutputRequest,
   hooks: OutputTransactionHooks,
 ): OutputTransaction {
-  const outputPlans = [
+  const outputPlans: [OutputPlan, OutputPlan] = [
     { targetPath: resolve(request.manifestPath), content: request.manifestContent },
     { targetPath: resolve(request.reviewPath), content: request.reviewContent },
   ];
@@ -689,17 +713,10 @@ async function main() {
   }
   const workbook = XLSX.readFile(args.input);
   const sheetName = workbook.SheetNames[0];
+  if (sheetName === undefined) throw new Error('Input workbook must contain a worksheet');
   const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-  const normalized: NormalizedRow[] = rows.map((row: Record<string, unknown>) => ({
-    externalId: normalizeExternalIdForManifest(cell(row, '数字ID') || cell(row, 'external_id') || cell(row, 'External ID')),
-    displayName: cell(row, '姓名') || cell(row, 'display_name') || cell(row, 'Display Name'),
-    sourceStatus: cell(row, '状态') || cell(row, 'source_status') || 'active',
-    department: cell(row, '部门'),
-    company: cell(row, '企业'),
-    role: cell(row, '角色'),
-    sourceSeq: cell(row, '序号'),
-  })).filter((row: NormalizedRow) => row.externalId && row.displayName);
+  if (sheet === undefined) throw new Error(`Input worksheet is missing: ${sheetName}`);
+  const normalized = decodeWorksheetRows(XLSX.utils.sheet_to_json<unknown>(sheet, { defval: '' }));
 
   const emails = buildEmails(normalized, args.domain);
   const records: ProvisioningRecord[] = normalized.map((row: NormalizedRow) => ({
@@ -738,15 +755,15 @@ async function main() {
 
   await mkdir(dirname(args.output), { recursive: true });
   await mkdir(dirname(args.csvOutput), { recursive: true });
-  const csvHeader = ['external_id', 'external_type', 'display_name', 'email', 'source_status', 'department', 'company', 'role'];
+  const csvHeader = ['external_id', 'external_type', 'display_name', 'email', 'source_status', 'department', 'company', 'role'] as const;
   const csvBody = records.map(record => {
     const row = {
       ...record,
-      department: record.profile.department,
-      company: record.profile.company,
-      role: record.profile.role,
+      department: record.profile["department"],
+      company: record.profile["company"],
+      role: record.profile["role"],
     };
-    return csvHeader.map(key => csvEscape(row[key as keyof typeof row])).join(',');
+    return csvHeader.map(key => csvEscape(row[key])).join(',');
   });
   await writeSensitiveOutputs({
     manifestPath: args.output,
@@ -758,7 +775,7 @@ async function main() {
 }
 
 if (import.meta.main) {
-  main().catch((error) => {
+  main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   });

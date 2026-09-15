@@ -1,5 +1,59 @@
+// @ts-check
 import { AdminApiError } from "./admin-api.js";
 
+/**
+ * @typedef {"items" | "data" | "users" | "applications" | "organizations" | "clients" | "events" | "deliveries"} CollectionKey
+ * @typedef {{total: number | null, page: number | null, limit: number | null, declared: boolean}} CollectionPagination
+ * @typedef {"forbidden" | "not_found" | "unsupported" | "unavailable" | "error"} RequestErrorState
+ * @typedef {{generation: number, resourceId: string, tab: string}} ResourceLoadContext
+ */
+/**
+ * @template T
+ * @typedef {{[K in CollectionKey]?: T[] | {items: T[]}}} CollectionFields
+ */
+/**
+ * @template T
+ * @typedef {T[] | (CollectionFields<T> & {[K in CollectionKey]: {[P in K]: T[] | {items: T[]}}}[CollectionKey])} CollectionPayload
+ */
+/**
+ * @template T
+ * @typedef {{items: T[], metadata: Record<string, unknown> | null}} CollectionEnvelope
+ */
+/**
+ * @template T
+ * @typedef {{items: T[], total: number, page: number, limit: number, complete: boolean}} CollectionPage
+ */
+/**
+ * @template T
+ * @typedef {{items: T[], total: number, limit: number, nextCursor: string | null}} CursorCollectionPage
+ */
+/**
+ * @template Owner
+ * @typedef {{readonly generation: number, readonly ownerContext: Owner}} Operation
+ */
+/**
+ * @template Key, Owner
+ * @typedef {Operation<Owner> & {readonly key: Key}} KeyedOperation
+ */
+
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function isRecord(value) {
+  return value !== null && typeof value === "object";
+}
+
+/** @param {unknown} value @returns {value is unknown[]} */
+function isArray(value) {
+  return Array.isArray(value);
+}
+
+/** @param {unknown} value @param {string} key @returns {unknown} */
+function field(value, key) {
+  return value === null || value === undefined
+    ? undefined
+    : Reflect.get(Object(value), key);
+}
+
+/** @type {readonly CollectionKey[]} */
 const COLLECTION_KEYS = [
   "items",
   "data",
@@ -11,9 +65,10 @@ const COLLECTION_KEYS = [
   "deliveries",
 ];
 
+/** @param {unknown} payload @returns {CollectionEnvelope<unknown>} */
 function collectionEnvelope(payload) {
-  if (Array.isArray(payload)) return { items: payload, metadata: null };
-  if (!payload || typeof payload !== "object") {
+  if (isArray(payload)) return { items: payload, metadata: null };
+  if (!isRecord(payload)) {
     throw new AdminApiError(
       "Management API returned an invalid collection payload",
       502,
@@ -23,16 +78,15 @@ function collectionEnvelope(payload) {
   }
   for (const key of COLLECTION_KEYS) {
     const candidate = payload[key];
-    if (Array.isArray(candidate)) {
+    if (isArray(candidate)) {
       return { items: candidate, metadata: payload };
     }
     if (
-      candidate &&
-      typeof candidate === "object" &&
-      Array.isArray(candidate.items)
+      isRecord(candidate) &&
+      isArray(candidate["items"])
     ) {
       return {
-        items: candidate.items,
+        items: candidate["items"],
         metadata: { ...payload, ...candidate },
       };
     }
@@ -45,14 +99,23 @@ function collectionEnvelope(payload) {
   );
 }
 
+/**
+ * @template T
+ * @overload
+ * @param {CollectionPayload<T>} payload
+ * @returns {T[]}
+ */
+/** @overload @param {unknown} payload @returns {unknown[]} */
+/** @param {unknown} payload */
 export function collectionItems(payload) {
   return collectionEnvelope(payload).items;
 }
 
+/** @param {Record<string, unknown> | null} metadata @param {string} field @param {number} minimum */
 function collectionInteger(metadata, field, minimum) {
   const candidate = metadata?.[field];
   if (candidate === undefined || candidate === null) return null;
-  if (Number.isInteger(candidate) && candidate >= minimum) return candidate;
+  if (typeof candidate === "number" && Number.isInteger(candidate) && candidate >= minimum) return candidate;
   throw new AdminApiError(
     `Management API returned invalid collection ${field}`,
     502,
@@ -61,6 +124,7 @@ function collectionInteger(metadata, field, minimum) {
   );
 }
 
+/** @param {Record<string, unknown> | null} metadata @returns {CollectionPagination} */
 function collectionPagination(metadata) {
   const total = collectionInteger(metadata, "total", 0);
   const page = collectionInteger(metadata, "page", 1);
@@ -77,6 +141,7 @@ function collectionPagination(metadata) {
   return { total, page, limit, declared };
 }
 
+/** @param {unknown[]} items @param {number} total @param {CollectionPagination} pagination @param {unknown} metadata */
 function validateCollectionPage(items, total, pagination, metadata) {
   if (total < items.length) {
     throw new AdminApiError(
@@ -96,6 +161,7 @@ function validateCollectionPage(items, total, pagination, metadata) {
   }
 }
 
+/** @template T @param {CollectionEnvelope<T>} envelope @returns {CollectionPage<T>} */
 function collectionPageFromEnvelope(envelope) {
   const pagination = collectionPagination(envelope.metadata);
   const total = pagination.total ?? envelope.items.length;
@@ -109,6 +175,9 @@ function collectionPageFromEnvelope(envelope) {
   };
 }
 
+/** @template T @overload @param {CollectionPayload<T>} payload @returns {CollectionPage<T>} */
+/** @overload @param {unknown} payload @returns {CollectionPage<unknown>} */
+/** @param {unknown} payload @returns {CollectionPage<unknown>} */
 export function collectionPage(payload) {
   const envelope = collectionEnvelope(payload);
   if (envelope.metadata) return collectionPageFromEnvelope(envelope);
@@ -121,6 +190,9 @@ export function collectionPage(payload) {
   };
 }
 
+/** @template T @overload @param {CollectionPayload<T>} payload @returns {T[]} */
+/** @overload @param {unknown} payload @returns {unknown[]} */
+/** @param {unknown} payload */
 export function completeCollectionItems(payload) {
   const page = collectionPage(payload);
   if (page.complete) return page.items;
@@ -132,6 +204,7 @@ export function completeCollectionItems(payload) {
   );
 }
 
+/** @param {string} message @param {unknown} payload @returns {never} */
 function invalidCursorCollection(message, payload) {
   throw new AdminApiError(
     message,
@@ -141,6 +214,7 @@ function invalidCursorCollection(message, payload) {
   );
 }
 
+/** @param {Record<string, unknown>} payload @param {string} field @param {number} minimum @returns {number} */
 function requiredCursorInteger(payload, field, minimum) {
   if (!Object.hasOwn(payload, field)) {
     invalidCursorCollection(
@@ -149,7 +223,7 @@ function requiredCursorInteger(payload, field, minimum) {
     );
   }
   const candidate = payload[field];
-  if (!Number.isSafeInteger(candidate) || candidate < minimum) {
+  if (typeof candidate !== "number" || !Number.isSafeInteger(candidate) || candidate < minimum) {
     invalidCursorCollection(
       `Management API returned invalid cursor collection ${field}`,
       payload,
@@ -158,6 +232,7 @@ function requiredCursorInteger(payload, field, minimum) {
   return candidate;
 }
 
+/** @param {Record<string, unknown>} payload @returns {string | null} */
 function validatedNextCursor(payload) {
   if (!Object.hasOwn(payload, "next_cursor")) {
     invalidCursorCollection(
@@ -165,7 +240,7 @@ function validatedNextCursor(payload) {
       payload,
     );
   }
-  const nextCursor = payload.next_cursor;
+  const nextCursor = payload["next_cursor"];
   if (nextCursor === null) return null;
   if (typeof nextCursor === "string" && nextCursor.length > 0) return nextCursor;
   invalidCursorCollection(
@@ -174,6 +249,7 @@ function validatedNextCursor(payload) {
   );
 }
 
+/** @param {CursorCollectionPage<unknown>} page @param {unknown} payload */
 function validateCursorCollectionReachability(page, payload) {
   if (page.items.length > page.limit || page.total < page.items.length) {
     invalidCursorCollection(
@@ -190,21 +266,24 @@ function validateCursorCollectionReachability(page, payload) {
   }
 }
 
+/** @template T @overload @param {{items: T[], total: number, limit: number, next_cursor: string | null}} payload @returns {CursorCollectionPage<T>} */
+/** @overload @param {unknown} payload @returns {CursorCollectionPage<unknown>} */
+/** @param {unknown} payload @returns {CursorCollectionPage<unknown>} */
 export function cursorCollectionPage(payload) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+  if (!isRecord(payload) || isArray(payload)) {
     invalidCursorCollection(
       "Management API returned an invalid cursor collection payload",
       payload,
     );
   }
-  if (!Object.hasOwn(payload, "items") || !Array.isArray(payload.items)) {
+  if (!Object.hasOwn(payload, "items") || !isArray(payload["items"])) {
     invalidCursorCollection(
       "Management API returned invalid cursor collection items",
       payload,
     );
   }
   const page = {
-    items: payload.items,
+    items: payload["items"],
     total: requiredCursorInteger(payload, "total", 0),
     limit: requiredCursorInteger(payload, "limit", 1),
     nextCursor: validatedNextCursor(payload),
@@ -213,6 +292,9 @@ export function cursorCollectionPage(payload) {
   return page;
 }
 
+/** @template T @overload @param {{items: T[], total: number, limit: number, next_cursor: string | null}} payload @returns {T[]} */
+/** @overload @param {unknown} payload @returns {unknown[]} */
+/** @param {unknown} payload */
 export function completeCursorCollectionItems(payload) {
   const page = cursorCollectionPage(payload);
   if (page.nextCursor === null) return page.items;
@@ -224,12 +306,14 @@ export function completeCursorCollectionItems(payload) {
   );
 }
 
+/** @param {Pick<CollectionPage<unknown>, "items" | "total" | "limit">} page @param {number} requestedPage */
 export function emptyCollectionFallbackPage(page, requestedPage) {
   if (page.items.length > 0 || requestedPage <= 1) return null;
   const finalPage = Math.max(1, Math.ceil(page.total / page.limit));
   return finalPage < requestedPage ? finalPage : null;
 }
 
+/** @template T, Key @param {T[]} existingEntries @param {T[]} nextEntries @param {(entry: T) => Key} identifyEntry @returns {T[]} */
 export function mergeCollectionPages(
   existingEntries,
   nextEntries,
@@ -244,11 +328,12 @@ export function mergeCollectionPages(
   return [...entriesById.values()];
 }
 
+/** @param {unknown} error @returns {RequestErrorState | null} */
 export function requestErrorState(error) {
   if (!error) return null;
   const statusCode =
-    error instanceof AdminApiError ? error.statusCode : error?.statusCode;
-  const code = error instanceof AdminApiError ? error.code : error?.code;
+    error instanceof AdminApiError ? error.statusCode : field(error, "statusCode");
+  const code = error instanceof AdminApiError ? error.code : field(error, "code");
   if (
     statusCode === 403 ||
     code === "insufficient_permissions" ||
@@ -273,16 +358,19 @@ export function requestErrorState(error) {
   return "error";
 }
 
+/** @param {unknown} error @returns {string} */
 export function errorMessage(error) {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error) return error;
   return "Request failed";
 }
 
+/** @template {string} Tab @param {unknown} routeTab @param {readonly Tab[]} allowedTabs @param {Tab} fallback @returns {Tab} */
 export function tabFromRoute(routeTab, allowedTabs, fallback) {
-  return allowedTabs.includes(routeTab) ? routeTab : fallback;
+  return allowedTabs.find((tab) => tab === routeTab) ?? fallback;
 }
 
+/** @param {ResourceLoadContext} loadContext @param {ResourceLoadContext} currentContext */
 export function isLatestResourceLoad(loadContext, currentContext) {
   return (
     loadContext.generation === currentContext.generation &&
@@ -291,15 +379,19 @@ export function isLatestResourceLoad(loadContext, currentContext) {
   );
 }
 
+/** @template Owner */
 class OperationTracker {
+  /** @type {Operation<Owner> | null} */
   #activeOperation = null;
   #generation = 0;
   #updatePending;
 
+  /** @param {(pending: boolean) => void} updatePending */
   constructor(updatePending) {
     this.#updatePending = updatePending;
   }
 
+  /** @template {Owner} Context @param {Context} ownerContext @returns {Operation<Context>} */
   begin(ownerContext) {
     const operation = { generation: (this.#generation += 1), ownerContext };
     this.#activeOperation = operation;
@@ -307,6 +399,7 @@ class OperationTracker {
     return operation;
   }
 
+  /** @param {Operation<Owner>} operation */
   isCurrent(operation) {
     return this.#activeOperation === operation;
   }
@@ -318,6 +411,7 @@ class OperationTracker {
     return true;
   }
 
+  /** @param {Operation<Owner>} operation */
   finish(operation) {
     if (!this.isCurrent(operation)) return false;
     this.#activeOperation = null;
@@ -326,14 +420,20 @@ class OperationTracker {
   }
 }
 
+/** @template [Owner=unknown] @param {(pending: boolean) => void} updatePending @returns {OperationTracker<Owner>} */
 export function createOperationTracker(updatePending) {
   return new OperationTracker(updatePending);
 }
 
+/** @template Key, Owner */
 class LatestRequestTracker {
+  /** @type {Map<Key, KeyedOperation<Key, Owner | null>>} */
   #activeRequests = new Map();
   #generation = 0;
 
+  /** @template {Owner} Context @overload @param {Key} key @param {Context} ownerContext @returns {KeyedOperation<Key, Context>} */
+  /** @overload @param {Key} key @returns {KeyedOperation<Key, null>} */
+  /** @param {Key} key @param {Owner | null} ownerContext */
   begin(key, ownerContext = null) {
     const request = {
       generation: (this.#generation += 1),
@@ -344,23 +444,31 @@ class LatestRequestTracker {
     return request;
   }
 
+  /** @param {KeyedOperation<Key, Owner | null>} request */
   isCurrent(request) {
     return this.#activeRequests.get(request.key) === request;
   }
 
+  /** @param {Key} key */
   invalidate(key) {
     return this.#activeRequests.delete(key);
   }
 }
 
+/** @template [Key=string], [Owner=unknown] @returns {LatestRequestTracker<Key, Owner>} */
 export function createLatestRequestTracker() {
   return new LatestRequestTracker();
 }
 
+/** @template Key, Owner */
 class KeyedSingleFlightTracker {
+  /** @type {Map<Key, KeyedOperation<Key, Owner | null>>} */
   #activeOperations = new Map();
   #generation = 0;
 
+  /** @template {Owner} Context @overload @param {Key} key @param {Context} ownerContext @returns {KeyedOperation<Key, Context> | null} */
+  /** @overload @param {Key} key @returns {KeyedOperation<Key, null> | null} */
+  /** @param {Key} key @param {Owner | null} ownerContext */
   begin(key, ownerContext = null) {
     if (this.#activeOperations.has(key)) return null;
     const operation = {
@@ -372,68 +480,78 @@ class KeyedSingleFlightTracker {
     return operation;
   }
 
+  /** @param {KeyedOperation<Key, Owner | null>} operation */
   isCurrent(operation) {
     return this.#activeOperations.get(operation.key) === operation;
   }
 
+  /** @param {Key} key */
   isPending(key) {
     return this.#activeOperations.has(key);
   }
 
+  /** @param {KeyedOperation<Key, Owner | null>} operation */
   finish(operation) {
     if (!this.isCurrent(operation)) return false;
     this.#activeOperations.delete(operation.key);
     return true;
   }
 
+  /** @param {Key} key */
   invalidate(key) {
     return this.#activeOperations.delete(key);
   }
 }
 
+/** @template [Key=string], [Owner=unknown] @returns {KeyedSingleFlightTracker<Key, Owner>} */
 export function createKeyedSingleFlightTracker() {
   return new KeyedSingleFlightTracker();
 }
 
+/** @param {unknown} error */
 export function mutationOutcomeUnknown(error) {
   return (
     error instanceof TypeError ||
-    Number(error?.statusCode) >= 500 ||
-    error?.code === "request_timeout" ||
-    error?.code === "request_aborted"
+    Number(field(error, "statusCode")) >= 500 ||
+    field(error, "code") === "request_timeout" ||
+    field(error, "code") === "request_aborted"
   );
 }
 
+/** @template T, Id @param {T[]} items @param {Id} ownerResourceId @param {Id} currentResourceId @returns {T[]} */
 export function resourceOwnedItems(items, ownerResourceId, currentResourceId) {
   return ownerResourceId === currentResourceId ? items : [];
 }
 
+/** @param {unknown} payload @param {string} capabilityName */
 export function capabilityAvailable(payload, capabilityName) {
-  const capabilities = payload?.capabilities ?? payload;
-  const capability = Array.isArray(capabilities)
+  const capabilities = field(payload, "capabilities") ?? payload;
+  const capability = isArray(capabilities)
     ? capabilities.find(
         (entry) =>
-          entry?.name === capabilityName || entry?.id === capabilityName,
+          field(entry, "name") === capabilityName || field(entry, "id") === capabilityName,
       )
-    : capabilities?.[capabilityName];
-  return capability === true || capability?.available === true;
+    : field(capabilities, capabilityName);
+  return capability === true || field(capability, "available") === true;
 }
 
+/** @param {unknown} application @param {string} capabilityName @param {boolean} fallback */
 function applicationCapability(application, capabilityName, fallback) {
-  const capabilities = application?.capabilities;
-  if (Array.isArray(capabilities)) {
+  const capabilities = field(application, "capabilities");
+  if (isArray(capabilities)) {
     const capability = capabilities.find(
-      (entry) => entry === capabilityName || entry?.name === capabilityName,
+      (entry) => entry === capabilityName || field(entry, "name") === capabilityName,
     );
-    return capability === capabilityName || capability?.available === true;
+    return capability === capabilityName || field(capability, "available") === true;
   }
-  if (capabilities && Object.hasOwn(capabilities, capabilityName)) {
-    const capability = capabilities[capabilityName];
-    return capability === true || capability?.available === true;
+  if (capabilities && Object.hasOwn(Object(capabilities), capabilityName)) {
+    const capability = field(capabilities, capabilityName);
+    return capability === true || field(capability, "available") === true;
   }
   return fallback;
 }
 
+/** @param {{type?: string, application_type?: string, grant_types?: readonly string[], capabilities?: unknown} | null | undefined} application */
 export function applicationDetailTabValues(application) {
   const kind = application?.type || application?.application_type;
   const grants = application?.grant_types || [];
@@ -450,7 +568,7 @@ export function applicationDetailTabValues(application) {
     rules: !machineToMachine,
     organizations: true,
   };
-  return Object.keys(fallbacks).filter((tabName) =>
-    applicationCapability(application, tabName, fallbacks[tabName]),
-  );
+  return Object.entries(fallbacks)
+    .filter(([tabName, fallback]) => applicationCapability(application, tabName, fallback))
+    .map(([tabName]) => tabName);
 }

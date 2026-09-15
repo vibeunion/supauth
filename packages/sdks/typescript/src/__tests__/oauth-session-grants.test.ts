@@ -40,7 +40,7 @@ describe('explicit OAuth session requirements', () => {
       expect(String(failure)).not.toContain('private-value');
     }
     expect(() => assertOAuthSessionGrants({ grant_types: [] }, 'refreshable')).toThrow('authorization_code, refresh_token');
-    expect(() => Reflect.apply(assertOAuthSessionGrants, undefined, [{ grant_types: [] }, 'unknown']))
+    expect(() => assertOAuthSessionGrants({ grant_types: [] }, 'unknown'))
       .toThrow(SupaOAuthSessionConfigurationError);
   });
 

@@ -49,8 +49,26 @@ export const navigationSections = [
   },
 ];
 
+/**
+ * @param {string} currentPath
+ * @param {string} basePath
+ * @param {string} entryPath
+ */
 export function isNavigationEntryActive(currentPath, basePath, entryPath) {
   const canonicalPath = `${basePath}${entryPath}`.replace(/\/$/, '') || '/';
   const normalizedCurrentPath = currentPath.replace(/\/$/, '') || '/';
   return normalizedCurrentPath === canonicalPath || normalizedCurrentPath.startsWith(`${canonicalPath}/`);
+}
+
+/**
+ * 动态资源路径不伪装成编译期 RouteId；只允许控制台内的绝对路径。
+ * @param {string} path
+ * @param {string} basePath
+ */
+export function resolveConsolePath(path, basePath) {
+  if (!path.startsWith("/") || path.startsWith("//") || /[\\\u0000-\u0020]/.test(path)) {
+    throw new TypeError("Expected an absolute console path");
+  }
+  const url = new URL(path, "https://supauth.invalid");
+  return `${basePath}${url.pathname}${url.search}${url.hash}`;
 }

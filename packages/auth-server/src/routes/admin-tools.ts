@@ -2,19 +2,28 @@
 
 import { Elysia } from 'elysia';
 import { generateWrapperPolicies, type ExistingPolicy } from '../compatibility/rls-migration.js';
-import { compileAuthorizationPlan, type AuthorizationCompileRequest } from '../compatibility/authorization-compiler.js';
+import { compileAuthorizationPlan } from '../compatibility/authorization-compiler.js';
+import { operationContract, operationInput, operationOutput } from '../utils/operation-contract.js';
 
 export const adminToolRoutes = new Elysia({ prefix: '/v1/admin-tools' })
   // ─── Supabase-native authorization compiler ───
   .post('/authorization-compiler', async ({ body }) => {
-    return compileAuthorizationPlan(body as AuthorizationCompileRequest);
-  }, {
+    const input = operationInput('compileAuthorizationPlan', body === undefined ? {} : { body });
+    const { tables, storage_buckets, realtime_channels, edge_functions, ...options } = input.body ?? {};
+    return operationOutput('compileAuthorizationPlan', compileAuthorizationPlan({
+      ...options,
+      tables: tables ?? [],
+      storage_buckets: storage_buckets ?? [],
+      realtime_channels: realtime_channels ?? [],
+      edge_functions: edge_functions ?? [],
+    }));
+  }, operationContract('compileAuthorizationPlan', {
     detail: {
       summary: 'Compile Supabase-native authorization artifacts',
       description: 'Generates reviewable RLS, Storage, Realtime, Edge Function, rollback, and negative-test artifacts from SupaOAuth resources. Does NOT apply changes.',
       tags: ['Admin Tools'],
     },
-  })
+  }))
 
   .get('/authorization-compiler/demo', async () => {
     return compileAuthorizationPlan({
@@ -45,27 +54,27 @@ export const adminToolRoutes = new Elysia({ prefix: '/v1/admin-tools' })
         { name: 'billing-portal', permission: 'billing.manage', require_organization: true },
       ],
     });
-  }, {
+  }, operationContract('getAuthorizationCompilerDemo', {
     detail: {
       summary: 'Authorization compiler demo',
       description: 'Shows generated Supabase-native authorization artifacts for tables, Storage, Realtime, and Edge Functions.',
       tags: ['Admin Tools'],
     },
-  })
+  }))
 
   // ─── RLS Migration Assistant ───
   .post('/rls-migration', async ({ body }) => {
     // Accept an array of existing policies and generate wrapper policies
-    const policies = (body as { policies: ExistingPolicy[] }).policies || [];
+    const policies = operationInput('generateRLSMigration', { body }).body.policies || [];
     const result = generateWrapperPolicies(policies);
-    return result;
-  }, {
+    return operationOutput('generateRLSMigration', result);
+  }, operationContract('generateRLSMigration', {
     detail: {
       summary: 'Generate RLS wrapper policies',
       description: 'Analyzes existing RLS policies and generates wrapper policies that add supaoauth.authorize() alongside existing owner/team conditions. Does NOT modify the database — returns SQL for review.',
       tags: ['Admin Tools'],
     },
-  })
+  }))
 
   // ─── Demo mode ───
   .get('/rls-migration/demo', async () => {
@@ -102,10 +111,10 @@ export const adminToolRoutes = new Elysia({ prefix: '/v1/admin-tools' })
       },
     ];
     return generateWrapperPolicies(samplePolicies);
-  }, {
+  }, operationContract('getRLSMigrationDemo', {
     detail: {
       summary: 'RLS migration demo with sample policies',
       description: 'Shows what the migration assistant produces for typical owner/team/admin policies',
       tags: ['Admin Tools'],
     },
-  });
+  }));

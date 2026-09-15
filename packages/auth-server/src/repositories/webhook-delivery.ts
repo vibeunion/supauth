@@ -20,8 +20,8 @@ function requestEventUuid(requestId: string, eventType: string): string {
     .update(WEBHOOK_EVENT_UUID_NAMESPACE)
     .update(eventIdentity)
     .digest();
-  uuidBytes[6] = (uuidBytes[6] & 0x0f) | 0x50;
-  uuidBytes[8] = (uuidBytes[8] & 0x3f) | 0x80;
+  uuidBytes[6] = (uuidBytes.readUInt8(6) & 0x0f) | 0x50;
+  uuidBytes[8] = (uuidBytes.readUInt8(8) & 0x3f) | 0x80;
   return formatUuid(uuidBytes);
 }
 
