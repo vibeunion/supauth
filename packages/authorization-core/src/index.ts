@@ -1,6 +1,8 @@
 import { readAuthorizationRequest, readResolvedPermissions } from './validation.js';
 
 const PERMISSION_PATTERN = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
+const CATALOG_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const APPLICATION_ID_PATTERN = /^[^\s]{1,512}$/u;
 
 export type PrincipalKind = 'user' | 'service';
 export type Permission = string & { readonly __permission: unique symbol };
@@ -115,6 +117,7 @@ function contextFromPermissions(
   });
 }
 
+/** Validate and freeze catalog structure; resolveAuthorization also verifies its digest. */
 export function createPermissionCatalog(input: AuthorizationPermissionCatalog): AuthorizationPermissionCatalog {
   const catalog = readPermissionCatalog({
     principal: { kind: 'service', issuer: 'catalog', subject: 'catalog' },
@@ -142,22 +145,27 @@ function readPermissionCatalog(
   catalog: AuthorizationPermissionCatalog | undefined,
 ): AuthorizationPermissionCatalog | undefined {
   if (catalog === undefined) return undefined;
-  if (catalog.applicationId !== request.applicationId
+  if (catalog === null || typeof catalog !== 'object'
+      || typeof catalog.applicationId !== 'string'
+      || !APPLICATION_ID_PATTERN.test(catalog.applicationId)
+      || catalog.applicationId !== request.applicationId
       || typeof catalog.version !== 'string'
-      || catalog.version.length === 0
-      || (catalog.digest !== undefined && !/^[a-f0-9]{64}$/i.test(catalog.digest))
+      || !CATALOG_VERSION_PATTERN.test(catalog.version)
+      || (catalog.digest !== undefined
+        && (typeof catalog.digest !== 'string' || !/^[a-f0-9]{64}$/i.test(catalog.digest)))
       || !Array.isArray(catalog.permissions)
       || catalog.permissions.length === 0) {
     throw new TypeError('invalid application permission catalog');
   }
-  const permissions = catalog.permissions.map(permission);
+  // 遍历每个元素而不是直接 map，避免稀疏数组跳过校验。
+  const permissions = readResolvedPermissions(catalog.permissions).map(permission);
   if (new Set(permissions).size !== permissions.length) {
     throw new TypeError('application permission catalog contains duplicate permissions');
   }
   return Object.freeze({
     applicationId: catalog.applicationId,
     version: catalog.version,
-    ...(catalog.digest === undefined ? {} : { digest: catalog.digest }),
+    ...(catalog.digest === undefined ? {} : { digest: catalog.digest.toLowerCase() }),
     permissions: Object.freeze([...permissions].sort()),
   });
 }
@@ -180,7 +188,15 @@ export async function resolveAuthorization(
   options: AuthorizationResolutionOptions = {},
 ): Promise<AuthorizationContext> {
   const trustedRequest = immutableRequest(readAuthorizationRequest(request));
-  const catalog = readPermissionCatalog(trustedRequest, options.permissionCatalog);
+  let catalog = readPermissionCatalog(trustedRequest, options.permissionCatalog);
+  if (catalog) {
+    const digest = await permissionCatalogDigest(catalog);
+    if (catalog.digest !== undefined && catalog.digest !== digest) {
+      throw new AuthorizationUnavailableError('Application permission catalog digest does not match its contents');
+    }
+    // 绑定实际内容的摘要，不将调用方提供的摘要直接标记为已验证。
+    catalog = Object.freeze({ ...catalog, digest });
+  }
   const resolvedPermissions = await currentPermissions(trustedRequest, resolver);
   try {
     return contextFromPermissions(trustedRequest, resolvedPermissions, catalog);
