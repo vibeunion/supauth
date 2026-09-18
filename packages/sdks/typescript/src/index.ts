@@ -207,8 +207,12 @@ export class SupaOAuthClient {
 
   createApplication(data: SdkEndpointInput<'createApplication'>['body'] | CreateOAuthClientInput, options: OAuthApplicationSessionOptions = {}) {
     if (options.sessionRequirement !== undefined) assertOAuthSessionGrants(data, options.sessionRequirement);
-    const body = decodeSchema(sdkEndpoints.createApplication.input, { body: data }).body;
-    return this.endpointJson(sdkEndpoints.createApplication, { body });
+    try {
+      const body = decodeSchema(sdkEndpoints.createApplication.input, { body: data }).body;
+      return this.endpointJson(sdkEndpoints.createApplication, { body });
+    } catch {
+      throw new SupaOAuthRequestContractError();
+    }
   }
 
   getApplication(appId: string) {
@@ -217,8 +221,12 @@ export class SupaOAuthClient {
 
   updateApplication(appId: string, data: SdkEndpointInput<'updateApplication'>['body'] | Partial<CreateOAuthClientInput>, options: OAuthApplicationSessionOptions = {}) {
     if (options.sessionRequirement !== undefined) assertOAuthSessionGrants(data, options.sessionRequirement);
-    const body = decodeSchema(sdkEndpoints.updateApplication.input, { params: { appId }, body: data }).body;
-    return this.endpointJson(sdkEndpoints.updateApplication, { params: { appId }, body });
+    try {
+      const body = decodeSchema(sdkEndpoints.updateApplication.input, { params: { appId }, body: data }).body;
+      return this.endpointJson(sdkEndpoints.updateApplication, { params: { appId }, body });
+    } catch {
+      throw new SupaOAuthRequestContractError();
+    }
   }
 
   deleteApplication(appId: string) {

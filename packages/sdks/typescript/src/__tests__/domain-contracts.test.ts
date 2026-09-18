@@ -21,8 +21,9 @@ describe('complete SDK operation contracts', () => {
     const contract = sdkEndpoints[name];
     it(`${name}: accepts a complete protocol fixture and sends the declared operation exactly once`, async () => {
       const fetcher = mock(async (url: string | URL | Request, init?: RequestInit) => {
-        const path = new URL(String(url)).pathname;
-        expect(init?.method).toBe(contract.method);
+        const request = new Request(url, init);
+        const path = new URL(request.url).pathname;
+        expect(request.method).toBe(contract.method);
         expect(path).toMatch(new RegExp(`^${contract.path.replace(/:[A-Za-z]+/g, '[^/]+')}$`));
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer current-token');
         if (contract.responseKind === 'void') return new Response(null, { status: 204 });
@@ -272,4 +273,28 @@ describe('request boundary and compatibility', () => {
     }
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
+});
+
+it('redacts early application schema failures without calling transport', () => {
+  const fetcher = mock(async () => Response.json({}));
+  const client = new SupaOAuthClient({ baseUrl: 'https://auth.example.test', fetch: fetcher });
+  const invalidCalls = [
+    // @ts-expect-error Exercise untyped input at the public SDK boundary.
+    () => client.createApplication({ redirect_uris: [42] }),
+    // @ts-expect-error Exercise untyped input at the public SDK boundary.
+    () => client.updateApplication('app-1', { redirect_uris: [42] }),
+  ];
+  for (const invoke of invalidCalls) {
+    expect(invoke).toThrow(SupaOAuthRequestContractError);
+    try {
+      invoke();
+    } catch (error) {
+      expect(error).toBeInstanceOf(SupaOAuthRequestContractError);
+      if (error instanceof Error) {
+        expect(error.message).toBe(new SupaOAuthRequestContractError().message);
+        expect(error.cause).toBeUndefined();
+      }
+    }
+  }
+  expect(fetcher).not.toHaveBeenCalled();
 });
