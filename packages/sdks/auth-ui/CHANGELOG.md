@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/vibeunion/supauth/compare/sdk-auth-ui-v0.5.4...sdk-auth-ui-v0.6.0) (2026-09-18)
+
+
+### Features
+
+* adopt strict SupaCloud contracts ([2f59ffa](https://github.com/vibeunion/supauth/commit/2f59ffa9dce9e0145492eb2368dad6aa37bfff63))
+
 ## [0.5.4](https://github.com/vibeunion/supauth/compare/sdk-auth-ui-v0.5.3...sdk-auth-ui-v0.5.4) (2026-09-08)
 
 

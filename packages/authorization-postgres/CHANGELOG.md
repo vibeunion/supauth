@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/vibeunion/supauth/compare/authorization-postgres-v0.4.3...authorization-postgres-v0.5.0) (2026-09-18)
+
+
+### Features
+
+* adopt strict SupaCloud contracts ([2f59ffa](https://github.com/vibeunion/supauth/commit/2f59ffa9dce9e0145492eb2368dad6aa37bfff63))
+
 ## [0.4.3](https://github.com/vibeunion/supauth/compare/authorization-postgres-v0.4.2...authorization-postgres-v0.4.3) (2026-09-05)
 
 
