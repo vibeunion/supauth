@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   checkAuthorizationExplain,
   checkAuthorizationSql,
+  checkPermissionCatalog,
   REQUIRED_AUTHORIZATION_DENIAL_SCENARIOS,
   REQUIRED_AUTHORIZATION_SCENARIOS,
   runAuthorizationConformance,
@@ -90,6 +91,20 @@ function passingPlan(actualLoops = 1) {
 }
 
 describe('@supauth/authorization-conformance', () => {
+  it('validates application-owned exact permission catalogs', () => {
+    expect(checkPermissionCatalog({
+      applicationId: 'xigu-fa', version: '2026-09-18', permissions: ['case:read', 'report:write'],
+    })).toEqual({ passed: true, violations: [] });
+    const report = checkPermissionCatalog({
+      applicationId: '', version: 'bad version', permissions: ['case:*', 'case:*'],
+    });
+    expect(report.passed).toBe(false);
+    expect(report.violations.map(item => item.rule)).toEqual([
+      'catalog_application', 'catalog_version', 'catalog_permission_shape',
+      'catalog_permission_shape', 'catalog_permission_unique',
+    ]);
+  });
+
   it('executes every required scenario through the supplied application harness', async () => {
     const observed: string[] = [];
     const report = await runAuthorizationConformance({

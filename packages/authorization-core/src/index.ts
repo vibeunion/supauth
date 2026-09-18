@@ -24,6 +24,17 @@ export interface AuthorizationRequest {
 
 export interface AuthorizationContext extends AuthorizationRequest {
   permissions: readonly Permission[];
+  readonly permissionCatalogVersion?: string;
+}
+
+export interface AuthorizationPermissionCatalog {
+  readonly applicationId: string;
+  readonly version: string;
+  readonly permissions: readonly string[];
+}
+
+export interface AuthorizationResolutionOptions {
+  readonly permissionCatalog?: AuthorizationPermissionCatalog;
 }
 
 export interface AuthorizationDecision {
@@ -72,20 +83,55 @@ function immutableRequest(request: AuthorizationRequest): AuthorizationRequest {
   });
 }
 
-function effectivePermissions(resolvedPermissions: readonly string[]): readonly Permission[] {
+function effectivePermissions(
+  resolvedPermissions: readonly string[],
+  catalog?: AuthorizationPermissionCatalog,
+): readonly Permission[] {
   const parsedPermissions = readResolvedPermissions(resolvedPermissions).map(permission);
+  if (catalog) {
+    const allowed = new Set(catalog.permissions.map(permission));
+    if (parsedPermissions.some(grant => !allowed.has(grant))) {
+      throw new TypeError('resolved permissions are not present in the application permission catalog');
+    }
+  }
   return Object.freeze([...new Set(parsedPermissions)]);
 }
 
 function contextFromPermissions(
   request: AuthorizationRequest,
   resolvedPermissions: readonly string[],
+  catalog?: AuthorizationPermissionCatalog,
 ): AuthorizationContext {
+  const permissions = effectivePermissions(resolvedPermissions, catalog);
   return Object.freeze({
     principal: Object.freeze({ ...request.principal }),
     applicationId: request.applicationId,
     domain: Object.freeze({ ...request.domain }),
-    permissions: effectivePermissions(resolvedPermissions),
+    permissions,
+    ...(catalog ? { permissionCatalogVersion: catalog.version } : {}),
+  });
+}
+
+function readPermissionCatalog(
+  request: AuthorizationRequest,
+  catalog: AuthorizationPermissionCatalog | undefined,
+): AuthorizationPermissionCatalog | undefined {
+  if (catalog === undefined) return undefined;
+  if (catalog.applicationId !== request.applicationId
+      || typeof catalog.version !== 'string'
+      || catalog.version.length === 0
+      || !Array.isArray(catalog.permissions)
+      || catalog.permissions.length === 0) {
+    throw new TypeError('invalid application permission catalog');
+  }
+  const permissions = catalog.permissions.map(permission);
+  if (new Set(permissions).size !== permissions.length) {
+    throw new TypeError('application permission catalog contains duplicate permissions');
+  }
+  return Object.freeze({
+    applicationId: catalog.applicationId,
+    version: catalog.version,
+    permissions: Object.freeze([...permissions]),
   });
 }
 
@@ -104,11 +150,13 @@ async function currentPermissions(
 export async function resolveAuthorization(
   request: AuthorizationRequest,
   resolver: AuthorizationResolver,
+  options: AuthorizationResolutionOptions = {},
 ): Promise<AuthorizationContext> {
   const trustedRequest = immutableRequest(readAuthorizationRequest(request));
+  const catalog = readPermissionCatalog(trustedRequest, options.permissionCatalog);
   const resolvedPermissions = await currentPermissions(trustedRequest, resolver);
   try {
-    return contextFromPermissions(trustedRequest, resolvedPermissions);
+    return contextFromPermissions(trustedRequest, resolvedPermissions, catalog);
   } catch (cause) {
     throw new AuthorizationUnavailableError('Authorization resolver returned an invalid resolution', { cause });
   }

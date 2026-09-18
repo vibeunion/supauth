@@ -47,6 +47,42 @@ export interface ConformanceReport {
   readonly violations: readonly ConformanceViolation[];
 }
 
+export interface PermissionCatalogConformanceInput {
+  readonly applicationId: string;
+  readonly version: string;
+  readonly permissions: readonly string[];
+}
+
+const PERMISSION_CATALOG_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const PERMISSION_CATALOG_PERMISSION_PATTERN = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
+
+/** Validate an application-owned exact permission catalog before it reaches a resolver. */
+export function checkPermissionCatalog(
+  catalog: PermissionCatalogConformanceInput,
+): ConformanceReport {
+  const violations: ConformanceViolation[] = [];
+  if (catalog.applicationId.trim() === '') {
+    violations.push({ rule: 'catalog_application', message: 'Permission catalog applicationId must be non-empty' });
+  }
+  if (!PERMISSION_CATALOG_VERSION_PATTERN.test(catalog.version)) {
+    violations.push({ rule: 'catalog_version', message: 'Permission catalog version must be a bounded identifier' });
+  }
+  if (catalog.permissions.length === 0) {
+    violations.push({ rule: 'catalog_permissions', message: 'Permission catalog must contain at least one permission' });
+  }
+  const seen = new Set<string>();
+  for (const permission of catalog.permissions) {
+    if (!PERMISSION_CATALOG_PERMISSION_PATTERN.test(permission)) {
+      violations.push({ rule: 'catalog_permission_shape', message: `Invalid catalog permission: ${permission}` });
+    }
+    if (seen.has(permission)) {
+      violations.push({ rule: 'catalog_permission_unique', message: `Duplicate catalog permission: ${permission}` });
+    }
+    seen.add(permission);
+  }
+  return report(violations);
+}
+
 export interface SqlConformanceInput {
   readonly installSql: string;
   readonly projectionPreflightSql: string;

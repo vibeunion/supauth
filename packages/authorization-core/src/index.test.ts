@@ -89,4 +89,26 @@ describe('@supauth/authorization-core', () => {
       expect(() => permission(invalid)).toThrow(TypeError);
     }
   });
+
+  it('binds resolved grants to an application-owned permission catalog when supplied', async () => {
+    const catalog = {
+      applicationId: request.applicationId,
+      version: '2026-09-18',
+      permissions: ['invoice:read', 'invoice:update'],
+    } as const;
+    const context = await resolveAuthorization(request, async () => ['invoice:read'], {
+      permissionCatalog: catalog,
+    });
+    expect(context.permissions).toEqual([permission('invoice:read')]);
+    expect(context.permissionCatalogVersion).toBe('2026-09-18');
+    await expect(resolveAuthorization(request, async () => ['invoice:delete'], {
+      permissionCatalog: catalog,
+    })).rejects.toMatchObject({ status: 503, code: 'authorization_unavailable' });
+    await expect(resolveAuthorization(request, async () => [], {
+      permissionCatalog: { ...catalog, permissions: ['invoice:read', 'invoice:read'] },
+    })).rejects.toThrow(TypeError);
+    await expect(resolveAuthorization(request, async () => [], {
+      permissionCatalog: { ...catalog, applicationId: 'other-api' },
+    })).rejects.toThrow(TypeError);
+  });
 });
