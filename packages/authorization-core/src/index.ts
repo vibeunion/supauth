@@ -25,11 +25,13 @@ export interface AuthorizationRequest {
 export interface AuthorizationContext extends AuthorizationRequest {
   permissions: readonly Permission[];
   readonly permissionCatalogVersion?: string;
+  readonly permissionCatalogDigest?: string;
 }
 
 export interface AuthorizationPermissionCatalog {
   readonly applicationId: string;
   readonly version: string;
+  readonly digest?: string;
   readonly permissions: readonly string[];
 }
 
@@ -109,7 +111,30 @@ function contextFromPermissions(
     domain: Object.freeze({ ...request.domain }),
     permissions,
     ...(catalog ? { permissionCatalogVersion: catalog.version } : {}),
+    ...(catalog?.digest === undefined ? {} : { permissionCatalogDigest: catalog.digest }),
   });
+}
+
+export function createPermissionCatalog(input: AuthorizationPermissionCatalog): AuthorizationPermissionCatalog {
+  const catalog = readPermissionCatalog({
+    principal: { kind: 'service', issuer: 'catalog', subject: 'catalog' },
+    applicationId: input.applicationId,
+    domain: { type: 'catalog', id: input.applicationId },
+  }, input);
+  if (!catalog) throw new TypeError('invalid application permission catalog');
+  return catalog;
+}
+
+/** Stable digest for binding claims, runtime adapters, and UI projections to one catalog. */
+export async function permissionCatalogDigest(catalog: AuthorizationPermissionCatalog): Promise<string> {
+  const normalized = createPermissionCatalog(catalog);
+  const payload = JSON.stringify({
+    applicationId: normalized.applicationId,
+    version: normalized.version,
+    permissions: [...normalized.permissions].sort(),
+  });
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function readPermissionCatalog(
@@ -120,6 +145,7 @@ function readPermissionCatalog(
   if (catalog.applicationId !== request.applicationId
       || typeof catalog.version !== 'string'
       || catalog.version.length === 0
+      || (catalog.digest !== undefined && !/^[a-f0-9]{64}$/i.test(catalog.digest))
       || !Array.isArray(catalog.permissions)
       || catalog.permissions.length === 0) {
     throw new TypeError('invalid application permission catalog');
@@ -131,7 +157,8 @@ function readPermissionCatalog(
   return Object.freeze({
     applicationId: catalog.applicationId,
     version: catalog.version,
-    permissions: Object.freeze([...permissions]),
+    ...(catalog.digest === undefined ? {} : { digest: catalog.digest }),
+    permissions: Object.freeze([...permissions].sort()),
   });
 }
 

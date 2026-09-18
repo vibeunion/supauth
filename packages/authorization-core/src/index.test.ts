@@ -10,6 +10,8 @@ import {
   decide,
   permission,
   resolveAuthorization,
+  createPermissionCatalog,
+  permissionCatalogDigest,
   type AuthorizationRequest,
 } from './index.js';
 
@@ -20,6 +22,16 @@ const request: AuthorizationRequest = {
 };
 
 describe('@supauth/authorization-core', () => {
+  it('normalizes a catalog and derives a stable digest for runtime binding', async () => {
+    const catalog = createPermissionCatalog({
+      applicationId: 'billing-api', version: '2026-09-18', permissions: ['invoice:write', 'invoice:read'],
+    });
+    expect(catalog.permissions).toEqual(['invoice:read', 'invoice:write']);
+    await expect(permissionCatalogDigest(catalog)).resolves.toMatch(/^[a-f0-9]{64}$/);
+    expect(() => createPermissionCatalog({
+      applicationId: 'billing-api', version: '2026-09-18', digest: 'bad', permissions: ['invoice:read'],
+    })).toThrow();
+  });
   it('resolves exactly once and decides only from current effective grants', async () => {
     let calls = 0;
     const context = await resolveAuthorization(request, async receivedRequest => {

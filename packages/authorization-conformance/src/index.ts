@@ -50,6 +50,7 @@ export interface ConformanceReport {
 export interface PermissionCatalogConformanceInput {
   readonly applicationId: string;
   readonly version: string;
+  readonly digest?: string;
   readonly permissions: readonly string[];
 }
 
@@ -66,6 +67,9 @@ export function checkPermissionCatalog(
   }
   if (!PERMISSION_CATALOG_VERSION_PATTERN.test(catalog.version)) {
     violations.push({ rule: 'catalog_version', message: 'Permission catalog version must be a bounded identifier' });
+  }
+  if (catalog.digest !== undefined && !/^[a-f0-9]{64}$/i.test(catalog.digest)) {
+    violations.push({ rule: 'catalog_digest', message: 'Permission catalog digest must be a SHA-256 hex value' });
   }
   if (catalog.permissions.length === 0) {
     violations.push({ rule: 'catalog_permissions', message: 'Permission catalog must contain at least one permission' });
