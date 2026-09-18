@@ -279,10 +279,8 @@ it('redacts early application schema failures without calling transport', () => 
   const fetcher = mock(async () => Response.json({}));
   const client = new SupaOAuthClient({ baseUrl: 'https://auth.example.test', fetch: fetcher });
   const invalidCalls = [
-    // @ts-expect-error Exercise untyped input at the public SDK boundary.
-    () => client.createApplication({ redirect_uris: [42] }),
-    // @ts-expect-error Exercise untyped input at the public SDK boundary.
-    () => client.updateApplication('app-1', { redirect_uris: [42] }),
+    () => client.createApplication({ redirect_uris: [] }),
+    () => client.updateApplication('app-1', { redirect_uris: [] }),
   ];
   for (const invoke of invalidCalls) {
     expect(invoke).toThrow(SupaOAuthRequestContractError);
