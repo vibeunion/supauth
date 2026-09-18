@@ -1,0 +1,32 @@
+name: PR 116 check diagnostics
+on:
+  push:
+    branches: [codex/authorization-permission-catalog]
+    paths: [.github/workflows/pr116-check-diagnostics.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  diagnostics:
+    if: github.repository == 'vibeunion/supauth' && github.ref == 'refs/heads/codex/authorization-permission-catalog'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Extract remaining failure context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --allow-escape-sequences repos/vibeunion/supauth/actions/jobs/105795754907/logs > /tmp/pr116-check.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          lines = re.sub(r'\x1b\[[0-9;]*m', '', Path('/tmp/pr116-check.log').read_text(encoding='utf-8-sig')).splitlines()
+          selected = set()
+          for i, line in enumerate(lines):
+              if re.search(r'\(fail\)|error TS\d+|AssertionError|Issues: [1-9]|errors: [1-9]|uncovered|^.*error:|::error|TypeError:', line):
+                  selected.update(range(max(0, i - 16), min(len(lines), i + 10)))
+          print('Selected failure context:', len(selected), 'lines')
+          for i in sorted(selected)[-240:]:
+              print(lines[i][:1500])
+          PY
