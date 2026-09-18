@@ -1,6 +1,8 @@
 import { readAuthorizationRequest, readResolvedPermissions } from './validation.js';
 
 const PERMISSION_PATTERN = /^[a-z][a-z0-9._-]*:[a-z][a-z0-9._-]*$/;
+const CATALOG_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const APPLICATION_ID_PATTERN = /^[^\s]{1,512}$/u;
 
 export type PrincipalKind = 'user' | 'service';
 export type Permission = string & { readonly __permission: unique symbol };
@@ -24,6 +26,19 @@ export interface AuthorizationRequest {
 
 export interface AuthorizationContext extends AuthorizationRequest {
   permissions: readonly Permission[];
+  readonly permissionCatalogVersion?: string;
+  readonly permissionCatalogDigest?: string;
+}
+
+export interface AuthorizationPermissionCatalog {
+  readonly applicationId: string;
+  readonly version: string;
+  readonly digest?: string;
+  readonly permissions: readonly string[];
+}
+
+export interface AuthorizationResolutionOptions {
+  readonly permissionCatalog?: AuthorizationPermissionCatalog;
 }
 
 export interface AuthorizationDecision {
@@ -72,20 +87,86 @@ function immutableRequest(request: AuthorizationRequest): AuthorizationRequest {
   });
 }
 
-function effectivePermissions(resolvedPermissions: readonly string[]): readonly Permission[] {
+function effectivePermissions(
+  resolvedPermissions: readonly string[],
+  catalog?: AuthorizationPermissionCatalog,
+): readonly Permission[] {
   const parsedPermissions = readResolvedPermissions(resolvedPermissions).map(permission);
+  if (catalog) {
+    const allowed = new Set(catalog.permissions.map(permission));
+    if (parsedPermissions.some(grant => !allowed.has(grant))) {
+      throw new TypeError('resolved permissions are not present in the application permission catalog');
+    }
+  }
   return Object.freeze([...new Set(parsedPermissions)]);
 }
 
 function contextFromPermissions(
   request: AuthorizationRequest,
   resolvedPermissions: readonly string[],
+  catalog?: AuthorizationPermissionCatalog,
 ): AuthorizationContext {
+  const permissions = effectivePermissions(resolvedPermissions, catalog);
   return Object.freeze({
     principal: Object.freeze({ ...request.principal }),
     applicationId: request.applicationId,
     domain: Object.freeze({ ...request.domain }),
-    permissions: effectivePermissions(resolvedPermissions),
+    permissions,
+    ...(catalog ? { permissionCatalogVersion: catalog.version } : {}),
+    ...(catalog?.digest === undefined ? {} : { permissionCatalogDigest: catalog.digest }),
+  });
+}
+
+/** Validate and freeze catalog structure; resolveAuthorization also verifies its digest. */
+export function createPermissionCatalog(input: AuthorizationPermissionCatalog): AuthorizationPermissionCatalog {
+  const catalog = readPermissionCatalog({
+    principal: { kind: 'service', issuer: 'catalog', subject: 'catalog' },
+    applicationId: input.applicationId,
+    domain: { type: 'catalog', id: input.applicationId },
+  }, input);
+  if (!catalog) throw new TypeError('invalid application permission catalog');
+  return catalog;
+}
+
+/** Stable digest for binding claims, runtime adapters, and UI projections to one catalog. */
+export async function permissionCatalogDigest(catalog: AuthorizationPermissionCatalog): Promise<string> {
+  const normalized = createPermissionCatalog(catalog);
+  const payload = JSON.stringify({
+    applicationId: normalized.applicationId,
+    version: normalized.version,
+    permissions: [...normalized.permissions].sort(),
+  });
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function readPermissionCatalog(
+  request: AuthorizationRequest,
+  catalog: AuthorizationPermissionCatalog | undefined,
+): AuthorizationPermissionCatalog | undefined {
+  if (catalog === undefined) return undefined;
+  if (catalog === null || typeof catalog !== 'object'
+      || typeof catalog.applicationId !== 'string'
+      || !APPLICATION_ID_PATTERN.test(catalog.applicationId)
+      || catalog.applicationId !== request.applicationId
+      || typeof catalog.version !== 'string'
+      || !CATALOG_VERSION_PATTERN.test(catalog.version)
+      || (catalog.digest !== undefined
+        && (typeof catalog.digest !== 'string' || !/^[a-f0-9]{64}$/i.test(catalog.digest)))
+      || !Array.isArray(catalog.permissions)
+      || catalog.permissions.length === 0) {
+    throw new TypeError('invalid application permission catalog');
+  }
+  // 遍历每个元素而不是直接 map，避免稀疏数组跳过校验。
+  const permissions = readResolvedPermissions(catalog.permissions).map(permission);
+  if (new Set(permissions).size !== permissions.length) {
+    throw new TypeError('application permission catalog contains duplicate permissions');
+  }
+  return Object.freeze({
+    applicationId: catalog.applicationId,
+    version: catalog.version,
+    ...(catalog.digest === undefined ? {} : { digest: catalog.digest.toLowerCase() }),
+    permissions: Object.freeze([...permissions].sort()),
   });
 }
 
@@ -104,11 +185,21 @@ async function currentPermissions(
 export async function resolveAuthorization(
   request: AuthorizationRequest,
   resolver: AuthorizationResolver,
+  options: AuthorizationResolutionOptions = {},
 ): Promise<AuthorizationContext> {
   const trustedRequest = immutableRequest(readAuthorizationRequest(request));
+  let catalog = readPermissionCatalog(trustedRequest, options.permissionCatalog);
+  if (catalog) {
+    const digest = await permissionCatalogDigest(catalog);
+    if (catalog.digest !== undefined && catalog.digest !== digest) {
+      throw new AuthorizationUnavailableError('Application permission catalog digest does not match its contents');
+    }
+    // 绑定实际内容的摘要，不将调用方提供的摘要直接标记为已验证。
+    catalog = Object.freeze({ ...catalog, digest });
+  }
   const resolvedPermissions = await currentPermissions(trustedRequest, resolver);
   try {
-    return contextFromPermissions(trustedRequest, resolvedPermissions);
+    return contextFromPermissions(trustedRequest, resolvedPermissions, catalog);
   } catch (cause) {
     throw new AuthorizationUnavailableError('Authorization resolver returned an invalid resolution', { cause });
   }
