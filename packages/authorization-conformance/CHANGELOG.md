@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/vibeunion/supauth/compare/authorization-conformance-v0.3.3...authorization-conformance-v0.4.0) (2026-09-18)
+
+
+### Features
+
+* adopt strict SupaCloud contracts ([2f59ffa](https://github.com/vibeunion/supauth/commit/2f59ffa9dce9e0145492eb2368dad6aa37bfff63))
+* **authorization:** add application permission catalog contract ([#116](https://github.com/vibeunion/supauth/issues/116)) ([c2a901b](https://github.com/vibeunion/supauth/commit/c2a901b66ae78a3080fab7f6dfb3b55f14df293f))
+
 ## [0.3.3](https://github.com/vibeunion/supauth/compare/authorization-conformance-v0.3.2...authorization-conformance-v0.3.3) (2026-09-05)
 
 

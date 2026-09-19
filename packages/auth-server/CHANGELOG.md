@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.10...auth-server-v0.9.0) (2026-09-18)
+
+
+### Features
+
+* adopt strict SupaCloud contracts ([2f59ffa](https://github.com/vibeunion/supauth/commit/2f59ffa9dce9e0145492eb2368dad6aa37bfff63))
+
 ## [0.8.10](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.9...auth-server-v0.8.10) (2026-09-07)
 
 

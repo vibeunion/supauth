@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.0](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.8...admin-console-v0.8.0) (2026-09-18)
+
+
+### Features
+
+* **admin-console:** use standalone SupaCloud contracts ([c3d4299](https://github.com/vibeunion/supauth/commit/c3d42992ff4a6a6b9b70a1503b0fb8f388753114))
+* adopt strict SupaCloud contracts ([2f59ffa](https://github.com/vibeunion/supauth/commit/2f59ffa9dce9e0145492eb2368dad6aa37bfff63))
+
+
+### Bug Fixes
+
+* **admin-console:** include Svelte safety parser ([566001a](https://github.com/vibeunion/supauth/commit/566001add0125983392862ad9035fd7285929f2d))
+
 ## [0.7.8](https://github.com/vibeunion/supauth/compare/admin-console-v0.7.7...admin-console-v0.7.8) (2026-09-07)
 
 
