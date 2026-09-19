@@ -6,7 +6,12 @@
 ### Features
 
 * adopt strict SupaCloud contracts ([2f59ffa](https://github.com/vibeunion/supauth/commit/2f59ffa9dce9e0145492eb2368dad6aa37bfff63))
-* **authorization:** add application permission catalog contract ([#116](https://github.com/vibeunion/supauth/issues/116)) ([c2a901b](https://github.com/vibeunion/supauth/commit/c2a901b66ae78a3080fab7f6dfb3b55f14df293f))
+
+
+### Bug Fixes
+
+* **sdk:** normalize early `createApplication` and `updateApplication` schema failures to `SupaOAuthRequestContractError` without leaking internal validation details or calling transport; preserve explicit OAuth session errors and asynchronous HTTP/response errors ([#116](https://github.com/vibeunion/supauth/issues/116)) ([c2a901b](https://github.com/vibeunion/supauth/commit/c2a901b66ae78a3080fab7f6dfb3b55f14df293f))
+* **tests:** validate effective HTTP methods through `Request`, retaining the existing implicit GET behavior; cover invalid application inputs, redacted errors and zero transport calls without type-check suppressions ([#116](https://github.com/vibeunion/supauth/issues/116)) ([c2a901b](https://github.com/vibeunion/supauth/commit/c2a901b66ae78a3080fab7f6dfb3b55f14df293f))
 
 ## [0.7.0](https://github.com/vibeunion/supauth/compare/sdk-typescript-v0.6.0...sdk-typescript-v0.7.0) (2026-09-12)
 
