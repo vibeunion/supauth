@@ -146,7 +146,7 @@ describe('FA #3162 OAuth authorization recovery', () => {
         goTrueApiBaseCandidates: () => ['https://internal.test'],
         buildRawGoTrueApiUrl: (base: string, path: string) => base + path,
         buildGoTrueApiUrl: (base: string, path: string) => base + '/auth/v1' + path,
-        readJsonResponse: (response: Response) => response.json(),
+        readJsonResponse: (response: Response): Promise<unknown> => response.json(),
         AbortSignal,
         fetch: async (url: string) => {
           urls.push(url);
