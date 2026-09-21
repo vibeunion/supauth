@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/vibeunion/supauth/compare/auth-server-v0.9.0...auth-server-v0.9.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **auth:** preserve missing OAuth authorization errors ([#117](https://github.com/vibeunion/supauth/issues/117)) ([82fb3a0](https://github.com/vibeunion/supauth/commit/82fb3a03be00431f9024dd42bed90d60c5241a26))
+
 ## [0.9.0](https://github.com/vibeunion/supauth/compare/auth-server-v0.8.10...auth-server-v0.9.0) (2026-09-18)
 
 
