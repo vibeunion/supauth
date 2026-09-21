@@ -114,11 +114,15 @@ async function fetchGoTrueJson(path: string, init: RequestInit = {}, fetchImpl: 
         continue;
       }
 
+      const rawInternalNotFound = directInternal && index === 0 && response.status === 404;
       let payload: Record<string, unknown> | null;
       try {
         payload = await readJsonResponse(response);
       } catch (error) {
-        if (error instanceof ApiContractError) {
+        // 原始路由 404 的响应体不可读时，保留兼容路径回退。
+        if (rawInternalNotFound) {
+          payload = null;
+        } else if (error instanceof ApiContractError) {
           if (response.ok) throw error;
           payload = null;
         } else {
@@ -126,8 +130,7 @@ async function fetchGoTrueJson(path: string, init: RequestInit = {}, fetchImpl: 
         }
       }
       // 业务资源不存在不是路由缺失，不能改用另一条路径覆盖 GoTrue 的权威结果。
-      if (directInternal && index === 0 && response.status === 404
-        && !isOAuthAuthorizationNotFound(response.status, payload)) {
+      if (rawInternalNotFound && !isOAuthAuthorizationNotFound(response.status, payload)) {
         lastProtocolError = new Error(`GoTrue ${path} returned 404 from raw internal route`);
         continue;
       }

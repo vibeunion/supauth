@@ -72,6 +72,58 @@ describe('FA #3162 OAuth authorization recovery', () => {
     ]);
   });
 
+  for (const failure of [
+    { label: 'timeout', error: new DOMException('private upstream timeout', 'TimeoutError'), status: 504, code: 'runtime_timeout' },
+    { label: 'connection loss', error: new TypeError('private upstream connection terminated'), status: 502, code: 'runtime_unavailable' },
+  ] as const) {
+    test(`falls back to auth/v1 when the raw internal GET 404 body fails with ${failure.label}`, async () => {
+      const urls: string[] = [];
+      const payload = { redirect_url: 'https://client.example.test/callback?code=synthetic' };
+      globalThis.fetch = Object.assign(async (input: string | URL | Request) => {
+        urls.push(input instanceof Request ? input.url : String(input));
+        return urls.length === 1
+          ? new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.error(failure.error); },
+          }), { status: 404 })
+          : Response.json(payload);
+      }, { preconnect() {} });
+      const response = await new Elysia().use(publicOAuthRoutes).handle(new Request(
+        'https://auth.example.test/v1/public/oauth/authorizations/fresh',
+        { headers: { Authorization: 'Bearer synthetic-token' } },
+      ));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(payload);
+      expect(urls).toEqual([
+        'https://internal.example.test/oauth/authorizations/fresh',
+        'https://internal.example.test/auth/v1/oauth/authorizations/fresh',
+      ]);
+    });
+
+    for (const upstreamStatus of [200, 500]) {
+      test(`preserves ${failure.status} without retry when a non-404 (${upstreamStatus}) body fails with ${failure.label}`, async () => {
+        const urls: string[] = [];
+        globalThis.fetch = Object.assign(async (input: string | URL | Request) => {
+          urls.push(input instanceof Request ? input.url : String(input));
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.error(failure.error); },
+          }), { status: upstreamStatus });
+        }, { preconnect() {} });
+        const response = await new Elysia().use(publicOAuthRoutes).handle(new Request(
+          'https://auth.example.test/v1/public/oauth/authorizations/fresh',
+          { headers: { Authorization: 'Bearer synthetic-token' } },
+        ));
+        expect(response.status).toBe(failure.status);
+        expect(await response.json()).toEqual({
+          error: failure.code,
+          error_description: failure.status === 504
+            ? 'Authentication runtime timed out.'
+            : 'Authentication runtime is unavailable.',
+        });
+        expect(urls).toEqual(['https://internal.example.test/oauth/authorizations/fresh']);
+      });
+    }
+  }
+
   test('scoped artifact refuses source drift', () => {
     expect(() => patchLiveSource('unknown source')).toThrow('approved live version');
   });
@@ -109,7 +161,11 @@ describe('FA #3162 OAuth authorization recovery', () => {
   });
 
   test.skipIf(process.env['RUN_ISSUE_3162_BROWSER'] !== '1')('current and deployed-page artifacts stop stale submissions and preserve fresh consent', async () => {
-    const browser = await chromium.launch({ headless: true, executablePath: process.env['PLAYWRIGHT_EXECUTABLE_PATH'] });
+    const executablePath = process.env['PLAYWRIGHT_EXECUTABLE_PATH'];
+    const browser = await chromium.launch({
+      headless: true,
+      ...(executablePath !== undefined ? { executablePath } : {}),
+    });
     try {
       const pages = [
         { label: 'current', html: await renderHostedPage('authorize') },
