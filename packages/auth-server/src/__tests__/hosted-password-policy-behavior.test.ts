@@ -205,7 +205,12 @@ function inlineBodyScript(html: string) {
   const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
   const source = scripts.at(-1)?.[1];
   if (!source) throw new Error('Hosted page inline script was not found.');
-  return source.replace(/(\b(?:init|loadExperience))\(\);\s*(\}\)\(\);)\s*$/, 'globalThis.__hostedReady = $1();\n$2');
+  // 保留完整 catch 链，让等待器覆盖初始化及其错误处理。
+  const initialization = /^[ \t]*(?:void\s+)?((?:init|loadExperience)\(\)(?:\.catch\([\s\S]*?\))?);\s*(\}\)\(\);)\s*$/gm;
+  if ([...source.matchAll(initialization)].length !== 1) {
+    throw new Error('Expected exactly one terminal hosted page initialization.');
+  }
+  return source.replace(initialization, 'globalThis.__hostedReady = $1;\n$2');
 }
 
 function localStorageStub() {

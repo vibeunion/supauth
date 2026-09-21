@@ -11,6 +11,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
   const authorizationId = params.get('authorization_id') || '';
   const forceLogin = (params.get('prompt') || '').split(/\s+/).includes('login');
   let authorizationAccessToken = '';
+  let authorizationUnavailable = false;
   let hasCustomPageTitle = false;
   let hasCustomButtonLabel = false;
   let signUpEnabled = false;
@@ -40,6 +41,8 @@ import type { PublicSignInConnector } from '@supauth/shared';
       invalidLoginCredentials: 'Account or password does not match. Please check and try again.',
       authorizationFailed: 'Authorization approval failed',
       authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.',
+      authorizationRestart: 'This sign-in request is no longer available. Return to the application and start sign-in again.',
+      authorizationBack: 'Back to previous page',
       authorizationUnavailable: 'This sign-in request cannot be verified right now. Please return to the application and start sign-in again.',
       consentTitle: 'Authorize application',
       consentDescription: 'Review the requested access before continuing.',
@@ -89,6 +92,8 @@ import type { PublicSignInConnector } from '@supauth/shared';
       invalidLoginCredentials: '账号或密码不匹配，请检查后重试。',
       authorizationFailed: '授权确认失败',
       authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。',
+      authorizationRestart: '本次登录请求已失效，请返回应用重新发起登录，不要在此页面重复提交。',
+      authorizationBack: '返回上一页',
       authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。',
       consentTitle: '授权应用',
       consentDescription: '继续前请确认该应用请求的访问权限。',
@@ -333,6 +338,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
   }
 
   async function authorizationRequest(path: '' | '/consent', accessToken: string, options: RequestInit = {}): Promise<Authorization> {
+    if (authorizationUnavailable) throw new Error(t('authorizationRestart'));
     const res = await fetch(
       `${publicApiBase()}/oauth/authorizations/${encodeURIComponent(authorizationId)}${path}`,
       {
@@ -345,6 +351,25 @@ import type { PublicSignInConnector } from '@supauth/shared';
     );
     if (!res.ok) {
       const data: unknown = await res.json().catch(() => null);
+      if (res.status === 404 && apiErrorCode(data) === 'oauth_authorization_not_found') {
+        authorizationUnavailable = true;
+        authorizationAccessToken = '';
+        const passwordInput = requiredElement('#password', 'input');
+        passwordInput.value = '';
+        requiredElement('#submit', 'button').disabled = true;
+        requiredElement('#consent-approve', 'button').disabled = true;
+        requiredElement('#consent-deny', 'button').disabled = true;
+        if (window.history.length > 1 && !document.getElementById('authorization-back')) {
+          const back = document.createElement('button');
+          back.id = 'authorization-back';
+          back.type = 'button';
+          back.textContent = t('authorizationBack');
+          // 仅执行用户主动的历史返回，不信任查询参数中的外部回跳地址。
+          back.addEventListener('click', () => window.history.back());
+          requiredElement('#message', 'div').after(back);
+        }
+        throw new Error(t('authorizationRestart'));
+      }
       throw createApiError(data, t('authorizationFailed'));
     }
     return readContract(res, AuthorizationSchema);
@@ -418,8 +443,8 @@ import type { PublicSignInConnector } from '@supauth/shared';
     } catch (error) {
       setMessage('error', responseMessage(error, t('authorizationFailed')));
     } finally {
-      approveButton.disabled = false;
-      denyButton.disabled = false;
+      approveButton.disabled = authorizationUnavailable;
+      denyButton.disabled = authorizationUnavailable;
     }
   }
 
@@ -669,6 +694,10 @@ import type { PublicSignInConnector } from '@supauth/shared';
   // ─── Sign In ──────────────────────────────────────────────────────
   requiredElement("#login-form", "form").addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (authorizationUnavailable) {
+      setMessage('error', t('authorizationRestart'));
+      return;
+    }
     const emailInput = requiredElement("#email", "input");
     const passwordInput = requiredElement("#password", "input");
     const email = normalizeEmailInput(emailInput.value);
@@ -711,7 +740,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
     } catch (error) {
       setMessage('error', responseMessage(error, t('networkError')));
     } finally {
-      button.disabled = false;
+      button.disabled = authorizationUnavailable;
       button.textContent = originalText;
     }
   });
@@ -831,4 +860,6 @@ import type { PublicSignInConnector } from '@supauth/shared';
       }
     }
   }
-  init();
+  void init().catch((error: unknown) => {
+    setMessage('error', responseMessage(error, t('authorizationFailed')));
+  });

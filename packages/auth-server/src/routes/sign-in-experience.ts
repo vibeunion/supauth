@@ -16,6 +16,7 @@ import { AuthConfigResponseSchema } from '../../../shared/src/sdk-models.js';
 import { definedFields, requiredRow } from '../utils/defined-fields.js';
 import { getConfig } from '../config/index.js';
 import { randomUUID } from 'node:crypto';
+import { isOAuthAuthorizationNotFound } from '../utils/oauth-authorization-failure.js';
 import {
   GOTRUE_PASSWORD_CHARACTER_POLICIES,
   passwordPolicyFromAuthConfig,
@@ -113,20 +114,25 @@ async function fetchGoTrueJson(path: string, init: RequestInit = {}, fetchImpl: 
         continue;
       }
 
-      if (directInternal && index === 0 && response.status === 404) {
-        lastProtocolError = new Error(`GoTrue ${path} returned 404 from raw internal route`);
-        continue;
-      }
+      const rawInternalNotFound = directInternal && index === 0 && response.status === 404;
       let payload: Record<string, unknown> | null;
       try {
         payload = await readJsonResponse(response);
       } catch (error) {
-        if (error instanceof ApiContractError) {
+        // 原始路由 404 的响应体不可读时，保留兼容路径回退。
+        if (rawInternalNotFound) {
+          payload = null;
+        } else if (error instanceof ApiContractError) {
           if (response.ok) throw error;
           payload = null;
         } else {
           throw upstreamFailureError(upstreamNetworkFailure(error));
         }
+      }
+      // 业务资源不存在不是路由缺失，不能改用另一条路径覆盖 GoTrue 的权威结果。
+      if (rawInternalNotFound && !isOAuthAuthorizationNotFound(response.status, payload)) {
+        lastProtocolError = new Error(`GoTrue ${path} returned 404 from raw internal route`);
+        continue;
       }
       if (response.ok && !payload) {
         lastProtocolError = new ApiContractError(502, 'invalid_upstream_response', 'GoTrue returned an empty success response');
@@ -1103,6 +1109,13 @@ function goTrueOAuthPayload(
   badRequest: UpstreamBadRequestContext,
 ) {
   if (result.response.ok) return result.payload || {};
+  if (isOAuthAuthorizationNotFound(result.response.status, result.payload)) {
+    set.status = 404;
+    return {
+      error: 'oauth_authorization_not_found',
+      error_description: 'This sign-in request is no longer available. Please return to the application and sign in again.',
+    };
+  }
   const failure = upstreamResponseFailure(result.response.status, badRequest);
   set.status = failure.status;
   return oauthErrorPayload(failure);

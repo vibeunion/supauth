@@ -149,8 +149,8 @@ describe('stock GoTrue OAuth consent BFF', () => {
     const missing = await oauthRequest('/authorizations/authorization-missing');
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({
-      error: 'upstream_not_found',
-      error_description: 'Authentication resource was not found.',
+      error: 'oauth_authorization_not_found',
+      error_description: 'This sign-in request is no longer available. Please return to the application and sign in again.',
     });
   });
 
