@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { Elysia } from 'elysia';
 import { isOAuthAuthorizationNotFound } from '../packages/auth-server/src/utils/oauth-authorization-failure.js';
 import { authorizationHtml, patchLiveSource } from '../scripts/issue-3162-scoped-hotfix.js';
 import { renderHostedPage } from '../packages/admin-console/src/hosted/build.js';
@@ -36,7 +35,7 @@ describe('FA #3162 OAuth authorization recovery', () => {
           code: 404, error_code: 'oauth_authorization_not_found', msg: 'private upstream detail',
         }, { status: 404 });
       }, { preconnect() {} });
-      const response = await new Elysia().use(publicOAuthRoutes).handle(new Request(
+      const response = await publicOAuthRoutes.handle(new Request(
         `https://auth.example.test/v1/public/oauth/authorizations/missing${consent ? '/consent' : ''}`,
         {
           method: consent ? 'POST' : 'GET',
@@ -61,7 +60,7 @@ describe('FA #3162 OAuth authorization recovery', () => {
         ? new Response('Not Found', { status: 404 })
         : Response.json({ redirect_url: 'https://client.example.test/callback?code=synthetic' });
     }, { preconnect() {} });
-    const response = await new Elysia().use(publicOAuthRoutes).handle(new Request(
+    const response = await publicOAuthRoutes.handle(new Request(
       'https://auth.example.test/v1/public/oauth/authorizations/fresh',
       { headers: { Authorization: 'Bearer synthetic-token' } },
     ));
@@ -87,7 +86,7 @@ describe('FA #3162 OAuth authorization recovery', () => {
           }), { status: 404 })
           : Response.json(payload);
       }, { preconnect() {} });
-      const response = await new Elysia().use(publicOAuthRoutes).handle(new Request(
+      const response = await publicOAuthRoutes.handle(new Request(
         'https://auth.example.test/v1/public/oauth/authorizations/fresh',
         { headers: { Authorization: 'Bearer synthetic-token' } },
       ));
@@ -108,7 +107,7 @@ describe('FA #3162 OAuth authorization recovery', () => {
             start(controller) { controller.error(failure.error); },
           }), { status: upstreamStatus });
         }, { preconnect() {} });
-        const response = await new Elysia().use(publicOAuthRoutes).handle(new Request(
+        const response = await publicOAuthRoutes.handle(new Request(
           'https://auth.example.test/v1/public/oauth/authorizations/fresh',
           { headers: { Authorization: 'Bearer synthetic-token' } },
         ));
