@@ -52,17 +52,8 @@ function canonicalPermission(value: string): string {
   return `${resource}:${action}`;
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value)
-    && value.every((entry: unknown): entry is string => typeof entry === 'string');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function permissionValues(value: unknown): readonly string[] {
-  if (!isStringArray(value)) {
+  if (!Array.isArray(value) || !value.every((entry): entry is string => typeof entry === 'string')) {
     throw new TypeError('Admin permission snapshot must contain a string array');
   }
   const expanded = value.includes('*')
@@ -72,10 +63,10 @@ function permissionValues(value: unknown): readonly string[] {
 }
 
 export function createAdminPermissionSnapshot(value: unknown) {
-  if (!isRecord(value)) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError('Admin permission response must be an object');
   }
-  const permissions = value['permissions'];
+  const permissions = Reflect.get(value, 'permissions');
   return {
     applicationId: ADMIN_PERMISSION_APPLICATION_ID,
     catalogVersion: ADMIN_PERMISSION_CATALOG_VERSION,
