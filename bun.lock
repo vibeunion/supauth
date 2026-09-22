@@ -29,13 +29,13 @@
     },
     "packages/admin-console": {
       "name": "@supauth/admin-console",
-      "version": "0.7.8",
+      "version": "0.8.0",
       "dependencies": {
         "@supabase/auth-js": "^2.113.0",
         "@supacloud/contracts": "0.3.1",
         "@supauth/shared": "workspace:*",
-        "@svadmin/core": "^0.49.0",
-        "@svadmin/sso": "^0.11.18",
+        "@svadmin/core": "^0.55.0",
+        "@svadmin/sso": "^0.12.9",
         "@tailwindcss/vite": "^4.3.3",
         "@tanstack/svelte-query": "^6.1.48",
         "tailwindcss": "^4.3.3",
@@ -46,6 +46,7 @@
         "@sveltejs/vite-plugin-svelte": "^7.3.0",
         "@types/bun": "^1.4.0",
         "@types/node": "^26.4.1",
+        "@types/papaparse": "^5.5.2",
         "@typescript/native": "npm:typescript@^7.0.2",
         "bun-types": "1.4.0",
         "svelte": "^5.57.0",
@@ -56,7 +57,7 @@
     },
     "packages/auth-server": {
       "name": "@supauth/auth-server",
-      "version": "0.8.10",
+      "version": "0.9.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/swagger": "^1.3.1",
@@ -77,7 +78,7 @@
     },
     "packages/authorization-conformance": {
       "name": "@supauth/authorization-conformance",
-      "version": "0.3.3",
+      "version": "0.4.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "typescript": "^5.8.0",
@@ -85,7 +86,7 @@
     },
     "packages/authorization-core": {
       "name": "@supauth/authorization-core",
-      "version": "0.3.3",
+      "version": "0.4.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "typescript": "^5.8.0",
@@ -93,7 +94,7 @@
     },
     "packages/authorization-postgres": {
       "name": "@supauth/authorization-postgres",
-      "version": "0.4.3",
+      "version": "0.5.0",
       "devDependencies": {
         "@types/bun": "^1.4.0",
         "postgres": "^3.4.9",
@@ -102,7 +103,7 @@
     },
     "packages/sdks/auth-ui": {
       "name": "@supauth/sdk-auth-ui",
-      "version": "0.5.4",
+      "version": "0.6.0",
       "dependencies": {
         "@supauth/sdk-typescript": "workspace:*",
         "@supauth/shared": "workspace:*",
@@ -114,7 +115,7 @@
     },
     "packages/sdks/typescript": {
       "name": "@supauth/sdk-typescript",
-      "version": "0.6.0",
+      "version": "0.8.0",
       "dependencies": {
         "@supauth/shared": "workspace:*",
       },
@@ -125,7 +126,7 @@
     },
     "packages/shared": {
       "name": "@supauth/shared",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "dependencies": {
         "@sinclair/typebox": "0.34.52",
       },
@@ -136,13 +137,12 @@
     },
   },
   "patchedDependencies": {
-    "@svadmin/core@0.49.0": "patches/@svadmin%2Fcore@0.49.0.patch",
-    "@elysiajs/swagger@1.3.1": "patches/@elysiajs%2Fswagger@1.3.1.strict-declarations.patch",
-    "@tanstack/svelte-query@6.1.48": "patches/@tanstack%2Fsvelte-query@6.1.48.patch",
-    "postgres@3.4.9": "patches/postgres@3.4.9.patch",
     "@supabase/auth-js@2.113.0": "patches/@supabase%2Fauth-js@2.113.0.patch",
     "elysia@1.4.30": "patches/elysia@1.4.30.strict-declarations.patch",
     "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.strict-declarations.patch",
+    "@elysiajs/swagger@1.3.1": "patches/@elysiajs%2Fswagger@1.3.1.strict-declarations.patch",
+    "@tanstack/svelte-query@6.1.48": "patches/@tanstack%2Fsvelte-query@6.1.48.patch",
+    "postgres@3.4.9": "patches/postgres@3.4.9.patch",
   },
   "packages": {
     "@apidevtools/json-schema-ref-parser": ["@apidevtools/json-schema-ref-parser@15.3.6", "https://registry.npmmirror.com/@apidevtools/json-schema-ref-parser/-/json-schema-ref-parser-15.3.6.tgz", { "dependencies": { "js-yaml": "^4.2.0" }, "peerDependencies": { "@types/json-schema": "^7.0.15" } }, "sha512-oPFDSviRrreUmCZn09LCD4S9QQa6j7zfEwBM1pkGa/kXY0O4sXsEXn4emLP/Tt6tik2+BtgwKk2eldAeOWZ2Rw=="],
@@ -217,6 +217,8 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "https://registry.npmmirror.com/@esbuild/win32-x64/-/win32-x64-0.25.12.tgz", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
 
+    "@internationalized/date": ["@internationalized/date@3.12.4", "https://registry.npmmirror.com/@internationalized/date/-/date-3.12.4.tgz", { "dependencies": { "@swc/helpers": "^0.5.0" } }, "sha512-M1dEn4c1U1HsSlaVR8upZtSqvXrTkHDfv18H01uCSJyjVLDxnBR38v/fMxecmlwXKR4i9HeZcmgQAPE6A+aGJQ=="],
+
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "https://registry.npmmirror.com/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
     "@jridgewell/remapping": ["@jridgewell/remapping@2.3.5", "https://registry.npmmirror.com/@jridgewell/remapping/-/remapping-2.3.5.tgz", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ=="],
@@ -289,7 +291,7 @@
 
     "@supabase/supabase-js": ["@supabase/supabase-js@2.113.0", "https://registry.npmmirror.com/@supabase/supabase-js/-/supabase-js-2.113.0.tgz", { "dependencies": { "@supabase/auth-js": "2.113.0", "@supabase/functions-js": "2.113.0", "@supabase/postgrest-js": "2.113.0", "@supabase/realtime-js": "2.113.0", "@supabase/storage-js": "2.113.0" }, "peerDependencies": { "@opentelemetry/api": ">=1.0.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-TZgdcDLeShUmf/XpXTmEKCmIpv6mqHgyDemiBh3fxeMOYE23oYz576ArbOB3Sa0lG9yTj+ofh52IauxIKENAOw=="],
 
-    "@supacloud/contracts": ["@supacloud/contracts@0.3.1", "", {}, "sha512-aILbBkXmjWhPq6mLv3yqWvkz5pcgxkfIlXu5D58bZ4ZsReFwf+RI9zXf5162hXmgkcsWvubKDBYWfXCK+TYG3A=="],
+    "@supacloud/contracts": ["@supacloud/contracts@0.3.1", "https://registry.npmmirror.com/@supacloud/contracts/-/contracts-0.3.1.tgz", {}, "sha512-aILbBkXmjWhPq6mLv3yqWvkz5pcgxkfIlXu5D58bZ4ZsReFwf+RI9zXf5162hXmgkcsWvubKDBYWfXCK+TYG3A=="],
 
     "@supacloud/js": ["@supacloud/js@0.23.3", "https://registry.npmmirror.com/@supacloud/js/-/js-0.23.3.tgz", { "peerDependencies": { "@supabase/supabase-js": "^2.112.4" } }, "sha512-Bx9qKi4b75p73YE/fPGmIf9gIXWQcV2/BYG5Fc4w5dpyiL/gpq6BbR+IYSkL7kc4txh3SHmpxcJg1liah2xXyg=="],
 
@@ -311,9 +313,9 @@
 
     "@supauth/shared": ["@supauth/shared@workspace:packages/shared"],
 
-    "@svadmin/core": ["@svadmin/core@0.49.0", "https://registry.npmmirror.com/@svadmin/core/-/core-0.49.0.tgz", { "dependencies": { "@sinclair/typebox": "^0.34.52" }, "peerDependencies": { "@tanstack/svelte-query": "^6.1.48", "svelte": "^5.56.10" }, "optionalPeers": ["@tanstack/svelte-query", "svelte"] }, "sha512-YlnBAs88whyrGsahjIO39U1/bp/SHU0JLMJ5VubzY23rLsVT0unlPXg/ou69IYPE/I5KzWkGQ3jWndk3s/a2bQ=="],
+    "@svadmin/core": ["@svadmin/core@0.55.0", "https://registry.npmmirror.com/@svadmin/core/-/core-0.55.0.tgz", { "dependencies": { "@internationalized/date": "^3.12.3", "@sinclair/typebox": "^0.34.52", "papaparse": "^5.5.4" }, "peerDependencies": { "@tanstack/svelte-query": "^6.1.48", "exceljs": "^4.4.0", "svelte": "^5.56.10" }, "optionalPeers": ["@tanstack/svelte-query", "exceljs", "svelte"] }, "sha512-PTnHO4kn7ZNnGfNb92hgH2J7Iht6QBVkJs1LvZYR4pEEFrswbAxWEgQpn5K5v4Cph+HnjWQpqE6ZKXkFB+C79A=="],
 
-    "@svadmin/sso": ["@svadmin/sso@0.11.18", "https://registry.npmmirror.com/@svadmin/sso/-/sso-0.11.18.tgz", { "peerDependencies": { "@svadmin/core": "^0.49.0" }, "optionalPeers": ["@svadmin/core"] }, "sha512-IU79S0N7Y7/KFEs4rz7LU85i6JFbgbiPPHeAUaUPnwUrFBkLKfJMWF/Sn302uZNpKS9culGuJ3syr/dQFQHakA=="],
+    "@svadmin/sso": ["@svadmin/sso@0.12.9", "https://registry.npmmirror.com/@svadmin/sso/-/sso-0.12.9.tgz", { "peerDependencies": { "@svadmin/core": "^0.55.0" }, "optionalPeers": ["@svadmin/core"] }, "sha512-So4JcEeZvdt/pOlYkQx2+th4ZiY2UFPGBxPenTXE0rwRezzIkhniG4mIL5qLPMuCxqtStGRaFJKNUjGDOJgNBA=="],
 
     "@sveltejs/acorn-typescript": ["@sveltejs/acorn-typescript@1.0.10", "https://registry.npmmirror.com/@sveltejs/acorn-typescript/-/acorn-typescript-1.0.10.tgz", { "peerDependencies": { "acorn": "^8.9.0" } }, "sha512-4WfKk68eTih+MiJD4fSbxN7E8kVBmTMPWHUPYjvl2N0rMs53YLTT8/YjKU5Dtnz5LqDjl7LEw4U7lXR2W3J5WA=="],
 
@@ -324,6 +326,8 @@
     "@sveltejs/load-config": ["@sveltejs/load-config@0.2.3", "https://registry.npmmirror.com/@sveltejs/load-config/-/load-config-0.2.3.tgz", {}, "sha512-VT3qmUb8pRV2QrZjd8iAmtg8lf4W0TIjZbvXtz5MKei/q96teWZgGJyyidJzOjzZzvdq616eSRVeMYIQChUTAQ=="],
 
     "@sveltejs/vite-plugin-svelte": ["@sveltejs/vite-plugin-svelte@7.3.0", "https://registry.npmmirror.com/@sveltejs/vite-plugin-svelte/-/vite-plugin-svelte-7.3.0.tgz", { "dependencies": { "deepmerge": "^4.3.1", "magic-string": "^1.0.0", "obug": "^2.1.0", "vitefu": "^1.1.2" }, "peerDependencies": { "svelte": "^5.46.4", "vite": "^8.0.0-beta.7 || ^8.0.0" } }, "sha512-QbRoJyD92e9R0ufeQIWRHrCC0ObcqSv/aBDdrQMoU+sypav3cDx5wytdQ6GLdXjEMO6xjrXGzfkUygng8JMv0A=="],
+
+    "@swc/helpers": ["@swc/helpers@0.5.23", "https://registry.npmmirror.com/@swc/helpers/-/helpers-0.5.23.tgz", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw=="],
 
     "@tailwindcss/node": ["@tailwindcss/node@4.3.3", "https://registry.npmmirror.com/@tailwindcss/node/-/node-4.3.3.tgz", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.24.1", "jiti": "^2.7.0", "lightningcss": "1.32.0", "magic-string": "^0.30.21", "source-map-js": "^1.2.1", "tailwindcss": "4.3.3" } }, "sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg=="],
 
@@ -372,6 +376,8 @@
     "@types/json-schema": ["@types/json-schema@7.0.15", "https://registry.npmmirror.com/@types/json-schema/-/json-schema-7.0.15.tgz", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
 
     "@types/node": ["@types/node@26.5.0", "https://registry.npmmirror.com/@types/node/-/node-26.5.0.tgz", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-dVSGpriSoCgz8WnDNTuSSuSv1PC/ALXihO4ulRZt7Md8k9mlbdin3lGOcDE8SnWOgf513ByWlXd7BK4azmyg/A=="],
+
+    "@types/papaparse": ["@types/papaparse@5.5.2", "https://registry.npmmirror.com/@types/papaparse/-/papaparse-5.5.2.tgz", { "dependencies": { "@types/node": "*" } }, "sha512-gFnFp/JMzLHCwRf7tQHrNnfhN4eYBVYYI897CGX4MY1tzY9l2aLkVyx2IlKZ/SAqDbB3I1AOZW5gTMGGsqWliA=="],
 
     "@typescript/native": ["typescript@7.0.2", "https://registry.npmmirror.com/typescript/-/typescript-7.0.2.tgz", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
@@ -566,6 +572,8 @@
     "obug": ["obug@2.1.1", "https://registry.npmmirror.com/obug/-/obug-2.1.1.tgz", {}, "sha512-uTqF9MuPraAQ+IsnPf366RG4cP9RtUi7MLO1N3KEc+wb0a6yKpeL0lmk2IB1jY5KHPAlTc6T/JRdC/YqxHNwkQ=="],
 
     "openapi-types": ["openapi-types@12.1.3", "https://registry.npmmirror.com/openapi-types/-/openapi-types-12.1.3.tgz", {}, "sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw=="],
+
+    "papaparse": ["papaparse@5.7.0", "https://registry.npmmirror.com/papaparse/-/papaparse-5.7.0.tgz", {}, "sha512-qBGxg/7Q3Kl9Wfhrz2Z74UnvnHTXLNG6jmKJFeBvP2+y4lV7So+7SR62+Zd47JvdrCkX+nDcnr0ObPzek/+6RA=="],
 
     "pathe": ["pathe@1.1.2", "https://registry.npmmirror.com/pathe/-/pathe-1.1.2.tgz", {}, "sha512-whLdWMYL2TwI08hn8/ZqAbrVemu0LNaNNJZX73O6qaIdCTfXutsLhMkjdENX0qhsQ9uIimo4/aQOmXkoon2nDQ=="],
 

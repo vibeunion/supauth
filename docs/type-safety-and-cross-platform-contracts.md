@@ -73,7 +73,7 @@ TypeScript 类型导出只覆盖静态消费，不承担运行时解码。能够
 | [SDK 契约](/Users/zhd/workspace/supaoauth/packages/sdks/typescript/src/response-contracts.ts:3) | 端点请求与响应解码、状态/非 JSON 分类、无写入自动重放 | 错误参数/字段的编译期负例，实际 transport 正反例与 DOM/Worker 消费测试 |
 | [管理台传输](/Users/zhd/workspace/supaoauth/packages/admin-console/src/lib/admin-api.ts:161) | 原认证 fetch、Cookie、刷新/取消、Blob 通道接入端点契约 | JS/Svelte 严格检查及 mocked 浏览器流程，不等于生产会话验收 |
 
-五个托管页面的脚本已移到受检查的 TypeScript 模块，由构建工具注入 HTML。第三方 `@svadmin/core@0.49.0` 的类型声明通过固定补丁修复，运行时源码保持不变，未以跳过业务文件或全局关闭检查绕开问题。
+五个托管页面的脚本已移到受检查的 TypeScript 模块，由构建工具注入 HTML。第三方 `@svadmin/core@0.55.0` 的源码类型已可在严格配置下直接通过检查，其新增的 `papaparse` 运行时依赖由 `@types/papaparse` 补齐声明；因此移除了 0.49.0 的固定声明补丁，运行时源码保持不变，未以跳过业务文件或全局关闭检查绕开问题。
 
 ### 端点契约
 
