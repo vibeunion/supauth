@@ -2,6 +2,7 @@
   import type { Snippet } from "svelte";
   import { t } from "$lib/i18n.js";
   import { errorMessage, requestErrorState } from "$lib/resource-page.js";
+  import Button from '@svadmin/ui/components/ui/button/button.svelte';
 
   let {
     loading = false,
@@ -59,11 +60,12 @@
     <h3 class="font-semibold text-red-900">{errorTitle}</h3>
     <p class="mt-1 text-sm text-red-700">{errorDescription}</p>
     {#if onRetry}
-      <button
+      <Button
         type="button"
         onclick={onRetry}
-        class="mt-4 rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100"
-        >{t("Refresh")}</button
+        variant="outline"
+        class="mt-4 border-red-300 text-red-800 hover:bg-red-100"
+        >{t("Refresh")}</Button
       >
     {/if}
   </div>

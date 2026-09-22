@@ -8,6 +8,7 @@
   import { brand, loadBrand } from '$lib/brand.svelte.js';
   import { navigationSections, isNavigationEntryActive, resolveConsolePath } from '$lib/navigation.js';
   import { initializeAdminAuthProvider, supaoauthAuthProvider } from '$lib/providers/auth.js';
+  import Button from '@svadmin/ui/components/ui/button/button.svelte';
 
   let { children }: { children: Snippet } = $props();
   let loggingOut = $state(false);
@@ -166,18 +167,19 @@
 
   <div class="border-t border-surface-100 px-4 py-4">
     <p class="px-2 text-xs font-medium text-surface-400">{brand.systemName}</p>
-    <button
+    <Button
       type="button"
       onclick={handleLogout}
       disabled={loggingOut}
       aria-busy={loggingOut}
+      variant="outline"
       class="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-surface-600 shadow-xs transition-colors hover:border-surface-300 hover:bg-surface-50 hover:text-surface-900 disabled:cursor-not-allowed disabled:opacity-60"
     >
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4">
         <path stroke-linecap="round" stroke-linejoin="round" d="M10 7V5.75A1.75 1.75 0 0 1 11.75 4h6.5A1.75 1.75 0 0 1 20 5.75v12.5A1.75 1.75 0 0 1 18.25 20h-6.5A1.75 1.75 0 0 1 10 18.25V17M14 12H3m0 0 3.5-3.5M3 12l3.5 3.5" />
       </svg>
       {loggingOut ? t('auth.loggingOut') : t('auth.logout')}
-    </button>
+    </Button>
     {#if logoutError}
       <p class="mt-2 px-2 text-xs leading-5 text-red-600" role="alert">{logoutError}</p>
     {/if}

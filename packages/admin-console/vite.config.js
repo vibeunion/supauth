@@ -6,10 +6,10 @@ import { hostedPagesPlugin } from './src/hosted/vite-plugin.js';
 export default defineConfig({
   plugins: [hostedPagesPlugin(), tailwindcss(), sveltekit()],
   optimizeDeps: {
-    exclude: ['@svadmin/core', '@svadmin/sso'],
+    exclude: ['@svadmin/core', '@svadmin/sso', '@svadmin/sveltekit', '@svadmin/ui'],
   },
   ssr: {
-    noExternal: ['@svadmin/core', '@svadmin/sso'],
+    noExternal: ['@svadmin/core', '@svadmin/sso', '@svadmin/sveltekit', '@svadmin/ui'],
   },
   server: {
     proxy: {

@@ -5,6 +5,7 @@
   import { t } from '$lib/i18n.js';
   import { adminAuthModeLabelKey, securityWarningLabelKey } from '$lib/tenant-settings.js';
   import { getProject, getSecurityStatus, reconcileProject } from '$lib/api/client.js';
+  import Button from '@svadmin/ui/components/ui/button/button.svelte';
 
   let project = $state<AdminEndpointResult<'getProject'> | null>(null);
   let security = $state<AdminEndpointResult<'getSecurityStatus'> | null>(null);
@@ -72,7 +73,7 @@
 
 <div class="flex items-center justify-between mb-6">
   <h2 class="text-2xl font-bold text-surface-900">{t('Operations')}</h2>
-  <button onclick={load} class="px-3 py-1.5 text-sm bg-surface-100 text-surface-700 rounded-lg hover:bg-surface-200">{t('Refresh')}</button>
+  <Button onclick={load} variant="secondary" size="sm">{t('Refresh')}</Button>
 </div>
 
 {#if error}
@@ -86,9 +87,9 @@
     <section class="bg-white rounded-xl border border-surface-200 p-6">
       <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Project Reconcile')}</h3>
       <p class="font-mono text-sm text-surface-600 mb-4">{project?.ref || project?.id || project?.project_ref || t('unknown project')}</p>
-      <button onclick={runReconcile} disabled={running} class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
+      <Button onclick={runReconcile} disabled={running}>
         {running ? t('Reconciling...') : t('Run Reconcile')}
-      </button>
+      </Button>
       {#if reconcile}
         <div class="mt-4 bg-surface-50 border border-surface-200 rounded-lg p-4">
           <p class="text-sm font-medium text-surface-800">{t('Fully provisioned:')} {reconcile.fully_provisioned ? t('yes') : t('no')}</p>

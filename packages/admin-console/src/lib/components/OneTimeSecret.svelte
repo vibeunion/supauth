@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from "$lib/i18n.js";
+  import Button from '@svadmin/ui/components/ui/button/button.svelte';
 
   let { secret }: { secret: string } = $props();
   let copied = $state(false);
@@ -30,13 +31,15 @@
     <code class="min-w-0 flex-1 break-all text-sm text-amber-950">
       {secret}
     </code>
-    <button
+    <Button
       type="button"
       onclick={copySecret}
-      class="shrink-0 rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-semibold text-amber-950 hover:bg-amber-100"
+      variant="outline"
+      size="sm"
+      class="shrink-0 border-amber-300 text-amber-950 hover:bg-amber-100"
     >
       {copied ? t("application.secret.copied") : t("application.secret.copy")}
-    </button>
+    </Button>
   </div>
   {#if copyError}
     <p class="mt-2 text-sm text-red-700" role="alert">{copyError}</p>

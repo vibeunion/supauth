@@ -9,6 +9,8 @@
     updateSignInExperience,
   } from "$lib/api/client.js";
   import { t } from "$lib/i18n.js";
+  import Button from '@svadmin/ui/components/ui/button/button.svelte';
+  import Switch from '@svadmin/ui/components/ui/switch/switch.svelte';
   import { resolveAuthoritativeSignupEnabled } from "./signup-authority.js";
   import {
     canonicalStringSet,
@@ -135,13 +137,12 @@
       {t("signIn.methodsDescription")}
     </p>
   </div>
-  <button
+  <Button
     onclick={saveMethods}
     disabled={loading || saving || enabledMethods.length === 0}
-    class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
   >
     {saving ? t("Saving...") : t("Save")}
-  </button>
+  </Button>
 </div>
 
 {#if error}<div
@@ -182,14 +183,10 @@
             <span class="text-sm font-medium text-surface-800"
               >{t(signInMethod.labelKey)}</span
             >
-            <input
-              type="checkbox"
+            <Switch
               checked={enabledMethods.includes(signInMethod.value)}
-              onchange={(changeEvent) =>
-                setMethodEnabled(
-                  signInMethod.value,
-                  changeEvent.currentTarget.checked,
-                )}
+              aria-label={t(signInMethod.labelKey)}
+              onCheckedChange={(checked) => setMethodEnabled(signInMethod.value, checked)}
             />
           </label>
         {/each}
@@ -209,7 +206,7 @@
             >{t("signIn.signUpRuntimeHint")}</span
           >
         </span>
-        <input type="checkbox" bind:checked={signUpEnabled} />
+        <Switch bind:checked={signUpEnabled} aria-label={t("Sign-up Enabled")} />
       </label>
     </section>
 
