@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/vibeunion/supauth/compare/admin-console-v0.8.2...admin-console-v0.9.0) (2026-09-22)
+
+
+### Features
+
+* **admin-console:** migrate to latest svadmin ([#121](https://github.com/vibeunion/supauth/issues/121)) ([59951fb](https://github.com/vibeunion/supauth/commit/59951fbb787c013ad0b80d42e9fbaa8f53d96843))
+
 ## [0.8.2](https://github.com/vibeunion/supauth/compare/admin-console-v0.8.1...admin-console-v0.8.2) (2026-09-22)
 
 
