@@ -4,6 +4,10 @@
   import { onMount } from 'svelte';
   import { getSignInExperience, updateSignInExperience } from '$lib/api/client.js';
   import { t } from '$lib/i18n.js';
+  import Button from '@svadmin/ui/components/ui/button/button.svelte';
+  import Input from '@svadmin/ui/components/ui/input/input.svelte';
+  import Select from '@svadmin/ui/components/ui/select/select.svelte';
+  import Textarea from '@svadmin/ui/components/ui/textarea/textarea.svelte';
 
   const illustrationOptions = [
     { value: '', labelKey: 'No Illustration' },
@@ -92,9 +96,9 @@
     <h2 class="text-2xl font-bold text-surface-900">{t('signIn.contentTitle')}</h2>
     <p class="mt-1 text-sm text-surface-500">{t('signIn.contentDescription')}</p>
   </div>
-  <button onclick={saveContent} disabled={loading || saving} class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
+  <Button onclick={saveContent} disabled={loading || saving}>
     {saving ? t('Saving...') : t('Save')}
-  </button>
+  </Button>
 </div>
 
 {#if error}<div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>{/if}
@@ -106,27 +110,27 @@
   <section class="console-card space-y-5 p-6">
     <div>
       <label for="login-description" class="mb-1 block text-sm font-medium text-surface-700">{t('Login Page Intro')}</label>
-      <textarea id="login-description" bind:value={contentDraft.description} rows="3" class="w-full"></textarea>
+      <Textarea id="login-description" bind:value={contentDraft.description} rows={3} class="w-full" />
     </div>
     <div>
       <label for="login-button-label" class="mb-1 block text-sm font-medium text-surface-700">{t('Button Label')}</label>
-      <input id="login-button-label" bind:value={contentDraft.button_label} class="w-full" placeholder={t('Sign In')}>
+      <Input id="login-button-label" bind:value={contentDraft.button_label} class="w-full" placeholder={t('Sign In')} />
     </div>
     <div>
       <label for="login-illustration" class="mb-1 block text-sm font-medium text-surface-700">{t('Illustration Theme')}</label>
-      <select id="login-illustration" bind:value={contentDraft.illustration} class="w-full">
+      <Select id="login-illustration" bind:value={contentDraft.illustration} class="w-full">
         {#each illustrationOptions as illustrationOption (illustrationOption.value)}
           <option value={illustrationOption.value}>{t(illustrationOption.labelKey)}</option>
         {/each}
-      </select>
+      </Select>
     </div>
     <div>
       <label for="structured-content" class="mb-1 block text-sm font-medium text-surface-700">{t('Structured Login Content')}</label>
-      <textarea id="structured-content" bind:value={contentDraft.content} rows="10" class="w-full font-mono"></textarea>
+      <Textarea id="structured-content" bind:value={contentDraft.content} rows={10} class="w-full font-mono" />
     </div>
     <div>
       <label for="custom-css" class="mb-1 block text-sm font-medium text-surface-700">{t('Custom CSS')}</label>
-      <textarea id="custom-css" bind:value={contentDraft.custom_css} rows="7" class="w-full font-mono"></textarea>
+      <Textarea id="custom-css" bind:value={contentDraft.custom_css} rows={7} class="w-full font-mono" />
     </div>
   </section>
 {/if}

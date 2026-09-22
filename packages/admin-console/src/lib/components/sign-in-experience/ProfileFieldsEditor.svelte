@@ -4,6 +4,9 @@
   import { onMount } from 'svelte';
   import { deleteTenantConfig, listTenantConfigs, upsertTenantConfig } from '$lib/api/client.js';
   import { t } from '$lib/i18n.js';
+  import Button from '@svadmin/ui/components/ui/button/button.svelte';
+  import Input from '@svadmin/ui/components/ui/input/input.svelte';
+  import Textarea from '@svadmin/ui/components/ui/textarea/textarea.svelte';
 
   let loading = $state(true);
   let saving = $state(false);
@@ -62,15 +65,15 @@
 <section class="console-card mb-6 space-y-4 p-6">
   <div>
     <label for="profile-field-key" class="mb-1 block text-sm font-medium text-surface-700">{t('profileFields.key')}</label>
-    <input id="profile-field-key" bind:value={fieldKey} class="w-full" placeholder="default">
+    <Input id="profile-field-key" bind:value={fieldKey} class="w-full" placeholder="default" />
   </div>
   <div>
     <label for="profile-field-definition" class="mb-1 block text-sm font-medium text-surface-700">{t('profileFields.definition')}</label>
-    <textarea id="profile-field-definition" bind:value={fieldDefinition} rows="8" class="w-full font-mono"></textarea>
+    <Textarea id="profile-field-definition" bind:value={fieldDefinition} rows={8} class="w-full font-mono" />
   </div>
-  <button onclick={saveProfileField} disabled={saving || !fieldKey.trim()} class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
+  <Button onclick={saveProfileField} disabled={saving || !fieldKey.trim()}>
     {saving ? t('Saving...') : t('Save')}
-  </button>
+  </Button>
 </section>
 
 {#if loading}
@@ -83,7 +86,7 @@
           <h3 class="font-semibold text-surface-900">{profileField.key}</h3>
           <pre class="mt-2 overflow-auto rounded-lg bg-surface-50 p-3 text-xs">{JSON.stringify(profileField.value, null, 2)}</pre>
         </div>
-        <button onclick={() => removeProfileField(profileField)} class="text-sm text-red-600 hover:text-red-800">{t('Delete')}</button>
+        <Button onclick={() => removeProfileField(profileField)} variant="destructive" size="sm">{t('Delete')}</Button>
       </article>
     {:else}
       <div class="rounded-xl border border-surface-200 bg-surface-50 p-8 text-center text-surface-500">{t('profileFields.empty')}</div>

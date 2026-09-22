@@ -10,6 +10,8 @@
     settleAuthoritativeSettingsMutation,
   } from '$lib/authoritative-settings-readback.js';
   import { t } from '$lib/i18n.js';
+  import Button from '@svadmin/ui/components/ui/button/button.svelte';
+  import Input from '@svadmin/ui/components/ui/input/input.svelte';
 
   const MAX_BRANDING_FILE_SIZE = 5 * 1024 * 1024;
   const BRANDING_FILE_TYPES = new Set([
@@ -200,9 +202,9 @@
     <h2 class="text-2xl font-bold text-surface-900">{t('signIn.brandingTitle')}</h2>
     <p class="mt-1 text-sm text-surface-500">{t('signIn.brandingDescription')}</p>
   </div>
-  <button onclick={saveBranding} disabled={loading || saving} class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
+  <Button onclick={saveBranding} disabled={loading || saving}>
     {saving ? t('Saving...') : t('Save')}
-  </button>
+  </Button>
 </div>
 
 {#if error}
@@ -226,18 +228,18 @@
       <div class="grid gap-5 lg:grid-cols-2">
         <div>
           <label for="page-title" class="mb-1 block text-sm font-medium text-surface-700">{t('signIn.systemName')}</label>
-          <input id="page-title" bind:value={branding.page_title} class="w-full" placeholder="SupaOAuth">
+          <Input id="page-title" bind:value={branding.page_title} class="w-full" placeholder="SupaOAuth" />
         </div>
         <div>
           <label for="primary-color" class="mb-1 block text-sm font-medium text-surface-700">{t('Primary Color')}</label>
           <div class="flex gap-2">
-            <input id="primary-color" bind:value={branding.primary_color} class="flex-1" placeholder="#635bff">
+            <Input id="primary-color" bind:value={branding.primary_color} class="flex-1" placeholder="#635bff" />
             <span class="h-10 w-10 rounded-lg border border-surface-200" style:background-color={branding.primary_color || '#ffffff'}></span>
           </div>
         </div>
         <div class="lg:col-span-2">
           <label for="background-url" class="mb-1 block text-sm font-medium text-surface-700">{t('Background URL')}</label>
-          <input id="background-url" bind:value={branding.background_url} class="w-full" placeholder="https://...">
+          <Input id="background-url" bind:value={branding.background_url} class="w-full" placeholder="https://..." />
         </div>
       </div>
     </section>
