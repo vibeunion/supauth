@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/vibeunion/supauth/compare/admin-console-v0.8.1...admin-console-v0.8.2) (2026-09-22)
+
+
+### Miscellaneous Chores
+
+* **deps:** upgrade svadmin core and sso ([a034c30](https://github.com/vibeunion/supauth/commit/a034c302fe385a0ebaa5aea2ec0294da5f1ee9e0))
+
 ## [0.8.1](https://github.com/vibeunion/supauth/compare/admin-console-v0.8.0...admin-console-v0.8.1) (2026-09-21)
 
 
