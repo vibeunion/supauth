@@ -165,6 +165,12 @@ The following Supabase runtime paths must remain accessible and functional:
 
 SupAuth Function paths must not conflict with these. The Management API facade uses the SupaCloud app route prefix `/api/v1/*`; there is no separate SupAuth service port in the supported runtime.
 
+The compatibility inspector also fails when the discovery issuer or its
+authorization, token, userinfo, or JWKS endpoints point at the SupAuth Function
+(`*/api/v1/*` or `*/functions/v1/supauth/*`). This keeps GoTrue as the
+authoritative auth protocol runtime and prevents a management facade from
+silently becoming a second auth issuer.
+
 ### SC-6: SupaCloud Project-Scoped Runtime
 
 SupaOAuth must work inside a SupaCloud-created project:
