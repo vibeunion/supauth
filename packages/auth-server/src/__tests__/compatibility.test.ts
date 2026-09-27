@@ -62,6 +62,7 @@ describe('Supabase Compatibility Inspector', () => {
     expect(checkIds).toContain('sc-2-jwks');
     expect(checkIds).toContain('sc-3-auth-endpoints');
     expect(checkIds).toContain('sc-4-issuer');
+    expect(checkIds).toContain('sc-5-gotrue-authority');
     expect(checkIds).toContain('sc-6-supacloud-reachable');
     expect(checkIds).toContain('sc-7-scopes');
 
@@ -126,6 +127,33 @@ describe('Supabase Compatibility Inspector', () => {
     const issuer = results.find(r => r.check_id === 'sc-4-issuer');
     expect(issuer?.status).toBe('pass');
     expect(issuer?.message).toContain('http://runtime.test/auth/v1');
+  });
+
+  it('marks GoTrue authority pass when SupAuth is not in the protocol path', async () => {
+    globalThis.fetch = createMockFetch();
+
+    const { runCompatibilityChecks } = await import('../compatibility/supabase.js');
+    const results = await runCompatibilityChecks();
+
+    const authority = results.find(r => r.check_id === 'sc-5-gotrue-authority');
+    expect(authority?.status).toBe('pass');
+  });
+
+  it('fails GoTrue authority check when discovery points at the SupAuth Function', async () => {
+    globalThis.fetch = createMockFetch({
+      issuer: 'http://runtime.test/functions/v1/supauth',
+      authorization_endpoint: 'http://runtime.test/functions/v1/supauth/authorize',
+      token_endpoint: 'http://runtime.test/functions/v1/supauth/token',
+      userinfo_endpoint: 'http://runtime.test/functions/v1/supauth/userinfo',
+      jwks_uri: 'http://runtime.test/functions/v1/supauth/.well-known/jwks.json',
+    });
+
+    const { runCompatibilityChecks } = await import('../compatibility/supabase.js');
+    const results = await runCompatibilityChecks();
+
+    const authority = results.find(r => r.check_id === 'sc-5-gotrue-authority');
+    expect(authority?.status).toBe('fail');
+    expect(authority?.message).toContain('displaced');
   });
 
   it('marks supacloud reachable when auth config responds', async () => {

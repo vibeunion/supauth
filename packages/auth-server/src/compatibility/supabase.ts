@@ -12,6 +12,59 @@ export interface CompatibilityCheckResult {
   details?: Record<string, unknown>;
 }
 
+function isSupAuthRoute(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  try {
+    const path = new URL(value).pathname.replace(/\/+$/, '');
+    return /(?:^|\/)(?:api\/v1|functions\/v1\/supauth)(?:\/|$)/.test(path);
+  } catch {
+    return false;
+  }
+}
+
+function checkGoTrueAuthority(discovery: Record<string, unknown>): CompatibilityCheckResult {
+  const issuer = discovery['issuer'];
+  const endpointNames = [
+    'authorization_endpoint',
+    'token_endpoint',
+    'userinfo_endpoint',
+    'jwks_uri',
+  ] as const;
+  const displacedEndpoints = endpointNames.filter((name) => isSupAuthRoute(discovery[name]));
+
+  if (isSupAuthRoute(issuer)) {
+    return {
+      check_id: 'sc-5-gotrue-authority',
+      status: 'fail',
+      message: 'GoTrue authority is displaced: discovery issuer points at the SupAuth management Function',
+      details: { issuer },
+    };
+  }
+
+  if (displacedEndpoints.length > 0) {
+    return {
+      check_id: 'sc-5-gotrue-authority',
+      status: 'fail',
+      message: `GoTrue endpoints are displaced to the SupAuth management Function: ${displacedEndpoints.join(', ')}`,
+      details: {
+        displaced_endpoints: displacedEndpoints,
+        endpoints: Object.fromEntries(endpointNames.map((name) => [name, discovery[name]])),
+      },
+    };
+  }
+
+  return {
+    check_id: 'sc-5-gotrue-authority',
+    status: 'pass',
+    message: 'GoTrue remains the Supabase auth authority; SupAuth is not used as the issuer or protocol endpoint',
+    details: {
+      issuer,
+      jwks_uri: discovery['jwks_uri'],
+      runtime_mode: 'gotrue',
+    },
+  };
+}
+
 export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult[]> {
   const results: CompatibilityCheckResult[] = [];
   // ─── SC checks (Supabase runtime compatibility) ───
@@ -53,9 +106,18 @@ export async function runCompatibilityChecks(): Promise<CompatibilityCheckResult
       : 'Issuer not found in discovery document',
   });
 
-  // SC-5: Signing is owned by the GoTrue runtime. SupaOAuth never creates a
-  // second issuer or signing-key configuration, so compatibility is proven by
-  // the discovery/JWKS checks above.
+  // SC-5: Signing and protocol authority stay on GoTrue. Catch accidental
+  // gateway routing of the SupAuth management Function into /auth/v1.
+  try {
+    const disc = await getDiscovery();
+    results.push(checkGoTrueAuthority(disc));
+  } catch {
+    results.push({
+      check_id: 'sc-5-gotrue-authority',
+      status: 'warn',
+      message: 'Could not verify that GoTrue remains the protocol authority without a reachable discovery document',
+    });
+  }
 
   // SC-6: SupaCloud adapter can reach management API
   try {
