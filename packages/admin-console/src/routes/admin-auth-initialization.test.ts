@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { AuthProvider, AuthActionResult, CheckResult } from '@svadmin/core';
 import { createAdminAuthInitializationController, type AdminAuthInitializationState } from './admin-auth-initialization.js';
 import { resetAdminAuthRuntimeForTests } from '../lib/providers/auth.js';
+import { adminCheckFailure } from '../lib/admin-auth-result.js';
 
 function providerWith(authCheck: CheckResult, loginResult: AuthActionResult = { success: false }) {
   let checkCount = 0;
@@ -67,6 +68,21 @@ afterEach(() => {
 });
 
 describe('admin auth initialization controller', () => {
+  test('preserves forbidden identity failures without retrying login or exposing server details', async () => {
+    const denied = providerWith(adminCheckFailure(Object.assign(
+      new Error('private upstream detail'),
+      { statusCode: 403, code: 'admin_access_forbidden' },
+    )));
+    const { controller, states } = controllerHarness({
+      initializeProvider: async () => denied.provider,
+    });
+    await controller.run();
+    await controller.retry();
+    expect(states.at(-1)).toEqual({ kind: 'error', code: 'forbidden', pending: false });
+    expect(denied.loginCount()).toBe(0);
+    expect(JSON.stringify(states)).not.toContain('private upstream detail');
+  });
+
   test.each([
     { commitRedirect: 42 },
     { rollbackRedirect: 'not-callable' },

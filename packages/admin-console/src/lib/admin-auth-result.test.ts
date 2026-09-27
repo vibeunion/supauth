@@ -9,7 +9,7 @@ describe('admin auth check failure classification', () => {
 
   test('keeps forbidden distinct from authentication expiry', () => {
     expect(adminCheckFailure(Object.assign(new Error('Forbidden'), { statusCode: 403 })))
-      .toEqual({ authenticated: false, error: { message: 'Forbidden' } });
+      .toEqual({ authenticated: false, error: { message: 'Forbidden', name: 'admin_access_forbidden' } });
   });
 
   test('keeps MFA-required 403 out of logout and login redirect loops', () => {

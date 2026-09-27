@@ -33,5 +33,11 @@ export function adminCheckFailure(error: unknown): CheckResult {
     : status === 403
       ? '当前账号没有访问管理控制台的权限。'
       : '认证服务暂时不可用，请稍后重试。';
-  return { authenticated: false, error: { message } };
+  return {
+    authenticated: false,
+    error: {
+      message,
+      ...(status === 403 ? { name: 'admin_access_forbidden' } : {}),
+    },
+  };
 }
