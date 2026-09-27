@@ -121,6 +121,8 @@ async function unauthenticatedState(
   authCheck: CheckResult,
   signal: AbortSignal,
 ): Promise<PreparedInitializationState> {
+  if (authCheck.error?.name === 'admin_access_forbidden')
+    return { kind: 'error', code: 'forbidden', pending: false };
   if (authCheck.error)
     return { kind: 'error', code: 'auth_check_failed', pending: false };
   if (!dependencies.isSsoEnabled())
