@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/vibeunion/supauth/compare/admin-console-v0.9.0...admin-console-v0.9.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **admin:** preserve forbidden admin access state ([#125](https://github.com/vibeunion/supauth/issues/125)) ([65652b7](https://github.com/vibeunion/supauth/commit/65652b712bf6c7d7d8ac7fd168d21e3f47bd5c57))
+
 ## [0.9.0](https://github.com/vibeunion/supauth/compare/admin-console-v0.8.2...admin-console-v0.9.0) (2026-09-22)
 
 
