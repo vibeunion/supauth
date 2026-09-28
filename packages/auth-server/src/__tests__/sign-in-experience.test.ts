@@ -65,6 +65,37 @@ describe('Sign-in experience repository — module structure', () => {
     expect(branding.primary_color).toBe('#00d4ff');
   });
 
+  it('prefers the requesting application name over the shared project name for the system title', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({
+      page_title: 'SupaOAuth',
+      logo_url: null,
+      favicon_url: null,
+      primary_color: null,
+    }, {
+      project: { name: 'supauth-logout-e2e' },
+      application: { client_name: '西谷失效分析系统' },
+    });
+
+    // Issue #3436：共享认证项目的内部名称不得覆盖请求方应用名。
+    expect(branding.page_title).toBe('西谷失效分析系统');
+  });
+
+  it('falls back to the SupaCloud project name only when the application provides none', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({
+      page_title: null,
+      logo_url: null,
+      favicon_url: null,
+      primary_color: null,
+    }, {
+      project: { name: 'Volt' },
+      application: {},
+    });
+
+    expect(branding.page_title).toBe('Volt');
+  });
+
   it('preserves a non-stock tenant-level system name against application metadata', async () => {
     const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
     const branding = mergeSupaCloudBrandingDefaults({
