@@ -200,9 +200,12 @@ export function mergeSupaCloudBrandingDefaults(
   globalBranding: Branding,
   source: SupaCloudSignInExperienceSource = {},
 ) {
-  return applyApplicationFallback(
-    applyProjectFallback(globalBranding, projectBrandingDefaults(source.project)),
-    applicationBrandingDefaults(source.application),
+  // Issue #3436：用户可见的系统名优先取请求方 OAuth 应用的 client_name，
+  // 共享认证项目的内部名称只作为最后兜底，避免内部/E2E 项目名（如 supauth-logout-e2e）
+  // 泄漏到中央登录页。非标题品牌键的生效顺序（应用 > 全局 > 项目）保持不变。
+  return applyProjectFallback(
+    applyApplicationFallback(globalBranding, applicationBrandingDefaults(source.application)),
+    projectBrandingDefaults(source.project),
   );
 }
 
