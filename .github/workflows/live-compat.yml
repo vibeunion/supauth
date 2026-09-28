@@ -56,6 +56,7 @@ jobs:
           SUPABASE_FULLSTACK_SECRET_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_SECRET_KEY || secrets.LIVE_SUPABASE_SECRET_KEY }}
           SUPABASE_FULLSTACK_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_SERVICE_ROLE_KEY || secrets.LIVE_SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_TEST_EMAIL: ${{ secrets.LIVE_SUPABASE_TEST_EMAIL }}
+          SUPABASE_AUTH_COMPAT_VERSION: ${{ vars.LIVE_SUPABASE_AUTH_COMPAT_VERSION || 'v2.197.0' }}
         run: bun --use-system-ca run scripts/prepare-supabase-auth-compat-session.ts
 
       - name: Run strict Supabase Auth compatibility suite
@@ -79,6 +80,7 @@ jobs:
           SUPABASE_FULLSTACK_ANON_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_ANON_KEY }}
           SUPABASE_FULLSTACK_SECRET_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_SECRET_KEY }}
           SUPABASE_FULLSTACK_SERVICE_ROLE_KEY: ${{ secrets.LIVE_SUPABASE_FULLSTACK_SERVICE_ROLE_KEY }}
+          SUPABASE_AUTH_COMPAT_VERSION: ${{ vars.LIVE_SUPABASE_AUTH_COMPAT_VERSION || 'v2.197.0' }}
         run: |
           set -o pipefail
           bun run test:supabase-auth-compat 2>&1 | tee supabase-auth-compat.log
