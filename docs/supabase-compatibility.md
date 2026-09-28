@@ -33,15 +33,15 @@ SupaOAuth must tolerate SupaCloud upgrading the underlying GoTrue/Supabase Auth 
 - Release gates must keep live Supabase Auth compatibility checks runnable against the current deployed upstream version.
 
 The release matrix retains unmodified GoTrue v2.192.0 as the regression floor
-and uses unmodified v2.196.0 as the current runtime target. Set
+and v2.196.0 as a regression target, with unmodified v2.197.0 as the current runtime target. Set
 `SUPABASE_AUTH_COMPAT_VERSION` to the exact matrix version; it is only an
 expectation, never a capability source. Both live session preparation and the
 OAuth compatibility suite must read `/auth/v1/health` and require its structured
 `version` to exactly match that expectation before continuing. A non-success
 health response, invalid or missing version, or mismatch fails the gate. The
-only accepted matrix values are `v2.192.0` and `v2.196.0`; an intermediate or
+only accepted matrix values are `v2.192.0`, `v2.196.0`, and `v2.197.0`; an intermediate or
 unknown declared version also fails rather than inheriting floor behavior. The
-default expectation remains `v2.196.0`, so pointing the default gate at an older
+default expectation is `v2.197.0`, so pointing the default gate at an older
 runtime cannot silently disable current-target assertions. A v2.192 floor run
 must explicitly declare `v2.192.0` and connect to health read-back reporting
 that exact version before current-target discovery and scope assertions are disabled.
@@ -64,7 +64,7 @@ fallbacks for runtimes that still accept JWT API keys. The modern key always
 wins when both forms are configured, so a rejected legacy HS256 service-role
 JWT cannot mask a working secret key on upgraded GoTrue runtimes.
 
-Before upgrading either version, back up the tenant `auth` schema. The stock
+Before upgrading any matrix version, back up the tenant `auth` schema. The stock
 v2.192.0 startup applies the additive
 `20260625000000_add_custom_claims_allowlist.up.sql` migration, which adds
 `auth.custom_oauth_providers.custom_claims_allowlist text[] NOT NULL DEFAULT
@@ -72,12 +72,17 @@ v2.192.0 startup applies the additive
 v2.192.0-to-v2.196.0 upstream changes require no SupaOAuth database migration,
 so the v2.196.0 rollout must not invent or run one for this upgrade.
 
-GoTrue v2.196.0 discovery must advertise `offline_access`. The current-target
-compatibility session requests it and must receive a refresh token whose access
+GoTrue v2.196.0 and v2.197.0 discovery must advertise `offline_access`. Both
+compatibility sessions request it and must receive a refresh token whose access
 token preserves the granted scope. The v2.192.0 floor keeps the earlier scope
 request because it predates that discovery contract. GoTrue also refreshes
 `last_sign_in_at` when issuing v2 refresh-token sessions; SupaOAuth preserves
 the authoritative user field without manufacturing or comparing timestamps.
+
+The shared version policy in `scripts/supabase-auth-compat-version.ts` keeps
+the v2.196.0 scope requirement independent of the current target. Local policy
+and fixture tests do not establish live v2.197.0 acceptance; all three targets
+still require the strict live gate described above.
 
 When GoTrue returns HTTP 403 with a structured `code` or `error_code` equal to
 `user_banned`, SupaOAuth exposes only the fixed `user_banned` account error. It

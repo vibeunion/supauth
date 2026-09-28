@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { requireRecord } from "./tooling-values.js";
 import { isUnknownArray, parseJson } from "./tooling-values.js";
+import { CURRENT_COMPAT_VERSION, assertExpectedRuntimeVersion, compatibilityScopes } from './supabase-auth-compat-version.js';
 
 import { appendFileSync } from 'node:fs';
 import { decodeCreatedUser, decodeOAuthReply, decodeTokenReply } from './compat-session-contract.js';
@@ -24,13 +25,9 @@ const publicKey = requiredSupabasePublicKey();
 const adminKey = requiredSupabaseAdminKey();
 const credentials = ephemeralCredentials(requiredEnv('SUPABASE_TEST_EMAIL'));
 const githubEnv = requiredEnv('GITHUB_ENV');
-const currentCompatVersion = 'v2.196.0';
-const supportedCompatVersions = new Set(['v2.192.0', currentCompatVersion]);
-const expectedCompatVersion = process.env["SUPABASE_AUTH_COMPAT_VERSION"]?.trim() || currentCompatVersion;
+const expectedCompatVersion = process.env["SUPABASE_AUTH_COMPAT_VERSION"]?.trim() || CURRENT_COMPAT_VERSION;
 const runtimeVersion = await verifiedRuntimeVersion(runtimeUrl, expectedCompatVersion);
-const expectedScopes = runtimeVersion === currentCompatVersion
-  ? ['openid', 'email', 'profile', 'offline_access']
-  : ['openid', 'email', 'profile'];
+const expectedScopes = compatibilityScopes(runtimeVersion);
 
 const codeVerifier = randomBase64Url(48);
 const codeChallenge = base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier))));
@@ -261,13 +258,4 @@ function runtimeVersionFromHealth(healthPayload: unknown): string {
     throw new Error('GoTrue health response has no valid version');
   }
   return runtimeVersion;
-}
-
-function assertExpectedRuntimeVersion(runtimeVersion: string, expectedVersion: string): void {
-  if (!supportedCompatVersions.has(expectedVersion)) {
-    throw new Error(`Unsupported GoTrue compatibility matrix version: ${expectedVersion}`);
-  }
-  if (runtimeVersion !== expectedVersion) {
-    throw new Error(`Expected GoTrue ${expectedVersion} but runtime health reports ${runtimeVersion}`);
-  }
 }

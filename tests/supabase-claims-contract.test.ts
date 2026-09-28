@@ -110,8 +110,12 @@ describe('Supabase claims compatibility contract', () => {
     expect(sessionPreparation).toContain("`${runtimeBaseUrl}/auth/v1/health`");
     expect(sessionPreparation).toContain('resolveManagementApiBaseCandidates(process.env, runtimeUrl)');
     expect(sessionPreparation).toContain('verifiedRuntimeVersion(runtimeUrl, expectedCompatVersion)');
-    expect(sessionPreparation).toContain('runtimeVersion === currentCompatVersion');
-    expect(sessionPreparation).toContain("new Set(['v2.192.0', currentCompatVersion])");
+    expect(sessionPreparation).toContain('compatibilityScopes(runtimeVersion)');
+    expect(oauthFixture).toContain('requiresOfflineAccess(runtimeVersion)');
+    for (const consumer of [sessionPreparation, oauthFixture]) {
+      expect(consumer).toContain('supabase-auth-compat-version.js');
+      expect(consumer).not.toMatch(/runtimeVersion === (currentCompatVersion|CURRENT_COMPAT_VERSION)/);
+    }
     expect(sessionPreparation).toContain('const publicKey = requiredSupabasePublicKey()');
     expect(sessionPreparation).toContain('const adminKey = requiredSupabaseAdminKey()');
     expect(sessionPreparation).not.toContain('SUPABASE_FULLSTACK_');
