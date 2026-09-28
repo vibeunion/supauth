@@ -138,6 +138,7 @@ describe('Supabase claims compatibility contract', () => {
     expect(cleanupScript).toContain('admin.auth.admin.deleteUser(userId)');
     for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/live-compat.yml']) {
       const workflow = readFileSync(workflowPath, 'utf8');
+      expect(workflow.match(/SUPABASE_AUTH_COMPAT_VERSION: \$\{\{ vars\.LIVE_SUPABASE_AUTH_COMPAT_VERSION \|\| 'v2\.197\.0' \}\}/g)).toHaveLength(2);
       expect(workflow).toContain('MANAGEMENT_URL: ${{ secrets.LIVE_MANAGEMENT_URL }}');
       expect(workflow).toContain("SUPACLOUD_AUTH_AUTHORITY_REF: ${{ vars.SUPACLOUD_AUTH_AUTHORITY_REF || vars.LIVE_SUPACLOUD_AUTH_AUTHORITY_REF || 'lhevaxecbonjjdbardgi' }}");
       expect(workflow).not.toContain("|| 'jbknfiwdgbatcxfbiopo'");

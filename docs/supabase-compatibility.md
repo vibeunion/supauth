@@ -84,6 +84,13 @@ the v2.196.0 scope requirement independent of the current target. Local policy
 and fixture tests do not establish live v2.197.0 acceptance; all three targets
 still require the strict live gate described above.
 
+CI and nightly session preparation and verification share the repository
+variable `LIVE_SUPABASE_AUTH_COMPAT_VERSION`, defaulting to `v2.197.0`.
+An operator may explicitly select another supported regression target, but a
+passing older-target run does not establish v2.197.0 acceptance. On 2026-09-28
+the live gate observed v2.196.0 and correctly rejected the default v2.197.0
+expectation before session creation; the newer live target remains unverified.
+
 When GoTrue returns HTTP 403 with a structured `code` or `error_code` equal to
 `user_banned`, SupaOAuth exposes only the fixed `user_banned` account error. It
 does not infer this state from messages or forward the upstream payload. Hosted
