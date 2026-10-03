@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
 import { resolveSupabaseAdminKey, resolveSupabasePublicKey } from '../../../scripts/supabase-compat-env.js';
 import { CleanupStack } from './cleanup.js';
+import { safeLiveError } from './live-step-diagnostics.js';
 
 const STRICT_COMPAT = process.env["REQUIRE_SUPABASE_AUTH_COMPAT"] === '1';
 const RUN_FULL_STACK = STRICT_COMPAT || process.env["RUN_SUPABASE_FULL_STACK_COMPAT"] === '1';
@@ -164,7 +165,7 @@ async function createAuthenticatedFixture(
     if (!signedIn.error && signedIn.data.session) {
       return { client, userId: compatibilityUser.userId };
     }
-    lastError = new Error(`Unable to sign in ${label} compatibility user: ${signedIn.error?.message || 'missing session'}`);
+    lastError = new Error(`Unable to sign in ${label} compatibility user: attempt=${attempt + 1} error=${JSON.stringify(safeLiveError(signedIn.error))}`);
   }
   throw lastError ?? new Error(`Unable to sign in ${label} compatibility user`);
 }
