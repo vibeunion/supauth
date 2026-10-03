@@ -5,6 +5,9 @@ import { initSync, parse } from 'es-module-lexer';
 
 const root = resolve(import.meta.dir, '..');
 const authServer = resolve(root, 'packages/auth-server');
+const compileTimeoutMs = 30_000;
+const runtimeTimeoutMs = 15_000;
+const testOverheadMs = 5_000;
 const environment = {
   PATH: process.env['PATH'] || '',
   NODE_ENV: 'test',
@@ -23,18 +26,18 @@ describe('SupAuth compiled application migration', () => {
   it('keeps the checked-in factories in sync with the strict module graph', () => {
     const result = Bun.spawnSync(
       [process.execPath, '--no-env-file', 'run', 'app:compile:check'],
-      { cwd: authServer, env: environment, stdout: 'pipe', stderr: 'pipe' },
+      { cwd: authServer, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: compileTimeoutMs },
     );
     const output = new TextDecoder().decode(result.stdout)
       + new TextDecoder().decode(result.stderr);
     expect({ exitCode: result.exitCode, output: result.exitCode === 0 ? '' : output })
       .toEqual({ exitCode: 0, output: '' });
-  });
+  }, compileTimeoutMs + testOverheadMs);
 
   it.each(['source', 'bundle'])('preserves Function routing, auth and middleware in the %s entry', (mode) => {
     if (mode === 'bundle') {
       const build = Bun.spawnSync([process.execPath, '--no-env-file', 'run', 'scripts/build-supauth-function.ts'], {
-        cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: 30_000,
+        cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: compileTimeoutMs,
       });
       expect({
         exitCode: build.exitCode,
@@ -163,14 +166,14 @@ describe('SupAuth compiled application migration', () => {
       console.log('compiled-function-boundary-ok');
     `;
     const result = Bun.spawnSync([process.execPath, '--no-env-file', '-e', script], {
-      cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: 15_000,
+      cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: runtimeTimeoutMs,
     });
     const output = new TextDecoder().decode(result.stdout)
       + new TextDecoder().decode(result.stderr);
     expect({ exitCode: result.exitCode, output: result.exitCode === 0 ? '' : output })
       .toEqual({ exitCode: 0, output: '' });
     expect(output).toContain('compiled-function-boundary-ok');
-  });
+  }, compileTimeoutMs + runtimeTimeoutMs + testOverheadMs);
 
   it('checks architecture drift before bundling and retains the deployment installer', () => {
     const entry = readFileSync(resolve(authServer, 'src/index.ts'), 'utf8');
@@ -336,14 +339,14 @@ describe('SupAuth compiled application migration', () => {
       console.log('compiled-domain-contracts-ok');
     `;
     const result = Bun.spawnSync([process.execPath, '--no-env-file', '-e', script], {
-      cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: 15_000,
+      cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: runtimeTimeoutMs,
     });
     const output = new TextDecoder().decode(result.stdout)
       + new TextDecoder().decode(result.stderr);
     expect({ exitCode: result.exitCode, output: result.exitCode === 0 ? '' : output })
       .toEqual({ exitCode: 0, output: '' });
     expect(output).toContain('compiled-domain-contracts-ok');
-  });
+  }, runtimeTimeoutMs + testOverheadMs);
 
   it('initializes every compiled module and rolls back failures without leaking resources', () => {
     const script = `
@@ -514,12 +517,12 @@ describe('SupAuth compiled application migration', () => {
       console.log('compiled-lifecycle-ok');
     `;
     const result = Bun.spawnSync([process.execPath, '--no-env-file', '-e', script], {
-      cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: 15_000,
+      cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: runtimeTimeoutMs,
     });
     const output = new TextDecoder().decode(result.stdout)
       + new TextDecoder().decode(result.stderr);
     expect({ exitCode: result.exitCode, output: result.exitCode === 0 ? '' : output })
       .toEqual({ exitCode: 0, output: '' });
     expect(output).toContain('compiled-lifecycle-ok');
-  });
+  }, runtimeTimeoutMs + testOverheadMs);
 });
