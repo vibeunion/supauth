@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ApiContractError } from '../utils/api-contract.js';
 import { operationOutput } from '../utils/operation-contract.js';
+import { operationTestPlugin } from './http-fixture.js';
+
+const adapterExports = { ...await import('../supacloud/adapter.js') };
 
 const validUsers = [
   { id: 'user-one', app_metadata: { role: 'admin' } },
@@ -16,6 +19,7 @@ const writes: unknown[] = [];
 const audits: unknown[] = [];
 
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   getSupaCloudAdapter: () => ({
     listUsers: async () => { inventoryReads++; return users; },
     listRoles: async () => [{ id: 'role-one', name: 'admin' }],
@@ -33,14 +37,14 @@ mock.module('../repositories/audit.js', () => ({
   logAudit: async (event: unknown) => { audits.push(event); },
 }));
 const { rbacBridgeRoutes } = await import('../routes/rbac-bridge.js');
-const app = new Elysia().onError(({ error, set }) => {
+const app = new Elysia().error(({ error, set }) => {
   if (error instanceof ApiContractError) {
     set.status = error.status;
     return { code: error.code };
   }
   set.status = 500;
   return { code: 'unexpected_error' };
-}).use(rbacBridgeRoutes);
+}).use(operationTestPlugin(rbacBridgeRoutes));
 
 beforeEach(() => {
   users = validUsers;

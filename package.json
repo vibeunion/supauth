@@ -18,6 +18,8 @@
     "build": "bun run scripts/build-supacloud-app.ts",
     "verify:artifact": "bun run scripts/verify-supacloud-app-artifact.ts",
     "verify:installed": "bun run scripts/verify-supacloud-installed-app.ts",
+    "app:compile": "bun run --filter '@supauth/auth-server' app:compile",
+    "app:compile:check": "bun run --filter '@supauth/auth-server' app:compile:check",
     "check:artifact": "bun run build && bun run verify:artifact",
     "install:supacloud": "bun run scripts/install-supacloud-app.ts",
     "typecheck": "bun run --filter '@supauth/authorization-core' build && bun run --filter '@supauth/authorization-postgres' build && bun run --filter '@supauth/authorization-conformance' build && bun run --filter '@supauth/shared' build && bun run --filter '@supauth/sdk-typescript' build && bun run --filter '@supauth/sdk-auth-ui' build && bun run --filter '@supauth/auth-server' typecheck",
@@ -45,8 +47,9 @@
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "13.0.0",
-    "@supabase/supabase-js": "^2.113.0",
-    "@supacloud/js": "^0.23.3",
+    "@supabase/supabase-js": "2.117.2",
+    "@supacloud/compiler": "0.30.0",
+    "@supacloud/js": "0.36.0",
     "@types/bun": "^1.4.0",
     "@types/node": "26.5.0",
     "es-module-lexer": "2.3.2",
@@ -62,9 +65,12 @@
   "patchedDependencies": {
     "@elysiajs/swagger@1.3.1": "patches/@elysiajs%2Fswagger@1.3.1.strict-declarations.patch",
     "@supabase/auth-js@2.113.0": "patches/@supabase%2Fauth-js@2.113.0.patch",
+    "@supabase/auth-js@2.117.2": "patches/@supabase%2Fauth-js@2.117.2.patch",
     "@tanstack/svelte-query@6.1.48": "patches/@tanstack%2Fsvelte-query@6.1.48.patch",
     "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.strict-declarations.patch",
     "elysia@1.4.30": "patches/elysia@1.4.30.strict-declarations.patch",
-    "postgres@3.4.9": "patches/postgres@3.4.9.patch"
+    "postgres@3.4.9": "patches/postgres@3.4.9.patch",
+    "@supacloud/compiler@0.30.0": "patches/@supacloud%2Fcompiler@0.30.0.patch",
+    "elysia@2.0.0-beta.19": "patches/elysia@2.0.0-beta.19.patch"
   }
 }

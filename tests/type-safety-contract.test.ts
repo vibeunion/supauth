@@ -1,7 +1,9 @@
-import { parseJsonRecord, requireDefined } from '../scripts/tooling-values.js';
+import { parseJsonRecord, requireDefined, requireRecord } from '../scripts/tooling-values.js';
 import { Type, decodeSchema } from '../packages/shared/src/schema.js';
 import { describe, expect, test } from 'bun:test';
 import { createRouteContractInventory, decodeRouteContractInventory, inspectContractCoverage, isConcreteSchema, normalizeContractPath } from '../scripts/type-safety-contract.js';
+import { createCompiledRouteContractInventory, includeRuntimeHeadOperations } from '../scripts/compiled-route-inventory.js';
+import { buildSupAuthOpenApi } from '../packages/auth-server/src/http/documentation.js';
 
 const entity = { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] };
 function specification(overrides: Record<string, unknown> = {}) {
@@ -22,21 +24,35 @@ function specification(overrides: Record<string, unknown> = {}) {
 describe('complete route contract inventory', () => {
   test('root infrastructure retains real plugin routes, visibility and transport behavior', () => {
     const probe = Bun.spawnSync([process.execPath, '--no-env-file', '--no-install', '--config=/dev/null', '-e', `
+      globalThis.fetch = Object.assign(async () => { throw new Error("Network forbidden during inventory export"); }, { preconnect() {} });
       const { app } = await import("./packages/auth-server/src/index.ts");
-      const { createRouteContractInventory } = await import("./scripts/type-safety-contract.ts");
+      const { httpOperations } = await import("./packages/auth-server/src/http/operations.ts");
+      const { createCompiledRouteContractInventory, includeRuntimeHeadOperations } = await import("./scripts/compiled-route-inventory.ts");
+      const { inspectContractCoverage, decodeRouteContractInventory } = await import("./scripts/type-safety-contract.ts");
+      const { canonicalizeOpenApiReferences } = await import("./scripts/openapi-schema-references.ts");
+      const { convertOpenApi30Schemas } = await import("./scripts/openapi-30-schema.ts");
       const { parseJsonRecord } = await import("./scripts/tooling-values.ts");
       const routes = app.routes.filter(route => route.method === "OPTIONS" || route.path.startsWith("/swagger"));
       const responses = [];
-      for (const [method, path] of [["OPTIONS", "/"], ["OPTIONS", "/unregistered"], ["GET", "/swagger"], ["GET", "/swagger/json"]]) {
+      for (const [method, path] of [["OPTIONS", "/"], ["OPTIONS", "/unregistered"], ["GET", "/swagger"], ["GET", "/swagger/json"], ["HEAD", "/swagger"], ["HEAD", "/swagger/json"]]) {
         const response = await app.handle(new Request("http://localhost" + path, {
           method, headers: { origin: "http://localhost:3000", "access-control-request-method": "POST" },
         }));
         const text = await response.text();
         responses.push({ method, path, status: response.status, type: response.headers.get("content-type"),
           credentials: response.headers.get("access-control-allow-credentials"), empty: text.length === 0,
-          openapi: path.endsWith("/json") ? parseJsonRecord(text)["openapi"] : undefined });
+          openapi: method === "GET" && path.endsWith("/json") ? parseJsonRecord(text)["openapi"] : undefined });
       }
-      console.log(JSON.stringify({ inventory: routes.map(createRouteContractInventory), responses }));
+      const complete = createCompiledRouteContractInventory(app.routes, httpOperations);
+      const spec = await (await app.handle(new Request("http://localhost/swagger/json"))).json();
+      const canonical = canonicalizeOpenApiReferences(includeRuntimeHeadOperations(spec, complete), complete);
+      const portable = convertOpenApi30Schemas(canonical.spec, canonical.inventory);
+      console.log(JSON.stringify({
+        inventory: createCompiledRouteContractInventory(routes, []), responses,
+        runtimeCount: app.routes.length, inventoryCount: complete.length,
+        domainCount: httpOperations.length, headCount: complete.filter(route => route.method === "HEAD").length,
+        coverage: inspectContractCoverage(portable.spec, decodeRouteContractInventory(portable.inventory)),
+      }));
       process.exit(0);
     `], {
       cwd: new URL('..', import.meta.url).pathname,
@@ -44,12 +60,18 @@ describe('complete route contract inventory', () => {
         PATH: process.env["PATH"] ?? '', BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
         PORT: '0', SUPACLOUD_API_URL: 'http://localhost:9090', SUPACLOUD_MASTER_TOKEN: 'export-placeholder',
         PROJECT_REF: 'export-placeholder', DATABASE_URL: 'postgres://placeholder', HOST: '127.0.0.1',
+        CORS_ORIGINS: 'http://localhost:3000',
       },
       timeout: 20_000,
       stdout: 'pipe', stderr: 'pipe',
     });
     expect(probe.exitCode).toBe(0);
     const result = parseJsonRecord(new TextDecoder().decode(probe.stdout));
+    expect(result['runtimeCount']).toBe(418);
+    expect(result['inventoryCount']).toBe(result['runtimeCount']);
+    expect(result['domainCount']).toBe(270);
+    expect(result['headCount']).toBe(144);
+    expect(result['coverage']).toEqual({ total: 418, covered: 418, hidden: 83, issues: [] });
     const inventory = decodeRouteContractInventory(result['inventory']);
     const responses = decodeSchema(Type.Array(Type.Object({
       status: Type.Integer({ minimum: 100, maximum: 599 }),
@@ -61,10 +83,12 @@ describe('complete route contract inventory', () => {
     expect(inventory.map(route => ({
       method: route.method, path: route.path, hidden: route.hidden, contract: route.contract,
     }))).toEqual([
-      { method: 'OPTIONS', path: '/', hidden: true, contract: { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' } },
-      { method: 'OPTIONS', path: '/*', hidden: true, contract: { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' } },
       { method: 'GET', path: '/swagger', hidden: true, contract: { request: 'none', response: 'html', source: 'infra.swagger.ui' } },
       { method: 'GET', path: '/swagger/json', hidden: true, contract: { request: 'none', response: 'protocol', source: 'infra.swagger.openapi' } },
+      { method: 'HEAD', path: '/swagger', hidden: true, contract: { request: 'none', response: 'empty', source: 'infra.swagger.ui' } },
+      { method: 'HEAD', path: '/swagger/json', hidden: true, contract: { request: 'none', response: 'empty', source: 'infra.swagger.openapi' } },
+      { method: 'OPTIONS', path: '/', hidden: true, contract: { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' } },
+      { method: 'OPTIONS', path: '/*', hidden: true, contract: { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' } },
     ]);
     for (const response of responses.slice(0, 2)) {
       expect(response.status).toBe(204);
@@ -75,7 +99,11 @@ describe('complete route contract inventory', () => {
     expect(requireDefined(responses[2]).type).toContain('text/html');
     expect(requireDefined(responses[3]).status).toBe(200);
     expect(requireDefined(responses[3]).openapi).toBe('3.0.3');
-    expect(inspectContractCoverage(specification(), inventory)).toEqual({ total: 5, covered: 5, hidden: 4, issues: [] });
+    for (const response of responses.slice(4)) {
+      expect(response.status).toBe(200);
+      expect(response.empty).toBe(true);
+    }
+    expect(inspectContractCoverage(specification(), inventory)).toEqual({ total: 7, covered: 7, hidden: 6, issues: [] });
   });
 
   test('normalizes Elysia and OpenAPI paths without counting trailing-slash aliases twice', () => {
@@ -147,6 +175,208 @@ describe('complete route contract inventory', () => {
     for (const value of [null, {}, { paths: {} }, { paths: { '/': {} } }]) {
       expect(() => inspectContractCoverage(value)).toThrow('OpenAPI document has no operations');
     }
+  });
+});
+
+describe('compiled runtime to domain inventory association', () => {
+  function declaration(hidden = false) {
+    return {
+      method: 'GET', path: '/v1/entities/:id/',
+      options: {
+        params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        query: { type: 'object', properties: { search: { type: 'string' } } },
+        response: { 202: entity },
+        detail: {
+          hide: hidden,
+          operationId: 'readEntity',
+          security: [{ bearerAuth: ['entities:read'] }],
+          'x-supauth-contract': { request: 'validated', response: 'validated', source: 'fixture.entity' },
+          responses: {
+            '202': { description: 'Accepted', content: { 'application/json': { schema: entity } } },
+            '404': { description: 'Not found', content: { 'application/json': { schema: entity } } },
+          },
+        },
+      },
+    };
+  }
+  const routes = [
+    { method: 'GET', path: '/v1/entities/:id' },
+    { method: 'HEAD', path: '/v1/entities/:id' },
+  ];
+
+  test('preserves domain detail and bindings despite stripped or misleading router hooks', () => {
+    const source = declaration(true);
+    const before = JSON.stringify(source);
+    const inventory = createCompiledRouteContractInventory(routes.map(route => ({
+      ...route, hooks: { detail: { hide: false, 'x-supauth-contract': { source: 'untrusted-router' } } },
+    })), [source]);
+    expect(inventory).toHaveLength(routes.length);
+    expect(inventory[0]).toEqual(createRouteContractInventory({ method: 'GET', path: '/v1/entities/:id', hooks: source.options }));
+    expect(inventory.every(route => route.hidden)).toBe(true);
+    const get = requireRecord(requireDefined(inventory[0]).operation);
+    expect(get['responses']).toEqual(source.options.detail.responses);
+    expect(requireRecord(get['x-supauth-bindings'])['params']).toBe(source.options.params);
+    expect(requireRecord(get['x-supauth-bindings'])['response']).toBe(source.options.response);
+    expect(JSON.stringify(source)).toBe(before);
+    const document = includeRuntimeHeadOperations(specification(), inventory);
+    expect(requireRecord(document['paths'])['/v1/entities/{id}']).toBeUndefined();
+    expect(inspectContractCoverage(document, inventory)).toEqual({ total: 3, covered: 3, hidden: 2, issues: [] });
+  });
+
+  test('HEAD inherits real GET inputs and permissions but only its declared response statuses, without bodies', () => {
+    const source = declaration();
+    const before = JSON.stringify(source);
+    const inventory = createCompiledRouteContractInventory(routes, [source]);
+    const head = requireDefined(inventory[1]);
+    expect(head.hidden).toBe(false);
+    expect(head.contract).toEqual({ ...source.options.detail['x-supauth-contract'], response: 'empty' });
+    const operation = requireRecord(head.operation);
+    expect(operation['operationId']).toBeUndefined();
+    expect(requireRecord(requireDefined(inventory[0]).operation)['operationId']).toBe('readEntity');
+    expect(operation['security']).toBe(source.options.detail.security);
+    expect(operation['x-supauth-head-source']).toEqual({ method: 'GET', path: source.path });
+    expect(operation['responses']).toEqual({
+      '202': { description: 'Accepted' }, '404': { description: 'Not found' },
+    });
+    expect(operation['x-supauth-bindings']).toEqual({ params: source.options.params, query: source.options.query });
+    const document = { paths: { '/v1/entities/{id}': { get: requireDefined(inventory[0]).operation } } };
+    const exported = includeRuntimeHeadOperations(document, inventory);
+    expect(requireRecord(requireRecord(exported['paths'])['/v1/entities/{id}'])['head']).toEqual(head.operation);
+    expect(inspectContractCoverage(exported, inventory)).toEqual({ total: 2, covered: 2, hidden: 0, issues: [] });
+    expect(JSON.stringify(source)).toBe(before);
+    expect(Object.hasOwn(document.paths['/v1/entities/{id}'], 'head')).toBe(false);
+  });
+
+  test('renders GET and derived HEAD optional parameters under the same OpenAPI path', () => {
+    const source = { ...declaration(), path: '/v1/entities/:id?' };
+    const runtime = [
+      { method: 'GET', path: source.path },
+      { method: 'HEAD', path: source.path },
+    ];
+    const inventory = createCompiledRouteContractInventory(runtime, [source]);
+    const document = buildSupAuthOpenApi([source]);
+    const exported = includeRuntimeHeadOperations(document, inventory);
+    const paths = requireRecord(exported['paths']);
+    expect(Object.keys(paths)).toEqual(['/v1/entities/{id}']);
+    const item = requireRecord(paths['/v1/entities/{id}']);
+    expect(Object.keys(item)).toEqual(['get', 'head']);
+    expect(item['get']).toEqual(requireDefined(document.paths['/v1/entities/{id}'])['get']);
+    expect(item['head']).toEqual(requireDefined(inventory[1]).operation);
+    expect(requireRecord(item['head'])['operationId']).toBeUndefined();
+    expect(requireRecord(item['get'])['operationId']).toBe('readEntity');
+  });
+
+  test('rejects referenced responses instead of labeling an unresolved HEAD body as empty', () => {
+    for (const hidden of [false, true]) {
+      for (const status of ['202', '404']) {
+        const source = declaration(hidden);
+        const referenced = {
+          ...source, options: { ...source.options, detail: {
+            ...source.options.detail,
+            responses: {
+              ...source.options.detail.responses,
+              [status]: { $ref: '#/components/responses/Entity' },
+            },
+          } },
+        };
+        expect(() => createCompiledRouteContractInventory(routes, [referenced]))
+          .toThrow(`Referenced HEAD source response is unsupported: HEAD /v1/entities/:id ${status}`);
+      }
+    }
+  });
+
+  test('a derived public HEAD does not conceal missing GET documentation', () => {
+    const inventory = createCompiledRouteContractInventory(routes, [declaration()]);
+    const exported = includeRuntimeHeadOperations({ paths: {} }, inventory);
+    const item = requireRecord(requireRecord(exported['paths'])['/v1/entities/{id}']);
+    expect(item['get']).toBeUndefined();
+    expect(item['head']).toEqual(requireDefined(inventory[1]).operation);
+    expect(inventory.every(route => !route.hidden)).toBe(true);
+    expect(inspectContractCoverage(exported, inventory)).toEqual({
+      total: 2, covered: 1, hidden: 0,
+      issues: [{ operation: 'GET /v1/entities/{id}', code: 'missing_operation' }],
+    });
+  });
+
+  test('uses an explicit HEAD declaration instead of overwriting it with GET semantics', () => {
+    const explicit = {
+      method: 'HEAD', path: '/v1/entities/:id',
+      options: { detail: {
+        hide: true, security: [{ bearerAuth: ['entities:head'] }],
+        'x-supauth-contract': { request: 'protocol', response: 'empty', source: 'fixture.explicit-head' },
+      } },
+    };
+    const inventory = createCompiledRouteContractInventory(routes, [declaration(), explicit]);
+    expect(inventory[1]).toEqual(createRouteContractInventory({ ...explicit, hooks: explicit.options }));
+    expect(requireRecord(requireDefined(inventory[1]).operation)['x-supauth-head-source']).toBeUndefined();
+  });
+
+  test('rejects undeclared runtime routes, including infrastructure lookalikes and fabricated hook contracts', () => {
+    for (const route of [
+      { method: 'GET', path: '/new' }, { method: 'HEAD', path: '/new' },
+      { method: 'OPTIONS', path: '/new' }, { method: 'GET', path: '/swagger/new' },
+      { method: 'POST', path: '/swagger' }, { method: 'CONNECT', path: '/new' },
+    ]) {
+      const undeclared = { ...route, hooks: { detail: {
+        hide: true, 'x-supauth-contract': { request: 'none', response: 'empty', source: 'fake' },
+      } } };
+      expect(() => createCompiledRouteContractInventory([...routes, undeclared], [declaration()]))
+        .toThrow(`missing_contract: Runtime route has no domain operation: ${route.method} ${route.path}`);
+    }
+  });
+
+  test('fails association on missing GET, parameter-name drift, duplicates or a detached domain declaration', () => {
+    expect(() => createCompiledRouteContractInventory([requireDefined(routes[1])], [declaration()]))
+      .toThrow('missing_operation');
+    expect(() => createCompiledRouteContractInventory([{ method: 'GET', path: '/v1/entities/:other' }], [declaration()]))
+      .toThrow('missing_operation');
+    expect(() => createCompiledRouteContractInventory(routes, [declaration(), declaration()]))
+      .toThrow('Ambiguous domain operation');
+    expect(() => createCompiledRouteContractInventory([...routes, { method: 'GET', path: '/v1/entities/:id/' }], [declaration()]))
+      .toThrow('Duplicate runtime route');
+    expect(() => createCompiledRouteContractInventory([], [declaration()])).toThrow('missing_operation');
+  });
+
+  test('does not invent a missing domain contract, request schema or success response', () => {
+    const unclassified = { method: 'GET', path: '/v1/entities/:id', options: {} };
+    const inventory = createCompiledRouteContractInventory(routes, [unclassified]);
+    const spec = includeRuntimeHeadOperations({
+      paths: { '/v1/entities/{id}': { get: requireDefined(inventory[0]).operation } },
+    }, inventory);
+    expect(inspectContractCoverage(spec, inventory).issues).toEqual([
+      { operation: 'GET /v1/entities/{id}', code: 'missing_contract' },
+      { operation: 'HEAD /v1/entities/{id}', code: 'missing_contract' },
+    ]);
+
+    const source = declaration(true);
+    const missingSchemas = {
+      ...source, options: { detail: {
+        hide: true, 'x-supauth-contract': source.options.detail['x-supauth-contract'],
+      } },
+    };
+    const incomplete = createCompiledRouteContractInventory(routes, [missingSchemas]);
+    expect(requireRecord(requireDefined(incomplete[1]).operation)['responses']).toBeUndefined();
+    expect(inspectContractCoverage(specification(), incomplete).issues).toEqual([
+      { operation: 'GET /v1/entities/{id}', code: 'missing_response_schema' },
+      { operation: 'GET /v1/entities/{id}', code: 'missing_request_schema' },
+      { operation: 'HEAD /v1/entities/{id}', code: 'missing_request_schema' },
+    ]);
+  });
+
+  test('retains strict inspection of opaque hidden response and HEAD request bindings', () => {
+    const source = declaration(true);
+    const broken = {
+      ...source, options: { ...source.options, params: {}, response: { 202: {} } },
+    };
+    const inventory = createCompiledRouteContractInventory(routes, [broken]);
+    const result = inspectContractCoverage(specification(), inventory);
+    expect(result.total).toBe(3);
+    expect(result.covered).toBe(1);
+    expect(result.issues).toEqual([
+      { operation: 'GET /v1/entities/{id}', code: 'missing_response_schema' },
+      { operation: 'GET /v1/entities/{id}', code: 'missing_request_schema' },
+      { operation: 'HEAD /v1/entities/{id}', code: 'missing_request_schema' },
+    ]);
   });
 });
 

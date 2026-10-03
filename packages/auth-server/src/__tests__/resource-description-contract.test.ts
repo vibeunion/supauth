@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ApiContractError } from '../utils/api-contract.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const initial = {
   id: 'resource-one', name: 'Documents', indicator: 'https://api.example.test',
@@ -45,14 +45,7 @@ mock.module('../repositories/audit.js', () => ({
 }));
 // 运行真实路由与仓储，仅在数据库边界捕获 values/set，不重写描述默认逻辑。
 const { resourceRoutes } = await import('../routes/resources.js');
-const app = new Elysia().onError(({ error, set }) => {
-  if (error instanceof ApiContractError) {
-    set.status = error.status;
-    return { code: error.code };
-  }
-  set.status = 500;
-  return { code: 'unexpected_error' };
-}).use(resourceRoutes);
+const app = new Elysia().use(operationTestPlugin(resourceRoutes));
 
 beforeEach(() => {
   stored = { ...initial };
@@ -116,7 +109,14 @@ describe('resource description uses the shared nullable text contract through st
           ...(method === 'POST' ? { name: initial.name, indicator: initial.indicator } : {}), description,
         });
         expect(response.status).toBe(400);
-        expect(await response.json()).toEqual({ code: 'invalid_request_body' });
+        expect(await response.json()).toEqual({
+          success: false,
+          error: {
+            code: 'invalid_request_body',
+            message: 'Request does not match the declared contract',
+            correlation_id: expect.stringMatching(/\S/),
+          },
+        });
         expect(transactions).toBe(0);
         expect(writes).toHaveLength(0);
         expect(audits).toHaveLength(0);

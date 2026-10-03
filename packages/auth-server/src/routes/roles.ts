@@ -1,10 +1,11 @@
 // Role and Permission management routes with OpenAPI annotations
 
-import { Elysia } from 'elysia';
+
 import { managementContract, decodeEndpointBody, decodeEndpointResponse, decodeManagementQuery } from '../utils/management-contract.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
 import { ApiContractError, pagedResponse, isRecord } from '../utils/api-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 const RBAC_NAME_MAX_LENGTH = 255;
@@ -18,62 +19,62 @@ async function auditStrict(eventType: string, resourceType: string, resourceId: 
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
-export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
-  .get('/', async () => {
+export const roleRoutes = defineHttpOperations({ prefix: '/v1/roles' }, {
+  getRoot: defineHttpOperation('GET', '/', async () => {
     return decodeEndpointResponse('listRoles', pagedResponse(await adapter.listRoles()));
   }, managementContract("GET", "/v1/roles", {
     detail: { summary: 'List roles', tags: ['RBAC'] },
-  }))
-  .post('/', async ({ body }) => {
+  })),
+  postRoot: defineHttpOperation('POST', '/', async ({ body }) => {
     const input = roleCreateInput(decodeEndpointBody('createRole', body));
     const created = decodeEndpointResponse('createRole', await createRole(input));
     await auditStrict('role.create', 'role', created.id, { name: created.name });
     return created;
   }, managementContract("POST", "/v1/roles", {
     detail: { summary: 'Create role', tags: ['RBAC'] },
-  }, ({ body }) => { roleCreateInput(body); }))
-  .get('/:roleId', async ({ params }) => {
+  }, ({ body }) => { roleCreateInput(body); })),
+  getByRoleId: defineHttpOperation('GET', '/:roleId', async ({ params }) => {
     return decodeEndpointResponse('getRole', await adapter.getRole(params.roleId));
   }, managementContract("GET", "/v1/roles/:roleId", {
     detail: { summary: 'Get role by ID', tags: ['RBAC'] },
-  }))
-  .put('/:roleId', async ({ params, body }) => {
+  })),
+  putByRoleId: defineHttpOperation('PUT', '/:roleId', async ({ params, body }) => {
     const updated = await adapter.updateRole(params.roleId, roleUpdateInput(decodeEndpointBody('updateRole', body)));
     await auditStrict('role.update', 'role', params.roleId);
     return decodeEndpointResponse('updateRole', updated);
   }, managementContract("PUT", "/v1/roles/:roleId", {
     detail: { summary: 'Update role', tags: ['RBAC'] },
-  }, ({ body }) => { roleUpdateInput(body); }))
-  .delete('/:roleId', async ({ params }) => {
+  }, ({ body }) => { roleUpdateInput(body); })),
+  deleteByRoleId: defineHttpOperation('DELETE', '/:roleId', async ({ params }) => {
     await adapter.deleteRole(params.roleId);
     await auditStrict('role.delete', 'role', params.roleId);
   }, managementContract("DELETE", "/v1/roles/:roleId", {
     detail: { summary: 'Delete role', tags: ['RBAC'] },
-  }))
+  })),
 
   // ─── Permissions ───
-  .post('/:roleId/permissions', async ({ params, body }) => {
+  postByRoleIdPermissions: defineHttpOperation('POST', '/:roleId/permissions', async ({ params, body }) => {
     const data = decodeEndpointBody('createRolePermission', body);
     const perm = decodeEndpointResponse('createRolePermission', await adapter.createPermission(params.roleId, data));
     await auditStrict('permission.create', 'permission', perm.id, { role_id: params.roleId });
     return perm;
   }, managementContract("POST", "/v1/roles/:roleId/permissions", {
     detail: { summary: 'Create permission under role', tags: ['RBAC', 'Permissions'] },
-  }))
-  .delete('/:roleId/permissions/:permissionId', async ({ params }) => {
+  })),
+  deleteByRoleIdPermissionsByPermissionId: defineHttpOperation('DELETE', '/:roleId/permissions/:permissionId', async ({ params }) => {
     await adapter.deletePermission(params.roleId, params.permissionId);
     await auditStrict('permission.delete', 'permission', params.permissionId);
   }, managementContract("DELETE", "/v1/roles/:roleId/permissions/:permissionId", {
     detail: { summary: 'Delete permission', tags: ['RBAC', 'Permissions'] },
-  }))
-  .get('/:roleId/permissions', async ({ params }) => {
+  })),
+  getByRoleIdPermissions: defineHttpOperation('GET', '/:roleId/permissions', async ({ params }) => {
     return decodeEndpointResponse('listRolePermissions', pagedResponse(await adapter.listRolePermissions(params.roleId)));
   }, managementContract("GET", "/v1/roles/:roleId/permissions", {
     detail: { summary: 'List permissions for role', tags: ['RBAC', 'Permissions'] },
-  }))
+  })),
 
   // ─── Role Assignments ───
-  .get('/:roleId/assign', async ({ params, query: rawQuery }) => {
+  getByRoleIdAssign: defineHttpOperation('GET', '/:roleId/assign', async ({ params, query: rawQuery }) => {
     const query = decodeManagementQuery('listRoleAssignments', rawQuery);
     return decodeEndpointResponse('listRoleAssignments', pagedResponse(await adapter.listRoleAssignments(params.roleId, {
       target_type: query.target_type,
@@ -82,8 +83,8 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
     }), { page: query.page, limit: query.limit }));
   }, managementContract("GET", "/v1/roles/:roleId/assign", {
     detail: { summary: 'List role assignments for role', tags: ['RBAC', 'Assignments'] },
-  }))
-  .post('/:roleId/assign', async ({ params, body }) => {
+  })),
+  postByRoleIdAssign: defineHttpOperation('POST', '/:roleId/assign', async ({ params, body }) => {
     const data = decodeEndpointBody('assignRole', body);
     await validateAssignmentTarget(data);
     const assignment = decodeEndpointResponse('assignRole', await adapter.assignRole(params.roleId, data));
@@ -96,13 +97,14 @@ export const roleRoutes = new Elysia({ prefix: '/v1/roles' })
     return assignment;
   }, managementContract("POST", "/v1/roles/:roleId/assign", {
     detail: { summary: 'Assign role to a user or machine-to-machine application', tags: ['RBAC', 'Assignments'] },
-  }))
-  .delete('/:roleId/assign/:assignmentId', async ({ params }) => {
+  })),
+  deleteByRoleIdAssignByAssignmentId: defineHttpOperation('DELETE', '/:roleId/assign/:assignmentId', async ({ params }) => {
     await adapter.revokeRole(params.roleId, params.assignmentId);
     await auditStrict('role.revoke', 'role', params.roleId, { assignment_id: params.assignmentId });
   }, managementContract("DELETE", "/v1/roles/:roleId/assign/:assignmentId", {
     detail: { summary: 'Revoke role assignment', tags: ['RBAC', 'Assignments'] },
-  }));
+  })),
+});
 
 function invalidRoleInput(field: string) {
   return new ApiContractError(

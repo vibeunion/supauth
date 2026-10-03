@@ -1,5 +1,6 @@
 import { createFetchMock } from "../../tooling-test-values.js";
 import { describe, expect, it } from 'bun:test';
+import { createClient } from '@supabase/supabase-js';
 import { createSupaCloudOAuthFetch } from '@supacloud/js';
 
 describe('@supacloud/js compatibility', () => {
@@ -43,6 +44,91 @@ describe('@supacloud/js compatibility', () => {
     expect(body.get('grant_type')).toBe('refresh_token');
     expect(body.get('refresh_token')).toBe('refresh-token');
     expect(body.get('client_id')).toBe('public-client');
+  });
+
+  it('lets supabase-js refresh a session through the OAuth transport', async () => {
+    let forwardedRequest: Request | undefined;
+    const transport = createFetchMock(((async (input: RequestInfo | URL, init?: RequestInit) => {
+      forwardedRequest = new Request(input, init);
+      return Response.json({
+        access_token: 'new-access-token',
+        expires_in: 3600,
+        refresh_token: 'new-refresh-token',
+        token_type: 'bearer',
+        user: {
+          id: '11111111-1111-1111-1111-111111111111',
+          aud: 'authenticated',
+          role: 'authenticated',
+          email: 'user@example.test',
+        },
+      });
+    })));
+    const client = createClient('https://auth.example.test', 'public-anon-key', {
+      auth: {
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        persistSession: false,
+      },
+      global: {
+        fetch: createFetchMock(createSupaCloudOAuthFetch({
+          clientId: 'public-client',
+          fetch: transport,
+        })),
+      },
+    });
+
+    const result = await client.auth.refreshSession({ refresh_token: 'refresh-token' });
+
+    expect(result.error).toBeNull();
+    expect(result.data.session?.access_token).toBe('new-access-token');
+    expect(result.data.session?.refresh_token).toBe('new-refresh-token');
+    expect(forwardedRequest).toBeDefined();
+    expect(forwardedRequest?.url).toBe('https://auth.example.test/auth/v1/oauth/token');
+    expect(forwardedRequest?.url).not.toContain('refresh-token');
+    expect(forwardedRequest?.headers.get('authorization')).toBeNull();
+    expect(forwardedRequest?.headers.get('cookie')).toBeNull();
+    expect(forwardedRequest?.headers.get('proxy-authorization')).toBeNull();
+    expect(forwardedRequest?.headers.get('content-type')).toContain('application/x-www-form-urlencoded');
+
+    const body = new URLSearchParams(await forwardedRequest?.text());
+    expect(body.get('client_id')).toBe('public-client');
+    expect(body.get('grant_type')).toBe('refresh_token');
+    expect(body.get('refresh_token')).toBe('refresh-token');
+    expect(body.toString()).not.toContain('must-not-be-forwarded');
+  });
+
+  it('passes non-refresh requests through when an OAuth client is configured', async () => {
+    let forwardedRequest: Request | undefined;
+    let forwardedInput: RequestInfo | URL | undefined;
+    let forwardedInit: RequestInit | undefined;
+    const expectedResponse = new Response('ok', { status: 200 });
+    const transport = createFetchMock(((async (input: RequestInfo | URL, init?: RequestInit) => {
+      forwardedInput = input;
+      forwardedInit = init;
+      forwardedRequest = new Request(input, init);
+      return expectedResponse;
+    })));
+    const supacloudFetch = createFetchMock(createSupaCloudOAuthFetch({
+      clientId: 'public-client',
+      fetch: transport,
+    }));
+    const input = new Request('https://auth.example.test/auth/v1/user');
+    const init: RequestInit = {
+      method: 'GET',
+      headers: { authorization: 'Bearer access-token' },
+    };
+
+    const response = await supacloudFetch(input, init);
+
+    expect(supacloudFetch.preconnect).toBe(fetch.preconnect);
+    expect(forwardedInput).toBe(input);
+    expect(forwardedInit).toBe(init);
+    expect(response).toBe(expectedResponse);
+    expect(response.status).toBe(200);
+    expect(forwardedRequest?.url).toBe('https://auth.example.test/auth/v1/user');
+    expect(forwardedRequest?.method).toBe('GET');
+    expect(forwardedRequest?.headers.get('authorization')).toBe('Bearer access-token');
+    expect(await forwardedRequest?.text()).toBe('');
   });
 
   it('rejects a cross-origin OAuth token endpoint before forwarding the refresh token', async () => {

@@ -9,6 +9,7 @@ import {
   organizationTemplateCreateInput,
   organizationTemplateUpdateInput,
 } from '../routes/org-template-input.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const deleteTemplate = mock(async (): Promise<'deleted' | 'protected' | 'not_found'> => 'deleted');
 const createTemplate = mock(async () => ({ id: 'template-new', name: 'New template' }));
@@ -42,7 +43,7 @@ mock.module('../repositories/webhook-delivery.js', () => ({
 }));
 
 const { orgTemplateRoutes } = await import('../routes/org-templates.js');
-const app = new Elysia().use(observabilityMiddleware).use(orgTemplateRoutes);
+const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(orgTemplateRoutes));
 
 function templateMutationRequest(method: 'POST' | 'PUT', body: unknown) {
   const path = method === 'POST'

@@ -1,0 +1,250 @@
+diff --git a/dist/cli.js b/dist/cli.js
+index fe16cfe3b3c6e266f1b387a08f2824bce1152632..74717ec7bce5a58ef44cf1fc7ce9fe896e9fc798 100755
+--- a/dist/cli.js
++++ b/dist/cli.js
+@@ -1433,9 +1433,9 @@ function renderApplication(graph, options) {
+     "}",
+     "",
+     "export async function initializeApplication(services: Record<string, unknown>): Promise<void> {",
+-    '  const initializers = [services.environmentInitializer ?? services["supacloud.environment-initializer"], services.appInitializer ?? services["supacloud.app-initializer"]];',
++    '  const initializers = [services[\'environmentInitializer\'] ?? services["supacloud.environment-initializer"], services[\'appInitializer\'] ?? services["supacloud.app-initializer"]];',
+     "  for (const group of initializers) {",
+-    "    if (Array.isArray(group)) {",
++    "    if (isUnknownArray(group)) {",
+     "      for (const init of group) {",
+     "        if (isFunction(init)) await init();",
+     "      }",
+@@ -1446,21 +1446,21 @@ function renderApplication(graph, options) {
+     "}",
+     "",
+     "export async function destroyApplication(services: Record<string, unknown>): Promise<void> {",
+-    '  const destroyRef = (Object.prototype.propertyIsEnumerable.call(services, "destroyRef") ? services.destroyRef : undefined)',
++    '  const destroyRef = (Object.prototype.propertyIsEnumerable.call(services, "destroyRef") ? services[\'destroyRef\'] : undefined)',
+     '    ?? (Object.prototype.propertyIsEnumerable.call(services, "supacloud.destroy-ref") ? services["supacloud.destroy-ref"] : undefined);',
+-    "  if (isRecord(destroyRef) && isFunction(destroyRef.destroy)) {",
+-    "    await destroyRef.destroy();",
+-    "  } else if (isRecord(destroyRef) && Array.isArray(destroyRef._teardowns)) {",
+-    "    for (const teardown of [...destroyRef._teardowns].reverse()) {",
++    "  if (isRecord(destroyRef) && isFunction(destroyRef['destroy'])) {",
++    "    await destroyRef['destroy']();",
++    "  } else if (isRecord(destroyRef) && isUnknownArray(destroyRef['_teardowns'])) {",
++    "    for (const teardown of [...destroyRef['_teardowns']].reverse()) {",
+     "      if (isFunction(teardown)) await teardown();",
+     "    }",
+     "  }",
+     "  const instances = Object.values(services);",
+     "  for (const inst of instances.reverse()) {",
+-    "    if (isRecord(inst) && isFunction(inst.onDestroy)) {",
+-    "      await inst.onDestroy();",
+-    "    } else if (isRecord(inst) && isFunction(inst.ngOnDestroy)) {",
+-    "      await inst.ngOnDestroy();",
++    "    if (isRecord(inst) && isFunction(inst['onDestroy'])) {",
++    "      await inst['onDestroy']();",
++    "    } else if (isRecord(inst) && isFunction(inst['ngOnDestroy'])) {",
++    "      await inst['ngOnDestroy']();",
+     "    }",
+     "  }",
+     "}",
+@@ -1857,7 +1857,7 @@ class ModuleGenerator {
+           return "undefined";
+         });
+         const callArgs = invokerArgs.length > 0 ? invokerArgs.join(", ") : "req";
+-        fields.push(`invoker: async (ctrl: unknown, req: { params?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown; headers?: Record<string, unknown>; cookie?: Record<string, unknown>; context?: unknown }) => { ` + `if (!isRecord(ctrl)) throw new TypeError("Route controller is not an object"); ` + `const handler = ctrl[${JSON.stringify(route.handler)}]; ` + `if (typeof handler !== "function") throw new TypeError("Route handler ${route.handler} is not callable"); ` + `return await Reflect.apply(handler, ctrl, [${callArgs}]); }`);
++        fields.push(`invoker: async (ctrl: unknown, req: { params?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown; headers?: Record<string, unknown>; cookie?: Record<string, unknown>; context?: unknown }) => { ` + `if (!isRecord(ctrl)) throw new TypeError("Route controller is not an object"); ` + `const handler = ctrl[${JSON.stringify(route.handler)}]; ` + `if (!isFunction(handler)) throw new TypeError("Route handler ${route.handler} is not callable"); ` + `return await Reflect.apply(handler, ctrl, [${callArgs}]); }`);
+         if (route.contract !== undefined) {
+           fields.push(`contract: ${JSON.stringify(route.contract)}`);
+         }
+@@ -3510,9 +3510,13 @@ function isFunction(value: unknown): value is (...args: unknown[]) => unknown {
+   return typeof value === "function";
+ }
+ 
++function isUnknownArray(value: unknown): value is unknown[] {
++  return Array.isArray(value);
++}
++
+ function resolveFactoryValue(value: unknown): unknown {
+-  if (!isRecord(value) || !isFunction(value.factory)) return undefined;
+-  return value.factory();
++  if (!isRecord(value) || !isFunction(value['factory'])) return undefined;
++  return value['factory']();
+ }
+ 
+ const scopeDestructions = new WeakMap<object, Promise<void>>();
+@@ -3535,14 +3539,14 @@ function destroyScopeInstances(
+     for (const entry of [...plan].reverse()) {
+       const value = scope[entry.key];
+       const instance = entry.index === undefined ? value
+-        : Array.isArray(value) ? value[entry.index] : undefined;
++        : isUnknownArray(value) ? value[entry.index] : undefined;
+       if (seen.has(instance)) continue;
+       seen.add(instance);
+       try {
+-        if (isRecord(instance) && isFunction(instance.onDestroy)) {
+-          await instance.onDestroy();
+-        } else if (isRecord(instance) && isFunction(instance.ngOnDestroy)) {
+-          await instance.ngOnDestroy();
++        if (isRecord(instance) && isFunction(instance['onDestroy'])) {
++          await instance['onDestroy']();
++        } else if (isRecord(instance) && isFunction(instance['ngOnDestroy'])) {
++          await instance['ngOnDestroy']();
+         }
+       } catch (error) {
+         errors.push(error);
+@@ -3565,11 +3569,11 @@ async function initializeServiceInstances(
+     const value = services[entry.key];
+     const instance = entry.index === undefined
+       ? value
+-      : Array.isArray(value) ? value[entry.index] : undefined;
++      : isUnknownArray(value) ? value[entry.index] : undefined;
+     if (seen.has(instance)) continue;
+     seen.add(instance);
+-    if (!isRecord(instance) || !isFunction(instance.onInit)) continue;
+-    await instance.onInit();
++    if (!isRecord(instance) || !isFunction(instance['onInit'])) continue;
++    await instance['onInit']();
+   }
+ }
+ 
+@@ -3583,13 +3587,13 @@ async function destroyServiceInstances(
+     const value = services[entry.key];
+     const instance = entry.index === undefined
+       ? value
+-      : Array.isArray(value) ? value[entry.index] : undefined;
++      : isUnknownArray(value) ? value[entry.index] : undefined;
+     if (seen.has(instance)) continue;
+     seen.add(instance);
+     if (!isRecord(instance)) continue;
+-    const hook = isFunction(instance.onDestroy)
+-      ? instance.onDestroy
+-      : isFunction(instance.ngOnDestroy) ? instance.ngOnDestroy : undefined;
++    const hook = isFunction(instance['onDestroy'])
++      ? instance['onDestroy']
++      : isFunction(instance['ngOnDestroy']) ? instance['ngOnDestroy'] : undefined;
+     if (!hook) continue;
+     try {
+       await hook.call(instance);
+diff --git a/dist/index.js b/dist/index.js
+index c41bb0ce7dcb4452bb6e95da58611d850fa79734..ddd71a1bdc57449a2fcf168f3f085661b73739cf 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1432,9 +1432,9 @@ function renderApplication(graph, options) {
+     "}",
+     "",
+     "export async function initializeApplication(services: Record<string, unknown>): Promise<void> {",
+-    '  const initializers = [services.environmentInitializer ?? services["supacloud.environment-initializer"], services.appInitializer ?? services["supacloud.app-initializer"]];',
++    '  const initializers = [services[\'environmentInitializer\'] ?? services["supacloud.environment-initializer"], services[\'appInitializer\'] ?? services["supacloud.app-initializer"]];',
+     "  for (const group of initializers) {",
+-    "    if (Array.isArray(group)) {",
++    "    if (isUnknownArray(group)) {",
+     "      for (const init of group) {",
+     "        if (isFunction(init)) await init();",
+     "      }",
+@@ -1445,21 +1445,21 @@ function renderApplication(graph, options) {
+     "}",
+     "",
+     "export async function destroyApplication(services: Record<string, unknown>): Promise<void> {",
+-    '  const destroyRef = (Object.prototype.propertyIsEnumerable.call(services, "destroyRef") ? services.destroyRef : undefined)',
++    '  const destroyRef = (Object.prototype.propertyIsEnumerable.call(services, "destroyRef") ? services[\'destroyRef\'] : undefined)',
+     '    ?? (Object.prototype.propertyIsEnumerable.call(services, "supacloud.destroy-ref") ? services["supacloud.destroy-ref"] : undefined);',
+-    "  if (isRecord(destroyRef) && isFunction(destroyRef.destroy)) {",
+-    "    await destroyRef.destroy();",
+-    "  } else if (isRecord(destroyRef) && Array.isArray(destroyRef._teardowns)) {",
+-    "    for (const teardown of [...destroyRef._teardowns].reverse()) {",
++    "  if (isRecord(destroyRef) && isFunction(destroyRef['destroy'])) {",
++    "    await destroyRef['destroy']();",
++    "  } else if (isRecord(destroyRef) && isUnknownArray(destroyRef['_teardowns'])) {",
++    "    for (const teardown of [...destroyRef['_teardowns']].reverse()) {",
+     "      if (isFunction(teardown)) await teardown();",
+     "    }",
+     "  }",
+     "  const instances = Object.values(services);",
+     "  for (const inst of instances.reverse()) {",
+-    "    if (isRecord(inst) && isFunction(inst.onDestroy)) {",
+-    "      await inst.onDestroy();",
+-    "    } else if (isRecord(inst) && isFunction(inst.ngOnDestroy)) {",
+-    "      await inst.ngOnDestroy();",
++    "    if (isRecord(inst) && isFunction(inst['onDestroy'])) {",
++    "      await inst['onDestroy']();",
++    "    } else if (isRecord(inst) && isFunction(inst['ngOnDestroy'])) {",
++    "      await inst['ngOnDestroy']();",
+     "    }",
+     "  }",
+     "}",
+@@ -1856,7 +1856,7 @@ class ModuleGenerator {
+           return "undefined";
+         });
+         const callArgs = invokerArgs.length > 0 ? invokerArgs.join(", ") : "req";
+-        fields.push(`invoker: async (ctrl: unknown, req: { params?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown; headers?: Record<string, unknown>; cookie?: Record<string, unknown>; context?: unknown }) => { ` + `if (!isRecord(ctrl)) throw new TypeError("Route controller is not an object"); ` + `const handler = ctrl[${JSON.stringify(route.handler)}]; ` + `if (typeof handler !== "function") throw new TypeError("Route handler ${route.handler} is not callable"); ` + `return await Reflect.apply(handler, ctrl, [${callArgs}]); }`);
++        fields.push(`invoker: async (ctrl: unknown, req: { params?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown; headers?: Record<string, unknown>; cookie?: Record<string, unknown>; context?: unknown }) => { ` + `if (!isRecord(ctrl)) throw new TypeError("Route controller is not an object"); ` + `const handler = ctrl[${JSON.stringify(route.handler)}]; ` + `if (!isFunction(handler)) throw new TypeError("Route handler ${route.handler} is not callable"); ` + `return await Reflect.apply(handler, ctrl, [${callArgs}]); }`);
+         if (route.contract !== undefined) {
+           fields.push(`contract: ${JSON.stringify(route.contract)}`);
+         }
+@@ -3509,9 +3509,13 @@ function isFunction(value: unknown): value is (...args: unknown[]) => unknown {
+   return typeof value === "function";
+ }
+ 
++function isUnknownArray(value: unknown): value is unknown[] {
++  return Array.isArray(value);
++}
++
+ function resolveFactoryValue(value: unknown): unknown {
+-  if (!isRecord(value) || !isFunction(value.factory)) return undefined;
+-  return value.factory();
++  if (!isRecord(value) || !isFunction(value['factory'])) return undefined;
++  return value['factory']();
+ }
+ 
+ const scopeDestructions = new WeakMap<object, Promise<void>>();
+@@ -3534,14 +3538,14 @@ function destroyScopeInstances(
+     for (const entry of [...plan].reverse()) {
+       const value = scope[entry.key];
+       const instance = entry.index === undefined ? value
+-        : Array.isArray(value) ? value[entry.index] : undefined;
++        : isUnknownArray(value) ? value[entry.index] : undefined;
+       if (seen.has(instance)) continue;
+       seen.add(instance);
+       try {
+-        if (isRecord(instance) && isFunction(instance.onDestroy)) {
+-          await instance.onDestroy();
+-        } else if (isRecord(instance) && isFunction(instance.ngOnDestroy)) {
+-          await instance.ngOnDestroy();
++        if (isRecord(instance) && isFunction(instance['onDestroy'])) {
++          await instance['onDestroy']();
++        } else if (isRecord(instance) && isFunction(instance['ngOnDestroy'])) {
++          await instance['ngOnDestroy']();
+         }
+       } catch (error) {
+         errors.push(error);
+@@ -3564,11 +3568,11 @@ async function initializeServiceInstances(
+     const value = services[entry.key];
+     const instance = entry.index === undefined
+       ? value
+-      : Array.isArray(value) ? value[entry.index] : undefined;
++      : isUnknownArray(value) ? value[entry.index] : undefined;
+     if (seen.has(instance)) continue;
+     seen.add(instance);
+-    if (!isRecord(instance) || !isFunction(instance.onInit)) continue;
+-    await instance.onInit();
++    if (!isRecord(instance) || !isFunction(instance['onInit'])) continue;
++    await instance['onInit']();
+   }
+ }
+ 
+@@ -3582,13 +3586,13 @@ async function destroyServiceInstances(
+     const value = services[entry.key];
+     const instance = entry.index === undefined
+       ? value
+-      : Array.isArray(value) ? value[entry.index] : undefined;
++      : isUnknownArray(value) ? value[entry.index] : undefined;
+     if (seen.has(instance)) continue;
+     seen.add(instance);
+     if (!isRecord(instance)) continue;
+-    const hook = isFunction(instance.onDestroy)
+-      ? instance.onDestroy
+-      : isFunction(instance.ngOnDestroy) ? instance.ngOnDestroy : undefined;
++    const hook = isFunction(instance['onDestroy'])
++      ? instance['onDestroy']
++      : isFunction(instance['ngOnDestroy']) ? instance['ngOnDestroy'] : undefined;
+     if (!hook) continue;
+     try {
+       await hook.call(instance);

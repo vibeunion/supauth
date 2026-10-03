@@ -3,7 +3,7 @@
 
 import { writeFileSync } from 'fs';
 import { join } from 'path';
-import { createRouteContractInventory } from './type-safety-contract.js';
+import { createCompiledRouteContractInventory, includeRuntimeHeadOperations } from './compiled-route-inventory.js';
 import { canonicalizeOpenApiReferences } from './openapi-schema-references.js';
 import { convertOpenApi30Schemas } from './openapi-30-schema.js';
 import { validateOpenApiDocument } from './openapi-validation.js';
@@ -23,6 +23,7 @@ async function main() {
   // Import the app without binding a port; app.handle lets us read the generated
   // Swagger JSON without depending on an external HTTP client.
   const { app } = await import('../packages/auth-server/src/index.js');
+  const { httpOperations } = await import('../packages/auth-server/src/http/operations.js');
 
   const res = await app.handle(new Request('http://localhost/swagger/json'));
   if (!res.ok) {
@@ -31,7 +32,8 @@ async function main() {
   }
 
   const spec = requireRecord(await res.json(), 'OpenAPI export');
-  const canonical = canonicalizeOpenApiReferences(spec, app.routes.map(createRouteContractInventory));
+  const inventory = createCompiledRouteContractInventory(app.routes, httpOperations);
+  const canonical = canonicalizeOpenApiReferences(includeRuntimeHeadOperations(spec, inventory), inventory);
   const portable = convertOpenApi30Schemas(canonical.spec, canonical.inventory);
   await validateOpenApiDocument(portable.spec);
   writeFileSync(outputPath, JSON.stringify(portable.spec, null, 2));

@@ -1,6 +1,6 @@
 // Account provisioning and public self-service account claiming.
 
-import { Elysia } from 'elysia';
+
 import { decodeUserReadback } from '../utils/upstream-contract.js';
 import { accountContract, accountOutput, readAccountInput, readAccountNormalization } from '../utils/account-contract.js';
 import { definedFields } from '../utils/defined-fields.js';
@@ -25,6 +25,7 @@ import {
   type PublicPasswordPolicy,
 } from '../utils/password-policy.js';
 import { BoundedFixedWindowLimiter, resolveClientIp } from '../utils/rate-limit.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 const CLAIM_LIMIT_WINDOW_MS = 60_000;
@@ -331,13 +332,13 @@ export function createPublicAccountClaimRoutes(options?: {
     }
   };
 
-  return new Elysia({ prefix: '/v1/public/account-claims' })
-    .get('/config', async () => {
+  return defineHttpOperations({ prefix: '/v1/public/account-claims' }, {
+    getConfig: defineHttpOperation('GET', '/config', async () => {
       return accountOutput('claimConfig', { success: true, config: await getSafeEffectiveConfig() });
     }, accountContract('claimConfig', {
       detail: { summary: 'Get public account claim configuration', tags: ['Public', 'Account Provisioning'] },
-    }))
-    .post('/claim', async ({ body, headers, set, request }) => {
+    })),
+    postClaim: defineHttpOperation('POST', '/claim', async ({ body, headers, set, request }) => {
       const ip = requestIp(headers);
       if (!claimAttempts.consume(ip, CLAIM_LIMIT_MAX)) {
         set.status = 429;
@@ -426,13 +427,14 @@ export function createPublicAccountClaimRoutes(options?: {
       });
     }, accountContract('claim', {
       detail: { summary: 'Claim a pre-provisioned SupaOAuth account', tags: ['Public', 'Account Provisioning'] },
-    }));
+    })),
+  });
 }
 
 export const publicAccountClaimRoutes = createPublicAccountClaimRoutes();
 
-export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provisioning' })
-  .post('/import', async ({ body, request }) => {
+export const accountProvisioningRoutes = defineHttpOperations({ prefix: '/v1/account-provisioning' }, {
+  postImport: defineHttpOperation('POST', '/import', async ({ body, request }) => {
     const payload = readAccountInput('import', request, { body }).body;
     const records = Array.isArray(payload.records) ? payload.records : [];
     const createUsers = payload.create_users === true;
@@ -585,8 +587,8 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
     return accountOutput('import', summary);
   }, accountContract('import', {
     detail: { summary: 'Import or sync account provisioning records and optionally create SupaOAuth users', tags: ['Account Provisioning', 'Users'] },
-  }))
-  .get('/records', async ({ query: rawQuery, request }) => {
+  })),
+  getRecords: defineHttpOperation('GET', '/records', async ({ query: rawQuery, request }) => {
     const { query } = readAccountInput('records', request, { query: rawQuery });
     const limit = Math.min(Number(query.limit || 100), 500);
     const offset = Number(query.offset || 0);
@@ -594,8 +596,8 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
     return accountOutput('records', { items, total: items.length });
   }, accountContract('records', {
     detail: { summary: 'List account provisioning records without initial passwords', tags: ['Account Provisioning'] },
-  }))
-  .post('/sync', async ({ body, request }) => {
+  })),
+  postSync: defineHttpOperation('POST', '/sync', async ({ body, request }) => {
     const payload = readAccountInput('sync', request, { body }).body;
     if (!Array.isArray(payload.records) || payload.records.length === 0) {
       return accountOutput('sync', { total: 0, unchanged: 0, updated: 0, suspended: 0, reactivated: 0, errors: [] });
@@ -609,8 +611,8 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
     })));
   }, accountContract('sync', {
     detail: { summary: 'Sync employee status changes (suspend/reactivate GoTrue users)', tags: ['Account Provisioning'] },
-  }))
-  .post('/sync/reconcile', async ({ body, request }) => {
+  })),
+  postSyncReconcile: defineHttpOperation('POST', '/sync/reconcile', async ({ body, request }) => {
     const payload = readAccountInput('reconcile', request, { body }).body;
     return accountOutput('reconcile', await reconcileAllEmployeeStatuses(definedFields({
       externalType: payload.external_type,
@@ -619,12 +621,13 @@ export const accountProvisioningRoutes = new Elysia({ prefix: '/v1/account-provi
     })));
   }, accountContract('reconcile', {
     detail: { summary: 'Full reconciliation: scan all provisioning records and sync GoTrue user state', tags: ['Account Provisioning'] },
-  }))
-  .get('/sync/status', async ({ query: rawQuery, request }) => {
+  })),
+  getSyncStatus: defineHttpOperation('GET', '/sync/status', async ({ query: rawQuery, request }) => {
     const { query } = readAccountInput('syncStatus', request, { query: rawQuery });
     const externalType = String(query.external_type || 'employee');
     const counts = await accountProvisioning.countBySourceStatus(externalType);
     return accountOutput('syncStatus', { external_type: externalType, counts });
   }, accountContract('syncStatus', {
     detail: { summary: 'Get employee status distribution counts', tags: ['Account Provisioning'] },
-  }));
+  })),
+});

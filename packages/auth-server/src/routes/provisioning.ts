@@ -2,12 +2,13 @@
 // SupaCloud project provisioning and idempotent reconcile
 // P0-26: Each reconcile uses path projectRef, NOT process-level PROJECT_REF
 
-import { Elysia } from 'elysia';
+
 import { getSupaCloudAdapterForProject, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as provRepo from '../repositories/provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
 import { HOSTED_MIGRATIONS } from '../db/migrations/index.js';
 import { operationContract, operationOutput } from '../utils/operation-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -81,8 +82,8 @@ function isValidProjectRef(ref: string): boolean {
   return /^[a-z0-9]{20,}$/.test(ref);
 }
 
-export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
-  .get('/:projectRef', async ({ params }) => {
+export const provisioningRoutes = defineHttpOperations({ prefix: '/v1/provisioning' }, {
+  getByProjectRef: defineHttpOperation('GET', '/:projectRef', async ({ params }) => {
     const projectRef = params.projectRef;
     if (!isValidProjectRef(projectRef)) {
       return operationOutput('getProvisioningStatus', { error: 'Invalid project ref format', project_ref: projectRef });
@@ -92,9 +93,9 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
     return operationOutput('getProvisioningStatus', { project_ref: projectRef, steps, fully_provisioned: fullyProvisioned });
   }, operationContract('getProvisioningStatus', {
     detail: { summary: 'Get provisioning status for a project', tags: ['Provisioning'] },
-  }))
+  })),
 
-  .post('/:projectRef/reconcile', async ({ params }) => {
+  postByProjectRefReconcile: defineHttpOperation('POST', '/:projectRef/reconcile', async ({ params }) => {
     const projectRef = params.projectRef;
     if (!isValidProjectRef(projectRef)) {
       return operationOutput('reconcileProject', { error: 'Invalid project ref format', project_ref: projectRef, results: [], fully_provisioned: false });
@@ -179,9 +180,9 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
       description: 'Runs SupaCloud-hosted DB migrations, verifies GoTrue config, SupaCloud gateway routes, and storage buckets — all scoped to the requested projectRef. Repeated execution does not drift. P0-26: adapter is project-scoped, not process-scoped.',
       tags: ['Provisioning'],
     },
-  }))
+  })),
 
-  .post('/:projectRef/rollback', async ({ params }) => {
+  postByProjectRefRollback: defineHttpOperation('POST', '/:projectRef/rollback', async ({ params }) => {
     const projectRef = params.projectRef;
     if (!isValidProjectRef(projectRef)) {
       return operationOutput('rollbackProvisioning', { error: 'Invalid project ref format', project_ref: projectRef });
@@ -191,4 +192,5 @@ export const provisioningRoutes = new Elysia({ prefix: '/v1/provisioning' })
     return operationOutput('rollbackProvisioning', { project_ref: projectRef, status: 'provisioning_records_reset' });
   }, operationContract('rollbackProvisioning', {
     detail: { summary: 'Reset provisioning records for rollback', tags: ['Provisioning'] },
-  }));
+  })),
+});

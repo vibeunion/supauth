@@ -3,6 +3,9 @@ import { Elysia } from 'elysia';
 import { ApiContractError } from '../utils/api-contract.js';
 import { decodeSchema } from '../../../shared/src/schema.js';
 import { sdkEndpoints } from '../../../shared/src/sdk-endpoints.js';
+import { operationTestPlugin } from './http-fixture.js';
+
+const adapterExports = { ...await import('../supacloud/adapter.js') };
 
 const time = '2026-09-08T00:00:00Z';
 const member = {
@@ -61,6 +64,7 @@ mock.module('../supacloud/adapter.js', () => {
     getCustomOidcProvider: async () => { providerReads++; return { identifier: 'custom:one' }; },
   };
   return {
+    ...adapterExports,
     getSupaCloudAdapter: () => adapter, getSupaCloudAdapterForProject: () => adapter,
     isSupaCloudApiError: () => false,
   };
@@ -154,15 +158,15 @@ const [{ applicationRoutes }, { resourceRoutes }, { tenantRoutes }, { tenantConf
   import('../routes/tenant.js'), import('../routes/tenant-config.js'),
   import('../routes/connectors.js'), import('../routes/enterprise-sso.js'), import('../routes/sign-in-experience.js'),
 ]);
-const app = new Elysia().onError(({ error, set }) => {
+const app = new Elysia().error(({ error, set }) => {
   if (error instanceof ApiContractError) {
     set.status = error.status;
     return { success: false, error: { code: error.code, message: error.message } };
   }
   set.status = 500;
   return { success: false, error: { message: 'Unexpected test error' } };
-}).use(applicationRoutes).use(resourceRoutes).use(tenantRoutes).use(tenantConfigRoutes)
-  .use(connectorRoutes).use(enterpriseSSORoutes).use(sieRoutes);
+}).use(operationTestPlugin(applicationRoutes)).use(operationTestPlugin(resourceRoutes)).use(operationTestPlugin(tenantRoutes)).use(operationTestPlugin(tenantConfigRoutes))
+  .use(operationTestPlugin(connectorRoutes)).use(operationTestPlugin(enterpriseSSORoutes)).use(operationTestPlugin(sieRoutes));
 
 beforeEach(() => {
   writes.length = 0;

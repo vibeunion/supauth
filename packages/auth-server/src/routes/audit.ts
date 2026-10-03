@@ -1,9 +1,10 @@
 // Audit log routes with OpenAPI annotations
 
-import { Elysia } from 'elysia';
+
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { ApiContractError, cursorResponse } from '../utils/api-contract.js';
 import { operationContract, operationInput, operationOutput } from '../utils/operation-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -24,8 +25,8 @@ function auditMethod(rawMethod: unknown): string | undefined {
   return rawMethod.toUpperCase();
 }
 
-export const auditRoutes = new Elysia({ prefix: '/v1/audit' })
-  .get('/', async ({ query }) => {
+export const auditRoutes = defineHttpOperations({ prefix: '/v1/audit' }, {
+  getRoot: defineHttpOperation('GET', '/', async ({ query }) => {
     const logs = await adapter.queryAuditLogs({
       event_type: query["event_type"],
       resource_type: query["resource_type"],
@@ -51,8 +52,8 @@ export const auditRoutes = new Elysia({ prefix: '/v1/audit' })
       if ('status' in query) auditStatus(query.status);
       if ('method' in query) auditMethod(query.method);
     }
-  }))
-  .post('/export', async ({ body }) => {
+  })),
+  postExport: defineHttpOperation('POST', '/export', async ({ body }) => {
     const input = operationInput('createAuditExport', body === undefined ? {} : { body });
     return operationOutput('createAuditExport', await adapter.exportAuditLogs(input.body || {}));
   }, operationContract('createAuditExport', {
@@ -60,8 +61,8 @@ export const auditRoutes = new Elysia({ prefix: '/v1/audit' })
       summary: 'Create an asynchronous audit log export',
       tags: ['Audit'],
     },
-  }))
-  .get('/export', async ({ query }) => {
+  })),
+  getExport: defineHttpOperation('GET', '/export', async ({ query }) => {
     return operationOutput('createAuditExportFromQuery', await adapter.exportAuditLogs({
       event_type: query["event_type"],
       resource_type: query["resource_type"],
@@ -76,22 +77,22 @@ export const auditRoutes = new Elysia({ prefix: '/v1/audit' })
       summary: 'Create an audit log export',
       tags: ['Audit'],
     },
-  }))
-  .get('/export/:exportId/download', async ({ params }) => adapter.downloadAuditExport(params.exportId), {
+  })),
+  getExportByExportIdDownload: defineHttpOperation('GET', '/export/:exportId/download', async ({ params }) => adapter.downloadAuditExport(params.exportId), {
     ...operationContract('getAuditExportDownload', {
       detail: { summary: 'Get audit export download information', tags: ['Audit'] },
     }),
-  })
-  .get('/export/:exportId', async ({ params }) => operationOutput('getAuditExport', await adapter.getAuditExport(params.exportId)), operationContract('getAuditExport', {
+  }),
+  getExportByExportId: defineHttpOperation('GET', '/export/:exportId', async ({ params }) => operationOutput('getAuditExport', await adapter.getAuditExport(params.exportId)), operationContract('getAuditExport', {
     detail: { summary: 'Get audit export job status', tags: ['Audit'] },
-  }))
-  .get('/integrity', async () => operationOutput('getAuditIntegrity', await adapter.getAuditIntegrity()), operationContract('getAuditIntegrity', {
+  })),
+  getIntegrity: defineHttpOperation('GET', '/integrity', async () => operationOutput('getAuditIntegrity', await adapter.getAuditIntegrity()), operationContract('getAuditIntegrity', {
     detail: {
       summary: 'Get audit append-only integrity checkpoint status',
       tags: ['Audit'],
     },
-  }))
-  .get('/:logId', async ({ params }) => {
+  })),
+  getByLogId: defineHttpOperation('GET', '/:logId', async ({ params }) => {
     return operationOutput('getAuditLog', await adapter.getAuditLog(params.logId));
   }, operationContract('getAuditLog', {
     detail: {
@@ -99,4 +100,5 @@ export const auditRoutes = new Elysia({ prefix: '/v1/audit' })
       description: 'Returns a single audit log entry including request/project correlation details',
       tags: ['Audit'],
     },
-  }));
+  })),
+});

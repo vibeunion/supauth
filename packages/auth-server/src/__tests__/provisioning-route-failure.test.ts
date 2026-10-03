@@ -1,5 +1,8 @@
 import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { beforeAll, describe, expect, mock, test } from 'bun:test';
+import { operationTestPlugin } from './http-fixture.js';
+
+const adapterExports = { ...await import('../supacloud/adapter.js') };
 
 const recordStep = mock(async () => {
   throw new Error('relation supaoauth.provisioning_records does not exist');
@@ -24,6 +27,7 @@ mock.module('../repositories/audit.js', () => ({
 }));
 
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   isSupaCloudApiError: () => false,
   getSupaCloudAdapterForProject: () => ({
     getProjectRef: () => 'lhevaxecbonjjdbardgi',
@@ -43,7 +47,7 @@ beforeAll(async () => {
 
 describe('provisioning reconcile failure contract', () => {
   test('returns structured failures when migration and state persistence both fail', async () => {
-    const response = await provisioningRoutes.handle(new Request(
+    const response = await operationTestPlugin(provisioningRoutes).handle(new Request(
       'http://localhost/v1/provisioning/lhevaxecbonjjdbardgi/reconcile',
       { method: 'POST' },
     ));
