@@ -15,7 +15,7 @@ import {
   initSync as initModuleLexerSync,
   parse as parseModuleImports,
 } from 'es-module-lexer';
-import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
+import { HOSTED_MIGRATION_CATALOG } from '../packages/auth-server/src/db/migrations/catalog.js';
 import { SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE } from './supacloud-app-contract.js';
 
 const ADMIN_SSO_REQUIRED_ENV = ['ADMIN_SSO_ISSUER', 'ADMIN_SSO_CLIENT_ID'];
@@ -646,7 +646,7 @@ export function verifySupacloudAppArtifact(input: {
   }
 
   const migrations = asArray(manifest["migrations"]).map(asRecord);
-  for (const expectedMigration of HOSTED_MIGRATIONS) {
+  for (const expectedMigration of HOSTED_MIGRATION_CATALOG) {
     const manifestMigration = migrations.find((migration) => migration["name"] === expectedMigration.name);
     if (!manifestMigration) {
       result.errors.push(`Manifest must declare ${expectedMigration.name} migration`);

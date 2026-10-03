@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
   JsonValueSchema, Type, decodeSchema, type JsonValue, type Static, type TSchema,
 } from '../packages/shared/src/schema.js';
-import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
+import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrations/index.js';
 import { allocationProofDetails, type AllocationProof } from './real-contract-allocation.js';
 import { SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE } from './supacloud-app-contract.js';
 import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
