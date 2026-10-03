@@ -109,12 +109,13 @@ if (!tokenResponse.ok || !tokens?.access_token || !tokens.refresh_token) {
 
 console.log(`::add-mask::${tokens.access_token}`);
 console.log(`::add-mask::${tokens.refresh_token}`);
+const oauthFetch: typeof fetch = Object.assign(createSupaCloudOAuthFetch({
+  clientId,
+  tokenEndpoint: `${runtimeUrl}/auth/v1/oauth/token`,
+}), { preconnect: fetch.preconnect });
 const oauthClient = createClient(runtimeUrl, publicKey, {
   global: {
-    fetch: createSupaCloudOAuthFetch({
-      clientId,
-      tokenEndpoint: `${runtimeUrl}/auth/v1/oauth/token`,
-    }),
+    fetch: oauthFetch,
   },
   auth: {
     autoRefreshToken: false,

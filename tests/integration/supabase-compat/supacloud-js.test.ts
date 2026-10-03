@@ -70,10 +70,10 @@ describe('@supacloud/js compatibility', () => {
         persistSession: false,
       },
       global: {
-        fetch: createSupaCloudOAuthFetch({
+        fetch: createFetchMock(createSupaCloudOAuthFetch({
           clientId: 'public-client',
           fetch: transport,
-        }),
+        })),
       },
     });
 
@@ -99,20 +99,31 @@ describe('@supacloud/js compatibility', () => {
 
   it('passes non-refresh requests through when an OAuth client is configured', async () => {
     let forwardedRequest: Request | undefined;
+    let forwardedInput: RequestInfo | URL | undefined;
+    let forwardedInit: RequestInit | undefined;
+    const expectedResponse = new Response('ok', { status: 200 });
     const transport = createFetchMock(((async (input: RequestInfo | URL, init?: RequestInit) => {
+      forwardedInput = input;
+      forwardedInit = init;
       forwardedRequest = new Request(input, init);
-      return new Response('ok', { status: 200 });
+      return expectedResponse;
     })));
-    const supacloudFetch = createSupaCloudOAuthFetch({
+    const supacloudFetch = createFetchMock(createSupaCloudOAuthFetch({
       clientId: 'public-client',
       fetch: transport,
-    });
-
-    const response = await supacloudFetch('https://auth.example.test/auth/v1/user', {
+    }));
+    const input = new Request('https://auth.example.test/auth/v1/user');
+    const init: RequestInit = {
       method: 'GET',
       headers: { authorization: 'Bearer access-token' },
-    });
+    };
 
+    const response = await supacloudFetch(input, init);
+
+    expect(supacloudFetch.preconnect).toBe(fetch.preconnect);
+    expect(forwardedInput).toBe(input);
+    expect(forwardedInit).toBe(init);
+    expect(response).toBe(expectedResponse);
     expect(response.status).toBe(200);
     expect(forwardedRequest?.url).toBe('https://auth.example.test/auth/v1/user');
     expect(forwardedRequest?.method).toBe('GET');

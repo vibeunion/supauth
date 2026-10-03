@@ -1,5 +1,5 @@
 diff --git a/dist/main/lib/types.d.ts b/dist/main/lib/types.d.ts
-index 8bfbcd1..4c8f71c 100644
+index 325ba50..5ec107e 100644
 --- a/dist/main/lib/types.d.ts
 +++ b/dist/main/lib/types.d.ts
 @@ -3,7 +3,7 @@ import { Fetch } from './fetch';
@@ -11,7 +11,7 @@ index 8bfbcd1..4c8f71c 100644
  import { AuthenticationCredential, PublicKeyCredentialCreationOptionsFuture, PublicKeyCredentialRequestOptionsFuture, RegistrationCredential } from './webauthn.dom';
  /** One of the providers supported by GoTrue. Use the `custom:` prefix for custom OIDC providers (e.g. `custom:my-oidc-provider`). */
  export type Provider = 'apple' | 'azure' | 'bitbucket' | 'discord' | 'facebook' | 'figma' | 'github' | 'gitlab' | 'google' | 'kakao' | 'keycloak' | 'linkedin' | 'linkedin_oidc' | 'notion' | 'slack' | 'slack_oidc' | 'spotify' | 'twitch'
-@@ -2381,7 +2381,7 @@ export type PasskeyRegistrationOptionsResponse = {
+@@ -2730,7 +2730,7 @@ export type PasskeyRegistrationOptionsResponse = {
  /** Request body for POST /passkeys/registration/verify */
  export type PasskeyRegistrationVerifyParams = {
      challenge_id: string;
@@ -20,7 +20,7 @@ index 8bfbcd1..4c8f71c 100644
  };
  /** Response from POST /passkeys/registration/verify */
  export type PasskeyMetadata = {
-@@ -2398,7 +2398,7 @@ export type PasskeyAuthenticationOptionsResponse = {
+@@ -2748,7 +2748,7 @@ export type PasskeyAuthenticationOptionsResponse = {
  /** Request body for POST /passkeys/authentication/verify */
  export type PasskeyAuthenticationVerifyParams = {
      challenge_id: string;
@@ -29,7 +29,7 @@ index 8bfbcd1..4c8f71c 100644
  };
  /** Item in the passkeys list (GET /passkeys/ and admin list) */
  export type PasskeyListItem = {
-@@ -2546,4 +2546,4 @@ export interface GoTrueAdminPasskeyApi {
+@@ -2923,4 +2923,4 @@ export interface GoTrueAdminPasskeyApi {
      deletePasskey(params: AuthPasskeyAdminDeleteParams): Promise<AuthPasskeyDeleteResponse>;
  }
  export {};
@@ -296,7 +296,7 @@ index 2b004e4..1f328a9 100644
 \ No newline at end of file
 +//# sourceMappingURL=webauthn.dom.d.ts.map
 diff --git a/dist/module/lib/types.d.ts b/dist/module/lib/types.d.ts
-index 8bfbcd1..4c8f71c 100644
+index 325ba50..5ec107e 100644
 --- a/dist/module/lib/types.d.ts
 +++ b/dist/module/lib/types.d.ts
 @@ -3,7 +3,7 @@ import { Fetch } from './fetch';
@@ -308,7 +308,7 @@ index 8bfbcd1..4c8f71c 100644
  import { AuthenticationCredential, PublicKeyCredentialCreationOptionsFuture, PublicKeyCredentialRequestOptionsFuture, RegistrationCredential } from './webauthn.dom';
  /** One of the providers supported by GoTrue. Use the `custom:` prefix for custom OIDC providers (e.g. `custom:my-oidc-provider`). */
  export type Provider = 'apple' | 'azure' | 'bitbucket' | 'discord' | 'facebook' | 'figma' | 'github' | 'gitlab' | 'google' | 'kakao' | 'keycloak' | 'linkedin' | 'linkedin_oidc' | 'notion' | 'slack' | 'slack_oidc' | 'spotify' | 'twitch'
-@@ -2381,7 +2381,7 @@ export type PasskeyRegistrationOptionsResponse = {
+@@ -2730,7 +2730,7 @@ export type PasskeyRegistrationOptionsResponse = {
  /** Request body for POST /passkeys/registration/verify */
  export type PasskeyRegistrationVerifyParams = {
      challenge_id: string;
@@ -317,7 +317,7 @@ index 8bfbcd1..4c8f71c 100644
  };
  /** Response from POST /passkeys/registration/verify */
  export type PasskeyMetadata = {
-@@ -2398,7 +2398,7 @@ export type PasskeyAuthenticationOptionsResponse = {
+@@ -2748,7 +2748,7 @@ export type PasskeyAuthenticationOptionsResponse = {
  /** Request body for POST /passkeys/authentication/verify */
  export type PasskeyAuthenticationVerifyParams = {
      challenge_id: string;
@@ -326,7 +326,7 @@ index 8bfbcd1..4c8f71c 100644
  };
  /** Item in the passkeys list (GET /passkeys/ and admin list) */
  export type PasskeyListItem = {
-@@ -2546,4 +2546,4 @@ export interface GoTrueAdminPasskeyApi {
+@@ -2923,4 +2923,4 @@ export interface GoTrueAdminPasskeyApi {
      deletePasskey(params: AuthPasskeyAdminDeleteParams): Promise<AuthPasskeyDeleteResponse>;
  }
  export {};
