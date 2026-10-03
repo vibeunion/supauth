@@ -6,7 +6,7 @@ import { Elysia } from 'elysia';
 import { getSupaCloudAdapterForProject, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as provRepo from '../repositories/provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
-import { HOSTED_MIGRATIONS } from '../db/migrate.js';
+import { HOSTED_MIGRATIONS } from '../db/migrations/index.js';
 import { operationContract, operationOutput } from '../utils/operation-contract.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
