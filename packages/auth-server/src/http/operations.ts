@@ -43,6 +43,7 @@ import { myAccountRoutes } from '../routes/my-account.js';
 import { rbacBridgeRoutes } from '../routes/rbac-bridge.js';
 import { routeGateRoutes } from '../routes/route-gate.js';
 import { accountProvisioningRoutes } from '../routes/account-provisioning.js';
+import type { HttpOperation } from './operation.js';
 
 export const httpOperationGroups = [
   authRoutes,
@@ -93,7 +94,7 @@ export const httpOperationGroups = [
 ] as const;
 
 export const httpOperations = httpOperationGroups.flatMap(group =>
-  Object.values(group.operations).map(operation => ({
+  Object.values<Pick<HttpOperation, 'method' | 'path' | 'options'>>(group.operations).map(operation => ({
     method: operation.method,
     path: `${group.prefix}${operation.path}`,
     options: operation.options,

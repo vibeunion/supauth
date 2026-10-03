@@ -55,6 +55,23 @@ const tags = [
   { name: 'Account Provisioning', description: 'Bulk account provisioning, SupaOAuth user creation, and self-service account claiming' },
 ];
 
+export function openApiPath(path: string): string {
+  return path.split('/').map(segment => {
+    if (!segment.startsWith(':')) return segment;
+    const name = segment.slice(1);
+    return `{${name.endsWith('?') ? name.slice(0, -1) : name}}`;
+  }).join('/');
+}
+
+// 保持 @elysiajs/swagger 1.3.1 的路径分段与首字符大写规则，稳定既有客户端标识。
+function generateOperationId(method: string, path: string): string {
+  const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+  if (path === '/') return `${method}Index`;
+  return method + path.split('/').map(segment =>
+    segment.startsWith('{') ? `By${capitalize(segment.slice(1, -1))}` : capitalize(segment),
+  ).join('');
+}
+
 export function buildSupAuthOpenApi(operations: Iterable<DocumentedOperation>) {
   const paths: Record<string, Record<string, Record<string, unknown>>> = {};
   for (const operation of operations) {
@@ -64,17 +81,23 @@ export function buildSupAuthOpenApi(operations: Iterable<DocumentedOperation>) {
     if (!['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'].includes(method)) {
       throw new Error(`Unsupported OpenAPI method: ${operation.method}`);
     }
-    const path = operation.path.replace(/:([^/]+)/g, '{$1}');
+    const path = openApiPath(operation.path);
     const pathItem = paths[path] ?? {};
     if (Object.hasOwn(pathItem, method)) throw new Error(`Duplicate OpenAPI operation: ${method} ${path}`);
     // 输入及响应 schema 由领域契约提供；不读取运行时 router 或猜测 schema。
     pathItem[method] = {
-      ...(operation.options.body !== undefined && detail['requestBody'] === undefined ? {
+      operationId: detail['operationId'] ?? generateOperationId(method, path),
+      ...detail,
+      // 旧 Swagger 在 detail 之后写入 body：显式运行时 schema 优先，不与较宽文档合并。
+      ...(operation.options.body !== undefined ? {
         requestBody: {
-          content: { 'application/json': { schema: operation.options.body } },
+          required: true,
+          content: Object.fromEntries(
+            ['application/json', 'multipart/form-data', 'text/plain']
+              .map(mediaType => [mediaType, { schema: operation.options.body }]),
+          ),
         },
       } : {}),
-      ...detail,
     };
     paths[path] = pathItem;
   }
