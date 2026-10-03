@@ -1,12 +1,13 @@
 // Webhook management routes with OpenAPI annotations
 
-import { Elysia } from 'elysia';
+
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { SUPPORTED_WEBHOOK_EVENTS, WEBHOOK_EVENT_CATALOG } from '../repositories/webhook-delivery.js';
 import * as auditRepo from '../repositories/audit.js';
 import { ApiContractError, cursorResponse, pagedResponse, isRecord } from '../utils/api-contract.js';
 import { withoutSecrets } from '../utils/secrets.js';
 import { operationContract, operationInput, operationOutput } from '../utils/operation-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 const supportedWebhookEventSet = new Set<string>(SUPPORTED_WEBHOOK_EVENTS);
@@ -45,13 +46,13 @@ async function audit(eventType: string, resourceType: string, resourceId: string
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
-export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
-  .get('/', async ({ query }) => {
+export const webhookRoutes = defineHttpOperations({ prefix: '/v1/webhooks' }, {
+  getRoot: defineHttpOperation('GET', '/', async ({ query }) => {
     return operationOutput('listWebhooks', withoutSecrets(pagedResponse(await adapter.listWebhooks(), { page: query["page"], limit: query["limit"] })));
   }, operationContract('listWebhooks', {
     detail: { summary: 'List webhooks', tags: ['Webhooks'] },
-  }))
-  .post('/', async ({ body }) => {
+  })),
+  postRoot: defineHttpOperation('POST', '/', async ({ body }) => {
     const webhook = webhookInput(body);
     validateWebhookUrl(webhook["url"]);
     const validationError = unsupportedWebhookEventsResponse(webhook["events"]);
@@ -67,24 +68,24 @@ export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
     const input = webhookInput(body);
     validateWebhookUrl(input["url"]);
     return unsupportedWebhookEventsResponse(input["events"]) ?? undefined;
-  }))
-  .get('/events', () => ({ events: SUPPORTED_WEBHOOK_EVENTS, catalog: WEBHOOK_EVENT_CATALOG }), operationContract('listWebhookEvents', {
+  })),
+  getEvents: defineHttpOperation('GET', '/events', () => ({ events: SUPPORTED_WEBHOOK_EVENTS, catalog: WEBHOOK_EVENT_CATALOG }), operationContract('listWebhookEvents', {
     detail: { summary: 'List supported webhook events', tags: ['Webhooks'] },
-  }))
-  .get('/:webhookId', async ({ params }) => {
+  })),
+  getByWebhookId: defineHttpOperation('GET', '/:webhookId', async ({ params }) => {
     return operationOutput('getWebhook', withoutSecrets(await adapter.getWebhook(params.webhookId)));
   }, operationContract('getWebhook', {
     detail: { summary: 'Get webhook by ID', tags: ['Webhooks'] },
-  }))
-  .get('/:webhookId/logs', async ({ params, query }) => {
+  })),
+  getByWebhookIdLogs: defineHttpOperation('GET', '/:webhookId/logs', async ({ params, query }) => {
     return operationOutput('listWebhookLogs', withoutSecrets(cursorResponse(
       await adapter.listWebhookLogs(params.webhookId, { limit: query["limit"] || 50, cursor: query["cursor"] }),
       { limit: query["limit"] },
     )));
   }, operationContract('listWebhookLogs', {
     detail: { summary: 'List webhook delivery and diagnostic logs', tags: ['Webhooks'] },
-  }))
-  .put('/:webhookId', async ({ params, body }) => {
+  })),
+  putByWebhookId: defineHttpOperation('PUT', '/:webhookId', async ({ params, body }) => {
     const webhook = webhookInput(body);
     validateOptionalWebhookUrl(webhook);
     const validationError = webhook["events"] === undefined ? null : unsupportedWebhookEventsResponse(webhook["events"]);
@@ -99,21 +100,21 @@ export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
     const input = webhookInput(body);
     validateOptionalWebhookUrl(input);
     return input["events"] === undefined ? undefined : unsupportedWebhookEventsResponse(input["events"]) ?? undefined;
-  }))
-  .delete('/:webhookId', async ({ params }) => {
+  })),
+  deleteByWebhookId: defineHttpOperation('DELETE', '/:webhookId', async ({ params }) => {
     await adapter.deleteWebhook(params.webhookId);
     await audit('webhook.delete', 'webhook', params.webhookId);
   }, operationContract('deleteWebhook', {
     detail: { summary: 'Delete webhook', tags: ['Webhooks'] },
-  }))
-  .post('/:webhookId/rotate-secret', async ({ params }) => {
+  })),
+  postByWebhookIdRotateSecret: defineHttpOperation('POST', '/:webhookId/rotate-secret', async ({ params }) => {
     const updated = await adapter.rotateWebhookSecret(params.webhookId);
     await audit('webhook.rotate_secret', 'webhook', params.webhookId);
     return operationOutput('rotateWebhookSecret', withoutSecrets(updated));
   }, operationContract('rotateWebhookSecret', {
     detail: { summary: 'Rotate webhook signing secret', tags: ['Webhooks'] },
-  }))
-  .post('/:webhookId/test', async ({ params, body, set }) => {
+  })),
+  postByWebhookIdTest: defineHttpOperation('POST', '/:webhookId/test', async ({ params, body, set }) => {
     rejectCustomWebhookTestPayload(body);
     const queuedDelivery = await adapter.testWebhook(params.webhookId);
     set.status = 202;
@@ -124,8 +125,8 @@ export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
       description: 'SupaCloud generates the webhook.test payload; callers cannot supply event data.',
       tags: ['Webhooks'],
     },
-  }, ({ body }) => rejectCustomWebhookTestPayload(body)))
-  .get('/:webhookId/deliveries', async ({ params, query }) => {
+  }, ({ body }) => rejectCustomWebhookTestPayload(body))),
+  getByWebhookIdDeliveries: defineHttpOperation('GET', '/:webhookId/deliveries', async ({ params, query }) => {
     const deliveries = await adapter.listWebhookDeliveries(params.webhookId, {
       limit: query["limit"],
       cursor: query["cursor"],
@@ -134,20 +135,21 @@ export const webhookRoutes = new Elysia({ prefix: '/v1/webhooks' })
     return operationOutput('listWebhookDeliveries', withoutSecrets(cursorResponse(deliveries, { limit: query["limit"] })));
   }, operationContract('listWebhookDeliveries', {
     detail: { summary: 'List durable webhook deliveries', tags: ['Webhooks'] },
-  }))
-  .get('/:webhookId/deliveries/:deliveryId', async ({ params }) => {
+  })),
+  getByWebhookIdDeliveriesByDeliveryId: defineHttpOperation('GET', '/:webhookId/deliveries/:deliveryId', async ({ params }) => {
     return operationOutput('getWebhookDelivery', withoutSecrets(await adapter.getWebhookDelivery(params.webhookId, params.deliveryId)));
   }, operationContract('getWebhookDelivery', {
     detail: { summary: 'Get webhook delivery detail', tags: ['Webhooks'] },
-  }))
-  .post('/:webhookId/deliveries/:deliveryId/replay', async ({ params, set }) => {
+  })),
+  postByWebhookIdDeliveriesByDeliveryIdReplay: defineHttpOperation('POST', '/:webhookId/deliveries/:deliveryId/replay', async ({ params, set }) => {
     const replay = await adapter.replayWebhookDelivery(params.webhookId, params.deliveryId);
     await audit('webhook.delivery.replay', 'webhook', params.webhookId, { delivery_id: params.deliveryId });
     set.status = 202;
     return operationOutput('replayWebhookDelivery', withoutSecrets(replay));
   }, operationContract('replayWebhookDelivery', {
     detail: { summary: 'Replay the exact durable webhook delivery', tags: ['Webhooks'] },
-  }));
+  })),
+});
 
 function rejectCustomWebhookTestPayload(body: unknown): void {
   if (body === undefined || body === null) return;

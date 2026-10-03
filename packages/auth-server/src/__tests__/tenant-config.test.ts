@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
 
 process.env.NODE_ENV = 'production';
 
@@ -40,7 +41,7 @@ const { tenantConfigRoutes } = await import('../routes/tenant-config.js');
 
 const app = new Elysia()
   .use(observabilityMiddleware)
-  .use(tenantConfigRoutes);
+  .use(operationTestPlugin(tenantConfigRoutes));
 
 const unsafeAccountCenterValues: Array<[string, Record<string, unknown>]> = [
   ['nested credentials', { delete_account: { enabled: true, url: 'https://user:secret@example.test/delete' } }],

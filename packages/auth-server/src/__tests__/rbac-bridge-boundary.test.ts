@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ApiContractError } from '../utils/api-contract.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const validUser = { id: 'user-one', app_metadata: { role: 'admin' } };
 const validRole = { id: 'role-one', name: 'admin' };
@@ -40,7 +41,7 @@ mock.module('../repositories/audit.js', () => ({
 
 const { rbacBridgeRoutes } = await import('../routes/rbac-bridge.js');
 const app = new Elysia()
-  .onError(({ error, set }) => {
+  .error(({ error, set }) => {
     if (error instanceof ApiContractError) {
       set.status = error.status;
       return { code: error.code };
@@ -48,7 +49,7 @@ const app = new Elysia()
     set.status = 500;
     return { code: 'unexpected_error' };
   })
-  .use(rbacBridgeRoutes);
+  .use(operationTestPlugin(rbacBridgeRoutes));
 
 beforeEach(() => {
   users = [validUser];

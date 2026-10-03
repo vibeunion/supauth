@@ -2,6 +2,7 @@ import { strictProperty } from './helpers/strict-values.js';
 import { strictRecord } from './helpers/strict-values.js';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
 
 type JitCapability = {
   available: boolean;
@@ -40,13 +41,13 @@ mock.module('../repositories/webhook-delivery.js', () => ({
 
 const { organizationRoutes } = await import('../routes/organizations.js');
 const app = new Elysia()
-  .onError(({ error, set }) => {
+  .error(({ error, set }) => {
     if (error && typeof error === 'object' && 'status' in error) {
       set.status = Number(error.status);
       return { code: 'code' in error ? error.code : 'error', details: 'details' in error ? error.details : undefined };
     }
   })
-  .use(organizationRoutes);
+  .use(operationTestPlugin(organizationRoutes));
 
 describe('organization JIT capability gate', () => {
   beforeEach(() => {

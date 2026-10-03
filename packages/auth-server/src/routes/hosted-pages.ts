@@ -1,7 +1,7 @@
 // Hosted static pages: authorize UI, login redirect, admin console SPA.
 // The SupaOAuth HTTP app owns these hosted-page routes.
 
-import { Elysia } from 'elysia';
+
 import path from 'node:path';
 import {
   EMBEDDED_ACCOUNT_HTML,
@@ -13,6 +13,7 @@ import {
 } from '../generated/hosted-pages.js';
 import { LOGOUT_PAGE_HEADERS, resolvePostLogoutRedirect } from './logout-page.js';
 import { hostedContract } from '../utils/hosted-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 function uniquePaths(paths: string[]) {
   return [...new Set(paths.map(candidate => path.normalize(candidate)))];
@@ -334,20 +335,20 @@ export interface HostedPageOverrides {
 }
 
 export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
-  return new Elysia()
-  .get('/hosted-auth.js', () => new Response(EMBEDDED_HOSTED_SESSION_JS, {
+  return defineHttpOperations({ prefix: '' }, {
+  getHostedAuthJs: defineHttpOperation('GET', '/hosted-auth.js', () => new Response(EMBEDDED_HOSTED_SESSION_JS, {
     headers: {
       'content-type': 'application/javascript; charset=utf-8',
       'cache-control': 'no-store',
     },
-  }), hostedContract("script", { ...{ summary: 'Serve hosted authentication session client', tags: ['Public'] }, hide: true }))
+  }), hostedContract("script", { ...{ summary: 'Serve hosted authentication session client', tags: ['Public'] }, hide: true })),
 
-  .get('/favicon.ico', serveFavicon, hostedContract("favicon", { ...{ summary: 'Serve hosted favicon', tags: ['Public'] }, hide: true }))
+  getFaviconIco: defineHttpOperation('GET', '/favicon.ico', serveFavicon, hostedContract("favicon", { ...{ summary: 'Serve hosted favicon', tags: ['Public'] }, hide: true })),
 
-  .get('/favicon.svg', serveFavicon, hostedContract("favicon", { ...{ summary: 'Serve hosted favicon SVG', tags: ['Public'] }, hide: true }))
+  getFaviconSvg: defineHttpOperation('GET', '/favicon.svg', serveFavicon, hostedContract("favicon", { ...{ summary: 'Serve hosted favicon SVG', tags: ['Public'] }, hide: true })),
 
   // Hosted OAuth authorize page
-  .get('/oauth/authorize', async ({ set }) => {
+  getOauthAuthorize: defineHttpOperation('GET', '/oauth/authorize', async ({ set }) => {
     const html = pages.authorize ?? await getAuthorizeHtml();
     if (!html) {
       set.status = 404;
@@ -355,10 +356,10 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderAuthorizeHtml(html);
-  }, hostedContract("page", { summary: 'Serve hosted OAuth authorize page', tags: ['Public', 'Consent'] }))
+  }, hostedContract("page", { summary: 'Serve hosted OAuth authorize page', tags: ['Public', 'Consent'] })),
 
   // Login page and root redirect to authorize
-  .get('/login.html', async ({ set }) => {
+  getLoginHtml: defineHttpOperation('GET', '/login.html', async ({ set }) => {
     const html = pages.authorize ?? await getAuthorizeHtml();
     if (!html) {
       set.status = 404;
@@ -366,9 +367,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderAuthorizeHtml(html);
-  }, hostedContract("page", { ...{ summary: 'Serve hosted login page (alias for authorize)', tags: ['Public'] }, hide: true }))
+  }, hostedContract("page", { ...{ summary: 'Serve hosted login page (alias for authorize)', tags: ['Public'] }, hide: true })),
 
-  .get('/login', async ({ set }) => {
+  getLogin: defineHttpOperation('GET', '/login', async ({ set }) => {
     const html = pages.authorize ?? await getAuthorizeHtml();
     if (!html) {
       set.status = 404;
@@ -376,9 +377,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderAuthorizeHtml(html);
-  }, hostedContract("page", { summary: 'Serve hosted login path alias', tags: ['Public'] }))
+  }, hostedContract("page", { summary: 'Serve hosted login path alias', tags: ['Public'] })),
 
-  .get('/authorize.html', async ({ set }) => {
+  getAuthorizeHtml: defineHttpOperation('GET', '/authorize.html', async ({ set }) => {
     const html = pages.authorize ?? await getAuthorizeHtml();
     if (!html) {
       set.status = 404;
@@ -386,17 +387,17 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderAuthorizeHtml(html);
-  }, hostedContract("page", { ...{ summary: 'Serve hosted authorize page alias', tags: ['Public', 'Consent'] }, hide: true }))
+  }, hostedContract("page", { ...{ summary: 'Serve hosted authorize page alias', tags: ['Public', 'Consent'] }, hide: true })),
 
-  .get('/logout', ({ query, request }) => (
+  getLogout: defineHttpOperation('GET', '/logout', ({ query, request }) => (
     serveLogoutPage(request, query, pages.logout)
-  ), hostedContract("logoutPage", { summary: 'End the current SupAuth session', tags: ['Public'] }))
+  ), hostedContract("logoutPage", { summary: 'End the current SupAuth session', tags: ['Public'] })),
 
-  .get('/logout.html', ({ query, request }) => (
+  getLogoutHtml: defineHttpOperation('GET', '/logout.html', ({ query, request }) => (
     serveLogoutPage(request, query, pages.logout)
-  ), hostedContract("logoutPage", { ...{ summary: 'End the current SupAuth session HTML alias', tags: ['Public'] }, hide: true }))
+  ), hostedContract("logoutPage", { ...{ summary: 'End the current SupAuth session HTML alias', tags: ['Public'] }, hide: true })),
 
-  .get('/claim', async ({ set }) => {
+  getClaim: defineHttpOperation('GET', '/claim', async ({ set }) => {
     const html = pages.claim ?? await loadClaimHtml();
     if (!html) {
       set.status = 404;
@@ -404,9 +405,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderPublicHtml(html);
-  }, hostedContract("page", { summary: 'Serve account claim page', tags: ['Public', 'Account Provisioning'] }))
+  }, hostedContract("page", { summary: 'Serve account claim page', tags: ['Public', 'Account Provisioning'] })),
 
-  .get('/claim.html', async ({ set }) => {
+  getClaimHtml: defineHttpOperation('GET', '/claim.html', async ({ set }) => {
     const html = pages.claim ?? await loadClaimHtml();
     if (!html) {
       set.status = 404;
@@ -414,9 +415,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderPublicHtml(html);
-  }, hostedContract("page", { ...{ summary: 'Serve account claim page', tags: ['Public', 'Account Provisioning'] }, hide: true }))
+  }, hostedContract("page", { ...{ summary: 'Serve account claim page', tags: ['Public', 'Account Provisioning'] }, hide: true })),
 
-  .get('/account', async ({ set }) => {
+  getAccount: defineHttpOperation('GET', '/account', async ({ set }) => {
     const html = pages.account ?? await loadAccountHtml();
     if (!html) {
       set.status = 404;
@@ -424,9 +425,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderPublicHtml(html);
-  }, hostedContract("page", { summary: 'Serve hosted account center page', tags: ['Public', 'Account Center'] }))
+  }, hostedContract("page", { summary: 'Serve hosted account center page', tags: ['Public', 'Account Center'] })),
 
-  .get('/account.html', async ({ set }) => {
+  getAccountHtml: defineHttpOperation('GET', '/account.html', async ({ set }) => {
     const html = pages.account ?? await loadAccountHtml();
     if (!html) {
       set.status = 404;
@@ -434,9 +435,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderPublicHtml(html);
-  }, hostedContract("page", { ...{ summary: 'Serve hosted account center HTML alias', tags: ['Public', 'Account Center'] }, hide: true }))
+  }, hostedContract("page", { ...{ summary: 'Serve hosted account center HTML alias', tags: ['Public', 'Account Center'] }, hide: true })),
 
-  .get('/account/password', async ({ set }) => {
+  getAccountPassword: defineHttpOperation('GET', '/account/password', async ({ set }) => {
     const html = pages.changePassword ?? await loadChangePasswordHtml();
     if (!html) {
       set.status = 404;
@@ -444,9 +445,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderPublicHtml(html);
-  }, hostedContract("page", { summary: 'Serve hosted password change page', tags: ['Public', 'Account Center'] }))
+  }, hostedContract("page", { summary: 'Serve hosted password change page', tags: ['Public', 'Account Center'] })),
 
-  .get('/change-password', async ({ set }) => {
+  getChangePassword: defineHttpOperation('GET', '/change-password', async ({ set }) => {
     const html = pages.changePassword ?? await loadChangePasswordHtml();
     if (!html) {
       set.status = 404;
@@ -454,9 +455,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderPublicHtml(html);
-  }, hostedContract("page", { summary: 'Serve hosted password change page alias', tags: ['Public', 'Account Center'] }))
+  }, hostedContract("page", { summary: 'Serve hosted password change page alias', tags: ['Public', 'Account Center'] })),
 
-  .get('/change-password.html', async ({ set }) => {
+  getChangePasswordHtml: defineHttpOperation('GET', '/change-password.html', async ({ set }) => {
     const html = pages.changePassword ?? await loadChangePasswordHtml();
     if (!html) {
       set.status = 404;
@@ -464,9 +465,9 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderPublicHtml(html);
-  }, hostedContract("page", { ...{ summary: 'Serve hosted password change HTML alias', tags: ['Public', 'Account Center'] }, hide: true }))
+  }, hostedContract("page", { ...{ summary: 'Serve hosted password change HTML alias', tags: ['Public', 'Account Center'] }, hide: true })),
 
-  .get('/', async ({ set }) => {
+  getRoot: defineHttpOperation('GET', '/', async ({ set }) => {
     const html = pages.authorize ?? await getAuthorizeHtml();
     if (!html) {
       set.status = 404;
@@ -474,33 +475,33 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
     }
     set.headers['content-type'] = 'text/html; charset=utf-8';
     return renderAuthorizeHtml(html);
-  }, hostedContract("page", { summary: 'Serve hosted landing page (alias for authorize)', tags: ['Public'] }))
+  }, hostedContract("page", { summary: 'Serve hosted landing page (alias for authorize)', tags: ['Public'] })),
 
-  .get('/custom-ui/*', () => new Response('Not Found', {
+  getCustomUiWildcard: defineHttpOperation('GET', '/custom-ui/*', () => new Response('Not Found', {
     status: 404,
     headers: { 'cache-control': 'no-store' },
-  }), hostedContract("removedAsset", { hide: true }))
+  }), hostedContract("removedAsset", { hide: true })),
 
   // Admin console SPA static assets: /_app/*
-  .get('/_app/*', ({ params }) => {
+  getAppWildcard: defineHttpOperation('GET', '/_app/*', ({ params }) => {
     const sub = params['*'] || '';
     return serveAdminConsolePage(hostedPagePaths.adminConsoleBuildDirs, `_app/${sub}`);
-  }, hostedContract("staticAsset", { hide: true }))
+  }, hostedContract("staticAsset", { hide: true })),
 
-  .get('/admin', ({ request }) => (
+  getAdmin: defineHttpOperation('GET', '/admin', ({ request }) => (
     adminConsoleRedirectResponse(request) || serveAdminConsolePage(hostedPagePaths.adminConsoleBuildDirs, '')
-  ), hostedContract("adminRoot"))
+  ), hostedContract("adminRoot")),
 
   // Admin console SPA pages: /admin/*
-  .get('/admin/*', ({ params, request }) => {
+  getAdminWildcard: defineHttpOperation('GET', '/admin/*', ({ params, request }) => {
     const redirectResponse = adminConsoleRedirectResponse(request);
     if (redirectResponse) return redirectResponse;
     const sub = params['*'] || '';
     return serveAdminConsolePage(hostedPagePaths.adminConsoleBuildDirs, sub);
-  }, hostedContract("staticAsset", { hide: true }))
+  }, hostedContract("staticAsset", { hide: true })),
 
   // robots.txt
-  .get('/robots.txt', () => {
+  getRobotsTxt: defineHttpOperation('GET', '/robots.txt', () => {
     const resp = serveFirstStaticFile(
       hostedPagePaths.adminConsoleBuildDirs.map(dir => path.join(dir, 'robots.txt')),
     );
@@ -508,7 +509,8 @@ export function createHostedPageRoutes(pages: HostedPageOverrides = {}) {
       return new Response('User-agent: *\nDisallow: /\n', { headers: { 'content-type': 'text/plain' } });
     }
     return resp;
-  }, hostedContract("robots", { hide: true }));
+  }, hostedContract("robots", { hide: true })),
+  });
 }
 
 export const hostedPageRoutes = createHostedPageRoutes();

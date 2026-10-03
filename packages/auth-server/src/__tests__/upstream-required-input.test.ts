@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import type { SdkEndpointInput } from '../../../shared/src/sdk-endpoints.js';
 import { ApiContractError } from '../utils/api-contract.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 // 上游依据：SupaCloud d5ec697285edf4491befd5499807ddb8d33554cf，
 // packages/management-api/src/routes/project-organizations.ts:278-289、
@@ -36,8 +37,8 @@ const { roleRoutes } = await import('../routes/roles.js');
 const { observabilityMiddleware } = await import('../middleware/index.js');
 const app = new Elysia()
   .use(observabilityMiddleware)
-  .use(organizationRoutes)
-  .use(roleRoutes);
+  .use(operationTestPlugin(organizationRoutes))
+  .use(operationTestPlugin(roleRoutes));
 
 function request(method: 'PUT' | 'POST', path: string, body: unknown) {
   return new Request(`http://localhost${path}`, {

@@ -1,6 +1,6 @@
 // Connector management routes with OpenAPI annotations
 
-import { Elysia } from 'elysia';
+
 import {
   getSupaCloudAdapter,
   isSupaCloudApiError,
@@ -16,6 +16,7 @@ import { configurationContract, decodeConfigurationInput, decodeConfigurationRes
 import { BuiltinOAuthProvidersSchema, ConnectorFactoryStoredConfigSchema } from '../../../shared/src/server-configuration.js';
 import { definedFields } from '../utils/defined-fields.js';
 import { decodeProviderReadback, type ProviderReadback as ProviderInfo } from '../utils/upstream-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 export type { ProviderReadback as ProviderInfo } from '../utils/upstream-contract.js';
 
 const adapter = getSupaCloudAdapter();
@@ -674,8 +675,8 @@ export async function instantiateConnectorFactory(
   return withoutSecrets({ ...readbackProvider, ...connectorConfig });
 }
 
-export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
-  .get('/', async () => {
+export const connectorRoutes = defineHttpOperations({ prefix: '/v1/connectors' }, {
+  getRoot: defineHttpOperation('GET', '/', async () => {
     decodeConfigurationInput('listConnectors', {});
     const [upstreamProviders, connectorConfigs] = await Promise.all([
       adapter.listProviders(),
@@ -685,15 +686,15 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
     return pagedResponse(withoutSecrets(mergeProvidersWithConnectorConfigs(providers, connectorConfigs)));
   }, configurationContract('listConnectors', {
     detail: { summary: 'List connectors (identity providers)', tags: ['Connectors'] },
-  }))
-  .get('/factories', async ({ query }) => {
+  })),
+  getFactories: defineHttpOperation('GET', '/factories', async ({ query }) => {
     const input = decodeConfigurationInput('listConnectorFactories', { query });
     const items = await tenantConfigRepo.listConnectorFactories(input.query?.category);
     return { items, total: items.length };
   }, configurationContract('listConnectorFactories', {
     detail: { summary: 'List connector factory catalog', tags: ['Connectors', 'Connector Factory'] },
-  }))
-  .put('/factories/:factoryId', async ({ params, body }) => {
+  })),
+  putFactoriesByFactoryId: defineHttpOperation('PUT', '/factories/:factoryId', async ({ params, body }) => {
     const { body: data } = decodeConfigurationInput('upsertConnectorFactory', { params, body });
     return tenantConfigRepo.upsertConnectorFactory(params.factoryId, definedFields({
       name: data.name,
@@ -704,8 +705,8 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
     }));
   }, configurationContract('upsertConnectorFactory', {
     detail: { summary: 'Create or update connector factory definition', tags: ['Connectors', 'Connector Factory'] },
-  }))
-  .post('/from-factory/:factoryId', async ({ params, body }) => {
+  })),
+  postFromFactoryByFactoryId: defineHttpOperation('POST', '/from-factory/:factoryId', async ({ params, body }) => {
     const factory = await tenantConfigRepo.getConnectorFactory(params.factoryId);
     if (!factory) throw new ApiContractError(404, 'connector_factory_not_found', 'Connector factory was not found');
     if (!factory.enabled) throw new ApiContractError(409, 'connector_factory_disabled', 'Connector factory is disabled');
@@ -723,15 +724,15 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
     return connector;
   }, configurationContract('createConnectorFromFactory', {
     detail: { summary: 'Instantiate or update connector from factory', tags: ['Connectors', 'Connector Factory'] },
-  }))
-  .get('/:connectorId', async ({ params }) => {
+  })),
+  getByConnectorId: defineHttpOperation('GET', '/:connectorId', async ({ params }) => {
     decodeConfigurationInput('getConnector', { params });
     const config = await connectorRepo.getConnectorConfig(params.connectorId);
     return verifiedConnectorState(params.connectorId, config);
   }, configurationContract('getConnector', {
     detail: { summary: 'Get connector by ID', tags: ['Connectors'] },
-  }))
-  .get('/:connectorId/authorization-uri', async ({ params, query }) => {
+  })),
+  getByConnectorIdAuthorizationUri: defineHttpOperation('GET', '/:connectorId/authorization-uri', async ({ params, query }) => {
     const input = decodeConfigurationInput('getConnectorAuthorizationUri', { params, query });
     const config = await connectorRepo.getConnectorConfig(params.connectorId);
     const payload = await authoritativeConnector(
@@ -758,8 +759,8 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
     };
   }, configurationContract('getConnectorAuthorizationUri', {
     detail: { summary: 'Build connector authorization URI preflight', tags: ['Connectors', 'Connector Factory'] },
-  }))
-  .patch('/:connectorId', async ({ params, body }) => {
+  })),
+  patchByConnectorId: defineHttpOperation('PATCH', '/:connectorId', async ({ params, body }) => {
     const existingConfig = await connectorRepo.getConnectorConfig(params.connectorId);
     const runtimeKind = connectorRuntimeKind(existingConfig);
     if (body && typeof body === 'object' && 'enabled' in body
@@ -791,12 +792,13 @@ export const connectorRoutes = new Elysia({ prefix: '/v1/connectors' })
     return withoutSecrets(mergeProvidersWithConnectorConfigs([updated], config ? [config] : [])[0]);
   }, configurationContract('updateConnector', {
     detail: { summary: 'Update connector configuration', tags: ['Connectors'] },
-  }))
-  .post('/:connectorId/test', async ({ params }) => {
+  })),
+  postByConnectorIdTest: defineHttpOperation('POST', '/:connectorId/test', async ({ params }) => {
     decodeConfigurationInput('testConnector', { params });
     const connectorConfig = await connectorRepo.getConnectorConfig(params.connectorId);
     const runtimeKind = connectorRuntimeKind(connectorConfig);
     return adapter.preflightProviderAuthorization(params.connectorId, runtimeKind);
   }, configurationContract('testConnector', {
     detail: { summary: 'Check connector runtime configuration', tags: ['Connectors'] },
-  }));
+  })),
+});

@@ -4,7 +4,10 @@ import {
   type AccountEndpointName, type AccountInput, type AccountOutput,
 } from '../../../shared/src/server-account.js';
 import { ApiContractError } from './api-contract.js';
-import { serverContract, jsonWireValue } from './server-contract.js';
+import {
+  serverContract, jsonWireValue, SERVER_CONTRACT_METADATA,
+  type ServerContractMetadata,
+} from './server-contract.js';
 
 const receipts = new WeakMap<Request, Set<AccountEndpointName>>();
 const AuthorizationLocationSchema = Type.Object({ location: Type.String({ minLength: 1 }) });
@@ -58,8 +61,28 @@ export function accountContract<O extends { detail?: Record<string, unknown> }>(
     ...options, contract,
     ...(contract.request === 'raw-signed' || contract.request === 'protocol' ? { beforeValidate: assertVerified } : {}),
   });
+  const afterResponse = async (context: { request: Request; responseValue: unknown; set: { status?: number | string | undefined; headers?: unknown } }) => {
+    const status = context.responseValue instanceof Response ? context.responseValue.status : Number(context.set.status || 200);
+    if (status >= 200 && status < 400 && contract.request !== 'none') assertVerified(context);
+    if (name === 'authorize' && status === 302) {
+      const headers = context.responseValue instanceof Response ? context.responseValue.headers : context.set.headers;
+      try {
+        decodeSchema(AuthorizationLocationSchema, headers instanceof Headers ? Object.fromEntries(headers) : headers);
+      } catch {
+        throw new ApiContractError(502, 'invalid_upstream_response', 'Missing authorization redirect');
+      }
+    }
+    await afterHandle(context);
+  };
+  // account 的输入验证由业务 handler 完成，receipt 只能在其返回后检查。
+  const metadata: ServerContractMetadata = {
+    source: hooks[SERVER_CONTRACT_METADATA].source,
+    contract,
+    afterResponse,
+  };
   return {
     ...hooks,
+    [SERVER_CONTRACT_METADATA]: metadata,
     detail: {
       ...hooks.detail,
       ...(normalizationName ? {
@@ -67,18 +90,6 @@ export function accountContract<O extends { detail?: Record<string, unknown> }>(
         'x-supauth-normalizer': `routes:${name}:existing-validation`,
       } : {}),
     },
-    afterHandle: async (context: { request: Request; responseValue: unknown; set: { status?: number | string | undefined; headers?: unknown } }) => {
-      const status = context.responseValue instanceof Response ? context.responseValue.status : Number(context.set.status || 200);
-      if (status >= 200 && status < 400 && contract.request !== 'none') assertVerified(context);
-      if (name === 'authorize' && status === 302) {
-        const headers = context.responseValue instanceof Response ? context.responseValue.headers : context.set.headers;
-        try {
-          decodeSchema(AuthorizationLocationSchema, headers instanceof Headers ? Object.fromEntries(headers) : headers);
-        } catch {
-          throw new ApiContractError(502, 'invalid_upstream_response', 'Missing authorization redirect');
-        }
-      }
-      await afterHandle(context);
-    },
+    afterHandle: afterResponse,
   };
 }

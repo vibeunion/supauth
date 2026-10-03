@@ -1,6 +1,6 @@
 // Enterprise SSO routes (P1-9) with OpenAPI annotations
 
-import { Elysia } from 'elysia';
+
 import * as ssoRepo from '../repositories/enterprise-sso.js';
 import * as connectorRepo from '../repositories/connectors.js';
 import * as auditRepo from '../repositories/audit.js';
@@ -8,6 +8,7 @@ import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { ApiContractError, pagedResponse, isRecord } from '../utils/api-contract.js';
 import { configurationContract, decodeConfigurationInput } from '../utils/configuration-contract.js';
 import { definedFields, requiredRow } from '../utils/defined-fields.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const adapter = getSupaCloudAdapter();
@@ -35,34 +36,34 @@ async function audit(eventType: string, resourceType: string, resourceId: string
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
 }
 
-export const enterpriseSSORoutes = new Elysia({ prefix: '/v1/enterprise-sso' })
-  .get('/', async () => {
+export const enterpriseSSORoutes = defineHttpOperations({ prefix: '/v1/enterprise-sso' }, {
+  getRoot: defineHttpOperation('GET', '/', async () => {
     decodeConfigurationInput('listEnterpriseSSOConfigs', {});
     const items = await ssoRepo.listEnterpriseSSOConfigs();
     return pagedResponse(items);
   }, configurationContract('listEnterpriseSSOConfigs', {
     detail: { summary: 'List enterprise SSO configurations', tags: ['Enterprise SSO'] },
-  }))
+  })),
 
-  .get('/domain/:domain', async ({ params }) => {
+  getDomainByDomain: defineHttpOperation('GET', '/domain/:domain', async ({ params }) => {
     decodeConfigurationInput('discoverEnterpriseSSO', { params });
     const config = await ssoRepo.findSSOConfigByDomain(params.domain);
     if (!config) return new Response('No SSO config found for domain', { status: 404 });
     return config;
   }, configurationContract('discoverEnterpriseSSO', {
     detail: { summary: 'Find SSO config by email domain (domain discovery)', tags: ['Enterprise SSO'] },
-  }))
+  })),
 
-  .get('/:id', async ({ params }) => {
+  getById: defineHttpOperation('GET', '/:id', async ({ params }) => {
     decodeConfigurationInput('getEnterpriseSSOConfig', { params });
     const config = await ssoRepo.getEnterpriseSSOConfigById(params.id);
     if (!config) throw new ApiContractError(404, 'enterprise_sso_not_found', 'Enterprise SSO configuration was not found');
     return config;
   }, configurationContract('getEnterpriseSSOConfig', {
     detail: { summary: 'Get inbound enterprise SSO configuration', tags: ['Enterprise SSO'] },
-  }))
+  })),
 
-  .post('/', async ({ body }) => {
+  postRoot: defineHttpOperation('POST', '/', async ({ body }) => {
     validateInboundSSOFields(body);
     const { body: data } = decodeConfigurationInput('createEnterpriseSSOConfig', { body });
     const protocol = await validateInboundSSO(definedFields({ connectorId: data.connector_id, protocol: data.sso_protocol, domains: data.domains }));
@@ -78,9 +79,9 @@ export const enterpriseSSORoutes = new Elysia({ prefix: '/v1/enterprise-sso' })
     return config;
   }, configurationContract('createEnterpriseSSOConfig', {
     detail: { summary: 'Create enterprise SSO configuration', tags: ['Enterprise SSO'] },
-  }))
+  })),
 
-  .put('/:id', async ({ params, body }) => {
+  putById: defineHttpOperation('PUT', '/:id', async ({ params, body }) => {
     const current = await ssoRepo.getEnterpriseSSOConfigById(params.id);
     if (!current) throw new ApiContractError(404, 'enterprise_sso_not_found', 'Enterprise SSO configuration was not found');
     validateInboundSSOFields(body, current.connectorId, current.domains);
@@ -95,15 +96,16 @@ export const enterpriseSSORoutes = new Elysia({ prefix: '/v1/enterprise-sso' })
     return updated;
   }, configurationContract('updateEnterpriseSSOConfig', {
     detail: { summary: 'Update enterprise SSO configuration', tags: ['Enterprise SSO'] },
-  }))
+  })),
 
-  .delete('/:id', async ({ params }) => {
+  deleteById: defineHttpOperation('DELETE', '/:id', async ({ params }) => {
     decodeConfigurationInput('deleteEnterpriseSSOConfig', { params });
     await ssoRepo.deleteEnterpriseSSOConfig(params.id);
     await audit('enterprise_sso.delete', 'enterprise_sso', params.id);
   }, configurationContract('deleteEnterpriseSSOConfig', {
     detail: { summary: 'Delete enterprise SSO configuration', tags: ['Enterprise SSO'] },
-  }));
+  })),
+});
 
 function validateInboundSSOFields(body: unknown, connectorId?: string, domains?: unknown) {
   const source = body && typeof body === 'object' ? body : {};

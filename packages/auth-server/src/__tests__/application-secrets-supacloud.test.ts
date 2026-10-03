@@ -6,6 +6,7 @@ import { Elysia } from 'elysia';
 import type { AdminPrincipal } from '../auth/admin-permissions.js';
 import { withAdminRequestContext } from '../auth/request-context.js';
 import { loadConfig } from '../config/index.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 describe('application secret lifecycle', () => {
   const originalFetch = globalThis.fetch;
@@ -89,7 +90,7 @@ describe('application secret lifecycle', () => {
 
   it('rejects unsupported per-client secret lifecycle operations', async () => {
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(applicationRoutes);
+    const app = new Elysia().use(operationTestPlugin(applicationRoutes));
 
     const listResponse = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets'));
     const createResponse = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets', {
@@ -110,7 +111,7 @@ describe('application secret lifecycle', () => {
 
   it('normalizes OAuth client list envelopes for the admin applications page', async () => {
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(applicationRoutes);
+    const app = new Elysia().use(operationTestPlugin(applicationRoutes));
 
     const response = await withAdminRequestContext(
       { requestId: 'application-list-request', principal: adminPrincipal },
@@ -131,7 +132,7 @@ describe('application secret lifecycle', () => {
 
   it('removes an unexpected secret from OAuth client detail reads', async () => {
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(applicationRoutes);
+    const app = new Elysia().use(operationTestPlugin(applicationRoutes));
 
     const response = await app.handle(new Request('http://supauth.local/v1/applications/client-one'));
     const payload = strictRecord(await response.json());
@@ -143,7 +144,7 @@ describe('application secret lifecycle', () => {
 
   it('removes an unexpected secret from OAuth client update responses', async () => {
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(applicationRoutes);
+    const app = new Elysia().use(operationTestPlugin(applicationRoutes));
 
     const response = await withAdminRequestContext(
       { requestId: 'application-update-request', principal: adminPrincipal },
@@ -165,7 +166,7 @@ describe('application secret lifecycle', () => {
     loadConfig();
 
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(applicationRoutes);
+    const app = new Elysia().use(operationTestPlugin(applicationRoutes));
 
     const listResponse = await withAdminRequestContext(
       { requestId: 'central-application-list-request', principal: adminPrincipal },
@@ -192,7 +193,7 @@ describe('application secret lifecycle', () => {
     }));
 
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(applicationRoutes);
+    const app = new Elysia().use(operationTestPlugin(applicationRoutes));
     const response = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets'));
     expect(response.status).toBe(501);
   });
@@ -209,7 +210,7 @@ describe('application secret lifecycle', () => {
     }));
 
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(applicationRoutes);
+    const app = new Elysia().use(operationTestPlugin(applicationRoutes));
     const response = await app.handle(new Request('http://supauth.local/v1/applications/client-one/secrets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

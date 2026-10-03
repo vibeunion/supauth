@@ -2,6 +2,7 @@ import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../..
 import { strictFetch } from './helpers/strict-fetch.js';
 import { strictString } from './helpers/strict-values.js';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { operationTestPlugin } from './http-fixture.js';
 
 mock.module('../repositories/security-config.js', () => ({
   getSecurityConfig: mock(async () => null),
@@ -123,16 +124,18 @@ describe('Storage validation — bucket allowlist', () => {
   it('accepts avatars bucket', async () => {
     // Import the module to test the ALLOWED_BUCKETS constant indirectly
     // Since the constants are module-scoped, we test via the route behavior
-    // by checking the storage module structure
-    const storageModule = await import('../storage/index.js');
+    // by checking the storage test app structure
+    const operations = await import('../storage/index.js');
+    const storageModule = { storageRoutes: operationTestPlugin(operations.storageRoutes) };
     expect(storageModule.storageRoutes).toBeDefined();
     expect(typeof storageModule.storageRoutes.fetch).toBe('function');
   });
 });
 
 describe('Storage module — structure', () => {
-  it('exports storageRoutes as Elysia instance', async () => {
-    const { storageRoutes } = await import('../storage/index.js');
+  it('adapts storageRoutes to an Elysia test instance', async () => {
+    const { storageRoutes: operations } = await import('../storage/index.js');
+    const storageRoutes = operationTestPlugin(operations);
     expect(storageRoutes).toBeDefined();
     expect(typeof storageRoutes.fetch).toBe('function');
   });

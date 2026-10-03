@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ApiContractError } from '../utils/api-contract.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const initial = {
   id: 'resource-one', name: 'Documents', indicator: 'https://api.example.test',
@@ -45,14 +46,14 @@ mock.module('../repositories/audit.js', () => ({
 }));
 // 运行真实路由与仓储，仅在数据库边界捕获 values/set，不重写描述默认逻辑。
 const { resourceRoutes } = await import('../routes/resources.js');
-const app = new Elysia().onError(({ error, set }) => {
+const app = new Elysia().error(({ error, set }) => {
   if (error instanceof ApiContractError) {
     set.status = error.status;
     return { code: error.code };
   }
   set.status = 500;
   return { code: 'unexpected_error' };
-}).use(resourceRoutes);
+}).use(operationTestPlugin(resourceRoutes));
 
 beforeEach(() => {
   stored = { ...initial };

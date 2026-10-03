@@ -1,7 +1,7 @@
 // Stock GoTrue HTTP Auth Hook routes. Standard Webhooks signatures authenticate
 // the two public ceremony endpoints before any policy or claim logic runs.
 
-import { Elysia } from 'elysia';
+
 import { accountContract, accountOutput, accountProtocolVerified, decodeAccountSchema, readAccountInput } from '../utils/account-contract.js';
 import { AccessTokenPayloadSchema, AccessTokenRequestSchema, BeforeSignupPayloadSchema, BeforeSignupRequestSchema } from '../../../shared/src/server-account.js';
 import { definedFields } from '../utils/defined-fields.js';
@@ -21,11 +21,12 @@ import {
   type StandardWebhookMessage,
 } from '../auth/standard-webhooks.js';
 import { getConfig } from '../config/index.js';
-import { standardWebhookBodyCapture } from '../middleware/standard-webhooks.js';
+
 import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import * as auditRepo from '../repositories/audit.js';
 import { ApiContractError, isRecord } from '../utils/api-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 const MAX_ORGANIZATION_CLAIMS = 50;
@@ -244,11 +245,8 @@ function invitationField(sources: Array<Record<string, unknown> | null | undefin
   return undefined;
 }
 
-export const authHookRoutes = new Elysia({ prefix: '/v1/auth-hooks' })
-  .use(standardWebhookBodyCapture)
-  .post('/before-user-created', async ({ request, body }) => {
-    const unauthorized = await authenticateHookRequest(request, 'before-user-created');
-    if (unauthorized) return unauthorized;
+export const authHookRoutes = defineHttpOperations({ prefix: '/v1/auth-hooks' }, {
+  postBeforeUserCreated: defineHttpOperation('POST', '/before-user-created', async ({ request, body }) => {
     accountProtocolVerified('beforeSignup', request);
     if (syntheticProbe(body, 'before-user-created')) return accountOutput('beforeSignup', syntheticProbeResponse('before-user-created'));
     const policy = await getSignupPolicy();
@@ -257,17 +255,15 @@ export const authHookRoutes = new Elysia({ prefix: '/v1/auth-hooks' })
     const result = handleBeforeUserCreated(payload, policy, { invitation_verified: invitationVerified });
     await auditHook('auth_hook.before_user_created', { denied: 'error' in result, code: hookErrorCode(result) });
     return accountOutput('beforeSignup', result);
-  }, accountContract('beforeSignup', {
+  }, { ...accountContract('beforeSignup', {
     detail: {
       summary: 'Supabase before-user-created hook',
       description: 'Applies tenant signup policy such as domain allow/block lists, provider allow/block lists, and invite-only mode.',
       tags: ['Auth Hooks'],
     },
-  }))
+  }), beforeParse: request => authenticateHookRequest(request, 'before-user-created') }),
 
-  .post('/custom-access-token', async ({ request, body }) => {
-    const unauthorized = await authenticateHookRequest(request, 'custom-access-token');
-    if (unauthorized) return unauthorized;
+  postCustomAccessToken: defineHttpOperation('POST', '/custom-access-token', async ({ request, body }) => {
     accountProtocolVerified('accessToken', request);
     if (syntheticProbe(body, 'custom-access-token')) return accountOutput('accessToken', syntheticProbeResponse('custom-access-token'));
     const result = await customAccessTokenWithJit(body);
@@ -276,38 +272,39 @@ export const authHookRoutes = new Elysia({ prefix: '/v1/auth-hooks' })
       code: hookErrorCode(result),
     });
     return accountOutput('accessToken', result);
-  }, accountContract('accessToken', {
+  }, { ...accountContract('accessToken', {
     detail: {
       summary: 'Supabase custom-access-token hook',
       description: 'Reconciles GoTrue-backed organization JIT memberships under app_metadata.supaoauth.projects[projectRef] while preserving Supabase required claims.',
       tags: ['Auth Hooks'],
     },
-  }));
+  }), beforeParse: request => authenticateHookRequest(request, 'custom-access-token') }),
+});
 
-export const authHookAdminRoutes = new Elysia({ prefix: '/v1/auth-hooks' })
-  .get('/registration-guide', ({ request }) => accountOutput('hookGuide', buildHookRegistrationGuide(new URL(request.url).origin)), accountContract('hookGuide', {
+export const authHookAdminRoutes = defineHttpOperations({ prefix: '/v1/auth-hooks' }, {
+  getRegistrationGuide: defineHttpOperation('GET', '/registration-guide', ({ request }) => accountOutput('hookGuide', buildHookRegistrationGuide(new URL(request.url).origin)), accountContract('hookGuide', {
     detail: {
       summary: 'Get GoTrue HTTP Auth Hook registration guide',
       tags: ['Auth Hooks'],
     },
-  }))
-  .get('/custom-access-token/status', async () => {
+  })),
+  getCustomAccessTokenStatus: defineHttpOperation('GET', '/custom-access-token/status', async () => {
     return accountOutput('accessTokenStatus', await authHookStatus('custom-access-token'));
   }, accountContract('accessTokenStatus', {
     detail: {
       summary: 'Get GoTrue custom access-token hook registration status',
       tags: ['Auth Hooks'],
     },
-  }))
-  .get('/custom-access-token/config', async () => {
+  })),
+  getCustomAccessTokenConfig: defineHttpOperation('GET', '/custom-access-token/config', async () => {
     return accountOutput('accessTokenConfig', customAccessTokenHookConfig(await adapter.getAuthHooks()));
   }, accountContract('accessTokenConfig', {
     detail: {
       summary: 'Get GoTrue custom access-token hook configuration',
       tags: ['Auth Hooks'],
     },
-  }))
-  .patch('/custom-access-token/config', async ({ body, request }) => {
+  })),
+  patchCustomAccessTokenConfig: defineHttpOperation('PATCH', '/custom-access-token/config', async ({ body, request }) => {
     const currentConfig = customAccessTokenHookConfig(await adapter.getAuthHooks());
     const config = getConfig();
     const authHooks = customAccessTokenHookUpdate(
@@ -323,31 +320,32 @@ export const authHookAdminRoutes = new Elysia({ prefix: '/v1/auth-hooks' })
       summary: 'Update GoTrue custom access-token hook configuration',
       tags: ['Auth Hooks'],
     },
-  }))
-  .post('/custom-access-token/verify', async () => {
+  })),
+  postCustomAccessTokenVerify: defineHttpOperation('POST', '/custom-access-token/verify', async () => {
     return accountOutput('verifyAccessToken', await adapter.verifyAuthHook('custom-access-token'));
   }, accountContract('verifyAccessToken', {
     detail: {
       summary: 'Run a synthetic GoTrue custom access-token hook verification',
       tags: ['Auth Hooks'],
     },
-  }))
-  .get('/before-user-created/status', async () => {
+  })),
+  getBeforeUserCreatedStatus: defineHttpOperation('GET', '/before-user-created/status', async () => {
     return accountOutput('beforeSignupStatus', await authHookStatus('before-user-created'));
   }, accountContract('beforeSignupStatus', {
     detail: {
       summary: 'Get GoTrue before-user-created hook registration status',
       tags: ['Auth Hooks'],
     },
-  }))
-  .post('/before-user-created/verify', async () => {
+  })),
+  postBeforeUserCreatedVerify: defineHttpOperation('POST', '/before-user-created/verify', async () => {
     return accountOutput('verifyBeforeSignup', await adapter.verifyAuthHook('before-user-created'));
   }, accountContract('verifyBeforeSignup', {
     detail: {
       summary: 'Run a synthetic GoTrue before-user-created hook verification',
       tags: ['Auth Hooks'],
     },
-  }));
+  })),
+});
 
 async function authHookStatus(hookName: GoTrueHttpHookName) {
   const status = await adapter.getAuthHookStatus(hookName);

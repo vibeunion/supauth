@@ -26,6 +26,7 @@ import {
 } from '../routes/account-self-service.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
 import { validateExternalDeleteAccountUrl } from '../utils/external-delete-url.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const disabledProviderLinkingCapability = resolveProviderLinkingCapability({}, 'https://auth.example.test');
 const enabledProviderLinkingCapability = resolveProviderLinkingCapability({
@@ -64,11 +65,11 @@ function responseWithBodyError(error: unknown) {
 }
 
 function routes(options: Parameters<typeof createPublicAccountRoutes>[0] = {}) {
-  return createPublicAccountRoutes({
+  return operationTestPlugin(createPublicAccountRoutes({
     getConfig: async () => permissiveAccountCenterConfig,
     getProviderLinkingCapability: async () => disabledProviderLinkingCapability,
     ...options,
-  });
+  }));
 }
 
 function testAccessToken(claims: Record<string, unknown> = {}) {

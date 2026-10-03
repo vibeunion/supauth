@@ -1,15 +1,16 @@
-import { Elysia } from 'elysia';
+
 import { managementContract, decodeEndpointBody, decodeEndpointResponse, decodeManagementQuery } from '../utils/management-contract.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { pagedResponse } from '../utils/api-contract.js';
 import * as auditRepo from '../repositories/audit.js';
 import { decodeSchema } from '../../../shared/src/schema.js';
 import { TenantMemberRoleSchema, TenantInvitationRoleSchema, TenantMemberStatusSchema } from '../../../shared/src/sdk-models.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 
-export const tenantRoutes = new Elysia({ prefix: '/v1/tenant' })
-  .get('/members', async ({ query: rawQuery }) => {
+export const tenantRoutes = defineHttpOperations({ prefix: '/v1/tenant' }, {
+  getMembers: defineHttpOperation('GET', '/members', async ({ query: rawQuery }) => {
     const query = decodeManagementQuery('listTenantMembers', rawQuery);
     const members = await adapter.listTenantMembers({
       page: query.page,
@@ -19,8 +20,8 @@ export const tenantRoutes = new Elysia({ prefix: '/v1/tenant' })
     return decodeEndpointResponse('listTenantMembers', pagedResponse(members, { page: query.page, limit: query.limit }));
   }, managementContract("GET", "/v1/tenant/members", {
     detail: { summary: 'List project collaborators', tags: ['Project'] },
-  }))
-  .patch('/members/:memberId', async ({ params, body }) => {
+  })),
+  patchMembersByMemberId: defineHttpOperation('PATCH', '/members/:memberId', async ({ params, body }) => {
     const input = decodeEndpointBody('updateTenantMember', body);
     const status = input.status?.trim().toLowerCase();
     const updated = await adapter.updateTenantMember(params.memberId, {
@@ -31,15 +32,15 @@ export const tenantRoutes = new Elysia({ prefix: '/v1/tenant' })
     return decodeEndpointResponse('updateTenantMember', updated);
   }, managementContract("PATCH", "/v1/tenant/members/:memberId", {
     detail: { summary: 'Update project collaborator role', tags: ['Project'] },
-  }))
-  .delete('/members/:memberId', async ({ params }) => {
+  })),
+  deleteMembersByMemberId: defineHttpOperation('DELETE', '/members/:memberId', async ({ params }) => {
     const removed = await adapter.removeTenantMember(params.memberId);
     await auditTenantMutation('tenant.member.remove', params.memberId);
     return decodeEndpointResponse('removeTenantMember', removed);
   }, managementContract("DELETE", "/v1/tenant/members/:memberId", {
     detail: { summary: 'Remove a project collaborator', tags: ['Project'] },
-  }))
-  .get('/invitations', async ({ query: rawQuery }) => {
+  })),
+  getInvitations: defineHttpOperation('GET', '/invitations', async ({ query: rawQuery }) => {
     const query = decodeManagementQuery('listTenantInvitations', rawQuery);
     const invitations = await adapter.listTenantInvitations({
       page: query.page,
@@ -49,8 +50,8 @@ export const tenantRoutes = new Elysia({ prefix: '/v1/tenant' })
     return decodeEndpointResponse('listTenantInvitations', pagedResponse(invitations, { page: query.page, limit: query.limit }));
   }, managementContract("GET", "/v1/tenant/invitations", {
     detail: { summary: 'List project collaborator invitations', tags: ['Project'] },
-  }))
-  .post('/invitations', async ({ body }) => {
+  })),
+  postInvitations: defineHttpOperation('POST', '/invitations', async ({ body }) => {
     const input = decodeEndpointBody('createTenantInvitation', body);
     const invitation = decodeEndpointResponse('createTenantInvitation', await adapter.createTenantInvitation({
       ...input, role: decodeSchema(TenantInvitationRoleSchema, input.role.trim().toLowerCase()),
@@ -60,7 +61,8 @@ export const tenantRoutes = new Elysia({ prefix: '/v1/tenant' })
     return invitation;
   }, managementContract("POST", "/v1/tenant/invitations", {
     detail: { summary: 'Invite a project collaborator', tags: ['Project'] },
-  }));
+  })),
+});
 
 async function auditTenantMutation(eventType: string, resourceId: string) {
   await auditRepo.logAudit({ eventType, resourceType: 'tenant', resourceId, actorType: 'admin' });

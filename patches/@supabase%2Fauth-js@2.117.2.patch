@@ -1,0 +1,594 @@
+diff --git a/dist/main/lib/types.d.ts b/dist/main/lib/types.d.ts
+index 8bfbcd1..4c8f71c 100644
+--- a/dist/main/lib/types.d.ts
++++ b/dist/main/lib/types.d.ts
+@@ -3,7 +3,7 @@ import { Fetch } from './fetch';
+ import { EIP1193Provider, EthereumSignInInput, Hex } from './web3/ethereum';
+ import type { SolanaSignInInput, SolanaSignInOutput } from './web3/solana';
+ import { ServerCredentialCreationOptions, ServerCredentialRequestOptions, WebAuthnApi, WebAuthnError } from './webauthn';
+-import type { RegistrationResponseJSON, AuthenticationResponseJSON, ServerCredentialResponse } from './webauthn';
++import type { RegistrationResponseInput, AuthenticationResponseInput, ServerCredentialResponse } from './webauthn';
+ import { AuthenticationCredential, PublicKeyCredentialCreationOptionsFuture, PublicKeyCredentialRequestOptionsFuture, RegistrationCredential } from './webauthn.dom';
+ /** One of the providers supported by GoTrue. Use the `custom:` prefix for custom OIDC providers (e.g. `custom:my-oidc-provider`). */
+ export type Provider = 'apple' | 'azure' | 'bitbucket' | 'discord' | 'facebook' | 'figma' | 'github' | 'gitlab' | 'google' | 'kakao' | 'keycloak' | 'linkedin' | 'linkedin_oidc' | 'notion' | 'slack' | 'slack_oidc' | 'spotify' | 'twitch'
+@@ -2381,7 +2381,7 @@ export type PasskeyRegistrationOptionsResponse = {
+ /** Request body for POST /passkeys/registration/verify */
+ export type PasskeyRegistrationVerifyParams = {
+     challenge_id: string;
+-    credential: RegistrationResponseJSON;
++    credential: RegistrationResponseInput;
+ };
+ /** Response from POST /passkeys/registration/verify */
+ export type PasskeyMetadata = {
+@@ -2398,7 +2398,7 @@ export type PasskeyAuthenticationOptionsResponse = {
+ /** Request body for POST /passkeys/authentication/verify */
+ export type PasskeyAuthenticationVerifyParams = {
+     challenge_id: string;
+-    credential: AuthenticationResponseJSON;
++    credential: AuthenticationResponseInput;
+ };
+ /** Item in the passkeys list (GET /passkeys/ and admin list) */
+ export type PasskeyListItem = {
+@@ -2546,4 +2546,4 @@ export interface GoTrueAdminPasskeyApi {
+     deletePasskey(params: AuthPasskeyAdminDeleteParams): Promise<AuthPasskeyDeleteResponse>;
+ }
+ export {};
+-//# sourceMappingURL=types.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=types.d.ts.map
+diff --git a/dist/main/lib/webauthn.d.ts b/dist/main/lib/webauthn.d.ts
+index 5287123..806e42d 100644
+--- a/dist/main/lib/webauthn.d.ts
++++ b/dist/main/lib/webauthn.d.ts
+@@ -1,10 +1,10 @@
+ import GoTrueClient from '../GoTrueClient';
+ import { AuthError } from './errors';
+ import { AuthMFAEnrollWebauthnResponse, AuthMFAVerifyResponse, AuthMFAVerifyResponseData, MFAChallengeWebauthnParams, MFAEnrollWebauthnParams, MFAVerifyWebauthnParamFields, MFAVerifyWebauthnParams, RequestResult, StrictOmit } from './types';
+-import type { AuthenticationCredential, AuthenticationResponseJSON, PublicKeyCredentialCreationOptionsFuture, PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsFuture, PublicKeyCredentialRequestOptionsJSON, RegistrationCredential, RegistrationResponseJSON } from './webauthn.dom';
++import type { AuthenticationCredential, AuthenticationCredentialForSerialization, AuthenticationResponseJSON, AuthenticationResponseLegacy, AuthenticationResponseInput, PublicKeyCredentialCreationOptionsFuture, PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsFuture, PublicKeyCredentialRequestOptionsJSON, RegistrationCredential, RegistrationCredentialForSerialization, RegistrationResponseJSON, RegistrationResponseLegacy, RegistrationResponseInput } from './webauthn.dom';
+ import { identifyAuthenticationError, identifyRegistrationError, isWebAuthnError, WebAuthnError } from './webauthn.errors';
+ export { WebAuthnError, isWebAuthnError, identifyRegistrationError, identifyAuthenticationError };
+-export type { RegistrationResponseJSON, AuthenticationResponseJSON };
++export type { RegistrationResponseJSON, AuthenticationResponseJSON, RegistrationResponseLegacy, AuthenticationResponseLegacy, RegistrationResponseInput, AuthenticationResponseInput };
+ /**
+  * WebAuthn abort service to manage ceremony cancellation.
+  * Ensures only one WebAuthn ceremony is active at a time to prevent "operation already in progress" errors.
+@@ -68,30 +68,33 @@ export declare function deserializeCredentialCreationOptions(options: ServerCred
+  */
+ export declare function deserializeCredentialRequestOptions(options: ServerCredentialRequestOptions): PublicKeyCredentialRequestOptionsFuture;
+ /**
+- * Server format for credential response with base64url-encoded binary fields
+- * Can be either a registration or authentication response
++ * Native JSON, historical inputs, or manual outputs whose extensions remain binary.
+  */
+-export type ServerCredentialResponse = RegistrationResponseJSON | AuthenticationResponseJSON;
++export type ServerCredentialResponse = RegistrationResponseInput | AuthenticationResponseInput;
+ /**
+  * Convert a registration/enrollment credential response to server format.
+- * Serializes binary fields to base64url for JSON transmission.
++ * Native toJSON encodes all binary fields; manual fallback leaves extensions unchanged.
+  * Supports both native WebAuthn Level 3 toJSON and manual fallback.
+  *
+  * @param {RegistrationCredential} credential - Credential from navigator.credentials.create()
+- * @returns {RegistrationResponseJSON} JSON-serializable credential for server
++ * The native branch returns the exact toJSON result, including subtype fields.
+  * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-tojson W3C WebAuthn Spec - toJSON}
+  */
+-export declare function serializeCredentialCreationResponse(credential: RegistrationCredential): RegistrationResponseJSON;
++export declare function serializeCredentialCreationResponse<T extends RegistrationResponseJSON>(credential: { toJSON(): T }): T;
++export declare function serializeCredentialCreationResponse(credential: RegistrationCredentialForSerialization & { toJSON?: undefined }): RegistrationResponseLegacy;
++export declare function serializeCredentialCreationResponse<T extends RegistrationResponseJSON>(credential: RegistrationCredentialForSerialization<T>): T | RegistrationResponseLegacy;
+ /**
+  * Convert an authentication/verification credential response to server format.
+- * Serializes binary fields to base64url for JSON transmission.
++ * Native toJSON encodes all binary fields; manual fallback leaves extensions unchanged.
+  * Supports both native WebAuthn Level 3 toJSON and manual fallback.
+  *
+  * @param {AuthenticationCredential} credential - Credential from navigator.credentials.get()
+- * @returns {AuthenticationResponseJSON} JSON-serializable credential for server
++ * The native branch returns the exact toJSON result, including subtype fields.
+  * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-tojson W3C WebAuthn Spec - toJSON}
+  */
+-export declare function serializeCredentialRequestResponse(credential: AuthenticationCredential): AuthenticationResponseJSON;
++export declare function serializeCredentialRequestResponse<T extends AuthenticationResponseJSON>(credential: { toJSON(): T }): T;
++export declare function serializeCredentialRequestResponse(credential: AuthenticationCredentialForSerialization & { toJSON?: undefined }): AuthenticationResponseLegacy;
++export declare function serializeCredentialRequestResponse<T extends AuthenticationResponseJSON>(credential: AuthenticationCredentialForSerialization<T>): T | AuthenticationResponseLegacy;
+ /**
+  * A simple test to determine if a hostname is a properly-formatted domain name.
+  * Considers localhost valid for development environments.
+@@ -281,4 +284,4 @@ export declare class WebAuthnApi {
+         };
+     }, overrides?: Partial<PublicKeyCredentialCreationOptionsFuture>): Promise<RequestResult<AuthMFAVerifyResponseData, WebAuthnError | AuthError>>;
+ }
+-//# sourceMappingURL=webauthn.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=webauthn.d.ts.map
+diff --git a/dist/main/lib/webauthn.dom.d.ts b/dist/main/lib/webauthn.dom.d.ts
+index 2b004e4..1f328a9 100644
+--- a/dist/main/lib/webauthn.dom.d.ts
++++ b/dist/main/lib/webauthn.dom.d.ts
+@@ -189,9 +189,35 @@ export interface PublicKeyCredentialUserEntity {
+  * @see {@link https://w3c.github.io/webauthn/#registrationceremony W3C WebAuthn Spec - Registration}
+  * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential MDN - PublicKeyCredential}
+  */
+-export interface RegistrationCredential extends PublicKeyCredentialFuture<RegistrationResponseJSON> {
++export interface RegistrationCredentialNative extends PublicKeyCredentialFuture<RegistrationResponseJSON> {
+     response: AuthenticatorAttestationResponseFuture;
+ }
++/** Level 2 credentials do not implement native toJSON. */
++export interface PublicKeyCredentialLegacy extends Omit<PublicKeyCredential, 'toJSON' | 'authenticatorAttachment'> {
++    type: PublicKeyCredentialType;
++    authenticatorAttachment?: string | null | undefined;
++    toJSON?: undefined;
++}
++export interface RegistrationCredentialLegacy extends PublicKeyCredentialLegacy {
++    response: AuthenticatorAttestationResponseFuture;
++}
++/** Creation supports both Level 2 and Level 3 browser credentials. */
++export type RegistrationCredential = RegistrationCredentialNative | RegistrationCredentialLegacy;
++/**
++ * WebAuthn Level 3 encodes binary extension outputs to base64url.
++ * Keep non-binary fields, including hmacCreateSecret, from the DOM contract.
++ */
++export interface AuthenticationExtensionsClientOutputsJSON extends Omit<AuthenticationExtensionsClientOutputs, 'largeBlob' | 'prf'> {
++    largeBlob?: Omit<AuthenticationExtensionsLargeBlobOutputs, 'blob'> & {
++        blob?: Base64URLString;
++    };
++    prf?: Omit<AuthenticationExtensionsPRFOutputs, 'results'> & {
++        results?: {
++            first: Base64URLString;
++            second?: Base64URLString;
++        };
++    };
++}
+ /**
+  * A slightly-modified RegistrationCredential to simplify working with ArrayBuffers that
+  * are Base64URL-encoded in the browser so that they can be sent as JSON to the server.
+@@ -223,7 +249,7 @@ export interface RegistrationResponseJSON {
+      * The results of processing client extensions.
+      * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-getclientextensionresults W3C - getClientExtensionResults}
+      */
+-    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++    clientExtensionResults: AuthenticationExtensionsClientOutputsJSON;
+     /**
+      * The type of the credential (always "public-key").
+      * @see {@link https://w3c.github.io/webauthn/#dom-credential-type W3C - type}
+@@ -237,9 +263,14 @@ export interface RegistrationResponseJSON {
+  * @see {@link https://w3c.github.io/webauthn/#authentication W3C WebAuthn Spec - Authentication}
+  * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential MDN - PublicKeyCredential}
+  */
+-export interface AuthenticationCredential extends PublicKeyCredentialFuture<AuthenticationResponseJSON> {
++export interface AuthenticationCredentialNative extends PublicKeyCredentialFuture<AuthenticationResponseJSON> {
++    response: AuthenticatorAssertionResponse;
++}
++export interface AuthenticationCredentialLegacy extends PublicKeyCredentialLegacy {
+     response: AuthenticatorAssertionResponse;
+ }
++/** Authentication supports both Level 2 and Level 3 browser credentials. */
++export type AuthenticationCredential = AuthenticationCredentialNative | AuthenticationCredentialLegacy;
+ /**
+  * A slightly-modified AuthenticationCredential to simplify working with ArrayBuffers that
+  * are Base64URL-encoded in the browser so that they can be sent as JSON to the server.
+@@ -271,7 +302,7 @@ export interface AuthenticationResponseJSON {
+      * The results of processing client extensions.
+      * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-getclientextensionresults W3C - getClientExtensionResults}
+      */
+-    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++    clientExtensionResults: AuthenticationExtensionsClientOutputsJSON;
+     /**
+      * The type of the credential (always "public-key").
+      * @see {@link https://w3c.github.io/webauthn/#dom-credential-type W3C - type}
+@@ -297,22 +328,22 @@ export interface AuthenticatorAttestationResponseJSON {
+     attestationObject: Base64URLString;
+     /**
+      * The authenticator data contained within the attestation object.
+-     * Optional in L2, but becomes required in L3. Play it safe until L3 becomes Recommendation
++     * Required in native Level 3 toJSON output; absent from the manual fallback.
+      * @see {@link https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-getauthenticatordata W3C - getAuthenticatorData}
+      */
+-    authenticatorData?: Base64URLString;
++    authenticatorData: Base64URLString;
+     /**
+      * The transports that the authenticator supports.
+-     * Optional in L2, but becomes required in L3. Play it safe until L3 becomes Recommendation
++     * Required in native Level 3 toJSON output; absent from the manual fallback.
+      * @see {@link https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-gettransports W3C - getTransports}
+      */
+-    transports?: AuthenticatorTransportFuture[];
++    transports: AuthenticatorTransportFuture[];
+     /**
+      * The COSEAlgorithmIdentifier for the public key.
+-     * Optional in L2, but becomes required in L3. Play it safe until L3 becomes Recommendation
++     * Required in native Level 3 toJSON output; absent from the manual fallback.
+      * @see {@link https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-getpublickeyalgorithm W3C - getPublicKeyAlgorithm}
+      */
+-    publicKeyAlgorithm?: COSEAlgorithmIdentifier;
++    publicKeyAlgorithm: COSEAlgorithmIdentifier;
+     /**
+      * The public key in base64url format.
+      * @see {@link https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-getpublickey W3C - getPublicKey}
+@@ -347,6 +378,53 @@ export interface AuthenticatorAssertionResponseJSON {
+      */
+     userHandle?: Base64URLString;
+ }
++/**
++ * Actual manual registration fallback output, not fully JSON encoded:
++ * extension results are returned unchanged and the attachment key is always set.
++ */
++export interface RegistrationResponseLegacy extends Omit<RegistrationResponseJSON, 'response' | 'clientExtensionResults' | 'authenticatorAttachment'> {
++    response: Pick<AuthenticatorAttestationResponseJSON, 'attestationObject' | 'clientDataJSON'>;
++    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++    authenticatorAttachment: AuthenticatorAttachment | undefined;
++}
++/** Actual manual authentication fallback output; userHandle is always set. */
++export interface AuthenticationResponseLegacy extends Omit<AuthenticationResponseJSON, 'response' | 'clientExtensionResults' | 'authenticatorAttachment'> {
++    response: Omit<AuthenticatorAssertionResponseJSON, 'userHandle'> & {
++        userHandle: Base64URLString | undefined;
++    };
++    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++    authenticatorAttachment: AuthenticatorAttachment | undefined;
++}
++/**
++ * Historical caller-supplied registration input may omit undefined keys and
++ * optional Level 2 metadata. This is not the exact manual serializer output.
++ */
++export interface RegistrationResponseLegacyInput extends Omit<RegistrationResponseJSON, 'response' | 'clientExtensionResults'> {
++    response: Pick<AuthenticatorAttestationResponseJSON, 'attestationObject' | 'clientDataJSON'> &
++        Partial<Omit<AuthenticatorAttestationResponseJSON, 'attestationObject' | 'clientDataJSON'>>;
++    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++}
++/** Historical authentication input may omit attachment and userHandle. */
++export interface AuthenticationResponseLegacyInput extends Omit<AuthenticationResponseJSON, 'clientExtensionResults'> {
++    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++}
++export type RegistrationResponseInput = RegistrationResponseJSON | RegistrationResponseLegacy | RegistrationResponseLegacyInput;
++export type AuthenticationResponseInput = AuthenticationResponseJSON | AuthenticationResponseLegacy | AuthenticationResponseLegacyInput;
++/** Browser capability may be unknown until the serializer checks toJSON. */
++export interface RegistrationCredentialForSerialization<T extends RegistrationResponseJSON = RegistrationResponseJSON> {
++    id: string;
++    response: Pick<AuthenticatorAttestationResponse, 'attestationObject' | 'clientDataJSON'>;
++    getClientExtensionResults(): AuthenticationExtensionsClientOutputs;
++    authenticatorAttachment?: string | null | undefined;
++    toJSON?: (() => T) | undefined;
++}
++export interface AuthenticationCredentialForSerialization<T extends AuthenticationResponseJSON = AuthenticationResponseJSON> {
++    id: string;
++    response: Pick<AuthenticatorAssertionResponse, 'authenticatorData' | 'clientDataJSON' | 'signature' | 'userHandle'>;
++    getClientExtensionResults(): AuthenticationExtensionsClientOutputs;
++    authenticatorAttachment?: string | null | undefined;
++    toJSON?: (() => T) | undefined;
++}
+ /**
+  * Public key credential information needed to verify authentication responses.
+  * Stores the credential's public key and metadata for server-side verification.
+@@ -504,6 +582,14 @@ export interface PublicKeyCredentialFuture<T extends PublicKeyCredentialJSON = P
+      * @see {@link https://w3c.github.io/webauthn/#dom-credential-type W3C - type}
+      */
+     type: PublicKeyCredentialType;
++    /**
++     * Serializes the credential to native Level 3 JSON format.
++     * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-tojson W3C - toJSON}
++     */
++    toJSON(): T;
++}
++/** These methods belong to the PublicKeyCredential constructor, not its instances. */
++export interface PublicKeyCredentialStaticMethods {
+     /**
+      * Checks if conditional mediation is available.
+      * @see {@link https://github.com/w3c/webauthn/issues/1745 GitHub - Conditional Mediation}
+@@ -519,11 +605,6 @@ export interface PublicKeyCredentialFuture<T extends PublicKeyCredentialJSON = P
+      * @see {@link https://w3c.github.io/webauthn/#sctn-parseRequestOptionsFromJSON W3C - parseRequestOptionsFromJSON}
+      */
+     parseRequestOptionsFromJSON(options: PublicKeyCredentialRequestOptionsJSON): PublicKeyCredentialRequestOptionsFuture;
+-    /**
+-     * Serializes the credential to JSON format.
+-     * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-tojson W3C - toJSON}
+-     */
+-    toJSON(): T;
+ }
+ /**
+  * The two types of credentials as defined by bit 3 ("Backup Eligibility") in authenticator data:
+@@ -580,4 +661,4 @@ export type Uint8Array_ = ReturnType<Uint8Array['slice']>;
+  * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredentialCreationOptions/authenticatorSelection#authenticatorattachment MDN - authenticatorAttachment}
+  */
+ export type AuthenticatorAttachment = 'cross-platform' | 'platform' | (string & {});
+-//# sourceMappingURL=webauthn.dom.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=webauthn.dom.d.ts.map
+diff --git a/dist/module/lib/types.d.ts b/dist/module/lib/types.d.ts
+index 8bfbcd1..4c8f71c 100644
+--- a/dist/module/lib/types.d.ts
++++ b/dist/module/lib/types.d.ts
+@@ -3,7 +3,7 @@ import { Fetch } from './fetch';
+ import { EIP1193Provider, EthereumSignInInput, Hex } from './web3/ethereum';
+ import type { SolanaSignInInput, SolanaSignInOutput } from './web3/solana';
+ import { ServerCredentialCreationOptions, ServerCredentialRequestOptions, WebAuthnApi, WebAuthnError } from './webauthn';
+-import type { RegistrationResponseJSON, AuthenticationResponseJSON, ServerCredentialResponse } from './webauthn';
++import type { RegistrationResponseInput, AuthenticationResponseInput, ServerCredentialResponse } from './webauthn';
+ import { AuthenticationCredential, PublicKeyCredentialCreationOptionsFuture, PublicKeyCredentialRequestOptionsFuture, RegistrationCredential } from './webauthn.dom';
+ /** One of the providers supported by GoTrue. Use the `custom:` prefix for custom OIDC providers (e.g. `custom:my-oidc-provider`). */
+ export type Provider = 'apple' | 'azure' | 'bitbucket' | 'discord' | 'facebook' | 'figma' | 'github' | 'gitlab' | 'google' | 'kakao' | 'keycloak' | 'linkedin' | 'linkedin_oidc' | 'notion' | 'slack' | 'slack_oidc' | 'spotify' | 'twitch'
+@@ -2381,7 +2381,7 @@ export type PasskeyRegistrationOptionsResponse = {
+ /** Request body for POST /passkeys/registration/verify */
+ export type PasskeyRegistrationVerifyParams = {
+     challenge_id: string;
+-    credential: RegistrationResponseJSON;
++    credential: RegistrationResponseInput;
+ };
+ /** Response from POST /passkeys/registration/verify */
+ export type PasskeyMetadata = {
+@@ -2398,7 +2398,7 @@ export type PasskeyAuthenticationOptionsResponse = {
+ /** Request body for POST /passkeys/authentication/verify */
+ export type PasskeyAuthenticationVerifyParams = {
+     challenge_id: string;
+-    credential: AuthenticationResponseJSON;
++    credential: AuthenticationResponseInput;
+ };
+ /** Item in the passkeys list (GET /passkeys/ and admin list) */
+ export type PasskeyListItem = {
+@@ -2546,4 +2546,4 @@ export interface GoTrueAdminPasskeyApi {
+     deletePasskey(params: AuthPasskeyAdminDeleteParams): Promise<AuthPasskeyDeleteResponse>;
+ }
+ export {};
+-//# sourceMappingURL=types.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=types.d.ts.map
+diff --git a/dist/module/lib/webauthn.d.ts b/dist/module/lib/webauthn.d.ts
+index 5287123..806e42d 100644
+--- a/dist/module/lib/webauthn.d.ts
++++ b/dist/module/lib/webauthn.d.ts
+@@ -1,10 +1,10 @@
+ import GoTrueClient from '../GoTrueClient';
+ import { AuthError } from './errors';
+ import { AuthMFAEnrollWebauthnResponse, AuthMFAVerifyResponse, AuthMFAVerifyResponseData, MFAChallengeWebauthnParams, MFAEnrollWebauthnParams, MFAVerifyWebauthnParamFields, MFAVerifyWebauthnParams, RequestResult, StrictOmit } from './types';
+-import type { AuthenticationCredential, AuthenticationResponseJSON, PublicKeyCredentialCreationOptionsFuture, PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsFuture, PublicKeyCredentialRequestOptionsJSON, RegistrationCredential, RegistrationResponseJSON } from './webauthn.dom';
++import type { AuthenticationCredential, AuthenticationCredentialForSerialization, AuthenticationResponseJSON, AuthenticationResponseLegacy, AuthenticationResponseInput, PublicKeyCredentialCreationOptionsFuture, PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsFuture, PublicKeyCredentialRequestOptionsJSON, RegistrationCredential, RegistrationCredentialForSerialization, RegistrationResponseJSON, RegistrationResponseLegacy, RegistrationResponseInput } from './webauthn.dom';
+ import { identifyAuthenticationError, identifyRegistrationError, isWebAuthnError, WebAuthnError } from './webauthn.errors';
+ export { WebAuthnError, isWebAuthnError, identifyRegistrationError, identifyAuthenticationError };
+-export type { RegistrationResponseJSON, AuthenticationResponseJSON };
++export type { RegistrationResponseJSON, AuthenticationResponseJSON, RegistrationResponseLegacy, AuthenticationResponseLegacy, RegistrationResponseInput, AuthenticationResponseInput };
+ /**
+  * WebAuthn abort service to manage ceremony cancellation.
+  * Ensures only one WebAuthn ceremony is active at a time to prevent "operation already in progress" errors.
+@@ -68,30 +68,33 @@ export declare function deserializeCredentialCreationOptions(options: ServerCred
+  */
+ export declare function deserializeCredentialRequestOptions(options: ServerCredentialRequestOptions): PublicKeyCredentialRequestOptionsFuture;
+ /**
+- * Server format for credential response with base64url-encoded binary fields
+- * Can be either a registration or authentication response
++ * Native JSON, historical inputs, or manual outputs whose extensions remain binary.
+  */
+-export type ServerCredentialResponse = RegistrationResponseJSON | AuthenticationResponseJSON;
++export type ServerCredentialResponse = RegistrationResponseInput | AuthenticationResponseInput;
+ /**
+  * Convert a registration/enrollment credential response to server format.
+- * Serializes binary fields to base64url for JSON transmission.
++ * Native toJSON encodes all binary fields; manual fallback leaves extensions unchanged.
+  * Supports both native WebAuthn Level 3 toJSON and manual fallback.
+  *
+  * @param {RegistrationCredential} credential - Credential from navigator.credentials.create()
+- * @returns {RegistrationResponseJSON} JSON-serializable credential for server
++ * The native branch returns the exact toJSON result, including subtype fields.
+  * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-tojson W3C WebAuthn Spec - toJSON}
+  */
+-export declare function serializeCredentialCreationResponse(credential: RegistrationCredential): RegistrationResponseJSON;
++export declare function serializeCredentialCreationResponse<T extends RegistrationResponseJSON>(credential: { toJSON(): T }): T;
++export declare function serializeCredentialCreationResponse(credential: RegistrationCredentialForSerialization & { toJSON?: undefined }): RegistrationResponseLegacy;
++export declare function serializeCredentialCreationResponse<T extends RegistrationResponseJSON>(credential: RegistrationCredentialForSerialization<T>): T | RegistrationResponseLegacy;
+ /**
+  * Convert an authentication/verification credential response to server format.
+- * Serializes binary fields to base64url for JSON transmission.
++ * Native toJSON encodes all binary fields; manual fallback leaves extensions unchanged.
+  * Supports both native WebAuthn Level 3 toJSON and manual fallback.
+  *
+  * @param {AuthenticationCredential} credential - Credential from navigator.credentials.get()
+- * @returns {AuthenticationResponseJSON} JSON-serializable credential for server
++ * The native branch returns the exact toJSON result, including subtype fields.
+  * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-tojson W3C WebAuthn Spec - toJSON}
+  */
+-export declare function serializeCredentialRequestResponse(credential: AuthenticationCredential): AuthenticationResponseJSON;
++export declare function serializeCredentialRequestResponse<T extends AuthenticationResponseJSON>(credential: { toJSON(): T }): T;
++export declare function serializeCredentialRequestResponse(credential: AuthenticationCredentialForSerialization & { toJSON?: undefined }): AuthenticationResponseLegacy;
++export declare function serializeCredentialRequestResponse<T extends AuthenticationResponseJSON>(credential: AuthenticationCredentialForSerialization<T>): T | AuthenticationResponseLegacy;
+ /**
+  * A simple test to determine if a hostname is a properly-formatted domain name.
+  * Considers localhost valid for development environments.
+@@ -281,4 +284,4 @@ export declare class WebAuthnApi {
+         };
+     }, overrides?: Partial<PublicKeyCredentialCreationOptionsFuture>): Promise<RequestResult<AuthMFAVerifyResponseData, WebAuthnError | AuthError>>;
+ }
+-//# sourceMappingURL=webauthn.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=webauthn.d.ts.map
+diff --git a/dist/module/lib/webauthn.dom.d.ts b/dist/module/lib/webauthn.dom.d.ts
+index 2b004e4..1f328a9 100644
+--- a/dist/module/lib/webauthn.dom.d.ts
++++ b/dist/module/lib/webauthn.dom.d.ts
+@@ -189,9 +189,35 @@ export interface PublicKeyCredentialUserEntity {
+  * @see {@link https://w3c.github.io/webauthn/#registrationceremony W3C WebAuthn Spec - Registration}
+  * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential MDN - PublicKeyCredential}
+  */
+-export interface RegistrationCredential extends PublicKeyCredentialFuture<RegistrationResponseJSON> {
++export interface RegistrationCredentialNative extends PublicKeyCredentialFuture<RegistrationResponseJSON> {
+     response: AuthenticatorAttestationResponseFuture;
+ }
++/** Level 2 credentials do not implement native toJSON. */
++export interface PublicKeyCredentialLegacy extends Omit<PublicKeyCredential, 'toJSON' | 'authenticatorAttachment'> {
++    type: PublicKeyCredentialType;
++    authenticatorAttachment?: string | null | undefined;
++    toJSON?: undefined;
++}
++export interface RegistrationCredentialLegacy extends PublicKeyCredentialLegacy {
++    response: AuthenticatorAttestationResponseFuture;
++}
++/** Creation supports both Level 2 and Level 3 browser credentials. */
++export type RegistrationCredential = RegistrationCredentialNative | RegistrationCredentialLegacy;
++/**
++ * WebAuthn Level 3 encodes binary extension outputs to base64url.
++ * Keep non-binary fields, including hmacCreateSecret, from the DOM contract.
++ */
++export interface AuthenticationExtensionsClientOutputsJSON extends Omit<AuthenticationExtensionsClientOutputs, 'largeBlob' | 'prf'> {
++    largeBlob?: Omit<AuthenticationExtensionsLargeBlobOutputs, 'blob'> & {
++        blob?: Base64URLString;
++    };
++    prf?: Omit<AuthenticationExtensionsPRFOutputs, 'results'> & {
++        results?: {
++            first: Base64URLString;
++            second?: Base64URLString;
++        };
++    };
++}
+ /**
+  * A slightly-modified RegistrationCredential to simplify working with ArrayBuffers that
+  * are Base64URL-encoded in the browser so that they can be sent as JSON to the server.
+@@ -223,7 +249,7 @@ export interface RegistrationResponseJSON {
+      * The results of processing client extensions.
+      * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-getclientextensionresults W3C - getClientExtensionResults}
+      */
+-    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++    clientExtensionResults: AuthenticationExtensionsClientOutputsJSON;
+     /**
+      * The type of the credential (always "public-key").
+      * @see {@link https://w3c.github.io/webauthn/#dom-credential-type W3C - type}
+@@ -237,9 +263,14 @@ export interface RegistrationResponseJSON {
+  * @see {@link https://w3c.github.io/webauthn/#authentication W3C WebAuthn Spec - Authentication}
+  * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential MDN - PublicKeyCredential}
+  */
+-export interface AuthenticationCredential extends PublicKeyCredentialFuture<AuthenticationResponseJSON> {
++export interface AuthenticationCredentialNative extends PublicKeyCredentialFuture<AuthenticationResponseJSON> {
++    response: AuthenticatorAssertionResponse;
++}
++export interface AuthenticationCredentialLegacy extends PublicKeyCredentialLegacy {
+     response: AuthenticatorAssertionResponse;
+ }
++/** Authentication supports both Level 2 and Level 3 browser credentials. */
++export type AuthenticationCredential = AuthenticationCredentialNative | AuthenticationCredentialLegacy;
+ /**
+  * A slightly-modified AuthenticationCredential to simplify working with ArrayBuffers that
+  * are Base64URL-encoded in the browser so that they can be sent as JSON to the server.
+@@ -271,7 +302,7 @@ export interface AuthenticationResponseJSON {
+      * The results of processing client extensions.
+      * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-getclientextensionresults W3C - getClientExtensionResults}
+      */
+-    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++    clientExtensionResults: AuthenticationExtensionsClientOutputsJSON;
+     /**
+      * The type of the credential (always "public-key").
+      * @see {@link https://w3c.github.io/webauthn/#dom-credential-type W3C - type}
+@@ -297,22 +328,22 @@ export interface AuthenticatorAttestationResponseJSON {
+     attestationObject: Base64URLString;
+     /**
+      * The authenticator data contained within the attestation object.
+-     * Optional in L2, but becomes required in L3. Play it safe until L3 becomes Recommendation
++     * Required in native Level 3 toJSON output; absent from the manual fallback.
+      * @see {@link https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-getauthenticatordata W3C - getAuthenticatorData}
+      */
+-    authenticatorData?: Base64URLString;
++    authenticatorData: Base64URLString;
+     /**
+      * The transports that the authenticator supports.
+-     * Optional in L2, but becomes required in L3. Play it safe until L3 becomes Recommendation
++     * Required in native Level 3 toJSON output; absent from the manual fallback.
+      * @see {@link https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-gettransports W3C - getTransports}
+      */
+-    transports?: AuthenticatorTransportFuture[];
++    transports: AuthenticatorTransportFuture[];
+     /**
+      * The COSEAlgorithmIdentifier for the public key.
+-     * Optional in L2, but becomes required in L3. Play it safe until L3 becomes Recommendation
++     * Required in native Level 3 toJSON output; absent from the manual fallback.
+      * @see {@link https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-getpublickeyalgorithm W3C - getPublicKeyAlgorithm}
+      */
+-    publicKeyAlgorithm?: COSEAlgorithmIdentifier;
++    publicKeyAlgorithm: COSEAlgorithmIdentifier;
+     /**
+      * The public key in base64url format.
+      * @see {@link https://w3c.github.io/webauthn/#dom-authenticatorattestationresponse-getpublickey W3C - getPublicKey}
+@@ -347,6 +378,53 @@ export interface AuthenticatorAssertionResponseJSON {
+      */
+     userHandle?: Base64URLString;
+ }
++/**
++ * Actual manual registration fallback output, not fully JSON encoded:
++ * extension results are returned unchanged and the attachment key is always set.
++ */
++export interface RegistrationResponseLegacy extends Omit<RegistrationResponseJSON, 'response' | 'clientExtensionResults' | 'authenticatorAttachment'> {
++    response: Pick<AuthenticatorAttestationResponseJSON, 'attestationObject' | 'clientDataJSON'>;
++    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++    authenticatorAttachment: AuthenticatorAttachment | undefined;
++}
++/** Actual manual authentication fallback output; userHandle is always set. */
++export interface AuthenticationResponseLegacy extends Omit<AuthenticationResponseJSON, 'response' | 'clientExtensionResults' | 'authenticatorAttachment'> {
++    response: Omit<AuthenticatorAssertionResponseJSON, 'userHandle'> & {
++        userHandle: Base64URLString | undefined;
++    };
++    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++    authenticatorAttachment: AuthenticatorAttachment | undefined;
++}
++/**
++ * Historical caller-supplied registration input may omit undefined keys and
++ * optional Level 2 metadata. This is not the exact manual serializer output.
++ */
++export interface RegistrationResponseLegacyInput extends Omit<RegistrationResponseJSON, 'response' | 'clientExtensionResults'> {
++    response: Pick<AuthenticatorAttestationResponseJSON, 'attestationObject' | 'clientDataJSON'> &
++        Partial<Omit<AuthenticatorAttestationResponseJSON, 'attestationObject' | 'clientDataJSON'>>;
++    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++}
++/** Historical authentication input may omit attachment and userHandle. */
++export interface AuthenticationResponseLegacyInput extends Omit<AuthenticationResponseJSON, 'clientExtensionResults'> {
++    clientExtensionResults: AuthenticationExtensionsClientOutputs;
++}
++export type RegistrationResponseInput = RegistrationResponseJSON | RegistrationResponseLegacy | RegistrationResponseLegacyInput;
++export type AuthenticationResponseInput = AuthenticationResponseJSON | AuthenticationResponseLegacy | AuthenticationResponseLegacyInput;
++/** Browser capability may be unknown until the serializer checks toJSON. */
++export interface RegistrationCredentialForSerialization<T extends RegistrationResponseJSON = RegistrationResponseJSON> {
++    id: string;
++    response: Pick<AuthenticatorAttestationResponse, 'attestationObject' | 'clientDataJSON'>;
++    getClientExtensionResults(): AuthenticationExtensionsClientOutputs;
++    authenticatorAttachment?: string | null | undefined;
++    toJSON?: (() => T) | undefined;
++}
++export interface AuthenticationCredentialForSerialization<T extends AuthenticationResponseJSON = AuthenticationResponseJSON> {
++    id: string;
++    response: Pick<AuthenticatorAssertionResponse, 'authenticatorData' | 'clientDataJSON' | 'signature' | 'userHandle'>;
++    getClientExtensionResults(): AuthenticationExtensionsClientOutputs;
++    authenticatorAttachment?: string | null | undefined;
++    toJSON?: (() => T) | undefined;
++}
+ /**
+  * Public key credential information needed to verify authentication responses.
+  * Stores the credential's public key and metadata for server-side verification.
+@@ -504,6 +582,14 @@ export interface PublicKeyCredentialFuture<T extends PublicKeyCredentialJSON = P
+      * @see {@link https://w3c.github.io/webauthn/#dom-credential-type W3C - type}
+      */
+     type: PublicKeyCredentialType;
++    /**
++     * Serializes the credential to native Level 3 JSON format.
++     * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-tojson W3C - toJSON}
++     */
++    toJSON(): T;
++}
++/** These methods belong to the PublicKeyCredential constructor, not its instances. */
++export interface PublicKeyCredentialStaticMethods {
+     /**
+      * Checks if conditional mediation is available.
+      * @see {@link https://github.com/w3c/webauthn/issues/1745 GitHub - Conditional Mediation}
+@@ -519,11 +605,6 @@ export interface PublicKeyCredentialFuture<T extends PublicKeyCredentialJSON = P
+      * @see {@link https://w3c.github.io/webauthn/#sctn-parseRequestOptionsFromJSON W3C - parseRequestOptionsFromJSON}
+      */
+     parseRequestOptionsFromJSON(options: PublicKeyCredentialRequestOptionsJSON): PublicKeyCredentialRequestOptionsFuture;
+-    /**
+-     * Serializes the credential to JSON format.
+-     * @see {@link https://w3c.github.io/webauthn/#dom-publickeycredential-tojson W3C - toJSON}
+-     */
+-    toJSON(): T;
+ }
+ /**
+  * The two types of credentials as defined by bit 3 ("Backup Eligibility") in authenticator data:
+@@ -580,4 +661,4 @@ export type Uint8Array_ = ReturnType<Uint8Array['slice']>;
+  * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredentialCreationOptions/authenticatorSelection#authenticatorattachment MDN - authenticatorAttachment}
+  */
+ export type AuthenticatorAttachment = 'cross-platform' | 'platform' | (string & {});
+-//# sourceMappingURL=webauthn.dom.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=webauthn.dom.d.ts.map

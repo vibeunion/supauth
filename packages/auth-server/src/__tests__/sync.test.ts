@@ -1,6 +1,7 @@
 import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { describe, it, expect } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
 
 describe('Legacy metadata sync routes', () => {
   it('fails closed before any direct GoTrue metadata writer can run', async () => {
@@ -8,7 +9,7 @@ describe('Legacy metadata sync routes', () => {
       import('../routes/sync.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(syncRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(syncRoutes));
 
     const responses = await Promise.all([
       app.handle(new Request('http://localhost/v1/sync/user/user-one', { method: 'POST' })),

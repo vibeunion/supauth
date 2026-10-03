@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { GOTRUE_PASSWORD_CHARACTER_POLICIES } from '../utils/password-policy.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
 process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
@@ -44,7 +45,7 @@ const { authConfigRoutes } = await import('../routes/sign-in-experience.js');
 
 const app = new Elysia()
   .use(observabilityMiddleware)
-  .use(authConfigRoutes);
+  .use(operationTestPlugin(authConfigRoutes));
 
 function passwordPolicyRequest(
   requiredCharacters: string = GOTRUE_PASSWORD_CHARACTER_POLICIES.standard,

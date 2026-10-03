@@ -1,6 +1,6 @@
 // Application management routes with OpenAPI annotations
 
-import { Elysia } from 'elysia';
+
 import { managementContract, decodeEndpointBody, decodeEndpointResponse, decodeManagementQuery } from '../utils/management-contract.js';
 import { definedFields, requiredRow } from '../utils/defined-fields.js';
 import { getConfig } from '../config/index.js';
@@ -12,6 +12,7 @@ import * as appControlRepo from '../repositories/application-control.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 import { ApiContractError, capabilityUnavailable, cursorResponse, pagedResponse, isRecord } from '../utils/api-contract.js';
 import { withoutSecrets } from '../utils/secrets.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 const GOTRUE_OAUTH_GRANT_TYPES = ['authorization_code', 'refresh_token'] as const;
@@ -132,17 +133,17 @@ async function fireWebhook(eventType: string, payload: Record<string, unknown>) 
   await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, payload));
 }
 
-export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
-  .get('/', async ({ query: rawQuery }) => {
+export const applicationRoutes = defineHttpOperations({ prefix: '/v1/applications' }, {
+  getRoot: defineHttpOperation('GET', '/', async ({ query: rawQuery }) => {
     const query = decodeManagementQuery('listApplications', rawQuery);
     const res = await oauthClientAdapter().listOAuthClients();
     await audit('application.list', 'application', 'all');
     return decodeEndpointResponse('listApplications', withoutSecrets(pagedResponse(res, { page: query.page, limit: query.limit })));
   }, managementContract("GET", "/v1/applications", {
     detail: { summary: 'List OAuth applications', tags: ['Applications'] },
-  }))
+  })),
 
-  .post('/', async ({ body }) => {
+  postRoot: defineHttpOperation('POST', '/', async ({ body }) => {
     const input = oauthClientInput(body);
     validateCreateRedirectUris(input);
     validateCreateGrantTypes(input);
@@ -162,15 +163,15 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     const input = oauthClientInput(body);
     validateCreateRedirectUris(input);
     validateCreateGrantTypes(input);
-  }))
+  })),
 
-  .get('/:appId', async ({ params }) => decodeEndpointResponse('getApplication', withoutSecrets(
+  getByAppId: defineHttpOperation('GET', '/:appId', async ({ params }) => decodeEndpointResponse('getApplication', withoutSecrets(
     await oauthClientAdapter().getOAuthClient(params.appId),
   )), managementContract("GET", "/v1/applications/:appId", {
     detail: { summary: 'Get application by ID', tags: ['Applications'] },
-  }))
+  })),
 
-  .put('/:appId', async ({ params, body }) => {
+  putByAppId: defineHttpOperation('PUT', '/:appId', async ({ params, body }) => {
     const input = oauthClientInput(body);
     validateUpdateRedirectUris(input);
     validateUpdateGrantTypes(input);
@@ -188,49 +189,49 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     const input = oauthClientInput(body);
     validateUpdateRedirectUris(input);
     validateUpdateGrantTypes(input);
-  }))
+  })),
 
-  .delete('/:appId', async ({ params }) => {
+  deleteByAppId: defineHttpOperation('DELETE', '/:appId', async ({ params }) => {
     await oauthClientAdapter().deleteOAuthClient(params.appId);
     await audit('application.delete', 'application', params.appId);
     await fireWebhook('application.deleted', { client_id: params.appId });
   }, managementContract("DELETE", "/v1/applications/:appId", {
     detail: { summary: 'Delete application', tags: ['Applications'] },
-  }))
+  })),
 
-  .post('/:appId/rotate-secret', async ({ params }) => {
+  postByAppIdRotateSecret: defineHttpOperation('POST', '/:appId/rotate-secret', async ({ params }) => {
     const result = await oauthClientAdapter().regenerateClientSecret(params.appId);
     await audit('application.rotate_secret', 'application', params.appId);
     return decodeEndpointResponse('rotateApplicationSecret', result);
   }, managementContract("POST", "/v1/applications/:appId/rotate-secret", {
     detail: { summary: 'Rotate client secret', tags: ['Applications'] },
-  }))
+  })),
 
-  .get('/:appId/secrets', async ({ params }) => {
+  getByAppIdSecrets: defineHttpOperation('GET', '/:appId/secrets', async ({ params }) => {
     throw capabilityUnavailable('oauth_client_secret_lifecycle', `Per-client secret lists are unavailable for ${params.appId}`);
   }, managementContract("GET", "/v1/applications/:appId/secrets", {
     detail: { hide: true },
-  }))
+  })),
 
-  .post('/:appId/secrets', async ({ params }) => {
+  postByAppIdSecrets: defineHttpOperation('POST', '/:appId/secrets', async ({ params }) => {
     throw capabilityUnavailable('oauth_client_secret_lifecycle', `Additional client secrets are unavailable for ${params.appId}`);
   }, managementContract("POST", "/v1/applications/:appId/secrets", {
     detail: { hide: true },
-  }))
+  })),
 
-  .post('/:appId/secrets/:secretId/disable', async ({ params }) => {
+  postByAppIdSecretsBySecretIdDisable: defineHttpOperation('POST', '/:appId/secrets/:secretId/disable', async ({ params }) => {
     throw capabilityUnavailable('oauth_client_secret_lifecycle', `Secret ${params.secretId} cannot be disabled independently`);
   }, managementContract("POST", "/v1/applications/:appId/secrets/:secretId/disable", {
     detail: { hide: true },
-  }))
+  })),
 
-  .delete('/:appId/secrets/:secretId', async ({ params }) => {
+  deleteByAppIdSecretsBySecretId: defineHttpOperation('DELETE', '/:appId/secrets/:secretId', async ({ params }) => {
     throw capabilityUnavailable('oauth_client_secret_lifecycle', `Secret ${params.secretId} cannot be deleted independently`);
   }, managementContract("DELETE", "/v1/applications/:appId/secrets/:secretId", {
     detail: { hide: true },
-  }))
+  })),
 
-  .get('/:appId/consent', async ({ params }) => {
+  getByAppIdConsent: defineHttpOperation('GET', '/:appId/consent', async ({ params }) => {
     const settings = await appControlRepo.getApplicationConsentSettings(params.appId);
     return decodeEndpointResponse('getApplicationConsentSettings', settings || {
       applicationId: params.appId,
@@ -242,9 +243,9 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     });
   }, managementContract("GET", "/v1/applications/:appId/consent", {
     detail: { summary: 'Get application consent configuration', tags: ['Applications', 'Consent'] },
-  }))
+  })),
 
-  .put('/:appId/consent', async ({ params, body }) => {
+  putByAppIdConsent: defineHttpOperation('PUT', '/:appId/consent', async ({ params, body }) => {
     const data = decodeEndpointBody('updateApplicationConsentSettings', body);
     return decodeEndpointResponse('updateApplicationConsentSettings', await appControlRepo.upsertApplicationConsentSettings(params.appId, definedFields({
       userScopes: data.user_scopes ?? undefined,
@@ -255,9 +256,9 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     })));
   }, managementContract("PUT", "/v1/applications/:appId/consent", {
     detail: { summary: 'Update application consent configuration', tags: ['Applications', 'Consent'] },
-  }))
+  })),
 
-  .get('/:appId/access-control', async ({ params }) => {
+  getByAppIdAccessControl: defineHttpOperation('GET', '/:appId/access-control', async ({ params }) => {
     const settings = await appControlRepo.getApplicationConsentSettings(params.appId);
     return decodeEndpointResponse('getApplicationAccessControl', settings || {
       applicationId: params.appId,
@@ -269,9 +270,9 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     });
   }, managementContract("GET", "/v1/applications/:appId/access-control", {
     detail: { summary: 'Get application access-control rules', tags: ['Applications'] },
-  }))
+  })),
 
-  .put('/:appId/access-control', async ({ params, body }) => {
+  putByAppIdAccessControl: defineHttpOperation('PUT', '/:appId/access-control', async ({ params, body }) => {
     const input = decodeEndpointBody('updateApplicationAccessControl', body);
     return decodeEndpointResponse('updateApplicationAccessControl', await appControlRepo.upsertApplicationConsentSettings(params.appId, definedFields({
       userScopes: input.user_scopes ?? undefined,
@@ -282,9 +283,9 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     })));
   }, managementContract("PUT", "/v1/applications/:appId/access-control", {
     detail: { summary: 'Update application access-control rules', tags: ['Applications'] },
-  }))
+  })),
 
-  .get('/:appId/sign-in-experience', async ({ params }) => {
+  getByAppIdSignInExperience: defineHttpOperation('GET', '/:appId/sign-in-experience', async ({ params }) => {
     const experience = await sieRepo.getApplicationSignInExperience(params.appId);
     return decodeEndpointResponse('getApplicationSignInExperience', experience || {
       application_id: params.appId,
@@ -301,9 +302,9 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     });
   }, managementContract("GET", "/v1/applications/:appId/sign-in-experience", {
     detail: { summary: 'Get application sign-in experience overrides', tags: ['Applications', 'Sign-in Experience'] },
-  }))
+  })),
 
-  .put('/:appId/sign-in-experience', async ({ params, body }) => {
+  putByAppIdSignInExperience: defineHttpOperation('PUT', '/:appId/sign-in-experience', async ({ params, body }) => {
     const data = decodeEndpointBody('updateApplicationSignInExperience', body);
     const saved = await sieRepo.upsertApplicationSignInExperience(params.appId, definedFields({
       ...data, branding: data.branding ?? undefined,
@@ -312,25 +313,25 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     return decodeEndpointResponse('updateApplicationSignInExperience', saved);
   }, managementContract("PUT", "/v1/applications/:appId/sign-in-experience", {
     detail: { summary: 'Update application sign-in experience overrides', tags: ['Applications', 'Sign-in Experience'] },
-  }))
+  })),
 
-  .delete('/:appId/sign-in-experience', async ({ params }) => {
+  deleteByAppIdSignInExperience: defineHttpOperation('DELETE', '/:appId/sign-in-experience', async ({ params }) => {
     await sieRepo.deleteApplicationSignInExperience(params.appId);
     await audit('application.sign_in_experience.delete', 'application', params.appId);
     return new Response(null, { status: 204 });
   }, managementContract("DELETE", "/v1/applications/:appId/sign-in-experience", {
     detail: { summary: 'Delete application sign-in experience overrides', tags: ['Applications', 'Sign-in Experience'] },
-  }))
+  })),
 
   // ─── Application-Resource/Scope bindings ───
-  .get('/:appId/bindings', async ({ params }) => {
+  getByAppIdBindings: defineHttpOperation('GET', '/:appId/bindings', async ({ params }) => {
     const bindings = await bindingRepo.listApplicationBindings(params.appId);
     return decodeEndpointResponse('listApplicationBindings', { items: bindings, total: bindings.length });
   }, managementContract("GET", "/v1/applications/:appId/bindings", {
     detail: { summary: 'List application resource/scope bindings', tags: ['Applications', 'Bindings'] },
-  }))
+  })),
 
-  .post('/:appId/bindings', async ({ params, body }) => {
+  postByAppIdBindings: defineHttpOperation('POST', '/:appId/bindings', async ({ params, body }) => {
     const data = decodeEndpointBody('createApplicationBinding', body);
     let binding: NonNullable<Awaited<ReturnType<typeof bindingRepo.createBinding>>>;
     try {
@@ -354,9 +355,9 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     return decodeEndpointResponse('createApplicationBinding', binding);
   }, managementContract("POST", "/v1/applications/:appId/bindings", {
     detail: { summary: 'Create application binding', tags: ['Applications', 'Bindings'] },
-  }))
+  })),
 
-  .delete('/:appId/bindings/:bindingId', async ({ params }) => {
+  deleteByAppIdBindingsByBindingId: defineHttpOperation('DELETE', '/:appId/bindings/:bindingId', async ({ params }) => {
     const deleted = await bindingRepo.deleteBinding(params.appId, params.bindingId);
     if (!deleted) {
       throw new ApiContractError(404, 'binding_not_found', 'Application binding was not found');
@@ -364,22 +365,22 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     await audit('binding.delete', 'binding', params.bindingId);
   }, managementContract("DELETE", "/v1/applications/:appId/bindings/:bindingId", {
     detail: { summary: 'Delete application binding', tags: ['Applications', 'Bindings'] },
-  }))
+  })),
 
-  .get('/:appId/scopes', async ({ params }) => {
+  getByAppIdScopes: defineHttpOperation('GET', '/:appId/scopes', async ({ params }) => {
     const scopes = await bindingRepo.listApplicationScopes(params.appId);
     return decodeEndpointResponse('listApplicationScopes', { items: scopes, total: scopes.length });
   }, managementContract("GET", "/v1/applications/:appId/scopes", {
     detail: { summary: 'List application scopes', tags: ['Applications', 'Bindings'] },
-  }))
+  })),
 
-  .get('/:appId/roles', async ({ params }) => {
+  getByAppIdRoles: defineHttpOperation('GET', '/:appId/roles', async ({ params }) => {
     return decodeEndpointResponse('listApplicationRoles', pagedResponse(await adapter.listApplicationRoleAssignments(params.appId)));
   }, managementContract("GET", "/v1/applications/:appId/roles", {
     detail: { summary: 'List role assignments for an application', tags: ['Applications', 'RBAC'] },
-  }))
+  })),
 
-  .get('/:appId/logs', async ({ params, query: rawQuery }) => {
+  getByAppIdLogs: defineHttpOperation('GET', '/:appId/logs', async ({ params, query: rawQuery }) => {
     const query = decodeManagementQuery('listApplicationLogs', rawQuery);
     const logs = await adapter.queryAuditLogs({
       resource_type: 'application',
@@ -390,10 +391,11 @@ export const applicationRoutes = new Elysia({ prefix: '/v1/applications' })
     return decodeEndpointResponse('listApplicationLogs', cursorResponse(logs, { limit: query.limit }));
   }, managementContract("GET", "/v1/applications/:appId/logs", {
     detail: { summary: 'List audit logs for an application', tags: ['Applications', 'Audit'] },
-  }))
+  })),
 
-  .get('/:appId/organizations', async ({ params }) => {
+  getByAppIdOrganizations: defineHttpOperation('GET', '/:appId/organizations', async ({ params }) => {
     return decodeEndpointResponse('listApplicationOrganizations', pagedResponse(await adapter.listApplicationOrganizations(params.appId)));
   }, managementContract("GET", "/v1/applications/:appId/organizations", {
     detail: { summary: 'List organizations with application access', tags: ['Applications', 'Organizations'] },
-  }));
+  })),
+});
