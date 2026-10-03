@@ -12,6 +12,8 @@ import {
 import { ApiContractError } from '../utils/api-contract.js';
 import { operationTestPlugin } from './http-fixture.js';
 
+const adapterExports = { ...await import('../supacloud/adapter.js') };
+
 process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
 process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
 process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'test-bff-signing-secret-32-characters';
@@ -176,6 +178,7 @@ mock.module('../repositories/audit.js', () => ({
   }),
 }));
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   getSupaCloudAdapter: () => storageAdapter,
   getSupaCloudAdapterForProject: () => storageAdapter,
   isSupaCloudApiError: (error: unknown, statuses?: number[]) => {

@@ -5,6 +5,8 @@ import { ApiContractError } from '../utils/api-contract.js';
 import { operationInput, operationOutput } from '../utils/operation-contract.js';
 import { operationTestPlugin } from './http-fixture.js';
 
+const adapterExports = { ...await import('../supacloud/adapter.js') };
+
 const calls: Array<{ operation: string; input: unknown }> = [];
 let versionEntries: OperationResult<'createApiVersion'>[] = [];
 const defaultPolicy: RbacMigrationPolicy = {
@@ -32,6 +34,7 @@ mock.module('../repositories/rbac-bridge.js', () => ({
   generateCompatibilityHelper: (ref: string) => `sql:${ref}`,
 }));
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   getSupaCloudAdapter: () => ({
     exportAuditLogs: async (input: unknown) => {
       calls.push({ operation: 'exportAuditLogs', input });

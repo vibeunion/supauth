@@ -3,6 +3,8 @@ import { Elysia } from 'elysia';
 import { ApiContractError } from '../utils/api-contract.js';
 import { operationTestPlugin } from './http-fixture.js';
 
+const adapterExports = { ...await import('../supacloud/adapter.js') };
+
 const validWebhook = {
   id: 'webhook-one', url: 'https://example.test/hook', events: ['user.created'],
   enabled: true, secret_configured: true, created_at: '2026-09-08', updated_at: '2026-09-08',
@@ -11,6 +13,7 @@ let upstream: unknown = validWebhook;
 let writes = 0;
 const audits: unknown[] = [];
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   getSupaCloudAdapter: () => ({
     createWebhook: async () => { writes++; return upstream; },
   }),
@@ -48,7 +51,14 @@ describe('validated operation side effects', () => {
     upstream = { ...validWebhook, id: 123, url: { private: 'fixture-private-value' } };
     const response = await createWebhook();
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ code: 'invalid_upstream_response' });
+    expect(await response.json()).toEqual({
+      success: false,
+      error: {
+        code: 'invalid_upstream_response',
+        message: 'Response does not match the declared contract',
+        correlation_id: expect.any(String),
+      },
+    });
     expect(writes).toBe(1);
     expect(audits).toHaveLength(0);
   });

@@ -4,6 +4,8 @@ import { ApiContractError } from '../utils/api-contract.js';
 import { operationOutput } from '../utils/operation-contract.js';
 import { operationTestPlugin } from './http-fixture.js';
 
+const adapterExports = { ...await import('../supacloud/adapter.js') };
+
 const validUsers = [
   { id: 'user-one', app_metadata: { role: 'admin' } },
   { id: 'user-two', app_metadata: { role: 'admin' } },
@@ -17,6 +19,7 @@ const writes: unknown[] = [];
 const audits: unknown[] = [];
 
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   getSupaCloudAdapter: () => ({
     listUsers: async () => { inventoryReads++; return users; },
     listRoles: async () => [{ id: 'role-one', name: 'admin' }],

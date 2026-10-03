@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { operationTestPlugin } from './http-fixture.js';
 
+const adapterExports = { ...await import('../supacloud/adapter.js') };
+
 type BrandingSnapshot = {
   branding: {
     logo_url: string | null;
@@ -45,6 +47,7 @@ class MockSupaCloudApiError extends Error {
 }
 
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   isSupaCloudApiError: (error: unknown, statuses?: number[]) => (
     error instanceof MockSupaCloudApiError
     && (!statuses || statuses.includes(error.status))

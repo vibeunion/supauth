@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 import { operationTestPlugin } from './http-fixture.js';
 
+const adapterExports = { ...await import('../supacloud/adapter.js') };
+
 type JitCapability = {
   available: boolean;
   source: string;
@@ -27,6 +29,7 @@ const getOrganizationJitSettings = mock(async () => ({ enabled: true, domains: [
 const updateOrganizationJitSettings = mock(async () => ({ enabled: true, domains: ['example.test'] }));
 
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   getSupaCloudAdapter: () => ({
     getCapabilities,
     getOrganizationJitSettings,
@@ -89,8 +92,9 @@ describe('organization JIT capability gate', () => {
     const body = strictRecord(await response.json());
 
     expect(response.status).toBe(501);
-    expect(body["code"]).toBe('capability_unavailable');
-    expect(strictProperty(body["details"], "reason_code")).toBe('gotrue_custom_access_token_hook_not_enabled');
+    expect(body["success"]).toBe(false);
+    expect(strictProperty(body, "error", "code")).toBe('capability_unavailable');
+    expect(strictProperty(body, "error", "details", "reason_code")).toBe('gotrue_custom_access_token_hook_not_enabled');
     expect(getOrganizationJitSettings).not.toHaveBeenCalled();
   });
 });

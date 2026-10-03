@@ -96,9 +96,12 @@ describe('Storage signed URL boundary', () => {
       expiresIn: 1,
     });
     expect(upstreamCalls).toEqual([{
-      path: '/storage/v1/object/sign/avatars/%25E7%2594%25A8%25E6%2588%25B7%2520one/folder/avatar%2520%25231.png',
+      path: '/storage/v1/object/sign/avatars/%E7%94%A8%E6%88%B7%20one/folder/avatar%20%231.png',
       body: '{"expiresIn":1}',
     }]);
+    expect(decodeURIComponent(upstreamCalls[0]?.path ?? '')).toBe(
+      `/storage/v1/object/sign/avatars/${objectPath}`,
+    );
   });
 
   it('rejects encoded traversal and invalid expiry before Storage without weakening the bucket allowlist', async () => {

@@ -2,6 +2,8 @@ import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../..
 import { beforeAll, describe, expect, mock, test } from 'bun:test';
 import { operationTestPlugin } from './http-fixture.js';
 
+const adapterExports = { ...await import('../supacloud/adapter.js') };
+
 const recordStep = mock(async () => {
   throw new Error('relation supaoauth.provisioning_records does not exist');
 });
@@ -25,6 +27,7 @@ mock.module('../repositories/audit.js', () => ({
 }));
 
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   isSupaCloudApiError: () => false,
   getSupaCloudAdapterForProject: () => ({
     getProjectRef: () => 'lhevaxecbonjjdbardgi',

@@ -3,6 +3,8 @@ import { Elysia } from 'elysia';
 import { ApiContractError } from '../utils/api-contract.js';
 import { operationTestPlugin } from './http-fixture.js';
 
+const adapterExports = { ...await import('../supacloud/adapter.js') };
+
 const validUser = { id: 'user-one', app_metadata: { role: 'admin' } };
 const validRole = { id: 'role-one', name: 'admin' };
 let users: unknown;
@@ -15,6 +17,7 @@ const createdRoles: Array<{ id: string; name: string }> = [];
 const audits: unknown[] = [];
 
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   getSupaCloudAdapter: () => ({
     listUsers: async () => users,
     listRoles: async () => Array.isArray(roles) ? [...roles, ...createdRoles] : roles,
@@ -74,7 +77,14 @@ function request(body: Record<string, unknown> = {}, route = 'import') {
 async function expectInvalidInventory(body: Record<string, unknown> = {}) {
   const response = await request(body);
   expect(response.status).toBe(502);
-  expect(await response.json()).toEqual({ code: 'invalid_upstream_response' });
+  expect(await response.json()).toEqual({
+    success: false,
+    error: {
+      code: 'invalid_upstream_response',
+      message: 'RBAC inventory does not match the expected contract',
+      correlation_id: expect.any(String),
+    },
+  });
   expect(mutations).toHaveLength(0);
   expect(audits).toHaveLength(0);
 }
