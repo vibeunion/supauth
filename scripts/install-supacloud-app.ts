@@ -12,7 +12,7 @@ import { decodeArtifactManifest } from './supacloud-app-contract.js';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
+import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrations/index.js';
 import { verifySupacloudAppArtifact } from './verify-supacloud-app-artifact.js';
 import { verifyRbacAgainstDatabase } from '../packages/auth-server/src/compatibility/rbac-verify.js';
 import { verifyAdminSsoAllowlist } from '../packages/auth-server/src/compatibility/admin-sso-verify.js';

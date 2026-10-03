@@ -6,7 +6,7 @@
 import { getSupaCloudAdapterForProject, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as provRepo from '../repositories/provisioning.js';
 import * as auditRepo from '../repositories/audit.js';
-import { HOSTED_MIGRATIONS } from '../db/migrate.js';
+import { HOSTED_MIGRATIONS } from '../db/migrations/index.js';
 import { operationContract, operationOutput } from '../utils/operation-contract.js';
 import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
