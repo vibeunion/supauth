@@ -124,7 +124,7 @@ function responseStatus(status: number | string | undefined): number {
   const code = typeof status === 'number' || /^\d{3}$/.test(status)
     ? Number(status)
     : HTTP_STATUS_CODES[status];
-  if (!Number.isInteger(code) || code < 200 || code > 599) {
+  if (code === undefined || !Number.isInteger(code) || code < 200 || code > 599) {
     throw new ApiContractError(502, 'invalid_upstream_response', 'Invalid response status');
   }
   return code;
