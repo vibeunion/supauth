@@ -220,7 +220,8 @@ export function mergeSupaCloudBrandingDefaults(
   const globalTitle = globalBranding.page_title;
   // 仅根据原始全局标题判断兜底，避免将与 stock 同名的应用再次覆盖。
   if (!globalTitle || STOCK_PAGE_TITLES.has(globalTitle)) {
-    branding.page_title = applicationDefaults.page_title ?? projectDefaults.page_title ?? globalTitle;
+    const resolvedTitle = applicationDefaults.page_title ?? projectDefaults.page_title ?? globalTitle;
+    if (resolvedTitle !== undefined) branding.page_title = resolvedTitle;
   }
   return branding;
 }

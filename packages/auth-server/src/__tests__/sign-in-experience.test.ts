@@ -112,6 +112,13 @@ describe('Sign-in experience repository — module structure', () => {
     expect(branding.page_title).toBe('Volt');
   });
 
+  it('preserves an omitted global title when no branding source provides one', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({});
+
+    expect('page_title' in branding).toBe(false);
+  });
+
   it('prefers the project display name over the internal machine name for the system title', async () => {
     const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
     const branding = mergeSupaCloudBrandingDefaults({
