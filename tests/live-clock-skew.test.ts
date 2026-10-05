@@ -27,18 +27,115 @@ describe('live clock skew prerequisite', () => {
     await expect(checkLiveClockSkew(clockOptions({ dateHeader: 'not-a-date' }))).rejects.toThrow('invalid Date header');
   });
 
-  it('fails when the GoTrue health request times out', async () => {
-    const fetchImpl: NonNullable<LiveClockCheckOptions['fetchImpl']> = async (_input, init) => (
-      await new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
-      })
-    );
-
-    await expect(checkLiveClockSkew({
+  it('stops after exactly three timeouts and preserves the original timeout cause', async () => {
+    const signals: AbortSignal[] = [];
+    const result = await checkLiveClockSkew({
       runtimeUrl: 'https://auth.example.test',
-      fetchImpl,
+      fetchImpl: async (_input, init) => {
+        const signal = init?.signal;
+        if (!signal) throw new Error('Expected a timeout signal');
+        signals.push(signal);
+        return await waitForTimeout(signal);
+      },
       timeoutMs: 5,
-    })).rejects.toThrow('timed out after 5ms');
+      retryDelayMs: 0,
+    }).catch((error: unknown) => error);
+
+    expect(signals).toHaveLength(3);
+    expect(result).toBeInstanceOf(Error);
+    if (!(result instanceof Error)) throw new Error('Expected a timeout error');
+    expect(result.message).toContain('timed out after 5ms');
+    expect(result.message).toContain('3 attempts');
+    expect(result.cause).toBe(signals[2]?.reason);
+  });
+
+  it('recovers on the third attempt with independent signals, nonces, and timing', async () => {
+    const signals: AbortSignal[] = [];
+    const nonces: string[] = [];
+    const localTimes = [
+      BASE_TIME_MS - 40_000, BASE_TIME_MS - 35_000,
+      BASE_TIME_MS - 20_000, BASE_TIME_MS - 15_000,
+      BASE_TIME_MS, BASE_TIME_MS + 2_000,
+    ];
+    let clockReads = 0;
+    const skew = await checkLiveClockSkew({
+      runtimeUrl: 'https://auth.example.test',
+      timeoutMs: 5,
+      retryDelayMs: 0,
+      now: () => {
+        clockReads++;
+        const time = localTimes.shift();
+        if (time === undefined) throw new Error('Unexpected clock read');
+        return time;
+      },
+      fetchImpl: async (input, init) => {
+        const signal = init?.signal;
+        if (!signal) throw new Error('Expected a timeout signal');
+        signals.push(signal);
+        const url = new URL(input instanceof Request ? input.url : input.toString());
+        const nonce = url.searchParams.get('clock_check');
+        if (!nonce) throw new Error('Expected a cache nonce');
+        nonces.push(nonce);
+        expect(init?.cache).toBe('no-store');
+        if (signals.length < 3) return await waitForTimeout(signal);
+        expect(signal.aborted).toBe(false);
+        return new Response(null, { headers: { date: new Date(BASE_TIME_MS + 6_000).toUTCString() } });
+      },
+    });
+
+    expect(skew).toBe(5_000);
+    expect(clockReads).toBe(6);
+    expect(localTimes).toHaveLength(0);
+    expect(new Set(signals).size).toBe(3);
+    expect(new Set(nonces).size).toBe(3);
+  });
+
+  for (const { name, fixture, message } of [
+    { name: 'HTTP', fixture: { status: 503 }, message: 'HTTP 503' },
+    { name: 'missing Date', fixture: { includeDate: false }, message: 'missing the Date header' },
+    { name: 'invalid Date', fixture: { dateHeader: 'not-a-date' }, message: 'invalid Date header' },
+    { name: 'skew', fixture: { serverTimeMs: BASE_TIME_MS + 6_000 }, message: 'exceeds 5.000s' },
+  ]) {
+    it(`does not retry ${name} errors, even after a timeout`, async () => {
+      for (const initialTimeout of [false, true]) {
+        const options = clockOptions(fixture);
+        const responseFetch = options.fetchImpl;
+        if (!responseFetch) throw new Error('Expected a fixture fetch');
+        let attempts = 0;
+        await expect(checkLiveClockSkew({
+          ...options,
+          timeoutMs: 5,
+          retryDelayMs: 0,
+          fetchImpl: async (input, init) => {
+            attempts++;
+            if (initialTimeout && attempts === 1) {
+              const signal = init?.signal;
+              if (!signal) throw new Error('Expected a timeout signal');
+              return await waitForTimeout(signal);
+            }
+            return await responseFetch(input, init);
+          },
+        })).rejects.toThrow(message);
+        expect(attempts).toBe(initialTimeout ? 2 : 1);
+      }
+    });
+  }
+
+  it('does not retry other network failures', async () => {
+    const originalError = new TypeError('Connection refused');
+    let attempts = 0;
+    const result = await checkLiveClockSkew({
+      runtimeUrl: 'https://auth.example.test',
+      retryDelayMs: 0,
+      fetchImpl: async () => {
+        attempts++;
+        throw originalError;
+      },
+    }).catch((error: unknown) => error);
+    expect(attempts).toBe(1);
+    expect(result).toBeInstanceOf(Error);
+    if (!(result instanceof Error)) throw new Error('Expected a network error');
+    expect(result.cause).toBe(originalError);
   });
 
   it('bypasses caches for every GoTrue health request', async () => {
@@ -110,6 +207,16 @@ interface ClockFixture {
   status?: number;
   includeDate?: boolean;
   dateHeader?: string;
+}
+
+function waitForTimeout(signal: AbortSignal): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
 }
 
 function clockOptions(fixture: ClockFixture): LiveClockCheckOptions {
