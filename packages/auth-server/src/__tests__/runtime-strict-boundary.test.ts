@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { loadConfig } from '../config/index.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 process.env['OAUTH_RUNTIME_URL'] = 'https://runtime.invalid';
 process.env['OAUTH_RUNTIME_INTERNAL_URL'] = 'https://internal.invalid';
@@ -36,7 +37,7 @@ function responses(discoveryValue: unknown, jwksValue: unknown): void {
 }
 
 function request(path: 'health' | 'discovery' | 'jwks'): Promise<Response> {
-  return new Elysia().use(observabilityMiddleware).use(runtimeRoutes)
+  return new Elysia().use(observabilityMiddleware).use(operationTestPlugin(runtimeRoutes))
     .handle(new Request(`https://auth.invalid/v1/runtime/${path}`));
 }
 

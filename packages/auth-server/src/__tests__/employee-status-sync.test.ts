@@ -2,10 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { strictRecord } from './helpers/strict-values.js';
 import { Elysia } from 'elysia';
 import { accountProvisioningRoutes } from '../routes/account-provisioning.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 describe('employee status sync', () => {
   test('sync endpoint returns empty result for empty records', async () => {
-    const app = new Elysia().use(accountProvisioningRoutes);
+    const app = new Elysia().use(operationTestPlugin(accountProvisioningRoutes));
     const response = await app.handle(new Request('http://localhost/v1/account-provisioning/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -18,7 +19,7 @@ describe('employee status sync', () => {
   });
 
   test('sync/status endpoint returns counts by status', async () => {
-    const app = new Elysia().use(accountProvisioningRoutes);
+    const app = new Elysia().use(operationTestPlugin(accountProvisioningRoutes));
     const response = await app.handle(new Request('http://localhost/v1/account-provisioning/sync/status?external_type=employee', {
       method: 'GET',
     }));
@@ -27,7 +28,7 @@ describe('employee status sync', () => {
   });
 
   test('sync/reconcile endpoint accepts options', async () => {
-    const app = new Elysia().use(accountProvisioningRoutes);
+    const app = new Elysia().use(operationTestPlugin(accountProvisioningRoutes));
     const response = await app.handle(new Request('http://localhost/v1/account-provisioning/sync/reconcile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

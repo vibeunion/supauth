@@ -112,6 +112,35 @@ describe('Sign-in experience repository — module structure', () => {
     expect(branding.page_title).toBe('Volt');
   });
 
+  it('prefers the project display name over the internal machine name for the system title', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({
+      page_title: 'SupaOAuth',
+      logo_url: null,
+      favicon_url: null,
+      primary_color: null,
+    }, {
+      project: { name: 'supauth-logout-e2e', display_name: '西谷统一身份认证' },
+    });
+
+    // Issue #3436：hosted 登录页只有 authorization_id 时也必须显示可运营的对外系统名。
+    expect(branding.page_title).toBe('西谷统一身份认证');
+  });
+
+  it('reads a project display name nested under config before falling back to the machine name', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({
+      page_title: 'SupaOAuth',
+      logo_url: null,
+      favicon_url: null,
+      primary_color: null,
+    }, {
+      project: { name: 'supauth-logout-e2e', config: { display_name: '西谷统一身份认证' } },
+    });
+
+    expect(branding.page_title).toBe('西谷统一身份认证');
+  });
+
   it('preserves a non-stock tenant-level system name against application metadata', async () => {
     const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
     const branding = mergeSupaCloudBrandingDefaults({

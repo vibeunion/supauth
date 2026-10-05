@@ -3,6 +3,9 @@ import { Elysia } from 'elysia';
 import type { OperationResult, RbacMigrationPolicy } from '../../../shared/src/server-operations.js';
 import { ApiContractError } from '../utils/api-contract.js';
 import { operationInput, operationOutput } from '../utils/operation-contract.js';
+import { operationTestPlugin } from './http-fixture.js';
+
+const adapterExports = { ...await import('../supacloud/adapter.js') };
 
 const calls: Array<{ operation: string; input: unknown }> = [];
 let versionEntries: OperationResult<'createApiVersion'>[] = [];
@@ -31,6 +34,7 @@ mock.module('../repositories/rbac-bridge.js', () => ({
   generateCompatibilityHelper: (ref: string) => `sql:${ref}`,
 }));
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   getSupaCloudAdapter: () => ({
     exportAuditLogs: async (input: unknown) => {
       calls.push({ operation: 'exportAuditLogs', input });
@@ -52,7 +56,7 @@ const { rbacBridgeRoutes } = await import('../routes/rbac-bridge.js');
 const { auditRoutes } = await import('../routes/audit.js');
 const { apiVersionRoutes } = await import('../routes/api-versions.js');
 const app = new Elysia()
-  .onError(({ error, set }) => {
+  .error(({ error, set }) => {
     if (error instanceof ApiContractError) {
       set.status = error.status;
       return { code: error.code };
@@ -60,7 +64,7 @@ const app = new Elysia()
     set.status = 500;
     return { code: 'unexpected_error' };
   })
-  .use(adminToolRoutes).use(rbacBridgeRoutes).use(auditRoutes).use(apiVersionRoutes);
+  .use(operationTestPlugin(adminToolRoutes)).use(operationTestPlugin(rbacBridgeRoutes)).use(operationTestPlugin(auditRoutes)).use(operationTestPlugin(apiVersionRoutes));
 
 function post(path: string, body?: unknown) {
   return app.handle(new Request(`http://localhost${path}`, {

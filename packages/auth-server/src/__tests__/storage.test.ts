@@ -2,6 +2,7 @@ import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../..
 import { strictFetch } from './helpers/strict-fetch.js';
 import { strictString } from './helpers/strict-values.js';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { operationTestPlugin } from './http-fixture.js';
 
 mock.module('../repositories/security-config.js', () => ({
   getSecurityConfig: mock(async () => null),
@@ -95,9 +96,12 @@ describe('Storage signed URL boundary', () => {
       expiresIn: 1,
     });
     expect(upstreamCalls).toEqual([{
-      path: '/storage/v1/object/sign/avatars/%25E7%2594%25A8%25E6%2588%25B7%2520one/folder/avatar%2520%25231.png',
+      path: '/storage/v1/object/sign/avatars/%E7%94%A8%E6%88%B7%20one/folder/avatar%20%231.png',
       body: '{"expiresIn":1}',
     }]);
+    expect(decodeURIComponent(upstreamCalls[0]?.path ?? '')).toBe(
+      `/storage/v1/object/sign/avatars/${objectPath}`,
+    );
   });
 
   it('rejects encoded traversal and invalid expiry before Storage without weakening the bucket allowlist', async () => {
@@ -123,16 +127,18 @@ describe('Storage validation — bucket allowlist', () => {
   it('accepts avatars bucket', async () => {
     // Import the module to test the ALLOWED_BUCKETS constant indirectly
     // Since the constants are module-scoped, we test via the route behavior
-    // by checking the storage module structure
-    const storageModule = await import('../storage/index.js');
+    // by checking the storage test app structure
+    const operations = await import('../storage/index.js');
+    const storageModule = { storageRoutes: operationTestPlugin(operations.storageRoutes) };
     expect(storageModule.storageRoutes).toBeDefined();
     expect(typeof storageModule.storageRoutes.fetch).toBe('function');
   });
 });
 
 describe('Storage module — structure', () => {
-  it('exports storageRoutes as Elysia instance', async () => {
-    const { storageRoutes } = await import('../storage/index.js');
+  it('adapts storageRoutes to an Elysia test instance', async () => {
+    const { storageRoutes: operations } = await import('../storage/index.js');
+    const storageRoutes = operationTestPlugin(operations);
     expect(storageRoutes).toBeDefined();
     expect(typeof storageRoutes.fetch).toBe('function');
   });

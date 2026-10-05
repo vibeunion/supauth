@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { loadConfig } from '../config/index.js';
 import { observabilityMiddleware } from '../middleware/index.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 describe('GoTrue OAuth client grant type boundary', () => {
   const originalFetch = globalThis.fetch;
@@ -35,7 +36,7 @@ describe('GoTrue OAuth client grant type boundary', () => {
     ['PUT', '/v1/applications/client-one', 'token-exchange'],
   ])('rejects unsupported %s grant types before the SupaCloud facade', async (method, path, grantType) => {
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(observabilityMiddleware).use(applicationRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(applicationRoutes));
     const response = await app.handle(new Request(`http://supauth.local${path}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
@@ -59,7 +60,7 @@ describe('GoTrue OAuth client grant type boundary', () => {
     ['PUT', '/v1/applications/client-one'],
   ])('rejects an explicitly empty %s allowlist before the SupaCloud facade', async (method, path) => {
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(observabilityMiddleware).use(applicationRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(applicationRoutes));
     const response = await app.handle(new Request(`http://supauth.local${path}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
@@ -78,7 +79,7 @@ describe('GoTrue OAuth client grant type boundary', () => {
     ['PUT', '/v1/applications/client-one'],
   ])('rejects duplicate redirect URIs on %s before the SupaCloud facade', async (method, path) => {
     const { applicationRoutes } = await import('../routes/applications.js');
-    const app = new Elysia().use(observabilityMiddleware).use(applicationRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(applicationRoutes));
     const redirectUri = 'https://client.example.test/callback';
     const response = await app.handle(new Request(`http://supauth.local${path}`, {
       method,

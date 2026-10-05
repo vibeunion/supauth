@@ -27,14 +27,14 @@ describe('account domain contract boundaries', () => {
   });
 
   test('a success handler cannot bypass its declared input validation', async () => {
-    const unvalidated = new Elysia().get('/account', () => ({ success: true, user: { id: 'user' } }),
-      accountContract('me', { detail: {} }));
+    const unvalidated = new Elysia().get('/account', accountContract('me', { detail: {} }),
+      () => ({ success: true, user: { id: 'user' } }));
     expect((await unvalidated.handle(new Request('http://localhost/account'))).status).toBe(502);
 
-    const validated = new Elysia().get('/account', ({ request }) => {
+    const validated = new Elysia().get('/account', accountContract('me', { detail: {} }), ({ request }) => {
       readAccountInput('me', request, {});
       return accountOutput('me', { success: true, user: { id: 'user' } });
-    }, accountContract('me', { detail: {} }));
+    });
     expect((await validated.handle(new Request('http://localhost/account'))).status).toBe(200);
   });
 

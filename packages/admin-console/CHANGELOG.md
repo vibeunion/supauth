@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/vibeunion/supauth/compare/admin-console-v0.9.1...admin-console-v0.10.0) (2026-10-03)
+
+
+### Features
+
+* **auth:** migrate to compiled SupaCloud architecture ([#132](https://github.com/vibeunion/supauth/issues/132)) ([f8d6c4f](https://github.com/vibeunion/supauth/commit/f8d6c4febf30fe7c9c98839f1caff6973c3a18af))
+
 ## [0.9.1](https://github.com/vibeunion/supauth/compare/admin-console-v0.9.0...admin-console-v0.9.1) (2026-09-27)
 
 

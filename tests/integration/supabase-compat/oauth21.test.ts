@@ -1,6 +1,7 @@
 import { createFetchMock } from "../../tooling-test-values.js";
 import { requireRecord } from "../../../scripts/tooling-values.js";
 import { isUnknownArray, parseJson } from "../../../scripts/tooling-values.js";
+import { CURRENT_COMPAT_VERSION, assertExpectedRuntimeVersion, requiresOfflineAccess } from '../../../scripts/supabase-auth-compat-version.js';
 /**
  * Supabase OAuth 2.1 black-box compatibility tests (P0-9)
  *
@@ -30,7 +31,7 @@ import { isUnknownArray, parseJson } from "../../../scripts/tooling-values.js";
  *   OAUTH21_REFRESH_TOKEN=<oauth-refresh-token>
  *   OAUTH21_TOKEN_AUTH_METHOD=none|client_secret_basic|client_secret_post
  *   OAUTH21_CLIENT_SECRET=<client-secret>
- *   SUPABASE_AUTH_COMPAT_VERSION=v2.192.0|v2.196.0
+ *   SUPABASE_AUTH_COMPAT_VERSION=v2.192.0|v2.196.0|v2.197.0
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -53,9 +54,7 @@ const REFRESH_TOKEN = process.env["OAUTH21_REFRESH_TOKEN"] || '';
 const CLIENT_SECRET = process.env["OAUTH21_CLIENT_SECRET"] || '';
 const TOKEN_AUTH_METHOD = process.env["OAUTH21_TOKEN_AUTH_METHOD"] || 'none';
 const LIVE_TIMEOUT_MS = positiveIntegerFromEnv(process.env['OAUTH21_TEST_TIMEOUT_MS'], 30_000, 'OAUTH21_TEST_TIMEOUT_MS');
-const CURRENT_COMPAT_VERSION = 'v2.196.0';
-const SUPPORTED_COMPAT_VERSIONS = new Set(['v2.192.0', CURRENT_COMPAT_VERSION]);
-const EXPECTED_COMPAT_VERSION = process.env["SUPABASE_AUTH_COMPAT_VERSION"] || CURRENT_COMPAT_VERSION;
+const EXPECTED_COMPAT_VERSION = process.env["SUPABASE_AUTH_COMPAT_VERSION"]?.trim() || CURRENT_COMPAT_VERSION;
 
 if (STRICT_COMPAT) {
   assertRequiredEnv([
@@ -127,12 +126,13 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
 
   it('fails the live version boundary on health errors and mismatches', async () => {
     const unavailableHealth = createFetchMock(((() => Promise.resolve(new Response(null, { status: 503 })))));
-    const floorHealth = createFetchMock(((() => Promise.resolve(Response.json({ version: 'v2.192.0' })))));
+    const mismatchedVersion = EXPECTED_COMPAT_VERSION === 'v2.192.0' ? 'v2.197.0' : 'v2.192.0';
+    const mismatchedHealth = createFetchMock(((() => Promise.resolve(Response.json({ version: mismatchedVersion })))));
 
     await expect(verifiedRuntimeVersion(unavailableHealth))
       .rejects.toThrow('GoTrue health check failed with status 503');
-    await expect(verifiedRuntimeVersion(floorHealth))
-      .rejects.toThrow('Expected GoTrue v2.196.0 but runtime health reports v2.192.0');
+    await expect(verifiedRuntimeVersion(mismatchedHealth))
+      .rejects.toThrow(`Expected GoTrue ${EXPECTED_COMPAT_VERSION} but runtime health reports ${mismatchedVersion}`);
   });
 
   it('declares the live OAuth 2.1 compatibility environment contract', () => {
@@ -167,7 +167,7 @@ describe('Supabase OAuth 2.1 compatibility fixture', () => {
     expect(metadata.grant_types_supported || []).toContain('refresh_token');
     expect(metadata.grant_types_supported || []).not.toContain('urn:ietf:params:oauth:grant-type:token-exchange');
     expect(metadata.code_challenge_methods_supported || []).toContain('S256');
-    if (runtimeVersion === CURRENT_COMPAT_VERSION) {
+    if (requiresOfflineAccess(runtimeVersion)) {
       expect(metadata.scopes_supported || []).toContain('offline_access');
     }
   });
@@ -306,15 +306,6 @@ function runtimeVersionFromHealth(healthPayload: unknown): string {
     throw new Error('GoTrue health response has no valid version');
   }
   return runtimeVersion;
-}
-
-function assertExpectedRuntimeVersion(runtimeVersion: string, expectedVersion: string): void {
-  if (!SUPPORTED_COMPAT_VERSIONS.has(expectedVersion)) {
-    throw new Error(`Unsupported GoTrue compatibility matrix version: ${expectedVersion}`);
-  }
-  if (runtimeVersion !== expectedVersion) {
-    throw new Error(`Expected GoTrue ${expectedVersion} but runtime health reports ${runtimeVersion}`);
-  }
 }
 
 async function getJson(path: string): Promise<OAuthMetadata> {

@@ -1,6 +1,6 @@
 // Observability middleware — request ID, structured logs, audit correlation
 
-import { Elysia } from 'elysia';
+import { Elysia, InvalidCookie, NotFound, ParseError, ValidationError, type HTTPHeaders } from 'elysia';
 import { enterRequestContext, getCurrentRequestId } from '../auth/request-context.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
 import { ApiContractError, isRecord } from '../utils/api-contract.js';
@@ -18,7 +18,7 @@ const securityResponseHeaders = {
   'content-security-policy': "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'",
 };
 
-function applySecurityResponseHeaders(headers: Record<string, string | number> | Headers) {
+function applySecurityResponseHeaders(headers: HTTPHeaders | Headers) {
   for (const [name, value] of Object.entries(securityResponseHeaders)) {
     if (headers instanceof Headers) {
       if (name === 'content-security-policy' && headers.has(name)) continue;
@@ -56,57 +56,110 @@ export function generateRequestId(): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export const observabilityMiddleware = new Elysia({ name: 'observability' })
-  .derive({ as: 'global' }, ({ request }) => {
+interface ObservedRequest {
+  requestId: string;
+  startTime: number;
+  responseLogged: boolean;
+  errorLogged: boolean;
+}
+
+const observedRequests = new WeakMap<Request, ObservedRequest>();
+
+export function beginObservedRequest(request: Request, headers?: HTTPHeaders | Headers): ObservedRequest {
+  let observed = observedRequests.get(request);
+  if (!observed) {
     const requestId = request.headers.get('x-request-id') || generateRequestId();
     request.headers.set('x-request-id', requestId);
+    observed = {
+      requestId,
+      startTime: performance.now(),
+      responseLogged: false,
+      errorLogged: false,
+    };
+    observedRequests.set(request, observed);
     if (!getCurrentRequestId()) enterRequestContext({ requestId });
-    return { requestId, startTime: performance.now() };
-  })
-  .onAfterHandle({ as: 'global' }, ({ requestId, startTime, request, response, set }) => {
-    const duration = performance.now() - (startTime ?? 0);
-    applySecurityResponseHeaders(set.headers);
-    set.headers['x-request-id'] = requestId || request.headers.get('x-request-id') || 'unknown';
+  }
+  if (headers) {
+    applySecurityResponseHeaders(headers);
+    if (headers instanceof Headers) headers.set('x-request-id', observed.requestId);
+    else headers['x-request-id'] = observed.requestId;
+  }
+  return observed;
+}
 
-    if (runtimeEnv('LOG_LEVEL') === 'debug') {
-      console.log(JSON.stringify({
-        level: 'info',
-        msg: 'request',
-        request_id: requestId,
-        method: request.method,
-        url: safeRequestUrl(request),
-        duration_ms: Math.round(duration),
-      }));
-    }
-    if (response instanceof Response) return protectRawResponse(response, requestId);
-  })
-  .onError({ as: 'global' }, ({ requestId, startTime, request, error, code, set }) => {
-    const duration = performance.now() - (startTime ?? 0);
-    applySecurityResponseHeaders(set.headers);
-    set.headers['x-request-id'] = requestId || request.headers.get('x-request-id') || 'unknown';
+function logObservedResponse(request: Request): ObservedRequest {
+  const observed = beginObservedRequest(request);
+  if (!observed.responseLogged && runtimeEnv('LOG_LEVEL') === 'debug') {
+    console.log(JSON.stringify({
+      level: 'info',
+      msg: 'request',
+      request_id: observed.requestId,
+      method: request.method,
+      url: safeRequestUrl(request),
+      duration_ms: Math.round(performance.now() - observed.startTime),
+    }));
+  }
+  observed.responseLogged = true;
+  return observed;
+}
 
-    const correlationId = requestId || request.headers.get('x-request-id') || 'unknown';
-    let normalizedError: NormalizedApiError;
-    try {
-      normalizedError = normalizeApiError(error, correlationId, code);
-    } catch {
-      normalizedError = errorBody({
-        status: 500, code: 'internal_server_error', message: 'Internal server error', correlationId,
-      });
-    }
+export function protectObservedResponse(request: Request, response: Response): Response {
+  return protectRawResponse(response, logObservedResponse(request).requestId);
+}
+
+export function mapObservedError(request: Request, error: unknown): NormalizedApiError {
+  const observed = beginObservedRequest(request);
+  let normalizedError: NormalizedApiError;
+  try {
+    normalizedError = normalizeApiError(error, observed.requestId);
+  } catch {
+    normalizedError = errorBody({
+      status: 500,
+      code: 'internal_server_error',
+      message: 'Internal server error',
+      correlationId: observed.requestId,
+    });
+  }
+  if (!observed.errorLogged) {
     console.error(JSON.stringify({
       level: 'error',
       msg: 'request_error',
-      request_id: requestId,
+      request_id: observed.requestId,
       method: request.method,
       url: safeRequestUrl(request),
       error: normalizedError.body.error.code,
-      duration_ms: Math.round(duration),
+      duration_ms: Math.round(performance.now() - observed.startTime),
     }));
+    observed.errorLogged = true;
+  }
+  return normalizedError;
+}
 
+export const observabilityMiddleware = new Elysia({ name: 'observability' })
+  // beta 的 derive 在 beforeHandle 阶段，解析前保护必须放在 request。
+  .request(({ request, set }) => {
+    beginObservedRequest(request, set.headers);
+  })
+  .derive(({ request }) => {
+    const { requestId, startTime } = beginObservedRequest(request);
+    return { requestId, startTime };
+  })
+  .afterHandle(({ request, responseValue, set }) => {
+    beginObservedRequest(request, set.headers);
+    if (responseValue instanceof Response) {
+      const csp = responseValue.headers.get('content-security-policy');
+      if (csp !== null) set.headers['content-security-policy'] = csp;
+      return protectObservedResponse(request, responseValue);
+    }
+    logObservedResponse(request);
+  })
+  .error(({ request, error, set }) => {
+    beginObservedRequest(request, set.headers);
+    const normalizedError = mapObservedError(request, error);
     set.status = normalizedError.status;
     return normalizedError.body;
-  });
+  })
+  .as('global');
 
 interface NormalizedApiError {
   status: number;
@@ -121,7 +174,7 @@ interface ApiErrorContract {
   details?: Record<string, unknown>;
 }
 
-function normalizeApiError(error: unknown, correlationId: string, frameworkCode: string | number): NormalizedApiError {
+function normalizeApiError(error: unknown, correlationId: string): NormalizedApiError {
   if (error instanceof ApiContractError) {
     return errorBody({
       status: error.status,
@@ -132,11 +185,11 @@ function normalizeApiError(error: unknown, correlationId: string, frameworkCode:
     });
   }
   if (error instanceof SupaCloudApiError) return normalizeSupaCloudApiError(error, correlationId);
-  const fallback = frameworkCode === 'NOT_FOUND'
+  const fallback = error instanceof NotFound
     ? { status: 404, code: 'not_found', message: 'Route not found' }
-    : frameworkCode === 'PARSE' || frameworkCode === 'INVALID_COOKIE_SIGNATURE'
+    : error instanceof ParseError || (error instanceof InvalidCookie && error.status === 400)
       ? { status: 400, code: 'invalid_request', message: 'Invalid request' }
-      : frameworkCode === 'VALIDATION'
+      : error instanceof ValidationError
         ? { status: 422, code: 'validation_error', message: 'Request validation failed' }
         : { status: 500, code: 'internal_server_error', message: 'Internal server error' };
   return errorBody({ ...fallback, correlationId });

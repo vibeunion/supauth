@@ -1,9 +1,10 @@
 // GoTrue-compatible SSO entrypoint.
 // SupaOAuth validates application metadata and redirects to GoTrue for runtime auth.
 
-import { Elysia } from 'elysia';
+
 import { accountContract, accountOutput, readAccountInput } from '../utils/account-contract.js';
 import { getConfig, type ServerConfig } from '../config/index.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 type AuthorizeQuery = Record<string, unknown>;
 
@@ -81,8 +82,8 @@ export function createSsoAuthorizeRoutes(
   prefix: string,
   config: Pick<ServerConfig, 'publicBaseUrl' | 'trustProxyHeaders'> = getConfig(),
 ) {
-  return new Elysia({ prefix })
-    .get('/authorize', async ({ query, request, set }) => {
+  return defineHttpOperations({ prefix }, {
+    getAuthorize: defineHttpOperation('GET', '/authorize', async ({ query, request, set }) => {
       const clientId = stringParam(query, 'client_id');
       const redirectUri = stringParam(query, 'redirect_uri');
       const responseType = stringParam(query, 'response_type') || 'code';
@@ -113,16 +114,18 @@ export function createSsoAuthorizeRoutes(
       const input = readAccountInput('authorize', request, { query });
       const goTrueUrl = buildGoTrueOAuthAuthorizeUrl(publicBaseUrl, input.query);
       set.status = 302;
-      set.headers.location = goTrueUrl.toString();
+      set.headers['location'] = goTrueUrl.toString();
       return accountOutput('authorize', { redirect: goTrueUrl.toString() });
     }, accountContract('authorize', {
       detail: {
         summary: 'Validate OAuth request and redirect to GoTrue authorization endpoint',
         tags: ['Public', 'SSO', 'Consent'],
       },
-    }));
+    })),
+  });
 }
 
-export const ssoAuthorizeRoutes = new Elysia()
-  .use(createSsoAuthorizeRoutes('/oauth/sso'))
-  .use(createSsoAuthorizeRoutes('/v1/public/oauth/sso'));
+export const oauthSsoRoutes = createSsoAuthorizeRoutes('/oauth/sso');
+export const publicOauthSsoRoutes = createSsoAuthorizeRoutes('/v1/public/oauth/sso');
+
+export const ssoAuthorizeRoutes = [oauthSsoRoutes, publicOauthSsoRoutes] as const;

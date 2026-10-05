@@ -2,7 +2,7 @@
 // Provides endpoints for importing legacy app_metadata.role values
 // into SupaOAuth roles/permissions, with dry-run support.
 
-import { Elysia } from 'elysia';
+
 import {
   buildDefaultPolicy,
   ensureRolesExist,
@@ -11,9 +11,10 @@ import {
 } from '../repositories/rbac-bridge.js';
 import type { MigrationPolicy } from '../repositories/rbac-bridge.js';
 import { operationContract, operationInput, operationOutput } from '../utils/operation-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
-export const rbacBridgeRoutes = new Elysia({ prefix: '/v1/rbac-bridge' })
-  .get('/default-policy', () => {
+export const rbacBridgeRoutes = defineHttpOperations({ prefix: '/v1/rbac-bridge' }, {
+  getDefaultPolicy: defineHttpOperation('GET', '/default-policy', () => {
     return buildDefaultPolicy();
   }, operationContract('getRbacMigrationPolicy', {
     detail: {
@@ -21,9 +22,9 @@ export const rbacBridgeRoutes = new Elysia({ prefix: '/v1/rbac-bridge' })
       description: 'Returns the default mapping from legacy app_metadata.role values to SupaOAuth roles.',
       tags: ['RBAC Bridge'],
     },
-  }))
+  })),
 
-  .post('/dry-run', async ({ body }) => {
+  postDryRun: defineHttpOperation('POST', '/dry-run', async ({ body }) => {
     const policy = operationInput('dryRunRbacMigration', body === undefined ? {} : { body }).body || {};
     const fullPolicy: MigrationPolicy = {
       ...buildDefaultPolicy(),
@@ -38,9 +39,9 @@ export const rbacBridgeRoutes = new Elysia({ prefix: '/v1/rbac-bridge' })
       description: 'Reports what would be migrated without making any changes.',
       tags: ['RBAC Bridge'],
     },
-  }))
+  })),
 
-  .post('/import', async ({ body }) => {
+  postImport: defineHttpOperation('POST', '/import', async ({ body }) => {
     const policy = operationInput('importRbacMigration', body === undefined ? {} : { body }).body || {};
     const fullPolicy: MigrationPolicy = {
       ...buildDefaultPolicy(),
@@ -64,9 +65,9 @@ export const rbacBridgeRoutes = new Elysia({ prefix: '/v1/rbac-bridge' })
       description: 'Imports legacy app_metadata.role values into SupaOAuth role assignments. Use dry-run first to preview.',
       tags: ['RBAC Bridge'],
     },
-  }))
+  })),
 
-  .get('/compatibility-helper', ({ query }) => {
+  getCompatibilityHelper: defineHttpOperation('GET', '/compatibility-helper', ({ query }) => {
     const projectRef = operationInput('getRbacCompatibilityHelper', { query }).query?.project_ref || 'YOUR_PROJECT_REF';
     return { sql: generateCompatibilityHelper(projectRef) };
   }, operationContract('getRbacCompatibilityHelper', {
@@ -75,4 +76,5 @@ export const rbacBridgeRoutes = new Elysia({ prefix: '/v1/rbac-bridge' })
       description: 'Returns a SQL function that bridges SupaOAuth roles to legacy app_metadata.role for backward compatibility.',
       tags: ['RBAC Bridge'],
     },
-  }));
+  })),
+});

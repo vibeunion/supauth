@@ -59,14 +59,14 @@ describe('account provisioning and claiming', () => {
   });
 
   test('public claim route returns email and initial password once', async () => {
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => enabledClaimConfig(),
       claimAccount: async () => ({
         status: 'claimed',
         email: 'zhangsan@example.com',
         initialPassword: 'Init123!',
       }),
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -91,13 +91,13 @@ describe('account provisioning and claiming', () => {
       displayName?: string;
       claimProof?: string;
     } | undefined;
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => enabledClaimConfig({ external_type: 'employee' }),
       claimAccount: async (input) => {
         receivedInput = input;
         return { status: 'unavailable' };
       },
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -269,7 +269,7 @@ describe('account provisioning and claiming', () => {
   test('fails closed without explicit configuration and skips claim and GoTrue calls', async () => {
     let claimCalls = 0;
     let passwordPolicyCalls = 0;
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({}),
       getPasswordPolicy: async () => {
         passwordPolicyCalls += 1;
@@ -279,7 +279,7 @@ describe('account provisioning and claiming', () => {
         claimCalls += 1;
         return { status: 'unavailable' };
       },
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -295,7 +295,7 @@ describe('account provisioning and claiming', () => {
   test('fails closed when configuration lookup fails and skips claim and GoTrue calls', async () => {
     let claimCalls = 0;
     let passwordPolicyCalls = 0;
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => { throw new Error('configuration database unavailable'); },
       getPasswordPolicy: async () => {
         passwordPolicyCalls += 1;
@@ -305,7 +305,7 @@ describe('account provisioning and claiming', () => {
         claimCalls += 1;
         return { status: 'unavailable' };
       },
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -321,7 +321,7 @@ describe('account provisioning and claiming', () => {
   });
 
   test('public claim config route exposes sanitized configuration', async () => {
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
         enabled: true,
         value: {
@@ -337,7 +337,7 @@ describe('account provisioning and claiming', () => {
         require_symbols: false,
       }),
       claimAccount: async () => ({ status: 'unavailable' }),
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/config'));
     const body: unknown = await response.json();
@@ -362,7 +362,7 @@ describe('account provisioning and claiming', () => {
   });
 
   test('public claim route requires a new password when configured', async () => {
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
         enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 10 } },
@@ -372,7 +372,7 @@ describe('account provisioning and claiming', () => {
         email: 'zhangsan@example.com',
         passwordSet: true,
       }),
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -388,7 +388,7 @@ describe('account provisioning and claiming', () => {
 
   test('public claim route rejects a numeric password against the live character policy', async () => {
     let claimCalled = false;
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
         enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 8 } },
@@ -404,7 +404,7 @@ describe('account provisioning and claiming', () => {
         claimCalled = true;
         return { status: 'unavailable' };
       },
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -421,7 +421,7 @@ describe('account provisioning and claiming', () => {
   });
 
   test('public claim route maps an authoritative weak-password rejection', async () => {
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
         enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 8 } },
@@ -433,7 +433,7 @@ describe('account provisioning and claiming', () => {
           '/v1/projects/test/auth/users/user-1',
         );
       },
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -449,12 +449,12 @@ describe('account provisioning and claiming', () => {
   });
 
   test('public claim route hides upstream failure details', async () => {
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => enabledClaimConfig(),
       claimAccount: async () => {
         throw new Error('connect ECONNREFUSED 10.0.0.8:5432 secret-host');
       },
-    }));
+    })));
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -477,7 +477,7 @@ describe('account provisioning and claiming', () => {
       newPassword?: string;
       updatePassword?: unknown;
     } | undefined;
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
         enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 8 } },
@@ -491,7 +491,7 @@ describe('account provisioning and claiming', () => {
           passwordSet: true,
         };
       },
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -522,10 +522,10 @@ describe('account provisioning and claiming', () => {
       claimRequestBody({ external_id: 'wrong-id' }),
       claimRequestBody(),
     ]) {
-      const app = new Elysia().use(createPublicAccountClaimRoutes({
+      const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
         getConfig: async () => enabledClaimConfig(),
         claimAccount: async () => ({ status: 'unavailable' }),
-      }));
+      })));
       const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -543,7 +543,7 @@ describe('account provisioning and claiming', () => {
   });
 
   test('public claim route rejects repeat claims after a password was set on claim', async () => {
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({
         enabled: true,
         value: { password: { mode: 'set_on_claim', min_length: 8 } },
@@ -551,7 +551,7 @@ describe('account provisioning and claiming', () => {
       claimAccount: async () => ({
         status: 'unavailable',
       }),
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -576,12 +576,12 @@ describe('account provisioning and claiming', () => {
   });
 
   test('public claim route does not return password after it was claimed', async () => {
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => enabledClaimConfig(),
       claimAccount: async () => ({
         status: 'unavailable',
       }),
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -603,10 +603,10 @@ describe('account provisioning and claiming', () => {
   });
 
   test('public claim route rejects incomplete requests', async () => {
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => enabledClaimConfig(),
       claimAccount: async () => ({ status: 'unavailable' }),
-    }));
+    })));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-claims/claim', {
       method: 'POST',
@@ -684,3 +684,4 @@ describe('account provisioning and claiming', () => {
   });
 });
 import { strictProperty } from './helpers/strict-values.js';
+import { operationTestPlugin } from './http-fixture.js';

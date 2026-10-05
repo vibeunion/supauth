@@ -1,7 +1,7 @@
 import { serverManagementContracts, serverManagementBodySchemas, serverManagementResultSchemas, serverManagementQuerySchemas } from '../../../shared/src/server-management.js';
 import { sdkEndpoints, type SdkEndpointName } from '../../../shared/src/sdk-endpoints.js';
 import { decodeSchema, type Static, type TSchema } from '../../../shared/src/schema.js';
-import { serverContract, jsonWireValue, type ServerContractContext } from './server-contract.js';
+import { serverContract, jsonWireValue, type ServerContractContext, type SERVER_CONTRACT_METADATA } from './server-contract.js';
 import { ApiContractError } from './api-contract.js';
 
 type Endpoints = typeof sdkEndpoints;

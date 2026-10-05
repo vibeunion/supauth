@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.10.0](https://github.com/vibeunion/supauth/compare/auth-server-v0.9.1...auth-server-v0.10.0) (2026-10-03)
+
+
+### Features
+
+* **auth:** migrate to compiled SupaCloud architecture ([#132](https://github.com/vibeunion/supauth/issues/132)) ([f8d6c4f](https://github.com/vibeunion/supauth/commit/f8d6c4febf30fe7c9c98839f1caff6973c3a18af))
+* **db:** use Bun SQL for SupaOAuth metadata ([#130](https://github.com/vibeunion/supauth/issues/130)) ([3d8d594](https://github.com/vibeunion/supauth/commit/3d8d594957e11b2840b013f55684e79755ebb7a7))
+
+
+### Bug Fixes
+
+* **auth:** prefer application name over internal project name for sign-in title ([#3436](https://github.com/vibeunion/supauth/issues/3436)) ([#127](https://github.com/vibeunion/supauth/issues/127)) ([d020ad8](https://github.com/vibeunion/supauth/commit/d020ad84af58087b8a3a17931070ca9de52fefb1))
+* **auth:** prefer project display name over internal machine name for sign-in title ([#3436](https://github.com/vibeunion/supauth/issues/3436)) ([#131](https://github.com/vibeunion/supauth/issues/131)) ([2a62ae5](https://github.com/vibeunion/supauth/commit/2a62ae51c051eae6e8c840f4cbc5b3d39823c5e1))
+
+
+### Elegance & Refactoring
+
+* **db:** separate hosted SQL sources from migration execution ([#133](https://github.com/vibeunion/supauth/issues/133)) ([39919a0](https://github.com/vibeunion/supauth/commit/39919a0f295e79c96e895526c239c426eec4e570))
+
 ## [0.9.1](https://github.com/vibeunion/supauth/compare/auth-server-v0.9.0...auth-server-v0.9.1) (2026-09-21)
 
 

@@ -2,12 +2,13 @@
 // Browser never touches the service_role key directly.
 // P0-12: avatars store storage key, not signed URL, in user metadata.
 
-import { Elysia } from 'elysia';
+
 import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 import { ApiContractError } from '../utils/api-contract.js';
 import { hostedContract } from '../utils/hosted-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const ALLOWED_BUCKETS = ['avatars', 'branding'] as const;
 const ALLOWED_MIME_TYPES = [
@@ -234,26 +235,28 @@ function validateMimeType(contentType: string): boolean {
   return ALLOWED_MIME_TYPES.some(type => type === contentType);
 }
 
-export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
+
   // adapter 对非法 bucket/对象路径/expiry 抛 TypeError；这些是请求输入问题，
   // 必须映射为 400 而不是全局 500，其他错误继续交给全局错误处理。
-  .onError(({ error }) => {
+function storageOperationError({ error }: { error: unknown }) {
     if (error instanceof ApiContractError) {
       return Response.json({ code: error.code, message: error.message }, { status: error.status });
     }
     if (error instanceof TypeError) {
       return new Response('Invalid storage path or parameters', { status: 400 });
     }
-  })
+  }
+
+export const storageRoutes = defineHttpOperations({ prefix: '/v1/storage' }, {
   // ─── List buckets ────────────────────────────────────────────────
-  .get('/buckets', async () => {
+  getBuckets: defineHttpOperation('GET', '/buckets', async () => {
     const adapter = getSupaCloudAdapter();
     const buckets = await adapter.listStorageBuckets();
     return { buckets };
-  }, hostedContract('storageList'))
+  }, { ...(hostedContract('storageList')), onError: (error) => storageOperationError({ error }) }),
 
   // ─── Create bucket (idempotent) ──────────────────────────────────
-  .post('/buckets/:bucketId', async ({ params }) => {
+  postBucketsByBucketId: defineHttpOperation('POST', '/buckets/:bucketId', async ({ params }) => {
     const { bucketId } = params;
     if (!validateBucket(bucketId)) {
       return new Response('Bucket not allowed. Allowed: avatars, branding', { status: 400 });
@@ -271,10 +274,10 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
       });
       return { bucket: created };
     }
-  }, hostedContract('storageCreate'))
+  }, { ...(hostedContract('storageCreate')), onError: (error) => storageOperationError({ error }) }),
 
   // ─── Upload file ─────────────────────────────────────────────────
-  .post('/upload/:bucketId/*', async ({ params, request, headers }) => {
+  postUploadByBucketIdWildcard: defineHttpOperation('POST', '/upload/:bucketId/*', async ({ params, request, headers }) => {
     const { bucketId } = params;
     const filePath = params['*'];
 
@@ -322,10 +325,10 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     });
 
     return { key: result.key, url, bucket: bucketId, path: filePath, public: bucketId === 'branding' };
-  }, hostedContract('storageUpload', { hide: true }))
+  }, { ...(hostedContract('storageUpload', { hide: true })), onError: (error) => storageOperationError({ error }) }),
 
   // ─── Get signed URL (private buckets) ────────────────────────────
-  .get('/sign-url/:bucketId/*', async ({ params, query }) => {
+  getSignUrlByBucketIdWildcard: defineHttpOperation('GET', '/sign-url/:bucketId/*', async ({ params, query }) => {
     const { bucketId } = params;
     const filePath = params['*'];
 
@@ -342,10 +345,10 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
 
     const signedUrl = await adapter.createSignedUrl(bucketId, filePath, expiresIn);
     return { url: signedUrl, public: false, expiresIn };
-  }, hostedContract('storageSign', { hide: true }))
+  }, { ...(hostedContract('storageSign', { hide: true })), onError: (error) => storageOperationError({ error }) }),
 
   // ─── Delete file ─────────────────────────────────────────────────
-  .delete('/delete/:bucketId/*', async ({ params }) => {
+  deleteDeleteByBucketIdWildcard: defineHttpOperation('DELETE', '/delete/:bucketId/*', async ({ params }) => {
     const { bucketId } = params;
     const filePath = params['*'];
 
@@ -364,10 +367,10 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     });
 
     return { deleted: true, bucket: bucketId, path: filePath };
-  }, hostedContract('storageDelete', { hide: true }))
+  }, { ...(hostedContract('storageDelete', { hide: true })), onError: (error) => storageOperationError({ error }) }),
 
   // ─── Avatar upload (P0-12 fix: store storage key, not signed URL) ─
-  .post('/avatar/:userId', async ({ params, request, headers }) => {
+  postAvatarByUserId: defineHttpOperation('POST', '/avatar/:userId', async ({ params, request, headers }) => {
     const { userId } = params;
     const contentType = headers['content-type'] || 'application/octet-stream';
 
@@ -411,12 +414,12 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     });
 
     return { storage_key: storageKey, userId, bucket: 'avatars' };
-  }, hostedContract('storageAvatar'))
+  }, { ...(hostedContract('storageAvatar')), onError: (error) => storageOperationError({ error }) }),
 
   // ─── Branding asset read (admin console accesses it via /api/v1) ──
   // Keep the browser on the authenticated BFF origin because the configured
   // Storage URL can be internal even though the stored object is public.
-  .get('/branding/:assetType', async ({ params }) => {
+  getBrandingByAssetType: defineHttpOperation('GET', '/branding/:assetType', async ({ params }) => {
     const assetType = brandingAssetReadType(params.assetType);
     if (!managedBrandingAssetType(assetType)) {
       throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
@@ -427,10 +430,10 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
       throw new ApiContractError(404, 'branding_asset_not_found', 'Branding asset is not configured');
     }
     return brandingAssetResponse(assetType, assetUrl);
-  }, hostedContract('storageBrandingRead'))
+  }, { ...(hostedContract('storageBrandingRead')), onError: (error) => storageOperationError({ error }) }),
 
   // ─── Branding upload (convenience endpoint) ──────────────────────
-  .post('/branding/:assetType', async ({ params, request, headers }) => {
+  postBrandingByAssetType: defineHttpOperation('POST', '/branding/:assetType', async ({ params, request, headers }) => {
     const assetType = brandingAssetType(params.assetType);
     const file = await request.blob();
     const image = await brandingAssetMetadata(file, headers['content-type'] || '');
@@ -448,4 +451,5 @@ export const storageRoutes = new Elysia({ prefix: '/v1/storage' })
     });
 
     return { url: publicUrl, assetType, content_type: image.contentType };
-  }, hostedContract('storageBrandingUpload'));
+  }, { ...(hostedContract('storageBrandingUpload')), onError: (error) => storageOperationError({ error }) }),
+});

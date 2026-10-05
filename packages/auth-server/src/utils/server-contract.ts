@@ -14,13 +14,41 @@ export interface ServerContractContext {
   headers?: unknown;
   cookie?: unknown;
   request: Request;
-  set: { status?: number | string | undefined };
+  set: { status?: number | string | undefined; headers?: unknown };
+}
+
+export interface ServerContractResponseContext extends ServerContractContext {
+  responseValue: unknown;
+}
+
+export type ServerContractVerifier = (
+  context: ServerContractContext,
+) => unknown | Promise<unknown>;
+
+export const SERVER_CONTRACT_METADATA = Symbol('supauth.server-contract');
+
+export interface ServerContractMetadata {
+  readonly source: string;
+  readonly contract: ServerRouteContract;
+  readonly beforeValidate?: ServerContractVerifier;
+  readonly beforeRequest?: ServerContractVerifier;
+  readonly afterResponse: (context: ServerContractResponseContext) => Promise<void>;
+}
+
+export interface ServerContractMetadataCarrier {
+  readonly [SERVER_CONTRACT_METADATA]: ServerContractMetadata;
+}
+
+export function getServerContractMetadata(
+  options: ServerContractMetadataCarrier,
+): ServerContractMetadata {
+  return options[SERVER_CONTRACT_METADATA];
 }
 
 interface ContractOptions {
   contract: ServerRouteContract;
   detail?: Record<string, unknown>;
-  beforeValidate?: (context: ServerContractContext) => unknown | Promise<unknown>;
+  beforeValidate?: ServerContractVerifier;
 }
 
 function inputFailure(): ApiContractError {
@@ -220,6 +248,36 @@ function inputDocumentation(input: TSchema) {
   };
 }
 
+export async function validateServerRequest(
+  contract: ServerRouteContract,
+  context: ServerContractContext,
+  beforeValidate?: ServerContractVerifier,
+): Promise<unknown> {
+  if ((contract.request === 'raw-signed' || contract.request === 'protocol') && !beforeValidate) {
+    throw new Error('Protocol requests require an explicit verifier');
+  }
+  const earlyResponse = await beforeValidate?.(context);
+  if (earlyResponse !== undefined) return earlyResponse;
+  // 不提前读取请求体；协议验签、解析与校验顺序仍由专用 verifier 负责。
+  if (contract.request === 'raw-signed' || contract.request === 'protocol') return;
+  const properties = schemaFields(contract.input);
+  const headerNames = properties["headers"] ? Object.keys(schemaFields(properties["headers"])) : [];
+  const headers = headerNames.length && !requiresField(contract.input, 'headers')
+    && !headerNames.some(name => context.request.headers.has(name))
+    ? undefined : Object.fromEntries(context.request.headers);
+  const input = Object.fromEntries(Object.keys(properties).map((key): [string, unknown] => {
+    if (key === 'query') return [key, numericQuery(context.query, properties["query"])];
+    if (key === 'headers') return [key, headers];
+    if (key === 'params' || key === 'body' || key === 'cookie') return [key, context[key]];
+    throw new Error('Unsupported request contract field');
+  }).filter(([, value]) => value !== undefined));
+  try {
+    decodeServerInput(contract, input);
+  } catch {
+    throw inputFailure();
+  }
+}
+
 export function serverContract<const O extends ContractOptions>(source: string, options: O) {
   const { contract, beforeValidate, detail, ...routeOptions } = options;
   if (!source || !Object.keys(contract.responses).length) throw new Error('A complete route contract is required');
@@ -248,8 +306,23 @@ export function serverContract<const O extends ContractOptions>(source: string, 
       } : {}),
     },
   ]));
+  const beforeHandle = (context: ServerContractContext) => validateServerRequest(contract, context, beforeValidate);
+  const afterHandle = async (context: {
+    responseValue: unknown;
+    set: { status?: number | string | undefined };
+  }) => {
+    await validateServerResponse(contract, context.responseValue, Number(context.set.status || 200));
+  };
+  const metadata: ServerContractMetadata = {
+    source,
+    contract,
+    ...(beforeValidate === undefined ? {} : { beforeValidate }),
+    beforeRequest: beforeHandle,
+    afterResponse: afterHandle,
+  };
   return {
     ...routeOptions,
+    [SERVER_CONTRACT_METADATA]: metadata,
     detail: {
       ...detail,
       ...inputDocumentation(contract.input),
@@ -262,33 +335,7 @@ export function serverContract<const O extends ContractOptions>(source: string, 
         ...(contract.retired ? { retired: true } : {}),
       },
     },
-    beforeHandle: async (context: ServerContractContext) => {
-      const earlyResponse = await beforeValidate?.(context);
-      if (earlyResponse !== undefined) return earlyResponse;
-      // raw-signed 的原始字节与认证顺序由对应 ceremony 的专用校验器负责。
-      if (contract.request === 'raw-signed' || contract.request === 'protocol') return;
-      const properties = schemaFields(contract.input);
-      const headerNames = properties["headers"] ? Object.keys(schemaFields(properties["headers"])) : [];
-      const headers = headerNames.length && !requiresField(contract.input, 'headers')
-        && !headerNames.some(name => context.request.headers.has(name))
-        ? undefined : Object.fromEntries(context.request.headers);
-      const input = Object.fromEntries(Object.keys(properties).map((key): [string, unknown] => {
-        if (key === 'query') return [key, numericQuery(context.query, properties["query"])];
-        if (key === 'headers') return [key, headers];
-        if (key === 'params' || key === 'body' || key === 'cookie') return [key, context[key]];
-        throw new Error('Unsupported request contract field');
-      }).filter(([, value]) => value !== undefined));
-      try {
-        decodeServerInput(contract, input);
-      } catch {
-        throw inputFailure();
-      }
-    },
-    afterHandle: async (context: {
-      responseValue: unknown;
-      set: { status?: number | string | undefined };
-    }) => {
-      await validateServerResponse(contract, context.responseValue, Number(context.set.status || 200));
-    },
+    beforeHandle,
+    afterHandle,
   };
 }

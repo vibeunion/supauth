@@ -4,6 +4,7 @@ import { Elysia } from 'elysia';
 import { loadConfig } from '../config/index.js';
 import { decodeSchema, type Static } from '../../../shared/src/schema.js';
 import { DiscoverySchema, OAuthServerStatusSchema } from '../../../shared/src/sdk-models.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const validDiscovery = {
   issuer: 'http://runtime.test/auth/v1',
@@ -423,7 +424,7 @@ describe('runtime OAuth server status', () => {
 
   it('reads OAuth server status from the configured authorization project', async () => {
     const { runtimeRoutes } = await import('../routes/health.js');
-    const app = new Elysia().use(runtimeRoutes);
+    const app = new Elysia().use(operationTestPlugin(runtimeRoutes));
 
     const response = await app.handle(new Request('http://supauth.local/v1/runtime/oauth-server'));
     const payload: unknown = await response.json();

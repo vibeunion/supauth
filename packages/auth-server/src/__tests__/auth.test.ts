@@ -2,6 +2,7 @@ import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../..
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 import { principalHasAction, requiredAdminAction } from '../auth/admin-permissions.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const getSecurityConfig = mock(async () => null);
 mock.module('../repositories/security-config.js', () => ({ getSecurityConfig }));
@@ -67,7 +68,7 @@ describe('Auth module — exported functions', () => {
       delete process.env["ADMIN_TOKEN"];
       process.env["EDGEFN_SUPAUTH_ADMIN_TOKEN"] = 'scoped-admin-token';
 
-      const response = await authRoutes.handle(new Request('http://localhost/v1/auth/login', {
+      const response = await operationTestPlugin(authRoutes).handle(new Request('http://localhost/v1/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token: 'scoped-admin-token' }),
@@ -374,8 +375,9 @@ describe('Auth module — guard and route structure', () => {
     expect(typeof adminAuthGuard.fetch).toBe('function');
   });
 
-  it('exports authRoutes as Elysia instance', async () => {
-    const { authRoutes } = await import('../auth/index.js');
+  it('adapts authRoutes to an Elysia test instance', async () => {
+    const { authRoutes: operations } = await import('../auth/index.js');
+    const authRoutes = operationTestPlugin(operations);
     expect(authRoutes).toBeDefined();
     expect(typeof authRoutes.fetch).toBe('function');
   });
@@ -414,7 +416,7 @@ describe('Auth module — guard and route structure', () => {
     process.env["ADMIN_TOKEN"] = 'request-scoped-admin-token';
     const { adminAuthGuard, authRoutes } = await import('../auth/index.js');
     const app = new Elysia()
-      .use(authRoutes)
+      .use(operationTestPlugin(authRoutes))
       .use(adminAuthGuard)
       .get('/v1/users/principal-probe', ({ adminPrincipal }) => adminPrincipal);
 

@@ -3,6 +3,7 @@ import { strictFetch } from './helpers/strict-fetch.js';
 import { strictRecord } from './helpers/strict-values.js';
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
 
 type OutboundCall = { method: string; path: string; body: unknown };
 
@@ -54,7 +55,7 @@ const [{ organizationRoutes }, { observabilityMiddleware }] = await Promise.all(
   import('../routes/organizations.js'),
   import('../middleware/index.js'),
 ]);
-const app = new Elysia().use(observabilityMiddleware).use(organizationRoutes);
+const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(organizationRoutes));
 
 function organizationCreateRequest(body: unknown) {
   return new Request('http://localhost/v1/organizations', {

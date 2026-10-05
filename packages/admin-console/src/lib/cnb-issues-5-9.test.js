@@ -8,28 +8,41 @@ async function source(relativePath) {
   return readFile(new URL(relativePath, import.meta.url), 'utf8');
 }
 
-/** @param {string} source @param {string} method @param {string} path @param {string} endpoint */
-function routeResponse(source, method, path, endpoint) {
+/** @param {string} source @param {string} method @param {string} path */
+function operationHandler(source, method, path) {
   const file = ts.createSourceFile("routes.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  /** @type {import("typescript").Expression[]} */
-  const responses = [];
+  /** @type {(import("typescript").ArrowFunction | import("typescript").FunctionExpression)[]} */
+  const handlers = [];
   /** @param {import("typescript").Node} node */
   function visit(node) {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === method) {
-      const [routePath, handler] = node.arguments;
-      if (routePath && ts.isStringLiteral(routePath) && routePath.text === path &&
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+      node.expression.text === "defineHttpOperation") {
+      const [routeMethod, routePath, handler] = node.arguments;
+      if (routeMethod && ts.isStringLiteral(routeMethod) && routeMethod.text === method.toUpperCase() &&
+        routePath && ts.isStringLiteral(routePath) && routePath.text === path &&
         handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))) {
-        if (ts.isBlock(handler.body)) {
-          for (const statement of handler.body.statements) {
-            if (ts.isReturnStatement(statement) && statement.expression) responses.push(statement.expression);
-          }
-        } else responses.push(handler.body);
+        handlers.push(handler);
       }
     }
     ts.forEachChild(node, visit);
   }
   visit(file);
+  expect(handlers).toHaveLength(1);
+  const handler = handlers[0];
+  if (!handler) throw new Error(`Missing operation for ${method} ${path}`);
+  return { file, handler };
+}
+
+/** @param {string} source @param {string} method @param {string} path @param {string} endpoint */
+function routeResponse(source, method, path, endpoint) {
+  const { file, handler } = operationHandler(source, method, path);
+  /** @type {import("typescript").Expression[]} */
+  const responses = [];
+  if (ts.isBlock(handler.body)) {
+    for (const statement of handler.body.statements) {
+      if (ts.isReturnStatement(statement) && statement.expression) responses.push(statement.expression);
+    }
+  } else responses.push(handler.body);
   expect(responses).toHaveLength(1);
   let response = responses[0];
   if (!response) throw new Error(`Missing response for ${method} ${path}`);
@@ -148,9 +161,13 @@ describe("CNB issues 5-9 regressions", () => {
     expect(editor).toContain("MAX_BRANDING_FILE_SIZE");
     expect(editor).toContain("syncBranding(await getSignInExperience())");
     expect(storageRoutes).toContain("brandingAssetMetadata");
-    const brandingRoute = storageRoutes.slice(storageRoutes.indexOf(".post('/branding"));
-    expect(brandingRoute.indexOf("await requireSignInExperience()"))
-      .toBeLessThan(brandingRoute.indexOf("await storeBrandingFile("));
+    const branding = operationHandler(storageRoutes, "POST", "/branding/:assetType");
+    const brandingRoute = branding.handler.body.getText(branding.file);
+    const requireExperience = brandingRoute.indexOf("await requireSignInExperience()");
+    const storeFile = brandingRoute.indexOf("await storeBrandingFile(");
+    expect(requireExperience).toBeGreaterThanOrEqual(0);
+    expect(storeFile).toBeGreaterThanOrEqual(0);
+    expect(requireExperience).toBeLessThan(storeFile);
     expect(storageRoutes).toContain("const file = await request.blob()");
     expect(storageRoutes).toContain("await persistBrandingAssetUrl(assetType, publicUrl)");
     expect(storageRoutes).toContain("`${assetType}/${image.hash}.${image.extension}`");

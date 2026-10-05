@@ -1,6 +1,9 @@
 import { strictRecord, strictString } from './helpers/strict-values.js';
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
+
+const adapterExports = { ...await import('../supacloud/adapter.js') };
 
 type BrandingSnapshot = {
   branding: {
@@ -44,6 +47,7 @@ class MockSupaCloudApiError extends Error {
 }
 
 mock.module('../supacloud/adapter.js', () => ({
+  ...adapterExports,
   isSupaCloudApiError: (error: unknown, statuses?: number[]) => (
     error instanceof MockSupaCloudApiError
     && (!statuses || statuses.includes(error.status))
@@ -63,7 +67,7 @@ mock.module('../repositories/sign-in-experience.js', () => ({
 }));
 
 const { storageRoutes } = await import('../storage/index.js');
-const app = new Elysia().use(storageRoutes);
+const app = new Elysia().use(operationTestPlugin(storageRoutes));
 const pngBytes = Uint8Array.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01,
 ]);
