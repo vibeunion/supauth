@@ -1,5 +1,7 @@
 const MAX_CLOCK_SKEW_MS = 5_000;
-const DEFAULT_TIMEOUT_MS = 5_000;
+// 生产 GoTrue 健康检查偶有 3~15s 的冷启动/高负载延迟，5s 会在全部重试后超时；
+// 放宽单次超时，配合重试覆盖瞬时慢请求。
+const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 500;
 
