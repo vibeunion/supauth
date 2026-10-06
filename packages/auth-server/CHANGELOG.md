@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/vibeunion/supauth/compare/auth-server-v0.10.0...auth-server-v0.10.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* **auth:** avoid node:http in edge runtime ([#134](https://github.com/vibeunion/supauth/issues/134)) ([9189ba7](https://github.com/vibeunion/supauth/commit/9189ba759d88f8d0e00bc6ba1c9ccb84b59f47f3))
+
 ## [0.10.0](https://github.com/vibeunion/supauth/compare/auth-server-v0.9.1...auth-server-v0.10.0) (2026-10-03)
 
 
