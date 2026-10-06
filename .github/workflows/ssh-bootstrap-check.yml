@@ -1,0 +1,107 @@
+name: SSH Bootstrap Check
+
+# 目的：在干净的 ubuntu-latest runner 上验证「无副作用 GitHub SSH 校验」脚本。
+# 该 workflow 仅用于验证，验证通过后可删除。
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/ssh-bootstrap-check
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify on clean runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Assert runner starts clean
+        run: |
+          set -euo pipefail
+          echo "HOME=$HOME"
+          if [ -e "$HOME/.ssh/known_hosts" ]; then
+            echo "FAIL: known_hosts 预先存在，runner 不干净"
+            exit 1
+          fi
+          if [ -n "${SSH_AUTH_SOCK:-}" ]; then
+            echo "FAIL: runner 上有 ssh-agent，无法验证无密钥场景"
+            exit 1
+          fi
+          echo "OK: runner 干净，无 known_hosts、无 ssh-agent"
+
+      - name: Run bootstrap check (expect success: keys preloaded via env)
+        env:
+          # 用 deploy key 提供鉴权，模拟真实 CI 拉私有仓库场景
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          GITHUB_SSH_HOST: github.com
+        run: |
+          set -euo pipefail
+          if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "SKIP: 未配置 SSH_PRIVATE_KEY secret"
+            echo "skipped=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+
+      - name: Run no-side-effect check script
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # 记录运行前的 HOME 指纹
+          before_keys=$(wc -l < "$HOME/.ssh/known_hosts" 2>/dev/null || echo 0)
+          before_cfg=$(git config --global --list 2>/dev/null | md5sum || echo none)
+
+          bash .github/scripts/check-github-ssh.sh
+          rc=$?
+          echo "exit_code=$rc"
+          [ "$rc" -eq 0 ] || { echo "FAIL: 脚本应返回 0"; exit 1; }
+
+          # 断言零副作用
+          after_keys=$(wc -l < "$HOME/.ssh/known_hosts" 2>/dev/null || echo 0)
+          after_cfg=$(git config --global --list 2>/dev/null | md5sum || echo none)
+
+          if [ "$before_keys" != "$after_keys" ]; then
+            echo "FAIL: known_hosts 被修改 ($before_keys -> $after_keys)"
+            exit 1
+          fi
+          if [ "$before_cfg" != "$after_cfg" ]; then
+            echo "FAIL: git --global 配置被修改"
+            exit 1
+          fi
+          if ls /tmp/gh_known_hosts.* /tmp/gh_ssh_check.* >/dev/null 2>&1; then
+            echo "FAIL: 临时文件未清理"
+            exit 1
+          fi
+          echo "OK: 零副作用断言全部通过"
+
+      - name: Idempotency check (run twice)
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${SSH_PRIVATE_KEY:-}" ] || { echo "SKIP: 无密钥"; exit 0; }
+          bash .github/scripts/check-github-ssh.sh
+          bash .github/scripts/check-github-ssh.sh
+          echo "OK: 连续两次运行均成功"
+
+      - name: Negative check (bad host must fail)
+        run: |
+          set -euo pipefail
+          # 关键：不经管道，直接取退出码
+          set +e
+          GITHUB_SSH_HOST=nonexistent.invalid bash .github/scripts/check-github-ssh.sh
+          rc=$?
+          set -e
+          echo "negative_exit_code=$rc"
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: 不可达主机应返回非 0"
+            exit 1
+          fi
+          echo "OK: 失败路径正确返回非 0"
