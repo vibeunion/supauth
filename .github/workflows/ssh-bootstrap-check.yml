@@ -46,6 +46,13 @@ jobs:
           fi
           echo "OK: runner 干净，无 known_hosts、无 ssh-agent、无密钥"
 
+      # 断言完干净的 runner 之后再取代码；此处用 fetch-depth: 1 即可，
+      # 因为本 job 不依赖 git 历史。
+      - name: "Checkout repository"
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
       - name: "No key: must exit 1, must not crash"
         run: |
           set -euo pipefail
