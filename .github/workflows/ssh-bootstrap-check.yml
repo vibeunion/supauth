@@ -13,12 +13,12 @@ permissions:
 
 jobs:
   verify:
-    name: Verify on clean runner
+    name: "Verify on clean runner"
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: Assert runner starts clean
+      - name: "Assert runner starts clean"
         run: |
           set -euo pipefail
           echo "HOME=$HOME"
@@ -32,36 +32,58 @@ jobs:
           fi
           echo "OK: runner 干净，无 known_hosts、无 ssh-agent"
 
-      - name: Run bootstrap check (expect success: keys preloaded via env)
+      - name: "Probe SSH key availability"
+        id: probe
         env:
-          # 用 deploy key 提供鉴权，模拟真实 CI 拉私有仓库场景
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          GITHUB_SSH_HOST: github.com
         run: |
           set -euo pipefail
-          if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
-            echo "SKIP: 未配置 SSH_PRIVATE_KEY secret"
-            echo "skipped=1" >> "$GITHUB_OUTPUT"
-            exit 0
+          if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
+            mkdir -p "$HOME/.ssh"
+            chmod 700 "$HOME/.ssh"
+            printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+            chmod 600 "$HOME/.ssh/id_ed25519"
+            echo "have_key=1" >> "$GITHUB_OUTPUT"
+            echo "OK: 已装载 deploy key"
+          else
+            echo "have_key=0" >> "$GITHUB_OUTPUT"
+            echo "SKIP: 未配置 SSH_PRIVATE_KEY secret，跳过需鉴权的断言"
           fi
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
-          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
-          chmod 600 "$HOME/.ssh/id_ed25519"
 
-      - name: Run no-side-effect check script
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: "Negative check (bad host must fail)"
         run: |
           set -euo pipefail
-          # 记录运行前的 HOME 指纹
+          # 关键：负例不依赖私钥（主机不可达必然失败），故始终可运行。
+          # 用 set +e 直接取退出码，不经管道，避免 $? 被管道尾部命令覆盖。
+          set +e
+          GITHUB_SSH_HOST=nonexistent.invalid bash .github/scripts/check-github-ssh.sh
+          rc=$?
+          set -e
+          echo "negative_exit_code=$rc"
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: 不可达主机应返回非 0"
+            exit 1
+          fi
+          echo "OK: 失败路径正确返回非 0"
+
+      - name: "Positive + zero-side-effect check"
+        if: steps.probe.outputs.have_key == '1'
+        run: |
+          set -euo pipefail
+          # 运行前指纹
           before_keys=$(wc -l < "$HOME/.ssh/known_hosts" 2>/dev/null || echo 0)
           before_cfg=$(git config --global --list 2>/dev/null | md5sum || echo none)
 
+          # set +e 以便自行断言退出码（set -e 下 rc=$? 不可达）
+          set +e
           bash .github/scripts/check-github-ssh.sh
           rc=$?
+          set -e
           echo "exit_code=$rc"
-          [ "$rc" -eq 0 ] || { echo "FAIL: 脚本应返回 0"; exit 1; }
+          if [ "$rc" -ne 0 ]; then
+            echo "FAIL: 脚本应返回 0"
+            exit 1
+          fi
 
           # 断言零副作用
           after_keys=$(wc -l < "$HOME/.ssh/known_hosts" 2>/dev/null || echo 0)
@@ -75,33 +97,16 @@ jobs:
             echo "FAIL: git --global 配置被修改"
             exit 1
           fi
-          if ls /tmp/gh_known_hosts.* /tmp/gh_ssh_check.* >/dev/null 2>&1; then
+          if compgen -G "/tmp/gh_known_hosts.*" >/dev/null || compgen -G "/tmp/gh_ssh_check.*" >/dev/null; then
             echo "FAIL: 临时文件未清理"
             exit 1
           fi
           echo "OK: 零副作用断言全部通过"
 
-      - name: Idempotency check (run twice)
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: "Idempotency check (run twice)"
+        if: steps.probe.outputs.have_key == '1'
         run: |
           set -euo pipefail
-          [ -n "${SSH_PRIVATE_KEY:-}" ] || { echo "SKIP: 无密钥"; exit 0; }
           bash .github/scripts/check-github-ssh.sh
           bash .github/scripts/check-github-ssh.sh
           echo "OK: 连续两次运行均成功"
-
-      - name: Negative check (bad host must fail)
-        run: |
-          set -euo pipefail
-          # 关键：不经管道，直接取退出码
-          set +e
-          GITHUB_SSH_HOST=nonexistent.invalid bash .github/scripts/check-github-ssh.sh
-          rc=$?
-          set -e
-          echo "negative_exit_code=$rc"
-          if [ "$rc" -eq 0 ]; then
-            echo "FAIL: 不可达主机应返回非 0"
-            exit 1
-          fi
-          echo "OK: 失败路径正确返回非 0"
