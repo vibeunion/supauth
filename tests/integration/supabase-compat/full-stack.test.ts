@@ -241,7 +241,7 @@ function waitForSubscription(channel: RealtimeChannel): Promise<void> {
         clearTimeout(timer);
         reject(new Error(`Realtime subscription failed: ${status}`));
       }
-    });
+    }, TEST_TIMEOUT_MS);
   });
 }
 
