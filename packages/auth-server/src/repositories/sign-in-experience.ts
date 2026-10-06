@@ -211,10 +211,19 @@ export function mergeSupaCloudBrandingDefaults(
   // Issue #3436：用户可见的系统名优先取请求方 OAuth 应用的 client_name，
   // 共享认证项目的内部名称只作为最后兜底，避免内部/E2E 项目名（如 supauth-logout-e2e）
   // 泄漏到中央登录页。非标题品牌键的生效顺序（应用 > 全局 > 项目）保持不变。
-  return applyProjectFallback(
-    applyApplicationFallback(globalBranding, applicationBrandingDefaults(source.application)),
-    projectBrandingDefaults(source.project),
+  const applicationDefaults = applicationBrandingDefaults(source.application);
+  const projectDefaults = projectBrandingDefaults(source.project);
+  const branding = applyProjectFallback(
+    applyApplicationFallback(globalBranding, applicationDefaults),
+    projectDefaults,
   );
+  const globalTitle = globalBranding.page_title;
+  // 仅根据原始全局标题判断兜底，避免将与 stock 同名的应用再次覆盖。
+  if (!globalTitle || STOCK_PAGE_TITLES.has(globalTitle)) {
+    const resolvedTitle = applicationDefaults.page_title ?? projectDefaults.page_title ?? globalTitle;
+    if (resolvedTitle !== undefined) branding.page_title = resolvedTitle;
+  }
+  return branding;
 }
 
 export async function getSignInExperience() {

@@ -26,7 +26,7 @@ const TEST_PASSWORD = process.env["SUPABASE_FULLSTACK_TEST_PASSWORD"]
 const RLS_TABLE = process.env["SUPABASE_COMPAT_RLS_TABLE"] || 'gotrue_compat_items';
 const STORAGE_BUCKET = process.env["SUPABASE_COMPAT_STORAGE_BUCKET"] || 'gotrue-compat-private';
 const FUNCTION_NAME = process.env["SUPABASE_COMPAT_FUNCTION_NAME"] || 'compat-claims';
-const TEST_TIMEOUT_MS = positiveIntegerFromEnv(process.env['SUPABASE_FULLSTACK_TIMEOUT_MS'], 30_000, 'SUPABASE_FULLSTACK_TIMEOUT_MS');
+const TEST_TIMEOUT_MS = positiveIntegerFromEnv(process.env['SUPABASE_FULLSTACK_TIMEOUT_MS'], 60_000, 'SUPABASE_FULLSTACK_TIMEOUT_MS');
 const RUN_ID = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
 if (STRICT_COMPAT) {
@@ -241,7 +241,7 @@ function waitForSubscription(channel: RealtimeChannel): Promise<void> {
         clearTimeout(timer);
         reject(new Error(`Realtime subscription failed: ${status}`));
       }
-    });
+    }, TEST_TIMEOUT_MS);
   });
 }
 

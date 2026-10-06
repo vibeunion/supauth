@@ -53,7 +53,7 @@ const ACCESS_TOKEN = process.env["OAUTH21_ACCESS_TOKEN"] || '';
 const REFRESH_TOKEN = process.env["OAUTH21_REFRESH_TOKEN"] || '';
 const CLIENT_SECRET = process.env["OAUTH21_CLIENT_SECRET"] || '';
 const TOKEN_AUTH_METHOD = process.env["OAUTH21_TOKEN_AUTH_METHOD"] || 'none';
-const LIVE_TIMEOUT_MS = positiveIntegerFromEnv(process.env['OAUTH21_TEST_TIMEOUT_MS'], 30_000, 'OAUTH21_TEST_TIMEOUT_MS');
+const LIVE_TIMEOUT_MS = positiveIntegerFromEnv(process.env['OAUTH21_TEST_TIMEOUT_MS'], 60_000, 'OAUTH21_TEST_TIMEOUT_MS');
 const EXPECTED_COMPAT_VERSION = process.env["SUPABASE_AUTH_COMPAT_VERSION"]?.trim() || CURRENT_COMPAT_VERSION;
 
 if (STRICT_COMPAT) {

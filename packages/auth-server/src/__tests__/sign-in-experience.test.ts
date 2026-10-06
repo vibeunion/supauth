@@ -81,6 +81,22 @@ describe('Sign-in experience repository — module structure', () => {
     expect(branding.page_title).toBe('西谷失效分析系统');
   });
 
+  for (const applicationTitle of ['SupaOAuth', 'SupaOAuth Sign In']) {
+    for (const globalTitle of [null, 'SupaOAuth', 'SupaOAuth Sign In']) {
+      it(`preserves application title "${applicationTitle}" over the project with global title ${JSON.stringify(globalTitle)}`, async () => {
+        const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+        const branding = mergeSupaCloudBrandingDefaults({
+          page_title: globalTitle,
+        }, {
+          project: { name: 'supauth-logout-e2e' },
+          application: { client_name: applicationTitle },
+        });
+
+        expect(branding.page_title).toBe(applicationTitle);
+      });
+    }
+  }
+
   it('falls back to the SupaCloud project name only when the application provides none', async () => {
     const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
     const branding = mergeSupaCloudBrandingDefaults({
@@ -94,6 +110,13 @@ describe('Sign-in experience repository — module structure', () => {
     });
 
     expect(branding.page_title).toBe('Volt');
+  });
+
+  it('preserves an omitted global title when no branding source provides one', async () => {
+    const { mergeSupaCloudBrandingDefaults } = await import('../repositories/sign-in-experience.js');
+    const branding = mergeSupaCloudBrandingDefaults({});
+
+    expect('page_title' in branding).toBe(false);
   });
 
   it('prefers the project display name over the internal machine name for the system title', async () => {

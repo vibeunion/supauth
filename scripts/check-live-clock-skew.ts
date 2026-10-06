@@ -1,5 +1,11 @@
 const MAX_CLOCK_SKEW_MS = 5_000;
-const DEFAULT_TIMEOUT_MS = 5_000;
+// 生产 GoTrue 健康检查偶有 3~15s 的冷启动/高负载延迟，5s 会在全部重试后超时；
+// 放宽单次超时，配合重试覆盖瞬时慢请求。
+const DEFAULT_TIMEOUT_MS = 20_000;
+const MAX_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAY_MS = 500;
+
+class HealthRequestTimeoutError extends Error {}
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -8,14 +14,29 @@ export interface LiveClockCheckOptions {
   fetchImpl?: FetchLike;
   now?: () => number;
   timeoutMs?: number;
+  retryDelayMs?: number;
 }
 
 export async function checkLiveClockSkew(options: LiveClockCheckOptions): Promise<number> {
   const now = options.now ?? Date.now;
-  const requestStartedAt = now();
-  const response = await fetchGotrueHealth(options, gotrueHealthUrl(options.runtimeUrl));
-  const requestFinishedAt = now();
-  return validatedClockSkew(response, requestStartedAt, requestFinishedAt);
+  for (let attempt = 1; ; attempt++) {
+    const healthUrl = gotrueHealthUrl(options.runtimeUrl);
+    const requestStartedAt = now();
+    let response: Response;
+    try {
+      response = await fetchGotrueHealth(options, healthUrl);
+    } catch (error) {
+      now();
+      if (!(error instanceof HealthRequestTimeoutError)) throw error;
+      if (attempt >= MAX_ATTEMPTS) {
+        throw new Error(`${error.message} (${attempt} attempts)`, { cause: error.cause });
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS));
+      continue;
+    }
+    const requestFinishedAt = now();
+    return validatedClockSkew(response, requestStartedAt, requestFinishedAt);
+  }
 }
 
 function validatedClockSkew(response: Response, requestStartedAt: number, requestFinishedAt: number): number {
@@ -39,7 +60,7 @@ async function fetchGotrueHealth(options: LiveClockCheckOptions, healthUrl: URL)
   try {
     return await (options.fetchImpl ?? fetch)(healthUrl, { cache: 'no-store', signal: timeoutSignal });
   } catch (error) {
-    if (timeoutSignal.aborted) throw new Error(`GoTrue health request timed out after ${timeoutMs}ms`, { cause: error });
+    if (timeoutSignal.aborted) throw new HealthRequestTimeoutError(`GoTrue health request timed out after ${timeoutMs}ms`, { cause: error });
     throw new Error(`GoTrue health request failed: ${errorMessage(error)}`, { cause: error });
   }
 }
