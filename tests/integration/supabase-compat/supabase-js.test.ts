@@ -34,6 +34,9 @@ const MANAGEMENT_PORT = positiveIntegerFromEnv(process.env['PORT'], 4010, 'PORT'
 const MANAGEMENT_URL = trimTrailingSlash(process.env["MANAGEMENT_URL"] || `http://localhost:${MANAGEMENT_PORT}`);
 const STRICT_COMPAT = process.env["REQUIRE_SUPABASE_AUTH_COMPAT"] === '1';
 const RUN_LIVE = STRICT_COMPAT || process.env["RUN_SUPABASE_RUNTIME_COMPAT"] === '1' || process.env["RUN_SUPABASE_OAUTH21_COMPAT"] === '1';
+// 实时套件可能经过高延迟链路（如 Tailscale 中继），默认 5s 会误判超时；
+// 放宽并通过环境变量覆盖。
+const LIVE_TIMEOUT_MS = positiveIntegerFromEnv(process.env['SUPABASE_RUNTIME_TIMEOUT_MS'], 60_000, 'SUPABASE_RUNTIME_TIMEOUT_MS');
 const SUPABASE_PUBLIC_KEY = resolveSupabasePublicKey();
 const SUPABASE_ADMIN_KEY = resolveSupabaseAdminKey();
 const TEST_EMAIL = process.env["SUPABASE_TEST_EMAIL"] || '';
@@ -42,15 +45,15 @@ const TEST_PASSWORD = process.env["SUPABASE_TEST_PASSWORD"] || '';
 type LiveTestHandler = () => void | Promise<unknown>;
 
 function liveIt(name: string, fn: LiveTestHandler) {
-  if (RUN_LIVE) it(name, fn);
+  if (RUN_LIVE) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 function supabaseJsIt(name: string, fn: LiveTestHandler) {
-  if (RUN_LIVE && SUPABASE_PUBLIC_KEY) it(name, fn);
+  if (RUN_LIVE && SUPABASE_PUBLIC_KEY) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 function authIt(name: string, fn: LiveTestHandler) {
-  if (RUN_LIVE && SUPABASE_PUBLIC_KEY && TEST_EMAIL && TEST_PASSWORD) it(name, fn);
+  if (RUN_LIVE && SUPABASE_PUBLIC_KEY && TEST_EMAIL && TEST_PASSWORD) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 if (STRICT_COMPAT) {
