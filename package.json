@@ -48,8 +48,8 @@
   "devDependencies": {
     "@apidevtools/swagger-parser": "13.0.0",
     "@supabase/supabase-js": "2.117.2",
-    "@supacloud/compiler": "0.30.0",
-    "@supacloud/js": "0.36.0",
+    "@supacloud/compiler": "0.38.2",
+    "@supacloud/js": "0.39.1",
     "@types/bun": "^1.4.0",
     "@types/node": "26.5.0",
     "es-module-lexer": "2.3.2",
@@ -70,7 +70,7 @@
     "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.strict-declarations.patch",
     "elysia@1.4.30": "patches/elysia@1.4.30.strict-declarations.patch",
     "postgres@3.4.9": "patches/postgres@3.4.9.patch",
-    "@supacloud/compiler@0.30.0": "patches/@supacloud%2Fcompiler@0.30.0.patch",
-    "elysia@2.0.0-beta.19": "patches/elysia@2.0.0-beta.19.patch"
+    "@supacloud/compiler@0.38.2": "patches/@supacloud%2Fcompiler@0.38.2.patch",
+    "elysia@2.0.0-beta.21": "patches/elysia@2.0.0-beta.21.patch"
   }
 }

@@ -60,7 +60,7 @@ export interface HttpOperation<Path extends string = string, Result = unknown> {
   readonly path: Path;
   readonly options: HttpOperationOptions;
   readonly execute: HttpOperationExecutor<Path, Result>;
-  invoke(input: HttpInvocation, executor?: HttpOperationExecutor<Path>): Promise<Response>;
+  invoke(input: HttpInvocation, executor?: HttpOperationExecutor<Path, Result>): Promise<Response>;
 }
 
 function invalidInput(): ApiContractError {

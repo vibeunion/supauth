@@ -9,4 +9,8 @@ export default defineSupacloudConfig({
   generateOpenApi: false,
   generatePermissions: true,
   moduleBoundaryPreset: 'modular-monolith',
+  typeSafety: {
+    scanProductionSource: true,
+    noAnyInGenerated: true,
+  },
 });

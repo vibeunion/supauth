@@ -369,6 +369,29 @@ shutdown draining are not established by this local migration test; shutdown
 draining covers active handler promises. The accepted beta dependency and its
 declaration-only patch remain release considerations.
 
+### Upgrade Integration (2026-10-07)
+
+The upgrade pins compiler 0.38.2, app 0.23.0, Elysia adapter 0.25.0,
+JavaScript SDK 0.39.1, contracts 0.8.0, and the adapter's Elysia beta.21 peer.
+Production-source scanning and generated-code type safety are explicitly enabled.
+Function bundling now checks server types before producing a candidate, and
+replacement HTTP executors preserve their operation result types.
+
+Integration uses the remote branch as its base: retain the Edge-safe status
+mapping, compiled route inventory and HEAD evidence, generated-code inferred
+safety fixes, branding precedence, database changes, and released package versions.
+The original dirty checkout is not reset or copied wholesale over these fixes.
+
+Shared domain schemas remain the request/response authority for the server and
+SDK. Framework-generated transport manifests do not replace these schemas.
+HTTP inputs remain unknown until domain decoding; this is not a claim that every
+handler automatically infers its complete input/output from framework metadata.
+The compiler source scan root remains `src/app`.
+
+Validation is scoped to the migration test, affected package typechecks,
+compiler artifact drift, contract coverage, and diff checks. No deployment,
+remote authentication acceptance, or full test suite is part of this push.
+
 ## Release Boundary
 
 The local artifact and installed-app verifier are part of the release gate.

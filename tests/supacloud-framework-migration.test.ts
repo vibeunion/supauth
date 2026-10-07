@@ -61,6 +61,11 @@ describe('SupAuth compiled application migration', () => {
       const { createSupAuthHttpApplication } = await import('./packages/auth-server/src/http-application.ts');
       const { createCompiledModules } = await import('./packages/auth-server/generated/application.ts');
       const { createCompiledRuntime } = await import('./packages/auth-server/src/compiled-runtime.ts');
+      const { httpOperations } = await import('./packages/auth-server/src/http/operations.ts');
+      const { createCompiledRouteContractInventory, includeRuntimeHeadOperations } = await import('./scripts/compiled-route-inventory.ts');
+      const { inspectContractCoverage } = await import('./scripts/type-safety-contract.ts');
+      const { canonicalizeOpenApiReferences } = await import('./scripts/openapi-schema-references.ts');
+      const { convertOpenApi30Schemas } = await import('./scripts/openapi-30-schema.ts');
       const { default: handler } = await import(${JSON.stringify(entrypoint)});
       const modules = createCompiledModules();
       const runtime = createCompiledRuntime(modules);
@@ -134,6 +139,13 @@ describe('SupAuth compiled application migration', () => {
       const document = await handler.fetch(new Request('https://supauth.example.test/swagger/json'));
       assert.equal(document.status, 200);
       const openapi = await document.json();
+      const inventory = createCompiledRouteContractInventory(app.routes, httpOperations);
+      const canonical = canonicalizeOpenApiReferences(includeRuntimeHeadOperations(openapi, inventory), inventory);
+      const portable = convertOpenApi30Schemas(canonical.spec, canonical.inventory);
+      const coverage = inspectContractCoverage(portable.spec, portable.inventory);
+      assert.deepEqual(coverage.issues, []);
+      assert.equal(coverage.total, app.routes.length);
+      assert.equal(coverage.covered, coverage.total);
       assert.deepEqual(Object.keys(openapi.paths).sort(), Object.keys(baseline.openapi).sort());
       for (const [path, methods] of Object.entries(baseline.openapi)) {
         assert.deepEqual(Object.keys(openapi.paths[path]).sort(), Object.keys(methods).sort(), path);
@@ -182,6 +194,8 @@ describe('SupAuth compiled application migration', () => {
     const build = readFileSync(resolve(root, 'scripts/build-supauth-function.ts'), 'utf8');
     expect(build.indexOf("'app:compile:check'")).toBeGreaterThan(0);
     expect(build.indexOf("'app:compile:check'")).toBeLessThan(build.indexOf('Bun.build('));
+    expect(build.indexOf("'typecheck'")).toBeGreaterThan(build.indexOf("'app:compile:check'"));
+    expect(build.indexOf("'typecheck'")).toBeLessThan(build.indexOf('Bun.build('));
     const installer = readFileSync(resolve(root, 'scripts/install-supacloud-app.ts'), 'utf8');
     expect(installer).toContain('verifySupacloudAppArtifact');
     expect(installer).toContain('supauthFunctionRuntimeSecrets');
