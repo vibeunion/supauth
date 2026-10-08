@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@supacloud/app": "0.23.0",
-    "@supacloud/elysia": "0.25.0",
+    "@supacloud/elysia": "0.27.1",
     "@supauth/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "elysia": "2.0.0-beta.21",

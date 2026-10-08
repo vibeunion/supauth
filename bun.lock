@@ -6,9 +6,9 @@
       "name": "supaoauth",
       "devDependencies": {
         "@apidevtools/swagger-parser": "13.0.0",
-        "@supabase/supabase-js": "2.117.2",
-        "@supacloud/compiler": "0.38.2",
-        "@supacloud/js": "0.39.1",
+        "@supabase/supabase-js": "2.117.3",
+        "@supacloud/compiler": "0.40.1",
+        "@supacloud/js": "0.41.1",
         "@types/bun": "^1.4.0",
         "@types/node": "26.5.0",
         "es-module-lexer": "2.3.2",
@@ -64,7 +64,7 @@
       "version": "0.10.0",
       "dependencies": {
         "@supacloud/app": "0.23.0",
-        "@supacloud/elysia": "0.25.0",
+        "@supacloud/elysia": "0.27.1",
         "@supauth/shared": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "elysia": "2.0.0-beta.21",
@@ -147,7 +147,6 @@
     "@supabase/auth-js@2.117.2": "patches/@supabase%2Fauth-js@2.117.2.patch",
     "drizzle-orm@0.45.2": "patches/drizzle-orm@0.45.2.strict-declarations.patch",
     "elysia@2.0.0-beta.21": "patches/elysia@2.0.0-beta.21.patch",
-    "@supacloud/compiler@0.38.2": "patches/@supacloud%2Fcompiler@0.38.2.patch",
   },
   "packages": {
     "@angular/core": ["@angular/core@22.2.1", "https://registry.npmmirror.com/@angular/core/-/core-22.2.1.tgz", { "dependencies": { "tslib": "^2.3.0" }, "peerDependencies": { "@angular/compiler": "22.2.1", "rxjs": "^6.5.3 || ^7.4.0", "zone.js": "~0.15.0 || ~0.16.0" }, "optionalPeers": ["@angular/compiler", "zone.js"] }, "sha512-a8WlYTRiaMPz1KvLE5xjeWrLyZUuQX8bh6Ak7zajUci9iWsTUQefschjSwP1WKlin3JhM3XjmsTEDyZvSLIfRg=="],
@@ -312,29 +311,31 @@
 
     "@supabase/auth-js": ["@supabase/auth-js@2.117.2", "https://registry.npmmirror.com/@supabase/auth-js/-/auth-js-2.117.2.tgz", { "dependencies": { "tslib": "2.8.1" } }, "sha512-Z3WnGwrphYZubrLbxp5Iv0tLA9A5GhvKzJ/ZXglxqwd2QEH2R4dXRltjVJ8sIn4xEW2BSFIGT0yALVJIgZeDYw=="],
 
-    "@supabase/functions-js": ["@supabase/functions-js@2.117.2", "https://registry.npmmirror.com/@supabase/functions-js/-/functions-js-2.117.2.tgz", { "dependencies": { "tslib": "2.8.1" } }, "sha512-6DT4ZIjmZxa9ANKaBIrjc86AyKrX8M376ynvNeOBBVad3eP7x3UHqWfDR2ynFkHGzCuOpr1A+kObmnahxuwuog=="],
+    "@supabase/functions-js": ["@supabase/functions-js@2.117.3", "https://registry.npmmirror.com/@supabase/functions-js/-/functions-js-2.117.3.tgz", { "dependencies": { "tslib": "2.8.1" } }, "sha512-6GuizbP4N5xWaxEVUsI+UQpJdmMmn0t3sYNpObo9gCAldvM22gFjnYzRVmkHxp5ylU21azEYmiWVwk9iDgCMkQ=="],
 
     "@supabase/phoenix": ["@supabase/phoenix@0.4.5", "https://registry.npmmirror.com/@supabase/phoenix/-/phoenix-0.4.5.tgz", {}, "sha512-aAn9H9ovVyeApKy11OWOrrOGq8DV68yWeH4ud2lN9fzn4aO8Zb5GLL9m1pUg9nLqIcT+ZDfAcsZe0E/nqdv2lw=="],
 
-    "@supabase/postgrest-js": ["@supabase/postgrest-js@2.117.2", "https://registry.npmmirror.com/@supabase/postgrest-js/-/postgrest-js-2.117.2.tgz", { "dependencies": { "tslib": "2.8.1" } }, "sha512-V1Qhn+M8xzJqCasOxHZ2KG19Fj39PxU7weEAmOK65/KTsWCRXboB4hcQwFvxRvM7ZikeP9IZWNvQkfjvSxzYFw=="],
+    "@supabase/postgrest-js": ["@supabase/postgrest-js@2.117.3", "https://registry.npmmirror.com/@supabase/postgrest-js/-/postgrest-js-2.117.3.tgz", { "dependencies": { "tslib": "2.8.1" } }, "sha512-NpyTgullu6tw11ojYKTdZg9HannZ4mu4FUlhc9V5zDXOVllUJzEmuyLM+WWoYF0BurfrRvarimpm3SR8P0Gzfw=="],
 
-    "@supabase/realtime-js": ["@supabase/realtime-js@2.117.2", "https://registry.npmmirror.com/@supabase/realtime-js/-/realtime-js-2.117.2.tgz", { "dependencies": { "@supabase/phoenix": "0.4.5", "tslib": "2.8.1" } }, "sha512-lYXSAIg3eAKA58riUED6Vb+TCzF8jtx18uOoiCaVJ7ZMre6FWBpwB1MPeW+B6vykJT/hPdiuqwcSB7ILMS21ew=="],
+    "@supabase/realtime-js": ["@supabase/realtime-js@2.117.3", "https://registry.npmmirror.com/@supabase/realtime-js/-/realtime-js-2.117.3.tgz", { "dependencies": { "@supabase/phoenix": "0.4.5", "tslib": "2.8.1" } }, "sha512-4W4ISbreRygNXbhwqxeqyuRul8RPx+SF+Hp2IT8wctebQEHSVCULfKatiRiEhmasfoXvYm2AHV4XFsOxhoousA=="],
 
-    "@supabase/storage-js": ["@supabase/storage-js@2.117.2", "https://registry.npmmirror.com/@supabase/storage-js/-/storage-js-2.117.2.tgz", { "dependencies": { "iceberg-js": "^0.8.1", "tslib": "2.8.1" } }, "sha512-8gAJoVaxZa/War2kFRfJMxGk4M190Q7lJ70BofwGlRxU/u9pIodd6XyTvmXkxOKXWuIYtkDaYPZrIAUt1T/7FQ=="],
+    "@supabase/storage-js": ["@supabase/storage-js@2.117.3", "https://registry.npmmirror.com/@supabase/storage-js/-/storage-js-2.117.3.tgz", { "dependencies": { "iceberg-js": "^0.8.1", "tslib": "2.8.1" } }, "sha512-QhUxFC33Crlw6WDeA4hLADdi1PzjI3c4UJs7ivWHHEnU7ulmCWEZSDaRCuIfmsjUwbHYaIfRNFQNsm+IsGYS6w=="],
 
-    "@supabase/supabase-js": ["@supabase/supabase-js@2.117.2", "https://registry.npmmirror.com/@supabase/supabase-js/-/supabase-js-2.117.2.tgz", { "dependencies": { "@supabase/auth-js": "2.117.2", "@supabase/functions-js": "2.117.2", "@supabase/postgrest-js": "2.117.2", "@supabase/realtime-js": "2.117.2", "@supabase/storage-js": "2.117.2" }, "peerDependencies": { "@opentelemetry/api": ">=1.0.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-eSG2VKnHR+Clp1PmidZ1/weJ8PJwoybjva3L2GgKqFG4YDS1Iqmc61psKGZP5xw6OMT2O7ZorPR42PY6q1BOXg=="],
+    "@supabase/supabase-js": ["@supabase/supabase-js@2.117.3", "https://registry.npmmirror.com/@supabase/supabase-js/-/supabase-js-2.117.3.tgz", { "dependencies": { "@supabase/auth-js": "2.117.3", "@supabase/functions-js": "2.117.3", "@supabase/postgrest-js": "2.117.3", "@supabase/realtime-js": "2.117.3", "@supabase/storage-js": "2.117.3" }, "peerDependencies": { "@opentelemetry/api": ">=1.0.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-K+f8PimXDunPWQ63CKRXaF5pbVPJxmfw5ryAnh0s9S9PkwcuqBjiSpIaqpF7KLDljeYwXIL85ST8QxaO0+XuvA=="],
 
     "@supacloud/app": ["@supacloud/app@0.23.0", "https://registry.npmmirror.com/@supacloud/app/-/app-0.23.0.tgz", { "dependencies": { "@angular/core": "^22.1.5", "@supacloud/contracts": "0.8.0", "rxjs": "7.8.2", "typebox": "1.3.34" } }, "sha512-OSlRnRgof5MPQvmDA5jnZIDqzYgT0J5L4UY8lrIhRLUf/AeEZLv9I4i7kyZRV5I9XY9HwBWaDJ/7EW51/txeOA=="],
 
-    "@supacloud/compiler": ["@supacloud/compiler@0.38.2", "https://registry.npmmirror.com/@supacloud/compiler/-/compiler-0.38.2.tgz", { "dependencies": { "@graphql-codegen/core": "^6.2.0", "@graphql-codegen/typed-document-node": "^7.1.0", "@graphql-codegen/typescript-operations": "^6.1.6", "@graphql-typed-document-node/core": "^3.2.0", "@supacloud/delivery": "0.8.0", "@typescript/typescript6": "^6.0.2", "graphql": "^16", "typebox": "1.3.34" }, "bin": { "supacloud-compiler": "dist/cli.js" } }, "sha512-HyMZOMPnarXZZFNquktS0FUgoZHywcdH5MOGPOwnmjs2eCmlfhBYChmZH4BTsY2UBTSOwCZJG988sAECDDBePw=="],
+    "@supacloud/compiler": ["@supacloud/compiler@0.40.1", "https://registry.npmmirror.com/@supacloud/compiler/-/compiler-0.40.1.tgz", { "dependencies": { "@graphql-codegen/core": "^6.2.0", "@graphql-codegen/typed-document-node": "^7.1.0", "@graphql-codegen/typescript-operations": "^6.1.6", "@graphql-typed-document-node/core": "^3.2.0", "@supacloud/delivery": "0.8.0", "@typescript/typescript6": "^6.0.2", "graphql": "^16", "typebox": "1.3.34" }, "bin": { "supacloud-compiler": "dist/cli.js" } }, "sha512-XT30AJtk/gm6jHiDAlIknqzlNm3ua2GhxD7CnYXFvEmqy27Wu0cO+G+EI21RuevbIXGGzxI6iljE94gU3ynWqw=="],
 
     "@supacloud/contracts": ["@supacloud/contracts@0.8.0", "https://registry.npmmirror.com/@supacloud/contracts/-/contracts-0.8.0.tgz", {}, "sha512-PxN4RZ3/LnBHebgzlTVjKQpNQ0oqsML+eNHTDR4CjdcdqdhgnZyCv7J8e8LPTEsGWnai1PywhPM/FBqau3REEA=="],
 
     "@supacloud/delivery": ["@supacloud/delivery@0.8.0", "https://registry.npmmirror.com/@supacloud/delivery/-/delivery-0.8.0.tgz", { "dependencies": { "typebox": "1.3.34" } }, "sha512-lkzD0OTW0jHSQOlzoYsCd+22jYzRf4BnJ+kH4lKoI3g9g9ZVTzR7AtOOCdAfXMJQ2y/kcDEmsYoGWdonWfqHdg=="],
 
-    "@supacloud/elysia": ["@supacloud/elysia@0.25.0", "https://registry.npmmirror.com/@supacloud/elysia/-/elysia-0.25.0.tgz", { "dependencies": { "@supacloud/app": "0.23.0", "@supacloud/contracts": "0.8.0", "exact-mirror": "1.2.6", "jose": "^6.2.11", "typebox": "1.3.34" }, "peerDependencies": { "elysia": "2.0.0-beta.21" } }, "sha512-JVo336nXAoN2NSTWLS6NBwSy1q9tjO6lWnfKJZCvMrvBWpH2WCQ1NOlABPIThTCWHgKJppHNVJ3gqMJEsjsCBQ=="],
+    "@supacloud/elysia": ["@supacloud/elysia@0.27.1", "https://registry.npmmirror.com/@supacloud/elysia/-/elysia-0.27.1.tgz", { "dependencies": { "@supacloud/app": "0.23.0", "@supacloud/contracts": "0.8.0", "exact-mirror": "1.2.6", "jose": "^6.2.11", "typebox": "1.3.34" }, "peerDependencies": { "elysia": "2.0.0-beta.21" } }, "sha512-T/kVC1zanZUbSvTbOcuXsDuWJFU4pQjiu5KkIvvVgcYdD9nzmMe5jFOVZeod3zNifMn2i/f477Ryxo9rEWKtFA=="],
 
-    "@supacloud/js": ["@supacloud/js@0.39.1", "https://registry.npmmirror.com/@supacloud/js/-/js-0.39.1.tgz", { "dependencies": { "@supacloud/contracts": "0.8.0", "rxjs": "7.8.2" }, "peerDependencies": { "@supabase/supabase-js": "^2.115.0", "@tanstack/query-core": "^5.104.1" }, "optionalPeers": ["@tanstack/query-core"] }, "sha512-rOwkgHt9bpG3l9RcruJL4oTSM7zctWQIlzC5nZ3/jixL6FeVP1h6Dd6Z75Pb1zodRHibcCT939M03C1nnTtaMg=="],
+    "@supacloud/js": ["@supacloud/js@0.41.1", "https://registry.npmmirror.com/@supacloud/js/-/js-0.41.1.tgz", { "dependencies": { "@supacloud/contracts": "0.8.0", "@supacloud/query": "0.2.0", "rxjs": "7.8.2" }, "peerDependencies": { "@supabase/supabase-js": "^2.117.3", "@tanstack/query-core": "^5.104.1" }, "optionalPeers": ["@tanstack/query-core"] }, "sha512-zOxt9BbKcxXeQD1Ctot7XSes2fYobD5rrs1LNiCAk1IlH6eKU2LKxIWsAacLJbGlaJt8q6sbBclFsBNj2cFung=="],
+
+    "@supacloud/query": ["@supacloud/query@0.2.0", "https://registry.npmmirror.com/@supacloud/query/-/query-0.2.0.tgz", { "dependencies": { "@tanstack/query-core": "^5.104.1" } }, "sha512-+a2NXFqsjZzNOWRx/mJqLRO9XfrFCyKRQ8gkV7Owdm3wK+rBaF/p/1QEkh3J0jFWai49eNkw1Aj18Rlr7EIFgA=="],
 
     "@supauth/admin-console": ["@supauth/admin-console@workspace:packages/admin-console"],
 
@@ -843,6 +844,10 @@
     "@graphql-tools/relay-operation-optimizer/@graphql-tools/utils": ["@graphql-tools/utils@12.0.3", "https://registry.npmmirror.com/@graphql-tools/utils/-/utils-12.0.3.tgz", { "dependencies": { "@graphql-typed-document-node/core": "^3.1.1", "@whatwg-node/promise-helpers": "^2.0.0", "cross-inspect": "1.0.1", "tslib": "^2.4.0" }, "peerDependencies": { "graphql": "^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0" } }, "sha512-M+04bHvI1SKoug7W2EkwfKjig2mdtgIIlFY8p2jLHmxPNVs5bC/3R+58JrD+7ZXWgPILWTwuqJ9AqTjPlahroA=="],
 
     "@graphql-tools/schema/@graphql-tools/utils": ["@graphql-tools/utils@12.0.3", "https://registry.npmmirror.com/@graphql-tools/utils/-/utils-12.0.3.tgz", { "dependencies": { "@graphql-typed-document-node/core": "^3.1.1", "@whatwg-node/promise-helpers": "^2.0.0", "cross-inspect": "1.0.1", "tslib": "^2.4.0" }, "peerDependencies": { "graphql": "^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0" } }, "sha512-M+04bHvI1SKoug7W2EkwfKjig2mdtgIIlFY8p2jLHmxPNVs5bC/3R+58JrD+7ZXWgPILWTwuqJ9AqTjPlahroA=="],
+
+    "@supabase/supabase-js/@supabase/auth-js": ["@supabase/auth-js@2.117.3", "https://registry.npmmirror.com/@supabase/auth-js/-/auth-js-2.117.3.tgz", { "dependencies": { "tslib": "2.8.1" } }, "sha512-XOZV+jllcU2Hzij8SwgM78zl0lOEr6BTjzi2MYkBb39nOAQzb5AelGpMUvVj7lwGSB11JmpAs/FEQroAyFzWEA=="],
+
+    "@supacloud/query/@tanstack/query-core": ["@tanstack/query-core@5.104.1", "https://registry.npmmirror.com/@tanstack/query-core/-/query-core-5.104.1.tgz", {}, "sha512-TiRghcrGkUTE+M4JBxvpPSpBhxvIzQairw+cksrHYGr+2uwC77yW1SY9nYxnYRYOppvucf8rEg6b5byoz4rTpw=="],
 
     "@supauth/admin-console/typescript": ["typescript@6.0.3", "https://registry.npmmirror.com/typescript/-/typescript-6.0.3.tgz", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
