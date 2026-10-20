@@ -13,7 +13,7 @@ import ts from 'typescript';
 
 const require = createRequire(import.meta.url);
 const installed = dirname(require.resolve('@supabase/auth-js/package.json'));
-const patch = join(fileURLToPath(new URL('../../../patches/', import.meta.url)), '@supabase%2Fauth-js@2.117.2.patch');
+const patch = join(fileURLToPath(new URL('../../../patches/', import.meta.url)), '@supabase%2Fauth-js@2.118.0.patch');
 const options: ts.CompilerOptions = {
   strict: true,
   noUncheckedIndexedAccess: true,
@@ -71,8 +71,8 @@ beforeAll(() => {
   const manifest: unknown = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
   if (typeof manifest !== 'object' || manifest === null
     || !('name' in manifest) || manifest.name !== '@supabase/auth-js'
-    || !('version' in manifest) || manifest.version !== '2.117.2') {
-    throw new Error('The reviewed auth-js declaration patch requires @supabase/auth-js@2.117.2');
+    || !('version' in manifest) || manifest.version !== '2.118.0') {
+    throw new Error('The reviewed auth-js declaration patch requires @supabase/auth-js@2.118.0');
   }
   scratch = mkdtempSync(join(tmpdir(), 'auth-js-declarations-'));
   const pristine = join(directory(), 'pristine');

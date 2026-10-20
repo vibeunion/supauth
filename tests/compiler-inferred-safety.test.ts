@@ -38,7 +38,7 @@ test('generated application has no inferred leaks and rejects the original array
   const originalArrays = source
     .replaceAll('isUnknownArray(value) ?', 'Array.isArray(value) ?')
     .replace('if (isUnknownArray(group))', 'if (Array.isArray(group))')
-    .replace("isUnknownArray(destroyRef['_teardowns'])", "Array.isArray(destroyRef['_teardowns'])");
+    .replace('isUnknownArray(destroyRef["_teardowns"])', 'Array.isArray(destroyRef["_teardowns"])');
   expect(inspect(originalArrays).map(issue => issue.code)).toEqual(Array.from({ length: 5 }, () => 'any_binding'));
   const originalInvokers = source.replaceAll('if (!isFunction(handler))', 'if (typeof handler !== "function")');
   const invocationIssues = inspect(originalInvokers);

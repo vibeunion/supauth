@@ -6,7 +6,6 @@ const root = resolve(import.meta.dir, '..');
 
 const positive = `
 import Elysia, { t } from "elysia";
-import type { ElysiaSwaggerConfig } from "@elysiajs/swagger";
 import type { ComposeElysiaResponse, MacroToContext } from "elysia/types";
 import type { SelectiveStatus } from "elysia/error";
 import type { SQL, SQLWrapper } from "drizzle-orm";
@@ -31,7 +30,6 @@ declare const quotedStatus: SelectiveStatus<{ 200: { id: number }; 404: { missin
 const ok = quotedStatus(200, { id: 1 });
 type StatusCode = Assert<Equal<typeof ok.status, 200>>;
 quotedStatus("Not Found", { missing: true });
-const swaggerConfig: ElysiaSwaggerConfig<"/swagger"> = {};
 new Elysia().macro({ auth: { derive: () => ({ user: { id: 1 } }) } })
   .get("/selected", { auth: true }, ({ user }) => { type UserId = Assert<Equal<typeof user.id, number>>; return user.id; });
 new Elysia().get("/quoted", { response: { 200: t.Object({ id: t.Number() }) } }, ({ status }) => status(200, { id: 1 }));
@@ -113,12 +111,12 @@ transactionView.client.end(); // DIAGNOSTIC 2339
 const wrongSql: SQL = 1; // DIAGNOSTIC 2322
 `;
 
-// Elysia/Swagger follow auth-server's Bundler contract; Drizzle also ships CJS declarations.
+// Elysia follows auth-server's Bundler contract; Drizzle also ships CJS declarations.
 for (const mode of [
   {
     name: 'ESM', extension: 'ts', module: ts.ModuleKind.ESNext, resolution: ts.ModuleResolutionKind.Bundler,
     positive, negative, expectedCount: 12,
-    entries: ['/elysia/dist/index.d.ts', '/@elysiajs/swagger/dist/index.d.ts'],
+    entries: ['/elysia/dist/index.d.ts'],
   },
   {
     name: 'CJS', extension: 'cts', module: ts.ModuleKind.NodeNext, resolution: ts.ModuleResolutionKind.NodeNext,

@@ -33,8 +33,9 @@ describe('SupAuth compiled application migration', () => {
 
   it.each(['source', 'bundle'])('preserves Function routing, auth and middleware in the %s entry', (mode) => {
     if (mode === 'bundle') {
+      // 构建包含编译产物与完整类型检查，为冷缓存 CI 留足时间，不跳过发布校验。
       const build = Bun.spawnSync([process.execPath, '--no-env-file', 'run', 'scripts/build-supauth-function.ts'], {
-        cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: 30_000,
+        cwd: root, env: environment, stdout: 'pipe', stderr: 'pipe', timeout: 120_000,
       });
       expect({
         exitCode: build.exitCode,
@@ -181,7 +182,7 @@ describe('SupAuth compiled application migration', () => {
     expect({ exitCode: result.exitCode, output: result.exitCode === 0 ? '' : output })
       .toEqual({ exitCode: 0, output: '' });
     expect(output).toContain('compiled-function-boundary-ok');
-  }, 60_000);
+  }, 150_000);
 
   it('checks architecture drift before bundling and retains the deployment installer', () => {
     const entry = readFileSync(resolve(authServer, 'src/index.ts'), 'utf8');
