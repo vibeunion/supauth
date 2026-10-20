@@ -63,6 +63,10 @@ describe('@supacloud/js compatibility', () => {
         },
       });
     })));
+    const oauthFetch = createSupaCloudOAuthFetch({
+      clientId: 'public-client',
+      fetch: transport,
+    });
     const client = createClient('https://auth.example.test', 'public-anon-key', {
       auth: {
         autoRefreshToken: false,
@@ -70,10 +74,7 @@ describe('@supacloud/js compatibility', () => {
         persistSession: false,
       },
       global: {
-        fetch: createSupaCloudOAuthFetch({
-          clientId: 'public-client',
-          fetch: transport,
-        }),
+        fetch: Object.assign(oauthFetch, { preconnect: fetch.preconnect }),
       },
     });
 

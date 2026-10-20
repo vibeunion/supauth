@@ -7,6 +7,10 @@ export interface DocumentedOperation {
   };
 }
 
+export function openApiPath(path: string): string {
+  return path.replace(/:([^/]+)/g, '{$1}');
+}
+
 const info = {
   title: 'SupaOAuth Management API',
   version: '0.3.0',
@@ -64,7 +68,7 @@ export function buildSupAuthOpenApi(operations: Iterable<DocumentedOperation>) {
     if (!['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'].includes(method)) {
       throw new Error(`Unsupported OpenAPI method: ${operation.method}`);
     }
-    const path = operation.path.replace(/:([^/]+)/g, '{$1}');
+    const path = openApiPath(operation.path);
     const pathItem = paths[path] ?? {};
     if (Object.hasOwn(pathItem, method)) throw new Error(`Duplicate OpenAPI operation: ${method} ${path}`);
     // 输入及响应 schema 由领域契约提供；不读取运行时 router 或猜测 schema。
