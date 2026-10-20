@@ -11,6 +11,7 @@ let upstream: unknown = validWebhook;
 let writes = 0;
 const audits: unknown[] = [];
 mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => ({
     createWebhook: async () => { writes++; return upstream; },
   }),
@@ -48,7 +49,10 @@ describe('validated operation side effects', () => {
     upstream = { ...validWebhook, id: 123, url: { private: 'fixture-private-value' } };
     const response = await createWebhook();
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ code: 'invalid_upstream_response' });
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: { code: 'invalid_upstream_response' },
+    });
     expect(writes).toBe(1);
     expect(audits).toHaveLength(0);
   });

@@ -15,6 +15,7 @@ const createdRoles: Array<{ id: string; name: string }> = [];
 const audits: unknown[] = [];
 
 mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => ({
     listUsers: async () => users,
     listRoles: async () => Array.isArray(roles) ? [...roles, ...createdRoles] : roles,
@@ -74,7 +75,10 @@ function request(body: Record<string, unknown> = {}, route = 'import') {
 async function expectInvalidInventory(body: Record<string, unknown> = {}) {
   const response = await request(body);
   expect(response.status).toBe(502);
-  expect(await response.json()).toEqual({ code: 'invalid_upstream_response' });
+  expect(await response.json()).toMatchObject({
+    success: false,
+    error: { code: 'invalid_upstream_response' },
+  });
   expect(mutations).toHaveLength(0);
   expect(audits).toHaveLength(0);
 }

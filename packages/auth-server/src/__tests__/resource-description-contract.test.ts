@@ -117,7 +117,14 @@ describe('resource description uses the shared nullable text contract through st
           ...(method === 'POST' ? { name: initial.name, indicator: initial.indicator } : {}), description,
         });
         expect(response.status).toBe(400);
-        expect(await response.json()).toEqual({ code: 'invalid_request_body' });
+        expect(await response.json()).toMatchObject({
+          success: false,
+          error: {
+            code: 'invalid_request_body',
+            message: 'Request does not match the declared contract',
+            correlation_id: expect.any(String),
+          },
+        });
         expect(transactions).toBe(0);
         expect(writes).toHaveLength(0);
         expect(audits).toHaveLength(0);

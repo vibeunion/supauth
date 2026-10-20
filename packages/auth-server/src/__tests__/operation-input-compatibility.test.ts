@@ -32,6 +32,7 @@ mock.module('../repositories/rbac-bridge.js', () => ({
   generateCompatibilityHelper: (ref: string) => `sql:${ref}`,
 }));
 mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => ({
     exportAuditLogs: async (input: unknown) => {
       calls.push({ operation: 'exportAuditLogs', input });

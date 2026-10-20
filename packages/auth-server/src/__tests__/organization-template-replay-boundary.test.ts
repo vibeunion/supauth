@@ -35,7 +35,10 @@ const db = {
   }),
 };
 mock.module('../db/index.js', () => ({ getDb: () => db }));
-mock.module('../supacloud/adapter.js', () => ({ getSupaCloudAdapter: adapterAccess }));
+mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: class extends Error {},
+  getSupaCloudAdapter: adapterAccess,
+}));
 const { instantiateFromTemplate } = await import('../repositories/organization-templates.js');
 const replay = () => instantiateFromTemplate(templateId, request, { idempotencyKey: 'fixture-key' });
 

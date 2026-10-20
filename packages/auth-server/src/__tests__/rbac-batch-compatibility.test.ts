@@ -17,6 +17,7 @@ const writes: unknown[] = [];
 const audits: unknown[] = [];
 
 mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => ({
     listUsers: async () => { inventoryReads++; return users; },
     listRoles: async () => [{ id: 'role-one', name: 'admin' }],

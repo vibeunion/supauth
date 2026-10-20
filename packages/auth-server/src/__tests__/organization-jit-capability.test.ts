@@ -27,6 +27,7 @@ const getOrganizationJitSettings = mock(async () => ({ enabled: true, domains: [
 const updateOrganizationJitSettings = mock(async () => ({ enabled: true, domains: ['example.test'] }));
 
 mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => ({
     getCapabilities,
     getOrganizationJitSettings,
@@ -89,8 +90,8 @@ describe('organization JIT capability gate', () => {
     const body = strictRecord(await response.json());
 
     expect(response.status).toBe(501);
-    expect(body["code"]).toBe('capability_unavailable');
-    expect(strictProperty(body["details"], "reason_code")).toBe('gotrue_custom_access_token_hook_not_enabled');
+    expect(strictProperty(body["error"], "code")).toBe('capability_unavailable');
+    expect(strictProperty(strictProperty(body["error"], "details"), "reason_code")).toBe('gotrue_custom_access_token_hook_not_enabled');
     expect(getOrganizationJitSettings).not.toHaveBeenCalled();
   });
 });

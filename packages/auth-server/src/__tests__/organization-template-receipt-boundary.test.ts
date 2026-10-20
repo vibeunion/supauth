@@ -29,7 +29,10 @@ const adapter = {
 mock.module('../db/index.js', () => ({
   getDb: () => ({ select: () => ({ from: () => ({ where: () => ({ limit: async () => [template] }) }) }) }),
 }));
-mock.module('../supacloud/adapter.js', () => ({ getSupaCloudAdapter: () => adapter }));
+mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: class extends Error {},
+  getSupaCloudAdapter: () => adapter,
+}));
 const { instantiateFromTemplate } = await import('../repositories/organization-templates.js');
 const instantiate = () => instantiateFromTemplate(template.id, { name: 'Fixture', creatorUserId: 'user-one' });
 
