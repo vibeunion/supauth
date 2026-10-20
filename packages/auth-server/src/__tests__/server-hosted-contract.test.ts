@@ -7,9 +7,10 @@ import { hostedContract } from '../utils/hosted-contract.js';
 import { ApiContractError } from '../utils/api-contract.js';
 import { storageRoutes } from '../storage/index.js';
 import { createHostedPageRoutes } from '../routes/hosted-pages.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 function contractApp() {
-  return new Elysia().onError(({ error, set }) => {
+  return new Elysia().error(({ error, set }) => {
     if (!(error instanceof ApiContractError)) throw error;
     set.status = error.status;
     return { success: false, error: { code: error.code, message: error.message } };
@@ -18,7 +19,7 @@ function contractApp() {
 
 describe('hosted server request and protocol contracts', () => {
   test('retains hidden static and wildcard registrations without inventing OpenAPI paths', () => {
-    const hosted = createHostedPageRoutes();
+    const hosted = operationTestPlugin(createHostedPageRoutes());
     const hiddenPaths = [
       '/hosted-auth.js', '/favicon.ico', '/favicon.svg', '/login.html', '/authorize.html',
       '/logout.html', '/claim.html', '/account.html', '/change-password.html',
@@ -30,7 +31,7 @@ describe('hosted server request and protocol contracts', () => {
       expect(route.hooks.detail).toMatchObject({ hide: true, 'x-supauth-contract': { source: expect.stringContaining('hosted:') } });
     }
     for (const path of ['/v1/storage/upload/:bucketId/*', '/v1/storage/sign-url/:bucketId/*', '/v1/storage/delete/:bucketId/*']) {
-      const route = storageRoutes.routes.find((route) => route.path === path);
+      const route = operationTestPlugin(storageRoutes).routes.find((route) => route.path === path);
       if (!route) throw new Error(`Missing storage registration: ${path}`);
       expect(route.hooks.detail).toMatchObject({ hide: true });
     }
@@ -44,10 +45,10 @@ describe('hosted server request and protocol contracts', () => {
 
   test('rejects non-object login bodies before running a handler', async () => {
     let calls = 0;
-    const app = contractApp().post('/login', () => {
+    const app = contractApp().post('/login', hostedContract('adminLogin'), () => {
       calls++;
       return { success: true, token: 'session' };
-    }, hostedContract('adminLogin'));
+    });
     for (const body of [null, [], 'token']) {
       const response = await app.handle(new Request('http://localhost/login', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
@@ -88,7 +89,7 @@ describe('hosted server request and protocol contracts', () => {
   });
 
   test('storage rejects malformed expiry and raw upload headers before touching its adapter', async () => {
-    const app = new Elysia().use(storageRoutes);
+    const app = new Elysia().use(operationTestPlugin(storageRoutes));
     const invalidExpiry = await app.handle(new Request('http://localhost/v1/storage/sign-url/avatars/user/avatar?expires=1garbage'));
     expect(invalidExpiry.status).toBe(400);
     const invalidMime = await app.handle(new Request('http://localhost/v1/storage/upload/branding/logo.png', {

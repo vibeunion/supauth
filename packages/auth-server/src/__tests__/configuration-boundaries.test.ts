@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { serverConfigurationContracts } from '../../../shared/src/server-configuration.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
 process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
@@ -39,9 +40,9 @@ const { tenantConfigRoutes } = await import('../routes/tenant-config.js');
 const { securityConfigRoutes } = await import('../routes/security-config.js');
 const { observabilityMiddleware } = await import('../middleware/index.js');
 const app = new Elysia().use(observabilityMiddleware)
-  .use(authConfigRoutes).use(publicOAuthRoutes).use(publicCustomUiRoutes).use(sieRoutes)
-  .use(publicSignInExperienceRoutes).use(publicConnectorRoutes).use(publicPhrasesRoutes)
-  .use(connectorRoutes).use(enterpriseSSORoutes).use(tenantConfigRoutes).use(securityConfigRoutes);
+  .use(operationTestPlugin(authConfigRoutes)).use(operationTestPlugin(publicOAuthRoutes)).use(operationTestPlugin(publicCustomUiRoutes)).use(operationTestPlugin(sieRoutes))
+  .use(operationTestPlugin(publicSignInExperienceRoutes)).use(operationTestPlugin(publicConnectorRoutes)).use(operationTestPlugin(publicPhrasesRoutes))
+  .use(operationTestPlugin(connectorRoutes)).use(operationTestPlugin(enterpriseSSORoutes)).use(operationTestPlugin(tenantConfigRoutes)).use(operationTestPlugin(securityConfigRoutes));
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {

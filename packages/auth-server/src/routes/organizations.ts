@@ -1,10 +1,11 @@
 // Organization management routes with OpenAPI annotations
 
-import { Elysia, t } from 'elysia';
+import { Type as t } from '../../../shared/src/schema.js';
 import { managementContract, decodeEndpointBody, decodeManagementBody, decodeEndpointResponse, decodeManagementQuery } from '../utils/management-contract.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as auditRepo from '../repositories/audit.js';
 import { ApiContractError, capabilityUnavailable, pagedResponse, isRecord } from '../utils/api-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 const ORGANIZATION_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -86,8 +87,8 @@ function validateOrganizationSlug(slug: unknown): void {
   }
 }
 
-export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
-  .get('/', async ({ query: rawQuery }) => {
+export const organizationRoutes = defineHttpOperations({ prefix: '/v1/organizations' }, {
+  getRoot: defineHttpOperation('GET', '/', async ({ query: rawQuery }) => {
     const query = decodeManagementQuery('listOrganizations', rawQuery);
     const organizations = await adapter.listOrganizations({
       page: query.page,
@@ -98,8 +99,8 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
     return decodeEndpointResponse('listOrganizations', pagedResponse(organizations, { page: query.page, limit: query.limit }));
   }, managementContract("GET", "/v1/organizations", {
     detail: { summary: 'List organizations', tags: ['Organizations'] },
-  }))
-  .post('/', async ({ body }) => {
+  })),
+  postRoot: defineHttpOperation('POST', '/', async ({ body }) => {
     const created = decodeEndpointResponse('createOrganization', await adapter.createOrganization(
       decodeManagementBody('createOrganization', organizationCreatePayload(body)),
     ));
@@ -107,28 +108,28 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
     return created;
   }, managementContract("POST", "/v1/organizations", {
     detail: { summary: 'Create organization', tags: ['Organizations'] },
-  }, ({ body }) => { organizationCreatePayload(body); }))
-  .get('/:orgId', async ({ params }) => {
+  }, ({ body }) => { organizationCreatePayload(body); })),
+  getByOrgId: defineHttpOperation('GET', '/:orgId', async ({ params }) => {
     return decodeEndpointResponse('getOrganization', await adapter.getOrganization(params.orgId));
   }, managementContract("GET", "/v1/organizations/:orgId", {
     detail: { summary: 'Get organization by ID', tags: ['Organizations'] },
-  }))
-  .put('/:orgId', async ({ params, body }) => {
+  })),
+  putByOrgId: defineHttpOperation('PUT', '/:orgId', async ({ params, body }) => {
     const updated = await adapter.updateOrganization(params.orgId, decodeManagementBody('updateOrganization', organizationUpdatePayload(body)));
     await auditStrict('organization.update', 'organization', params.orgId);
     return decodeEndpointResponse('updateOrganization', updated);
   }, managementContract("PUT", "/v1/organizations/:orgId", {
     detail: { summary: 'Update organization', tags: ['Organizations'] },
-  }, ({ body }) => { organizationUpdatePayload(body); }))
-  .delete('/:orgId', async ({ params }) => {
+  }, ({ body }) => { organizationUpdatePayload(body); })),
+  deleteByOrgId: defineHttpOperation('DELETE', '/:orgId', async ({ params }) => {
     const deleted = await adapter.deleteOrganization(params.orgId);
     await auditStrict('organization.delete', 'organization', params.orgId);
     return decodeEndpointResponse('deleteOrganization', deleted);
   }, managementContract("DELETE", "/v1/organizations/:orgId", {
     detail: { summary: 'Delete organization', tags: ['Organizations'] },
-  }))
+  })),
   // ─── Members ───
-  .get('/:orgId/members', async ({ params, query: rawQuery }) => {
+  getByOrgIdMembers: defineHttpOperation('GET', '/:orgId/members', async ({ params, query: rawQuery }) => {
     const query = decodeManagementQuery('listOrganizationMembers', rawQuery);
     const members = await adapter.listOrganizationMembers(params.orgId, {
       page: query.page,
@@ -138,41 +139,42 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
     return decodeEndpointResponse('listOrganizationMembers', pagedResponse(members, { page: query.page, limit: query.limit }));
   }, managementContract("GET", "/v1/organizations/:orgId/members", {
     detail: { summary: 'List organization members', tags: ['Organizations', 'Members'] },
-  }))
-  .post('/:orgId/members', async ({ params, body }) => {
+  })),
+  postByOrgIdMembers: defineHttpOperation('POST', '/:orgId/members', async ({ params, body }) => {
     const data = decodeEndpointBody('addOrganizationMember', body);
     const member = await adapter.addOrganizationMember(params.orgId, data);
     await auditStrict('organization.add_member', 'organization', params.orgId, { user_id: data.user_id });
     return decodeEndpointResponse('addOrganizationMember', member);
   }, managementContract("POST", "/v1/organizations/:orgId/members", {
     detail: { summary: 'Add member to organization', tags: ['Organizations', 'Members'] },
-  }))
-  .delete('/:orgId/members/:userId', async ({ params }) => {
+  })),
+  deleteByOrgIdMembersByUserId: defineHttpOperation('DELETE', '/:orgId/members/:userId', async ({ params }) => {
     const removed = await adapter.removeOrganizationMember(params.orgId, params.userId);
     await auditStrict('organization.remove_member', 'organization', params.orgId, { user_id: params.userId });
     return decodeEndpointResponse('removeOrganizationMember', removed);
   }, managementContract("DELETE", "/v1/organizations/:orgId/members/:userId", {
     detail: { summary: 'Remove member from organization', tags: ['Organizations', 'Members'] },
-  }))
-  .patch('/:orgId/members/:userId', async ({ params, body }) => {
+  })),
+  patchByOrgIdMembersByUserId: defineHttpOperation('PATCH', '/:orgId/members/:userId', async ({ params, body }) => {
     return decodeEndpointResponse('updateOrganizationMemberRole', await adapter.updateOrganizationMember(params.orgId, params.userId, decodeEndpointBody('updateOrganizationMemberRole', body)));
   }, managementContract("PATCH", "/v1/organizations/:orgId/members/:userId", {
     body: t.Object({ role: t.String() }, { additionalProperties: false }),
     detail: { summary: 'Update member role in organization', tags: ['Organizations', 'Members'] },
-  }))
-  .get('/:orgId/roles', async ({ params }) => {
+  })),
+  getByOrgIdRoles: defineHttpOperation('GET', '/:orgId/roles', async ({ params }) => {
     return decodeEndpointResponse('getOrgRoleAssignments', pagedResponse(await adapter.getOrgRoleAssignments(params.orgId)));
   }, managementContract("GET", "/v1/organizations/:orgId/roles", {
     detail: { summary: 'Get role assignments for organization', tags: ['Organizations', 'RBAC'] },
-  }))
-  .get('/:orgId/invitations', async ({ params }) => {
+  })),
+  getByOrgIdInvitations: defineHttpOperation('GET', '/:orgId/invitations', async ({ params }) => {
     return decodeEndpointResponse('listOrganizationInvitations', pagedResponse(await adapter.listOrganizationInvitations(params.orgId)));
   }, managementContract("GET", "/v1/organizations/:orgId/invitations", {
     detail: { summary: 'List organization invitations', tags: ['Organizations', 'Invitations'] },
-  }))
-  .post('/:orgId/invitations', async ({ params, body }) => {
-    const invitation = await adapter.createOrganizationInvitation(params.orgId, decodeEndpointBody('createOrganizationInvitation', body));
-    await auditStrict('organization.invitation.create', 'organization', params.orgId, { email: body.email });
+  })),
+  postByOrgIdInvitations: defineHttpOperation('POST', '/:orgId/invitations', async ({ params, body }) => {
+    const input = decodeEndpointBody('createOrganizationInvitation', body);
+    const invitation = await adapter.createOrganizationInvitation(params.orgId, input);
+    await auditStrict('organization.invitation.create', 'organization', params.orgId, { email: input.email });
     return decodeEndpointResponse('createOrganizationInvitation', invitation);
   }, managementContract("POST", "/v1/organizations/:orgId/invitations", {
     body: t.Object({
@@ -181,13 +183,13 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
       ttl_hours: t.Optional(t.Number({ minimum: 1, maximum: 720 })),
     }, { additionalProperties: false }),
     detail: { summary: 'Create organization invitation', tags: ['Organizations', 'Invitations'] },
-  }))
-  .delete('/:orgId/invitations/:invitationId', async ({ params }) => {
+  })),
+  deleteByOrgIdInvitationsByInvitationId: defineHttpOperation('DELETE', '/:orgId/invitations/:invitationId', async ({ params }) => {
     return revokeInvitation(params.orgId, params.invitationId);
   }, managementContract("DELETE", "/v1/organizations/:orgId/invitations/:invitationId", {
     detail: { summary: 'Revoke an organization invitation', tags: ['Organizations', 'Invitations'] },
-  }))
-  .post('/:orgId/invitations/:invitationId/:action', async ({ params }) => {
+  })),
+  postByOrgIdInvitationsByInvitationIdByAction: defineHttpOperation('POST', '/:orgId/invitations/:invitationId/:action', async ({ params }) => {
     if (params.action === 'revoked') return revokeInvitation(params.orgId, params.invitationId);
     if (params.action === 'accepted') {
       throw capabilityUnavailable(
@@ -198,14 +200,14 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
     throw capabilityUnavailable('business_organization_invitation_expiry_v1');
   }, managementContract("POST", "/v1/organizations/:orgId/invitations/:invitationId/:action", {
     detail: { hide: true },
-  }))
-  .get('/:orgId/jit', async ({ params }) => {
+  })),
+  getByOrgIdJit: defineHttpOperation('GET', '/:orgId/jit', async ({ params }) => {
     await requireOrganizationJitCapability();
     return decodeEndpointResponse('getOrganizationJitSettings', await adapter.getOrganizationJitSettings(params.orgId));
   }, managementContract("GET", "/v1/organizations/:orgId/jit", {
     detail: { summary: 'Get organization JIT provisioning settings', tags: ['Organizations', 'JIT'] },
-  }))
-  .put('/:orgId/jit', async ({ params, body }) => {
+  })),
+  putByOrgIdJit: defineHttpOperation('PUT', '/:orgId/jit', async ({ params, body }) => {
     await requireOrganizationJitCapability();
     return decodeEndpointResponse('updateOrganizationJitSettings', await adapter.updateOrganizationJitSettings(params.orgId, decodeEndpointBody('updateOrganizationJitSettings', body)));
   }, managementContract("PUT", "/v1/organizations/:orgId/jit", {
@@ -214,37 +216,38 @@ export const organizationRoutes = new Elysia({ prefix: '/v1/organizations' })
       domains: t.Array(t.String()),
     }, { additionalProperties: false }),
     detail: { summary: 'Update organization JIT provisioning settings', tags: ['Organizations', 'JIT'] },
-  }))
-  .get('/:orgId/applications', async ({ params }) => {
+  })),
+  getByOrgIdApplications: defineHttpOperation('GET', '/:orgId/applications', async ({ params }) => {
     return decodeEndpointResponse('listOrganizationApplications', pagedResponse(await adapter.listOrganizationApplications(params.orgId)));
   }, managementContract("GET", "/v1/organizations/:orgId/applications", {
     detail: { summary: 'List organization application access', tags: ['Organizations', 'Applications'] },
-  }))
-  .put('/:orgId/applications/:appId', async ({ params }) => {
+  })),
+  putByOrgIdApplicationsByAppId: defineHttpOperation('PUT', '/:orgId/applications/:appId', async ({ params }) => {
     return decodeEndpointResponse('bindOrganizationApplication', await adapter.bindOrganizationApplication(params.orgId, params.appId));
   }, managementContract("PUT", "/v1/organizations/:orgId/applications/:appId", {
     detail: { summary: 'Grant or update organization application access', tags: ['Organizations', 'Applications'] },
-  }))
-  .delete('/:orgId/applications/:appId', async ({ params }) => {
+  })),
+  deleteByOrgIdApplicationsByAppId: defineHttpOperation('DELETE', '/:orgId/applications/:appId', async ({ params }) => {
     return decodeEndpointResponse('removeOrganizationApplication', await adapter.deleteOrganizationApplication(params.orgId, params.appId));
   }, managementContract("DELETE", "/v1/organizations/:orgId/applications/:appId", {
     detail: { summary: 'Remove organization application access', tags: ['Organizations', 'Applications'] },
-  }))
-  .get('/:orgId/branding', async ({ params }) => {
+  })),
+  getByOrgIdBranding: defineHttpOperation('GET', '/:orgId/branding', async ({ params }) => {
     return decodeEndpointResponse('getOrganizationBranding', await adapter.getOrganizationBranding(params.orgId));
   }, managementContract("GET", "/v1/organizations/:orgId/branding", {
     detail: { summary: 'Get organization branding', tags: ['Organizations'] },
-  }))
-  .put('/:orgId/branding', async ({ params, body }) => {
+  })),
+  putByOrgIdBranding: defineHttpOperation('PUT', '/:orgId/branding', async ({ params, body }) => {
     const branding = await adapter.updateOrganizationBranding(params.orgId, decodeEndpointBody('updateOrganizationBranding', body));
     await auditStrict('organization.branding.update', 'organization', params.orgId);
     return decodeEndpointResponse('updateOrganizationBranding', branding);
   }, managementContract("PUT", "/v1/organizations/:orgId/branding", {
     detail: { summary: 'Update organization branding', tags: ['Organizations'] },
-  }));
+  })),
+});
 
-export const publicOrganizationRoutes = new Elysia({ prefix: '/v1/organizations' })
-  .post('/:orgId/invitations/:invitationId/accept', async ({ params, body, headers }) => {
+export const publicOrganizationRoutes = defineHttpOperations({ prefix: '/v1/organizations' }, {
+  postByOrgIdInvitationsByInvitationIdAccept: defineHttpOperation('POST', '/:orgId/invitations/:invitationId/accept', async ({ params, body, headers }) => {
     const authorization = authenticatedGoTrueBearer(headers["authorization"]);
     const accepted = await adapter.acceptOrganizationInvitation(
       params.orgId,
@@ -265,7 +268,8 @@ export const publicOrganizationRoutes = new Elysia({ prefix: '/v1/organizations'
   }, managementContract("POST", "/v1/organizations/:orgId/invitations/:invitationId/accept", {
     body: t.Object({ token: t.String({ minLength: 1 }) }, { additionalProperties: false }),
     detail: { summary: 'Accept an organization invitation', tags: ['Organizations', 'Invitations'] },
-  }));
+  })),
+});
 
 function authenticatedGoTrueBearer(authorization: string | undefined): string {
   const token = authorization?.match(/^Bearer +([^\s]+)$/i)?.[1];

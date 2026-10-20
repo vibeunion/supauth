@@ -1,6 +1,7 @@
-import { Elysia } from 'elysia';
+
 import { capabilityUnavailable } from '../utils/api-contract.js';
 import { hostedContract } from '../utils/hosted-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 function legacyAccountRouteUnavailable(): never {
   throw capabilityUnavailable(
@@ -11,11 +12,12 @@ function legacyAccountRouteUnavailable(): never {
 
 const hiddenRoute = hostedContract('retired', { hide: true });
 
-export const myAccountRoutes = new Elysia({ prefix: '/v1/my-account' })
-  .get('/profile', legacyAccountRouteUnavailable, hiddenRoute)
-  .patch('/profile', legacyAccountRouteUnavailable, hiddenRoute)
-  .get('/sessions', legacyAccountRouteUnavailable, hiddenRoute)
-  .post('/sessions/:sessionId/revoke', legacyAccountRouteUnavailable, hiddenRoute)
-  .delete('/identities/:identityId', legacyAccountRouteUnavailable, hiddenRoute)
-  .get('/grants', legacyAccountRouteUnavailable, hiddenRoute)
-  .delete('/grants/:clientId', legacyAccountRouteUnavailable, hiddenRoute);
+export const myAccountRoutes = defineHttpOperations({ prefix: '/v1/my-account' }, {
+  getProfile: defineHttpOperation('GET', '/profile', legacyAccountRouteUnavailable, hiddenRoute),
+  patchProfile: defineHttpOperation('PATCH', '/profile', legacyAccountRouteUnavailable, hiddenRoute),
+  getSessions: defineHttpOperation('GET', '/sessions', legacyAccountRouteUnavailable, hiddenRoute),
+  postSessionsBySessionIdRevoke: defineHttpOperation('POST', '/sessions/:sessionId/revoke', legacyAccountRouteUnavailable, hiddenRoute),
+  deleteIdentitiesByIdentityId: defineHttpOperation('DELETE', '/identities/:identityId', legacyAccountRouteUnavailable, hiddenRoute),
+  getGrants: defineHttpOperation('GET', '/grants', legacyAccountRouteUnavailable, hiddenRoute),
+  deleteGrantsByClientId: defineHttpOperation('DELETE', '/grants/:clientId', legacyAccountRouteUnavailable, hiddenRoute),
+});

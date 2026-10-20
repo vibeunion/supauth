@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
 
 let upstream: unknown;
 const listUserOAuthGrants = mock(async () => upstream);
@@ -14,7 +15,7 @@ mock.module('../repositories/webhook-delivery.js', () => ({
 }));
 const { userRoutes } = await import('../routes/users.js');
 const { observabilityMiddleware } = await import('../middleware/index.js');
-const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
 const request = () => new Request('http://localhost/v1/users/user-one/grants');
 
 describe('user grant collection boundary', () => {

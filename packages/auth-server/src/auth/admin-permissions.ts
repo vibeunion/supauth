@@ -36,6 +36,7 @@ const RESOURCE_PERMISSIONS: Record<string, string> = {
 
 export function requiredAdminAction(method: string, pathname: string): string | null {
   if (!pathname.startsWith('/v1/')) return null;
+  if (method === 'HEAD') method = 'GET';
   if ((method === 'GET' || method === 'POST') && (pathname === '/v1/audit/export' || pathname === '/v1/audit/export/')) return 'audit.export';
   if (method === 'GET' && /^\/v1\/audit\/export\/[^/]+(?:\/download)?$/.test(pathname)) return 'audit.export';
   if (method === 'GET' && /^\/v1\/audit\/(?!export(?:\/|$)|integrity\/?$)[^/]+\/?$/.test(pathname)) {

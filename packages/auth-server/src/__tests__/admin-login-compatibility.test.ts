@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { decodeSchema } from '../../../shared/src/schema.js';
 import { AdminLoginResponseSchema } from '../../../shared/src/admin-auth-contracts.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 process.env.NODE_ENV = 'test';
 process.env["ADMIN_AUTH_MODE"] = 'auto';
@@ -9,7 +10,7 @@ process.env["ADMIN_TOKEN"] = 'compatibility-fixture-token';
 process.env["ADMIN_MAX_LOGIN_ATTEMPTS"] = '2';
 mock.module('../repositories/security-config.js', () => ({ getSecurityConfig: async () => null }));
 const { authRoutes, verifyAdminBearer } = await import('../auth/index.js');
-const app = new Elysia().use(authRoutes);
+const app = new Elysia().use(operationTestPlugin(authRoutes));
 
 function login(body: unknown) {
   return app.handle(new Request('http://localhost/v1/auth/login', {

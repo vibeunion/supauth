@@ -1,8 +1,9 @@
-import { Elysia } from 'elysia';
+
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import { ApiContractError, isRecord } from '../utils/api-contract.js';
 import { operationContract } from '../utils/operation-contract.js';
 import type { CapabilityStatus, CapabilitiesResponse } from '../../../shared/src/core.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 export type { CapabilityStatus, CapabilitiesResponse } from '../../../shared/src/core.js';
 
 const adapter = getSupaCloudAdapter();
@@ -23,13 +24,14 @@ const FAIL_CLOSED_CAPABILITY_SOURCES = {
 
 const RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 
-export const capabilityRoutes = new Elysia({ prefix: '/v1' })
-  .get('/capabilities', negotiatedCapabilityResponse, operationContract('getCapabilities', {
+export const capabilityRoutes = defineHttpOperations({ prefix: '/v1' }, {
+  getCapabilities: defineHttpOperation('GET', '/capabilities', negotiatedCapabilityResponse, operationContract('getCapabilities', {
     detail: {
       summary: 'Get negotiated GoTrue and SupaCloud capabilities',
       tags: ['Project'],
     },
-  }));
+  })),
+});
 
 async function negotiatedCapabilityResponse() {
   try {

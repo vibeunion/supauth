@@ -5,6 +5,7 @@ import {
   BuiltinOAuthProvidersSchema, ConnectorFactoryStoredConfigSchema,
   type BuiltinOAuthProvider,
 } from '../../../shared/src/server-configuration.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const configuredProvider = {
   id: 'github', enabled: true, client_id: 'client-one',
@@ -30,7 +31,7 @@ mock.module('../repositories/connectors.js', () => ({
 const { connectorRoutes } = await import('../routes/connectors.js');
 const { resolvePublicSignInExperience } = await import('../routes/sign-in-experience.js');
 const { observabilityMiddleware } = await import('../middleware/index.js');
-const app = new Elysia().use(observabilityMiddleware).use(connectorRoutes);
+const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(connectorRoutes));
 const request = () => new Request('http://localhost/v1/connectors');
 const publicOptions = {
   getExperience: async () => ({ sign_up_enabled: true }),

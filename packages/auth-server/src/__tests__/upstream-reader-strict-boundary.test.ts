@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { loadConfig } from '../config/index.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 process.env['OAUTH_RUNTIME_URL'] = 'https://runtime.invalid';
 process.env['OAUTH_RUNTIME_INTERNAL_URL'] = 'https://runtime.invalid';
@@ -34,7 +35,7 @@ afterEach(() => {
 });
 
 function oauthRequest(consent = false): Promise<Response> {
-  return new Elysia().use(publicOAuthRoutes).handle(new Request(
+  return new Elysia().use(operationTestPlugin(publicOAuthRoutes)).handle(new Request(
     `https://auth.invalid/v1/public/oauth/authorizations/strict-authorization${consent ? '/consent' : ''}`,
     {
       method: consent ? 'POST' : 'GET',

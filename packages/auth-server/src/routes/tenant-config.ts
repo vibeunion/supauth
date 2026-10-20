@@ -1,7 +1,7 @@
 // Tenant-level UX configuration: captcha, message templates, domains, phrases,
 // branding assets and custom profile fields.
 
-import { Elysia } from 'elysia';
+
 import { getConfig } from '../config/index.js';
 import { getSupaCloudAdapter } from '../supacloud/adapter.js';
 import * as tenantConfigRepo from '../repositories/tenant-config.js';
@@ -11,6 +11,7 @@ import { validateExternalDeleteAccountUrl } from '../utils/external-delete-url.j
 import { containsSecret, withoutSecrets } from '../utils/secrets.js';
 import { configurationContract, decodeConfigurationInput, decodeTenantConfiguration } from '../utils/configuration-contract.js';
 import { definedFields } from '../utils/defined-fields.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -52,15 +53,15 @@ function assertSafeExternalDeleteUrls(accountCenterValue: unknown) {
   );
 }
 
-export const tenantConfigRoutes = new Elysia({ prefix: '/v1/tenant-config' })
-  .get('/', async ({ query }) => {
+export const tenantConfigRoutes = defineHttpOperations({ prefix: '/v1/tenant-config' }, {
+  getRoot: defineHttpOperation('GET', '/', async ({ query }) => {
     const input = decodeConfigurationInput('listTenantConfigs', { query });
     const items = await tenantConfigRepo.listTenantConfigs(input.query?.type);
     return { items: withoutSecrets(items), total: items.length, page: 1, limit: items.length || 50 };
   }, configurationContract('listTenantConfigs', {
     detail: { summary: 'List tenant UX configuration records', tags: ['Tenant Config'] },
-  }))
-  .get('/:type/:key', async ({ params }) => {
+  })),
+  getByTypeByKey: defineHttpOperation('GET', '/:type/:key', async ({ params }) => {
     if (!allowedTypes.has(params.type)) return new Response('Invalid config type', { status: 400 });
     decodeConfigurationInput('getTenantConfig', { params });
     const config = await tenantConfigRepo.getTenantConfig(params.type, params.key);
@@ -68,8 +69,8 @@ export const tenantConfigRoutes = new Elysia({ prefix: '/v1/tenant-config' })
     return withoutSecrets(config);
   }, configurationContract('getTenantConfig', {
     detail: { summary: 'Get tenant UX configuration record', tags: ['Tenant Config'] },
-  }))
-  .put('/:type/:key', async ({ params, body }) => {
+  })),
+  putByTypeByKey: defineHttpOperation('PUT', '/:type/:key', async ({ params, body }) => {
     if (!allowedTypes.has(params.type)) return new Response('Invalid config type', { status: 400 });
     const rawValue = isRecord(body) ? body["value"] : undefined;
     if (params.type === 'account_center') assertSafeExternalDeleteUrls(rawValue);
@@ -87,8 +88,8 @@ export const tenantConfigRoutes = new Elysia({ prefix: '/v1/tenant-config' })
     })));
   }, configurationContract('upsertTenantConfig', {
     detail: { summary: 'Create or update tenant UX configuration record', tags: ['Tenant Config'] },
-  }))
-  .delete('/:type/:key', async ({ params }) => {
+  })),
+  deleteByTypeByKey: defineHttpOperation('DELETE', '/:type/:key', async ({ params }) => {
     if (!allowedTypes.has(params.type)) return new Response('Invalid config type', { status: 400 });
     decodeConfigurationInput('deleteTenantConfig', { params });
     if (params.type === 'captcha') await adapter.updateAuthConfig({ security_captcha_enabled: false });
@@ -97,8 +98,8 @@ export const tenantConfigRoutes = new Elysia({ prefix: '/v1/tenant-config' })
     return withoutSecrets(config);
   }, configurationContract('deleteTenantConfig', {
     detail: { summary: 'Delete tenant UX configuration record', tags: ['Tenant Config'] },
-  }))
-  .post('/domain/:domain/check', async ({ params }) => {
+  })),
+  postDomainByDomainCheck: defineHttpOperation('POST', '/domain/:domain/check', async ({ params }) => {
     decodeConfigurationInput('checkTenantDomain', { params });
     try {
       return await adapter.checkCustomDomain(params.domain);
@@ -112,7 +113,8 @@ export const tenantConfigRoutes = new Elysia({ prefix: '/v1/tenant-config' })
     }
   }, configurationContract('checkTenantDomain', {
     detail: { summary: 'Check custom domain runtime health', tags: ['Tenant Config'] },
-  }));
+  })),
+});
 
 async function updateCaptchaConfig(
   key: string,

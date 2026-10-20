@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { AdminLoginResponseSchema } from '../../../shared/src/admin-auth-contracts.js';
 import { decodeSchema } from '../../../shared/src/schema.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const fixtureEnvironment = {
   NODE_ENV: 'test',
@@ -55,7 +56,7 @@ globalThis.fetch = Object.assign(fakeTransport, { preconnect: originalFetch.prec
 
 const { authRoutes, adminAuthGuard } = await import('../auth/index.js');
 const { storageRoutes } = await import('../storage/index.js');
-const app = new Elysia().use(authRoutes).use(adminAuthGuard).use(storageRoutes);
+const app = new Elysia().use(operationTestPlugin(authRoutes)).use(adminAuthGuard).use(operationTestPlugin(storageRoutes));
 const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
 
 function avatarRequest(contentType: string | null, token?: string) {

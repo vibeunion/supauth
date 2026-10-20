@@ -2,12 +2,13 @@
 // Validates that all expected routes are reachable on the target
 // SupaCloud stack and no Supabase standard paths are broken.
 
-import { Elysia } from 'elysia';
+
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { getConfig } from '../config/index.js';
 import { runtimeEnv } from '../config/platform-env.js';
 import { operationContract } from '../utils/operation-contract.js';
 import type { RouteProbe, DomainAudit, IntegrationGateResult } from '../../../shared/src/server-operations.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 export type { RouteProbe, DomainAudit, IntegrationGateResult } from '../../../shared/src/server-operations.js';
 
 /**
@@ -380,8 +381,8 @@ export async function runIntegrationGate(
   };
 }
 
-export const routeGateRoutes = new Elysia({ prefix: '/v1/route-gate' })
-  .get('/', async ({ query }) => {
+export const routeGateRoutes = defineHttpOperations({ prefix: '/v1/route-gate' }, {
+  getRoot: defineHttpOperation('GET', '/', async ({ query }) => {
     const input = resolveRouteGateInput(query);
     return runIntegrationGate(input.projectRef, input.supauthUrl, input.runtimeUrl, input.extraDomains);
   }, operationContract('getRouteGate', {
@@ -390,9 +391,9 @@ export const routeGateRoutes = new Elysia({ prefix: '/v1/route-gate' })
       description: 'Validates installed SupAuth Function/Pages routes and preserved Supabase runtime routes on the target SupaCloud project. Reports conflicts, missing routes, and domain health.',
       tags: ['Route Gate'],
     },
-  }))
+  })),
 
-  .get('/routes', async ({ query }) => {
+  getRoutes: defineHttpOperation('GET', '/routes', async ({ query }) => {
     const input = resolveRouteGateInput(query);
     const result = await runIntegrationGate(input.projectRef, input.supauthUrl, input.runtimeUrl, input.extraDomains);
     return {
@@ -407,4 +408,5 @@ export const routeGateRoutes = new Elysia({ prefix: '/v1/route-gate' })
       summary: 'Quick route health summary',
       tags: ['Route Gate'],
     },
-  }));
+  })),
+});

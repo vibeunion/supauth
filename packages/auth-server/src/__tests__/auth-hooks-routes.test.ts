@@ -3,6 +3,7 @@ import { strictRecord } from './helpers/strict-values.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
 
 const reconcileOrganizationJitMemberships = mock(async () => ({
   items: [{ organization_id: 'org-one', slug: 'acme', role: 'member' }],
@@ -77,11 +78,11 @@ const {
 } = await import('../routes/auth-hooks.js');
 const { getConfig } = await import('../config/index.js');
 const { adminAuthGuard } = await import('../auth/index.js');
-const app = new Elysia().use(authHookRoutes);
+const app = new Elysia().use(operationTestPlugin(authHookRoutes));
 const boundaryApp = new Elysia()
-  .use(authHookRoutes)
+  .use(operationTestPlugin(authHookRoutes))
   .use(adminAuthGuard)
-  .use(authHookAdminRoutes);
+  .use(operationTestPlugin(authHookAdminRoutes));
 const encodedSecret = Buffer.from('standard-webhooks-test-key').toString('base64');
 
 type HookName = 'before-user-created' | 'custom-access-token';
@@ -412,7 +413,7 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
   });
 
   it('reads and updates the authoritative hook config without returning a secret', async () => {
-    const adminApp = new Elysia().use(authHookAdminRoutes);
+    const adminApp = new Elysia().use(operationTestPlugin(authHookAdminRoutes));
     const readResponse = await adminApp.handle(new Request(
       'http://localhost/v1/auth-hooks/custom-access-token/config',
     ));
@@ -452,7 +453,7 @@ describe('stock GoTrue HTTP Auth Hook routes', () => {
   });
 
   it('rejects the configured API host when it differs from the public hook origin', async () => {
-    const adminApp = new Elysia().use(authHookAdminRoutes);
+    const adminApp = new Elysia().use(operationTestPlugin(authHookAdminRoutes));
     const response = await adminApp.handle(new Request(
       'http://localhost/v1/auth-hooks/custom-access-token/config',
       {

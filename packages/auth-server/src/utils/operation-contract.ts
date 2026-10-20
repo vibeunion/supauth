@@ -2,7 +2,7 @@ import { decodeSchema, Type } from '../../../shared/src/schema.js';
 import { operationEndpoints, type OperationEndpointName, type OperationInput, type OperationResult } from '../../../shared/src/server-operations.js';
 import { commonServerErrors, type ServerResponseContract, type ServerRouteContract } from '../../../shared/src/server-contracts.js';
 import { ApiContractError } from './api-contract.js';
-import { serverContract, type ServerContractContext } from './server-contract.js';
+import { serverContract, type ServerContractContext, type SERVER_CONTRACT_METADATA } from './server-contract.js';
 
 const empty: ServerResponseContract = { kind: 'empty' };
 

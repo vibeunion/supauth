@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import type { SdkEndpointInput } from '../../../shared/src/sdk-endpoints.js';
 import { ApiContractError } from '../utils/api-contract.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 // 仅证明当前 BFF 边界。旧 7e753ed 的 routes/organizations.ts:140-144
 // 在 adapter 调用之后才访问 data.user_id，不能据此声称旧请求零副作用。
@@ -26,7 +27,7 @@ const { organizationRoutes } = await import('../routes/organizations.js');
 const { observabilityMiddleware } = await import('../middleware/index.js');
 const app = new Elysia()
   .use(observabilityMiddleware)
-  .use(organizationRoutes);
+  .use(operationTestPlugin(organizationRoutes));
 
 function request(body: unknown) {
   return new Request('http://localhost/v1/organizations/org-one/members', {

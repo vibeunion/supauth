@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
 
 const validUser = {
   id: 'user-one', aud: 'authenticated', role: 'authenticated',
@@ -21,7 +22,7 @@ mock.module('../repositories/audit.js', () => ({ logAudit }));
 mock.module('../repositories/webhook-delivery.js', () => ({ buildEvent, dispatchEvent }));
 const { userRoutes } = await import('../routes/users.js');
 const { observabilityMiddleware } = await import('../middleware/index.js');
-const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
 const request = () => new Request('http://localhost/v1/users', {
   method: 'POST', headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ email: 'user@example.test' }),

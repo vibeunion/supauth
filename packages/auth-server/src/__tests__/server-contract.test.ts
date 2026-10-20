@@ -32,11 +32,11 @@ function request(body: unknown) {
 describe('server contract execution', () => {
   test('validates input before invoking the mutation without transforming it', async () => {
     let calls = 0;
-    const app = new Elysia().post('/resource', ({ body }) => {
+    const app = new Elysia().post('/resource', serverContract('test:create', { contract }), ({ body }) => {
       calls++;
       expect(body).toEqual({ name: 'a', custom: 'preserved' });
       return { id: 'one' };
-    }, serverContract('test:create', { contract }));
+    });
     const rejected = await app.handle(request({ name: 123 }));
     expect(rejected.status).toBe(400);
     expect(calls).toBe(0);
@@ -47,20 +47,20 @@ describe('server contract execution', () => {
 
   test('global authentication remains ahead of local contract validation', async () => {
     const app = new Elysia()
-      .onBeforeHandle(() => new Response('Unauthorized', { status: 401 }))
-      .post('/resource', () => ({ id: 'one' }), serverContract('test:auth', { contract }));
+      .beforeHandle(() => new Response('Unauthorized', { status: 401 }))
+      .post('/resource', serverContract('test:auth', { contract }), () => ({ id: 'one' }));
     expect((await app.handle(request({ name: 123 }))).status).toBe(401);
   });
 
   test('allows existing domain validation to retain its failure precedence', async () => {
     let calls = 0;
-    const app = new Elysia().post('/resource', () => {
-      calls++;
-      return { id: 'one' };
-    }, serverContract('test:precedence', {
+    const app = new Elysia().post('/resource', serverContract('test:precedence', {
       contract,
       beforeValidate: () => new Response('disabled', { status: 403 }),
-    }));
+    }), () => {
+      calls++;
+      return { id: 'one' };
+    });
     expect((await app.handle(request({ name: 123 }))).status).toBe(403);
     expect(calls).toBe(0);
   });
@@ -88,7 +88,7 @@ describe('server contract execution', () => {
 
   test('response schemas also execute through actual Elysia hooks', async () => {
     const app = new Elysia()
-      .post('/resource', () => Response.json({ id: false }), serverContract('test:native', { contract }));
+      .post('/resource', serverContract('test:native', { contract }), () => Response.json({ id: false }));
     expect((await app.handle(request({ name: 'valid' }))).status).not.toBe(200);
   });
 

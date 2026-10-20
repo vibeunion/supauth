@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 import { accountContract } from '../utils/account-contract.js';
 import { decodeSchema } from '../../../shared/src/schema.js';
 import { accountEndpoints } from '../../../shared/src/server-account.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const audit = mock(async () => {});
 const writeStatus = mock(async () => {});
@@ -27,7 +28,7 @@ mock.module('../repositories/account-provisioning.js', () => ({
 const { accountProvisioningRoutes } = await import('../routes/account-provisioning.js');
 const { createPublicAccountRoutes } = await import('../routes/account-self-service.js');
 const { observabilityMiddleware } = await import('../middleware/index.js');
-const provisioning = new Elysia().use(observabilityMiddleware).use(accountProvisioningRoutes);
+const provisioning = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(accountProvisioningRoutes));
 
 function post(path: string, body: unknown) {
   return new Request(`http://localhost${path}`, {
@@ -107,7 +108,7 @@ describe('account historical request normalization', () => {
           ok: true as const,
           data: { id, access_token: 'fixture-access', refresh_token: 'fixture-refresh' },
         }));
-        const app = new Elysia().use(observabilityMiddleware).use(createPublicAccountRoutes({
+        const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(createPublicAccountRoutes({
           getAccount: async () => ({ ok: true, user: { id: 'user-one' } }),
           getConfig: async () => ({
             enabled: true,
@@ -118,7 +119,7 @@ describe('account historical request normalization', () => {
           }),
           verifyTotpMfa: verify,
           auditEvent: async () => {},
-        }));
+        })));
         const request = post('/v1/public/account/mfa/factor-one/verify', { code: '123456', [alias]: challenge });
         request.headers.set('authorization', 'Bearer fixture');
         const response = await app.handle(request);

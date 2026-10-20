@@ -1,12 +1,13 @@
 // Organization template routes (P0-18) with OpenAPI annotations
 
-import { Elysia } from 'elysia';
+
 import { managementContract, decodeEndpointBody, decodeManagementBody, decodeEndpointResponse, decodeManagementResponse } from '../utils/management-contract.js';
 import { definedFields, requiredRow } from '../utils/defined-fields.js';
 import * as templateRepo from '../repositories/organization-templates.js';
 import * as auditRepo from '../repositories/audit.js';
 import * as webhookDelivery from '../repositories/webhook-delivery.js';
 import { organizationTemplateCreateInput, organizationTemplateUpdateInput } from './org-template-input.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 async function audit(eventType: string, resourceType: string, resourceId: string, details?: Record<string, unknown>) {
   await auditRepo.logAudit({ eventType, resourceType, resourceId, actorType: 'admin', details });
@@ -16,31 +17,31 @@ async function fireWebhook(eventType: string, data: Record<string, unknown>) {
   await webhookDelivery.dispatchEvent(webhookDelivery.buildEvent(eventType, data));
 }
 
-export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })
-  .get('/', async () => {
+export const orgTemplateRoutes = defineHttpOperations({ prefix: '/v1/org-templates' }, {
+  getRoot: defineHttpOperation('GET', '/', async () => {
     const items = await templateRepo.listTemplates();
     return decodeEndpointResponse('listOrgTemplates', { items, total: items.length });
   }, managementContract("GET", "/v1/org-templates", {
     detail: { summary: 'List organization templates', tags: ['Organizations', 'Org Templates'] },
-  }))
+  })),
 
-  .get('/default', async () => {
+  getDefault: defineHttpOperation('GET', '/default', async () => {
     const template = await templateRepo.getDefaultTemplate();
     if (!template) return new Response('No default template found', { status: 404 });
     return decodeManagementResponse('getDefaultOrgTemplate', template);
   }, managementContract("GET", "/v1/org-templates/default", {
     detail: { summary: 'Get the default organization template', tags: ['Organizations', 'Org Templates'] },
-  }))
+  })),
 
-  .get('/:templateId', async ({ params }) => {
+  getByTemplateId: defineHttpOperation('GET', '/:templateId', async ({ params }) => {
     const template = await templateRepo.getTemplate(params.templateId);
     if (!template) return new Response('Not found', { status: 404 });
     return decodeManagementResponse('getOrgTemplate', template);
   }, managementContract("GET", "/v1/org-templates/:templateId", {
     detail: { summary: 'Get organization template by ID', tags: ['Organizations', 'Org Templates'] },
-  }))
+  })),
 
-  .post('/', async ({ body }) => {
+  postRoot: defineHttpOperation('POST', '/', async ({ body }) => {
     const templateInput = decodeEndpointBody('createOrgTemplate', body);
     const template = requiredRow(await templateRepo.createTemplate(definedFields({
       name: templateInput.name,
@@ -54,9 +55,9 @@ export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })
     return decodeEndpointResponse('createOrgTemplate', template);
   }, managementContract("POST", "/v1/org-templates", {
     detail: { summary: 'Create organization template', tags: ['Organizations', 'Org Templates'] },
-  }, ({ body }) => { organizationTemplateCreateInput(body); }))
+  }, ({ body }) => { organizationTemplateCreateInput(body); })),
 
-  .put('/:templateId', async ({ params, body }) => {
+  putByTemplateId: defineHttpOperation('PUT', '/:templateId', async ({ params, body }) => {
     const templateInput = decodeManagementBody('updateOrgTemplate', body);
     const updated = await templateRepo.updateTemplate(params.templateId, definedFields({
       name: templateInput.name,
@@ -70,9 +71,9 @@ export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })
     return decodeManagementResponse('updateOrgTemplate', updated);
   }, managementContract("PUT", "/v1/org-templates/:templateId", {
     detail: { summary: 'Update organization template', tags: ['Organizations', 'Org Templates'] },
-  }, ({ body }) => { organizationTemplateUpdateInput(body); }))
+  }, ({ body }) => { organizationTemplateUpdateInput(body); })),
 
-  .delete('/:templateId', async ({ params, set }) => {
+  deleteByTemplateId: defineHttpOperation('DELETE', '/:templateId', async ({ params, set }) => {
     const deletion = await templateRepo.deleteTemplate(params.templateId);
     if (deletion === 'protected') {
       set.status = 409;
@@ -88,10 +89,10 @@ export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })
     await audit('org_template.delete', 'org_template', params.templateId);
   }, managementContract("DELETE", "/v1/org-templates/:templateId", {
     detail: { summary: 'Delete organization template', tags: ['Organizations', 'Org Templates'] },
-  }))
+  })),
 
   // ─── Instantiate org from template ───
-  .post('/:templateId/instantiate', async ({ params, body, request }) => {
+  postByTemplateIdInstantiate: defineHttpOperation('POST', '/:templateId/instantiate', async ({ params, body, request }) => {
     const data = decodeEndpointBody('instantiateOrgTemplate', body);
     const result = await templateRepo.instantiateFromTemplate(params.templateId, definedFields({
       name: data.name,
@@ -119,4 +120,5 @@ export const orgTemplateRoutes = new Elysia({ prefix: '/v1/org-templates' })
       description: 'Creates an org with auto-generated roles and permissions from the template. Creator is added as owner with all template roles assigned.',
       tags: ['Organizations', 'Org Templates'],
     },
-  }));
+  })),
+});

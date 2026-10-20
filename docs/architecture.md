@@ -214,7 +214,12 @@ Orchestration APIs:
 
 ### Context
 
-SupaCloud introduced `@supacloud/app`, an Angular/Nest-style metadata application framework providing `@Module`, `@Injectable`, `@Command`, `@Query`, `@Controller`, static compile-time DI via `@supacloud/compiler`, and agent tool export via `supacloud-cli app export-tools`.
+SupAuth adopts `@supacloud/app@0.21.0`, `@supacloud/compiler@0.30.0`, and
+`@supacloud/elysia@0.23.0` on the adapter's exact Elysia `2.0.0-beta.19`
+compatibility target. The user approved the beta runtime replacement on
+2026-10-03. This supersedes both the earlier rejection of the framework and the
+temporary Elysia 1 composition-only boundary. It does not authorize exposing
+security endpoints as agent tools.
 
 ### Decision
 
@@ -224,11 +229,36 @@ SupaCloud introduced `@supacloud/app`, an Angular/Nest-style metadata applicatio
    - Admin Console is statically hosted on SupaCloud Pages (`/admin/*`).
    - Database migrations are additive overlay scripts applied through SupaCloud Management API.
 
-2. **SupAuth does NOT adopt the `@supacloud/app` Domain Framework**:
-   - **Distinct JTBD**: `@supacloud/app` is architected for domain-heavy business products (such as Xigu FA) requiring state machines, command-query transactions, outbox dispatch, and LLM tool exports. SupAuth is an infrastructure-level identity gateway, BFF, and hosted auth page renderer. Its security endpoints must not be exposed as agent tools.
-   - **Runtime Efficiency**: ElysiaJS provides zero-reflection, functional routing with native Bun / Edge Runtime performance and automatic OpenAPI generation. Wrapping low-latency proxy routes in class-based decorators and static DI modules would introduce unnecessary indirection without architectural benefit.
-   - **Stability and Blast Radius**: Central authentication cannot tolerate regressions in GoTrue compatibility, AAL2 MFA gates, or session boundaries.
+2. **Compiled controllers own the HTTP route graph**:
+   - Root and Feature modules live under `packages/auth-server/src/app`. Generated
+     factories instantiate 45 stateless Controllers and the explicitly injected
+     action services. The adapter registers all 270 business routes from these
+     descriptors; four native infrastructure routes serve documentation and
+     preflight. There is no old router, Fetch mount, or 404 fallback dispatcher.
+   - `src/http/operation.ts` executes domain request/response contracts around
+     the extracted business handlers. Native Responses, raw signed bodies,
+     binary uploads, receipt checks, and original error statuses remain explicit
+     responsibilities. Authentication aspects run only on the groups protected
+     by the previous application, without gating public protocol endpoints.
+   - Controllers and Actions are application-scoped and store no per-request
+     identity. Verified identity remains request-local. Module initialization,
+     failure rollback, request draining, and reverse teardown are explicit.
+   - The compiler strictly scans `src/app`; the normal auth-server type gate
+     still covers the entire source tree. `app:compile:check` precedes Function
+     bundling and rejects stale generated artifacts.
+   - SupaCloud/GoTrue management delegations are **Actions, not fabricated local
+     `@Command` implementations**. The new compiler requires real persistent
+     execution policy for Commands. SupAuth does not claim durable receipts,
+     local transactions, or idempotency that its upstream endpoints do not
+     provide. Each privileged Action checks the existing permission before
+     executing the existing authority delegation and audit logic. New
+     SupAuth-owned persistent Commands require their own explicit adapter and
+     data-ownership design; disabling compiler policy is not an alternative.
 
 3. **Facade and Schema Convergence**:
    - All platform-owned domains (Organizations, Roles, Permissions, Assignments, Audit, Webhook Delivery) are 100% delegated to SupaCloud Management API.
    - Legacy temporary tables (`provisioning_records`, `application_secrets`) are retired from initial migrations and must not be used as authoritative state in new projects.
+
+These are architectural requirements, not evidence of passing tests,
+deployment, or online acceptance. See the migration phase in
+`supacloud-native-refactor.md` for delegation, acceptance criteria, and rollback.

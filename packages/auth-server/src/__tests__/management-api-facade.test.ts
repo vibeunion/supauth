@@ -9,6 +9,7 @@ import type { AdminPrincipal } from '../auth/admin-permissions.js';
 import { withAdminRequestContext } from '../auth/request-context.js';
 import { loadConfig } from '../config/index.js';
 import { fixtureTime, fixtureUser, managementReadFixture } from './management-contract-fixtures.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 describe('SupaCloud Management API facade routes', () => {
   const originalFetch = globalThis.fetch;
@@ -93,11 +94,11 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/users.js'),
     ]);
     const app = new Elysia()
-      .use(organizationRoutes)
-      .use(roleRoutes)
-      .use(auditRoutes)
-      .use(webhookRoutes)
-      .use(userRoutes);
+      .use(operationTestPlugin(organizationRoutes))
+      .use(operationTestPlugin(roleRoutes))
+      .use(operationTestPlugin(auditRoutes))
+      .use(operationTestPlugin(webhookRoutes))
+      .use(operationTestPlugin(userRoutes));
 
     const requests = [
       'http://supauth.local/v1/organizations',
@@ -150,7 +151,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/organizations.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(publicOrganizationRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(publicOrganizationRoutes));
     const response = await app.handle(new Request(
       'http://supauth.local/v1/organizations/org-one/invitations/invite-one/accept',
       {
@@ -178,7 +179,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/organizations.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(publicOrganizationRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(publicOrganizationRoutes));
     const response = await app.handle(new Request(
       'http://supauth.local/v1/organizations/org-one/invitations/invite-one/accept',
       {
@@ -196,7 +197,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('never forwards a browser-supplied invitation user ID to the platform', async () => {
     const { publicOrganizationRoutes } = await import('../routes/organizations.js');
-    const app = new Elysia().use(publicOrganizationRoutes);
+    const app = new Elysia().use(operationTestPlugin(publicOrganizationRoutes));
     const response = await app.handle(new Request(
       'http://supauth.local/v1/organizations/org-one/invitations/invite-one/accept',
       {
@@ -234,7 +235,7 @@ describe('SupaCloud Management API facade routes', () => {
     }));
 
     const { userRoutes } = await import('../routes/users.js');
-    const app = new Elysia().use(userRoutes);
+    const app = new Elysia().use(operationTestPlugin(userRoutes));
 
     const response = await withAdminRequestContext(
       { requestId: 'user-profile-update-request', principal: adminPrincipal },
@@ -276,7 +277,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('uses server-generated webhook test payloads only and returns accepted status', async () => {
     const { webhookRoutes } = await import('../routes/webhooks.js');
-    const app = new Elysia().use(webhookRoutes);
+    const app = new Elysia().use(operationTestPlugin(webhookRoutes));
     const accepted = await app.handle(new Request('http://supauth.local/v1/webhooks/wh-one/test', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -298,7 +299,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('returns 202 and preserves the queued webhook replay payload', async () => {
     const { webhookRoutes } = await import('../routes/webhooks.js');
-    const app = new Elysia().use(webhookRoutes);
+    const app = new Elysia().use(operationTestPlugin(webhookRoutes));
     const replayResponse = await withAdminRequestContext(
       { requestId: 'webhook-replay-request', principal: adminPrincipal },
       () => app.handle(new Request(
@@ -313,7 +314,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('keeps the webhook event list compatible while exposing delivery guarantees', async () => {
     const { webhookRoutes } = await import('../routes/webhooks.js');
-    const app = new Elysia().use(webhookRoutes);
+    const app = new Elysia().use(operationTestPlugin(webhookRoutes));
 
     const response = await app.handle(new Request('http://supauth.local/v1/webhooks/events'));
     const body = strictDecodeSchema(StrictType.Object({ "events": StrictType.Array(StrictType.String()), "catalog": StrictType.Array(StrictType.Object({ "type": StrictType.String(), "guarantee": StrictType.String() })) }), await response.json());
@@ -329,7 +330,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('rejects unsupported events on both webhook creation and update', async () => {
     const { webhookRoutes } = await import('../routes/webhooks.js');
-    const app = new Elysia().use(webhookRoutes);
+    const app = new Elysia().use(operationTestPlugin(webhookRoutes));
     const invalidPayload = JSON.stringify({
       url: 'https://receiver.example.test/hook',
       events: ['user.signed_in'],
@@ -360,7 +361,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/webhooks.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(webhookRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(webhookRoutes));
     const response = await app.handle(new Request(`http://supauth.local${path}`, {
       method,
       headers: { 'content-type': 'application/json' },
@@ -382,7 +383,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/audit.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(auditRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(auditRoutes));
     const response = await app.handle(new Request(
       `http://supauth.local/v1/audit?${filterName}=${encodeURIComponent(filterValue)}`,
     ));
@@ -393,7 +394,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('accepts user application-scoped roles and rejects organization-only targets', async () => {
     const { roleRoutes } = await import('../routes/roles.js');
-    const app = new Elysia().use(roleRoutes);
+    const app = new Elysia().use(operationTestPlugin(roleRoutes));
     const invalid = await app.handle(new Request('http://supauth.local/v1/roles/role-one/assign', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -453,7 +454,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/roles.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(roleRoutes));
 
     const response = await withAdminRequestContext(
       { requestId: 'inline-role-permissions-request', principal: adminPrincipal },
@@ -506,7 +507,7 @@ describe('SupaCloud Management API facade routes', () => {
       return Promise.resolve(Response.json({ id: 'audit-one' }));
     }));
     const { roleRoutes } = await import('../routes/roles.js');
-    const app = new Elysia().use(roleRoutes);
+    const app = new Elysia().use(operationTestPlugin(roleRoutes));
 
     const created = await withAdminRequestContext(
       { requestId: 'boundary-role-create-request', principal: adminPrincipal },
@@ -540,7 +541,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/roles.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(roleRoutes));
     const invalidNames: unknown[] = [undefined, null, 42, '', '   ', 'x'.repeat(256), 'x'.repeat(500), 'x'.repeat(10_000)];
 
     for (const name of invalidNames) {
@@ -568,7 +569,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/roles.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(roleRoutes));
     const invalidPermissions: unknown[] = [
       'users.read',
       [42],
@@ -616,7 +617,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/roles.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(roleRoutes));
 
     const response = await app.handle(new Request('http://supauth.local/v1/roles', {
       method: 'POST',
@@ -656,7 +657,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/roles.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(roleRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(roleRoutes));
 
     for (const expected of [
       { rollbackFailure: false, status: 502, code: 'role_permissions_readback_mismatch' },
@@ -680,7 +681,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('rejects generic user updates that try to write roles or SupaOAuth claims', async () => {
     const { userRoutes } = await import('../routes/users.js');
-    const app = new Elysia().use(userRoutes);
+    const app = new Elysia().use(operationTestPlugin(userRoutes));
 
     const response = await app.handle(new Request('http://supauth.local/v1/users/user-one', {
       method: 'PUT',
@@ -708,7 +709,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('rejects user creation payloads that attempt to inject runtime roles or SupaOAuth metadata', async () => {
     const { userRoutes } = await import('../routes/users.js');
-    const app = new Elysia().use(userRoutes);
+    const app = new Elysia().use(operationTestPlugin(userRoutes));
 
     const response = await app.handle(new Request('http://supauth.local/v1/users', {
       method: 'POST',
@@ -738,7 +739,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/users.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
     const invalidQueries = [
       'page=-1',
       'page=0',
@@ -768,7 +769,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('normalizes supported user pagination and preserves default response metadata', async () => {
     const { userRoutes } = await import('../routes/users.js');
-    const app = new Elysia().use(userRoutes);
+    const app = new Elysia().use(operationTestPlugin(userRoutes));
     const cases = [
       { query: '', page: 1, limit: 50 },
       { query: '?page=1&limit=1', page: 1, limit: 1 },
@@ -808,7 +809,7 @@ describe('SupaCloud Management API facade routes', () => {
         password_required_characters: GOTRUE_PASSWORD_CHARACTER_POLICIES.strong,
       }));
     }));
-    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
     const invalidPasswords = [
       { password: 'Short1!', code: 'password_too_short' },
       { password: 'abcdefghijkl1!', code: 'password_requires_uppercase' },
@@ -851,7 +852,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/users.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
 
     for (const failureMode of ['malformed', 'unavailable'] as const) {
       configResponse = failureMode;
@@ -891,7 +892,7 @@ describe('SupaCloud Management API facade routes', () => {
       return Promise.resolve(Response.json({ ok: true }));
     }));
     const { userRoutes } = await import('../routes/users.js');
-    const app = new Elysia().use(userRoutes);
+    const app = new Elysia().use(operationTestPlugin(userRoutes));
 
     const passwordResponse = await withAdminRequestContext(
       { requestId: 'user-create-with-password', principal: adminPrincipal },
@@ -937,7 +938,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/users.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
     const missingBodies = [
       { code: 'user_not_found' },
       { error_code: 'user_not_found' },
@@ -997,7 +998,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/users.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
     const update = await app.handle(new Request('http://supauth.local/v1/users/missing-user', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1024,7 +1025,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/users.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
 
     const response = await withAdminRequestContext(
       { requestId: 'delete-existing-user', principal: adminPrincipal },
@@ -1039,7 +1040,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('retires the header-derived legacy account API without platform access', async () => {
     const { myAccountRoutes } = await import('../routes/my-account.js');
-    const app = new Elysia().use(myAccountRoutes);
+    const app = new Elysia().use(operationTestPlugin(myAccountRoutes));
 
     const response = await app.handle(new Request('http://supauth.local/v1/my-account/profile', {
       method: 'PATCH',
@@ -1061,7 +1062,7 @@ describe('SupaCloud Management API facade routes', () => {
       import('../routes/consents.js'),
       import('../middleware/index.js'),
     ]);
-    const app = new Elysia().use(observabilityMiddleware).use(userRoutes).use(consentRoutes);
+    const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes)).use(operationTestPlugin(consentRoutes));
     const requests = [
       new Request('http://supauth.local/v1/users/user-one/sessions'),
       new Request('http://supauth.local/v1/users/user-one/sessions/session-one/revoke', { method: 'POST' }),
@@ -1091,7 +1092,7 @@ describe('SupaCloud Management API facade routes', () => {
       }));
     }));
     const { userRoutes } = await import('../routes/users.js');
-    const app = new Elysia().use(userRoutes);
+    const app = new Elysia().use(operationTestPlugin(userRoutes));
 
     const response = await app.handle(new Request(
       'http://supauth.local/v1/users/user%20one/grants?include_revoked=true&ignored=value',
@@ -1117,7 +1118,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('does not expose self-service MFA reset through the my-account route', async () => {
     const { myAccountRoutes } = await import('../routes/my-account.js');
-    const app = new Elysia().use(myAccountRoutes);
+    const app = new Elysia().use(operationTestPlugin(myAccountRoutes));
 
     const response = await app.handle(new Request('http://supauth.local/v1/my-account/mfa/factor-one/reset', {
       method: 'POST',
@@ -1132,7 +1133,7 @@ describe('SupaCloud Management API facade routes', () => {
 
   it('keeps administrator MFA reset in the user governance route', async () => {
     const { userRoutes } = await import('../routes/users.js');
-    const app = new Elysia().use(userRoutes);
+    const app = new Elysia().use(operationTestPlugin(userRoutes));
 
     const response = await withAdminRequestContext(
       { requestId: 'user-mfa-reset-request', principal: adminPrincipal },

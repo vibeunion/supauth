@@ -10,6 +10,7 @@ import {
   type CustomUiManifestFile,
 } from '../utils/custom-ui-assets.js';
 import { ApiContractError } from '../utils/api-contract.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
 process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
@@ -189,9 +190,9 @@ const {
   sieRoutes,
 } = await import('../routes/sign-in-experience.js');
 const { hostedPageRoutes } = await import('../routes/hosted-pages.js');
-const customUiApp = new Elysia().use(hostedPageRoutes).use(publicCustomUiRoutes);
+const customUiApp = new Elysia().use(operationTestPlugin(hostedPageRoutes)).use(operationTestPlugin(publicCustomUiRoutes));
 const managementApp = new Elysia()
-  .onError(({ error, set }) => {
+  .error(({ error, set }) => {
     if (!(error instanceof ApiContractError)) return;
     set.status = error.status;
     return {
@@ -199,7 +200,7 @@ const managementApp = new Elysia()
       error: { code: error.code, message: error.message, details: error.details },
     };
   })
-  .use(sieRoutes);
+  .use(operationTestPlugin(sieRoutes));
 
 function sha256(bytes: Uint8Array) {
   return createHash('sha256').update(bytes).digest('hex');

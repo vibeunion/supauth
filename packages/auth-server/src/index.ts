@@ -1,171 +1,24 @@
-// SupAuth Function app — Elysia route composition for SupaCloud Functions.
+// SupAuth Function app — compiled application services for SupaCloud Functions.
 // This module must not bind a port. SupaCloud owns all HTTP invocation.
 
-import { Elysia, type AnyElysia } from 'elysia';
-import { cors } from '@elysiajs/cors';
-import { swagger } from '@elysiajs/swagger';
-import { enforceStartupConfig, getConfig } from './config/index.js';
-import { generateRequestId, observabilityMiddleware } from './middleware/index.js';
+import { createCompiledModules } from '../generated/application.js';
+import { createCompiledRuntime } from './compiled-runtime.js';
+import { createSupAuthHttpApplication } from './http-application.js';
+import { generateRequestId } from './middleware/index.js';
 import { withRequestContext } from './auth/request-context.js';
-import { adminAuthGuard, authRoutes } from './auth/index.js';
-import { storageRoutes } from './storage/index.js';
-import { healthRoutes, runtimeRoutes } from './routes/health.js';
-import { applicationRoutes } from './routes/applications.js';
-import { connectorRoutes } from './routes/connectors.js';
-import { resourceRoutes } from './routes/resources.js';
-import { userRoutes } from './routes/users.js';
-import { organizationRoutes, publicOrganizationRoutes } from './routes/organizations.js';
-import { roleRoutes } from './routes/roles.js';
-import { sieRoutes, authConfigRoutes, publicSignInExperienceRoutes, publicOAuthRoutes, publicConnectorRoutes, publicPhrasesRoutes, publicCustomUiRoutes } from './routes/sign-in-experience.js';
-import { hostedPageRoutes } from './routes/hosted-pages.js';
-import { webhookRoutes } from './routes/webhooks.js';
-import { auditRoutes } from './routes/audit.js';
-import { compatibilityRoutes } from './routes/compatibility.js';
-import { syncRoutes } from './routes/sync.js';
-import { adminToolRoutes } from './routes/admin-tools.js';
-import { consentRoutes } from './routes/consents.js';
-import { orgTemplateRoutes } from './routes/org-templates.js';
-import { securityConfigRoutes } from './routes/security-config.js';
-import { provisioningRoutes } from './routes/provisioning.js';
-import { enterpriseSSORoutes } from './routes/enterprise-sso.js';
-import { passkeyRoutes } from './routes/passkeys.js';
-import { apiVersionRoutes } from './routes/api-versions.js';
-import { tenantConfigRoutes } from './routes/tenant-config.js';
-import { myAccountRoutes } from './routes/my-account.js';
-import { authHookRoutes, authHookAdminRoutes } from './routes/auth-hooks.js';
-import { rbacBridgeRoutes } from './routes/rbac-bridge.js';
-import { routeGateRoutes } from './routes/route-gate.js';
-import { ssoAuthorizeRoutes } from './routes/sso-authorize.js';
-import { accountProvisioningRoutes, publicAccountClaimRoutes } from './routes/account-provisioning.js';
-import { publicAccountPasswordRoutes } from './routes/account-password.js';
-import { publicAccountRoutes } from './routes/account-self-service.js';
-import { capabilityRoutes } from './routes/capabilities.js';
-import { tenantRoutes } from './routes/tenant.js';
 
-const config = getConfig();
-enforceStartupConfig(config);
+const modules = createCompiledModules();
+const runtime = createCompiledRuntime(modules);
+const app = await runtime.resolve(services => createSupAuthHttpApplication(modules, services));
+export const ready = runtime.ready;
+export const close = runtime.close;
 
-function withInfrastructureContracts<App extends AnyElysia>(
-  plugin: App,
-  contracts: Record<string, { request: 'protocol' | 'none'; response: 'empty' | 'html' | 'protocol'; source: string }>,
-): App {
-  // 插件原本不进入 Swagger 文档；显式声明 hide，但 inventory 仍保留全部分母。
-  for (const route of plugin.routes) {
-    const key = `${route.method} ${route.path}`;
-    if (!Object.hasOwn(contracts, key)) continue;
-    route.hooks.detail = { ...route.hooks.detail, hide: true, 'x-supauth-contract': contracts[key] };
-  }
-  return plugin;
-}
-
-const app = new Elysia()
-  .use(observabilityMiddleware)
-  .use(withInfrastructureContracts(cors({ origin: config.corsOrigins, credentials: true }), {
-    'OPTIONS /': { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' },
-    'OPTIONS /*': { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' },
-  }))
-  .use(authRoutes)
-  .use(hostedPageRoutes)
-  .use(publicSignInExperienceRoutes)
-  .use(publicOAuthRoutes)
-  .use(publicConnectorRoutes)
-  .use(publicPhrasesRoutes)
-  .use(publicCustomUiRoutes)
-  .use(publicAccountClaimRoutes)
-  .use(publicAccountPasswordRoutes)
-  .use(publicAccountRoutes)
-  .use(authHookRoutes)
-  .use(publicOrganizationRoutes)
-  .use(ssoAuthorizeRoutes)
-  .use(withInfrastructureContracts(swagger({
-    path: '/swagger',
-    documentation: {
-      info: { title: 'SupaOAuth Management API', version: '0.3.0', description: 'SupaOAuth is a SupaCloud-hosted enterprise IAM and user-center control plane. In gotrue mode, GoTrue remains the OAuth/OIDC runtime and token issuer; SupaOAuth provides hosted UI, product RBAC, organizations, connectors, audit, configuration, and compatibility tooling.' },
-      tags: [
-        { name: 'Health', description: 'Server health and project info' },
-        { name: 'Project', description: 'Project-level metadata' },
-        { name: 'Runtime', description: 'OIDC runtime (GoTrue) gateway checks' },
-        { name: 'Applications', description: 'OAuth client application management' },
-        { name: 'Bindings', description: 'Application-resource/scope bindings' },
-        { name: 'Connectors', description: 'Social/enterprise SSO provider management' },
-        { name: 'Resources', description: 'API resource and scope definitions' },
-        { name: 'Scopes', description: 'OAuth scope management' },
-        { name: 'Users', description: 'User CRUD and permission resolution' },
-        { name: 'Organizations', description: 'Organization and member management' },
-        { name: 'Org Templates', description: 'Organization templates for auto-provisioning roles and permissions' },
-        { name: 'Members', description: 'Organization member operations' },
-        { name: 'RBAC', description: 'Role-based access control — roles, permissions, assignments' },
-        { name: 'Permissions', description: 'Permission management under roles' },
-        { name: 'Assignments', description: 'Role assignment and revocation' },
-        { name: 'Auth Config', description: 'GoTrue auth configuration proxy' },
-        { name: 'Sign-in Experience', description: 'Customizable sign-in flow configuration' },
-        { name: 'Compatibility', description: 'Supabase compatibility inspector' },
-        { name: 'Audit', description: 'Admin action audit log queries' },
-        { name: 'Webhooks', description: 'Webhook endpoint management and event delivery' },
-        { name: 'Auth', description: 'Admin console authentication' },
-        { name: 'Storage', description: 'Avatar and branding asset storage proxy' },
-        { name: 'Admin Tools', description: 'RLS migration assistant and SDK tools' },
-        { name: 'Consents', description: 'User consent management for OAuth authorization' },
-        { name: 'Security', description: 'Production security configuration and enforcement' },
-        { name: 'Provisioning', description: 'SupaCloud project provisioning and idempotent reconcile (P0-26: project-scoped)' },
-        { name: 'Enterprise SSO', description: 'Enterprise SSO configuration, domain discovery, JIT provisioning' },
-        { name: 'API Versions', description: 'API version tracking and breaking change detection' },
-        { name: 'Tenant Config', description: 'Captcha, message templates, domains, phrases, branding, and custom profile fields' },
-        { name: 'Consent', description: 'Application consent configuration' },
-        { name: 'Connector Factory', description: 'Connector provider catalog and factory definitions' },
-        { name: 'Invitations', description: 'Organization invitations' },
-        { name: 'JIT', description: 'Organization just-in-time provisioning settings' },
-        { name: 'Account Center', description: 'Bearer-authenticated user profile, OAuth grants, linked identities, TOTP MFA, and scoped logout' },
-        { name: 'Auth Hooks', description: 'Supabase Auth Hooks bridge for signup policy, token shaping, and MFA risk checks' },
-        { name: 'RBAC Bridge', description: 'Legacy role migration and compatibility bridge (P0-28)' },
-        { name: 'Route Gate', description: 'Route/domain integration gate for deployment verification (P0-29)' },
-        { name: 'SSO', description: 'GoTrue-compatible SSO authorization entrypoints' },
-        { name: 'Account Provisioning', description: 'Bulk account provisioning, SupaOAuth user creation, and self-service account claiming' },
-      ],
-    },
-  }), {
-    'GET /swagger': { request: 'none', response: 'html', source: 'infra.swagger.ui' },
-    'GET /swagger/json': { request: 'none', response: 'protocol', source: 'infra.swagger.openapi' },
-  }))
-  .use(adminAuthGuard)
-
-  // ─── Route groups ────────────────────────────────────
-  .use(storageRoutes)
-  .use(healthRoutes)
-  .use(runtimeRoutes)
-  .use(authHookAdminRoutes)
-  .use(capabilityRoutes)
-  .use(applicationRoutes)
-  .use(connectorRoutes)
-  .use(resourceRoutes)
-  .use(userRoutes)
-  .use(organizationRoutes)
-  .use(roleRoutes)
-  .use(sieRoutes)
-  .use(authConfigRoutes)
-  .use(webhookRoutes)
-  .use(auditRoutes)
-  .use(compatibilityRoutes)
-  .use(syncRoutes)
-  .use(adminToolRoutes)
-  .use(consentRoutes)
-  .use(orgTemplateRoutes)
-  .use(securityConfigRoutes)
-  .use(provisioningRoutes)
-  .use(enterpriseSSORoutes)
-  .use(passkeyRoutes)
-  .use(apiVersionRoutes)
-  .use(tenantConfigRoutes)
-  .use(tenantRoutes)
-  .use(myAccountRoutes)
-  .use(rbacBridgeRoutes)
-  .use(routeGateRoutes)
-  .use(accountProvisioningRoutes);
-
-export function handleSupAuthRequest(request: Request): Response | Promise<Response> {
-  const requestId = request.headers.get('x-request-id') || generateRequestId();
-  request.headers.set('x-request-id', requestId);
-  return withRequestContext({ requestId }, () => app.handle(request));
+export function handleSupAuthRequest(request: Request): Promise<Response> {
+  return runtime.run(() => {
+    const requestId = request.headers.get('x-request-id') || generateRequestId();
+    request.headers.set('x-request-id', requestId);
+    return withRequestContext({ requestId }, () => app.handle(request));
+  });
 }
 
 // Export the app for OpenAPI spec extraction (used by scripts/export-openapi.ts)

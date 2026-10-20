@@ -2,7 +2,7 @@
 // These routes trust only the user's GoTrue access token and never accept
 // browser-supplied user ids or service-role credentials.
 
-import { Elysia } from 'elysia';
+
 import { accountContract, accountOutput, readAccountInput, readAccountNormalization } from '../utils/account-contract.js';
 import { definedFields } from '../utils/defined-fields.js';
 import type { Static } from '../../../shared/src/schema.js';
@@ -18,6 +18,7 @@ import {
   upstreamNetworkFailure,
   upstreamResponseFailure,
 } from '../utils/upstream-failure.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 interface AccountFailure {
   ok: false;
@@ -1033,8 +1034,8 @@ export function createPublicAccountRoutes(options?: {
     return { ok: true as const, config };
   }
 
-  return new Elysia({ prefix: '/v1/public/account' })
-    .get('/config', async () => {
+  return defineHttpOperations({ prefix: '/v1/public/account' }, {
+    getConfig: defineHttpOperation('GET', '/config', async () => {
       const [config, providerLinking] = await Promise.all([getPublicConfig(), getProviderLinking()]);
       return accountOutput('config', {
         success: true,
@@ -1043,8 +1044,8 @@ export function createPublicAccountRoutes(options?: {
       });
     }, accountContract('config', {
       detail: { summary: 'Get public account center configuration', tags: ['Public', 'Account Center'] },
-    }))
-    .get('/me', async ({ headers, set, request }) => {
+    })),
+    getMe: defineHttpOperation('GET', '/me', async ({ headers, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(set, () => true, 'account_center_disabled', 'Account center is disabled.');
@@ -1053,8 +1054,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('me', { success: true, user: account.user });
     }, accountContract('me', {
       detail: { summary: 'Get current account profile with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .get('/permissions', async ({ headers, query, set, request }) => {
+    })),
+    getPermissions: defineHttpOperation('GET', '/permissions', async ({ headers, query, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const applicationId = typeof query["application_id"] === 'string' ? query["application_id"].trim() : '';
@@ -1098,8 +1099,8 @@ export function createPublicAccountRoutes(options?: {
       });
     }, accountContract('permissions', {
       detail: { summary: 'Resolve current user permissions for one application', tags: ['Public', 'Account Center', 'RBAC'] },
-    }))
-    .patch('/profile', async ({ headers, body, set, request }) => {
+    })),
+    patchProfile: defineHttpOperation('PATCH', '/profile', async ({ headers, body, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1125,8 +1126,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('profile', { success: true, user: result.user });
     }, accountContract('profile', {
       detail: { summary: 'Update current account profile metadata with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .patch('/email', async ({ headers, body, set, request }) => {
+    })),
+    patchEmail: defineHttpOperation('PATCH', '/email', async ({ headers, body, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1152,8 +1153,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('email', { success: true, user: result.user, status: 'verification_required' });
     }, accountContract('email', {
       detail: { summary: 'Request current account email change with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .patch('/phone', async ({ headers, body, set, request }) => {
+    })),
+    patchPhone: defineHttpOperation('PATCH', '/phone', async ({ headers, body, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1179,18 +1180,18 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('phone', { success: true, user: result.user, status: 'verification_required' });
     }, accountContract('phone', {
       detail: { summary: 'Request current account phone change with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .get('/sessions', async () => {
+    })),
+    getSessions: defineHttpOperation('GET', '/sessions', async () => {
       throw capabilityUnavailable('gotrue_user_session_listing');
     }, accountContract('sessions', {
       detail: { hide: true },
-    }))
-    .post('/sessions/:sessionId/revoke', async () => {
+    })),
+    postSessionsBySessionIdRevoke: defineHttpOperation('POST', '/sessions/:sessionId/revoke', async () => {
       throw capabilityUnavailable('gotrue_user_session_revoke_by_id');
     }, accountContract('revokeSession', {
       detail: { hide: true },
-    }))
-    .get('/grants', async ({ headers, set, request }) => {
+    })),
+    getGrants: defineHttpOperation('GET', '/grants', async ({ headers, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1209,8 +1210,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('grants', { success: true, items: grantList.items, total: grantList.total });
     }, accountContract('grants', {
       detail: { summary: 'List current account application grants with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .delete('/grants/:clientId', async ({ headers, params, set, request }) => {
+    })),
+    deleteGrantsByClientId: defineHttpOperation('DELETE', '/grants/:clientId', async ({ headers, params, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1230,8 +1231,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('revokeGrant', { success: true, result: grantRevocation.data });
     }, accountContract('revokeGrant', {
       detail: { summary: 'Revoke current account application grant with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .get('/identities', async ({ headers, set, request }) => {
+    })),
+    getIdentities: defineHttpOperation('GET', '/identities', async ({ headers, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1246,8 +1247,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('identities', { success: true, items, total: items.length });
     }, accountContract('identities', {
       detail: { summary: 'List current account identities with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .post('/identities/authorize', async ({ headers, body, set, request }) => {
+    })),
+    postIdentitiesAuthorize: defineHttpOperation('POST', '/identities/authorize', async ({ headers, body, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1286,8 +1287,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('authorizeIdentity', { success: true, authorization: authorization.data });
     }, accountContract('authorizeIdentity', {
       detail: { summary: 'Start current account manual identity linking with GoTrue', tags: ['Public', 'Account Center'] },
-    }))
-    .delete('/identities/:identityId', async ({ headers, params, set, request }) => {
+    })),
+    deleteIdentitiesByIdentityId: defineHttpOperation('DELETE', '/identities/:identityId', async ({ headers, params, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1307,8 +1308,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('unlinkIdentity', { success: true, result: identityUnlink.data });
     }, accountContract('unlinkIdentity', {
       detail: { summary: 'Unlink current account identity with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .post('/logout', async ({ headers, query, set, request }) => {
+    })),
+    postLogout: defineHttpOperation('POST', '/logout', async ({ headers, query, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const scope = normalizeLogoutScope(query["scope"]);
@@ -1326,23 +1327,23 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('logout', { success: true, result: logoutOperation.data });
     }, accountContract('logout', {
       detail: { summary: 'Log out the current GoTrue account by scope', tags: ['Public', 'Account Center'] },
-    }))
-    .get('/passkeys', async () => {
+    })),
+    getPasskeys: defineHttpOperation('GET', '/passkeys', async () => {
       throw capabilityUnavailable('gotrue_passkey_ceremony');
     }, accountContract('passkeys', {
       detail: { hide: true },
-    }))
-    .put('/passkeys/:passkeyId/rename', async () => {
+    })),
+    putPasskeysByPasskeyIdRename: defineHttpOperation('PUT', '/passkeys/:passkeyId/rename', async () => {
       throw capabilityUnavailable('gotrue_passkey_ceremony');
     }, accountContract('renamePasskey', {
       detail: { hide: true },
-    }))
-    .delete('/passkeys/:passkeyId', async () => {
+    })),
+    deletePasskeysByPasskeyId: defineHttpOperation('DELETE', '/passkeys/:passkeyId', async () => {
       throw capabilityUnavailable('gotrue_passkey_ceremony');
     }, accountContract('deletePasskey', {
       detail: { hide: true },
-    }))
-      .get('/mfa', async ({ headers, set, request }) => {
+    })),
+      getMfa: defineHttpOperation('GET', '/mfa', async ({ headers, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1357,8 +1358,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('mfa', { success: true, items, total: items.length });
       }, accountContract('mfa', {
         detail: { summary: 'List current account MFA factors with user access token', tags: ['Public', 'Account Center'] },
-      }))
-      .post('/mfa/totp/enroll', async ({ headers, body, set, request }) => {
+      })),
+      postMfaTotpEnroll: defineHttpOperation('POST', '/mfa/totp/enroll', async ({ headers, body, set, request }) => {
         const account = await requireAccount(headers, set);
         if (!account.ok) return account.response;
         const feature = await requireFeature(
@@ -1379,8 +1380,8 @@ export function createPublicAccountRoutes(options?: {
         return accountOutput('enroll', { success: true, enrollment });
       }, accountContract('enroll', {
         detail: { summary: 'Enroll current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
-      }))
-      .post('/mfa/:factorId/verify', async ({ headers, params, body, set, request }) => {
+      })),
+      postMfaByFactorIdVerify: defineHttpOperation('POST', '/mfa/:factorId/verify', async ({ headers, params, body, set, request }) => {
         const account = await requireAccount(headers, set);
         if (!account.ok) return account.response;
         const feature = await requireFeature(
@@ -1425,8 +1426,8 @@ export function createPublicAccountRoutes(options?: {
         });
       }, accountContract('verify', {
         detail: { summary: 'Verify current account TOTP MFA factor with user access token', tags: ['Public', 'Account Center'] },
-      }))
-    .delete('/mfa/:factorId', async ({ headers, params, set, request }) => {
+      })),
+    deleteMfaByFactorId: defineHttpOperation('DELETE', '/mfa/:factorId', async ({ headers, params, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1446,8 +1447,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('unenroll', { success: true, result: result.data, status: 'unenrolled' });
     }, accountContract('unenroll', {
       detail: { summary: 'Unenroll current account MFA factor with user access token', tags: ['Public', 'Account Center'] },
-    }))
-    .delete('/', async ({ headers, body, set, request }) => {
+    })),
+    deleteRoot: defineHttpOperation('DELETE', '/', async ({ headers, body, set, request }) => {
       const account = await requireAccount(headers, set);
       if (!account.ok) return account.response;
       const feature = await requireFeature(
@@ -1472,7 +1473,8 @@ export function createPublicAccountRoutes(options?: {
       return accountOutput('delete', { success: true, result: await deleteAccount(account.userId), status: 'deleted' });
     }, accountContract('delete', {
       detail: { summary: 'Delete current account with user access token', tags: ['Public', 'Account Center'] },
-    }));
+    })),
+  });
 }
 
 export const publicAccountRoutes = createPublicAccountRoutes();

@@ -44,6 +44,7 @@ describe('complete route contract inventory', () => {
         PATH: process.env["PATH"] ?? '', BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
         PORT: '0', SUPACLOUD_API_URL: 'http://localhost:9090', SUPACLOUD_MASTER_TOKEN: 'export-placeholder',
         PROJECT_REF: 'export-placeholder', DATABASE_URL: 'postgres://placeholder', HOST: '127.0.0.1',
+        CORS_ORIGINS: 'http://localhost:3000',
       },
       timeout: 20_000,
       stdout: 'pipe', stderr: 'pipe',
@@ -61,10 +62,12 @@ describe('complete route contract inventory', () => {
     expect(inventory.map(route => ({
       method: route.method, path: route.path, hidden: route.hidden, contract: route.contract,
     }))).toEqual([
-      { method: 'OPTIONS', path: '/', hidden: true, contract: { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' } },
-      { method: 'OPTIONS', path: '/*', hidden: true, contract: { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' } },
       { method: 'GET', path: '/swagger', hidden: true, contract: { request: 'none', response: 'html', source: 'infra.swagger.ui' } },
       { method: 'GET', path: '/swagger/json', hidden: true, contract: { request: 'none', response: 'protocol', source: 'infra.swagger.openapi' } },
+      { method: 'HEAD', path: '/swagger', hidden: true, contract: { request: 'none', response: 'empty', source: 'infra.swagger.ui' } },
+      { method: 'HEAD', path: '/swagger/json', hidden: true, contract: { request: 'none', response: 'empty', source: 'infra.swagger.openapi' } },
+      { method: 'OPTIONS', path: '/', hidden: true, contract: { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' } },
+      { method: 'OPTIONS', path: '/*', hidden: true, contract: { request: 'protocol', response: 'empty', source: 'infra.cors.preflight' } },
     ]);
     for (const response of responses.slice(0, 2)) {
       expect(response.status).toBe(204);
@@ -75,7 +78,7 @@ describe('complete route contract inventory', () => {
     expect(requireDefined(responses[2]).type).toContain('text/html');
     expect(requireDefined(responses[3]).status).toBe(200);
     expect(requireDefined(responses[3]).openapi).toBe('3.0.3');
-    expect(inspectContractCoverage(specification(), inventory)).toEqual({ total: 5, covered: 5, hidden: 4, issues: [] });
+    expect(inspectContractCoverage(specification(), inventory)).toEqual({ total: 7, covered: 7, hidden: 6, issues: [] });
   });
 
   test('normalizes Elysia and OpenAPI paths without counting trailing-slash aliases twice', () => {

@@ -7,12 +7,13 @@ import {
   isSafeOAuthClientId,
   publicOriginFromRequest,
 } from '../routes/sso-authorize.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 function createTestApp() {
-  return createSsoAuthorizeRoutes('/oauth/sso', {
+  return operationTestPlugin(createSsoAuthorizeRoutes('/oauth/sso', {
     publicBaseUrl: '',
     trustProxyHeaders: false,
-  });
+  }));
 }
 
 describe('GoTrue-compatible SSO authorize entrypoint', () => {
@@ -26,10 +27,10 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
   });
 
   it('rejects unsafe client_id before redirecting to GoTrue', async () => {
-    const app = createSsoAuthorizeRoutes('/oauth/sso', {
+    const app = operationTestPlugin(createSsoAuthorizeRoutes('/oauth/sso', {
       publicBaseUrl: '',
       trustProxyHeaders: false,
-    });
+    }));
 
     const response = await app.handle(new Request(
       'http://localhost/oauth/sso/authorize?response_type=code&client_id=..%2F..%2Fconfig%2Fauth&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback',
@@ -108,10 +109,10 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
   });
 
   it('prefers configured custom auth domain over request host', async () => {
-    const app = createSsoAuthorizeRoutes('/oauth/sso', {
+    const app = operationTestPlugin(createSsoAuthorizeRoutes('/oauth/sso', {
       publicBaseUrl: 'https://auth.example.test/',
       trustProxyHeaders: false,
-    });
+    }));
 
     const response = await app.handle(new Request(
       'https://project-runtime.example.test/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback&scope=openid%20email',
@@ -123,10 +124,10 @@ describe('GoTrue-compatible SSO authorize entrypoint', () => {
   });
 
   it('uses trusted forwarded host only when no custom auth domain is configured', async () => {
-    const app = createSsoAuthorizeRoutes('/oauth/sso', {
+    const app = operationTestPlugin(createSsoAuthorizeRoutes('/oauth/sso', {
       publicBaseUrl: '',
       trustProxyHeaders: true,
-    });
+    }));
 
     const response = await app.handle(new Request(
       'http://127.0.0.1:9000/oauth/sso/authorize?response_type=code&client_id=app_123&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcallback',

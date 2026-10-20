@@ -3,7 +3,7 @@
 // verifies the current password through GoTrue password grant, then updates the
 // password with the returned user access token.
 
-import { Elysia } from 'elysia';
+
 import { readUpstreamObject } from '../utils/upstream-contract.js';
 import { ApiContractError } from '../utils/api-contract.js';
 import { accountContract, accountOutput, readAccountNormalization } from '../utils/account-contract.js';
@@ -29,6 +29,7 @@ import {
   readAccountCenterConfig,
   type AccountCenterConfig,
 } from './account-self-service.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const PASSWORD_CHANGE_LIMIT_WINDOW_MS = 60_000;
 const PASSWORD_CHANGE_LIMIT_MAX = 8;
@@ -394,8 +395,8 @@ export function createPublicAccountPasswordRoutes(options?: {
   const getAccountCenterConfig = options?.getAccountCenterConfig || readAccountCenterConfig;
   const getAuthConfig = options?.getAuthConfig || (() => adapter.getAuthConfig());
 
-  return new Elysia({ prefix: '/v1/public/account-password' })
-    .post('/change', async ({ body, headers, set, request }) => {
+  return defineHttpOperations({ prefix: '/v1/public/account-password' }, {
+    postChange: defineHttpOperation('POST', '/change', async ({ body, headers, set, request }) => {
       const featureFailure = await accountCenterFeatureFailure(getAccountCenterConfig);
       if (featureFailure) {
         set.status = featureFailure.status;
@@ -433,7 +434,8 @@ export function createPublicAccountPasswordRoutes(options?: {
       return accountOutput('password', { success: true, status: 'password_changed' });
     }, accountContract('password', {
       detail: { summary: 'Change password with current credentials', tags: ['Public', 'Account Center'] },
-    }));
+    })),
+  });
 }
 
 export const publicAccountPasswordRoutes = createPublicAccountPasswordRoutes();

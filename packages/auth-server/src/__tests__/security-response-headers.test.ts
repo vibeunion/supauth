@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { cors } from '@elysiajs/cors';
 import { Elysia } from 'elysia';
 import { ApiContractError } from '../utils/api-contract.js';
 import { observabilityMiddleware } from '../middleware/index.js';
 import { SupaCloudApiError } from '../supacloud/adapter.js';
+import { applyCorsHeaders } from '../http/cors.js';
 
 const expectedHeaders = {
   'strict-transport-security': 'max-age=31536000; includeSubDomains',
@@ -14,9 +14,8 @@ const expectedHeaders = {
   'content-security-policy': "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'",
 };
 
-const app = new Elysia()
+const nativeApp = new Elysia()
   .use(observabilityMiddleware)
-  .use(cors({ origin: ['https://client.example.test'], credentials: true }))
   .get('/ok', () => ({ success: true }))
   .get('/raw', () => new Response('<!doctype html>', {
     headers: {
@@ -61,6 +60,12 @@ const app = new Elysia()
   .get('/upstream-500', () => {
     throw new SupaCloudApiError(500, 'internal upstream failure', '/v1/organizations');
   });
+
+const app = {
+  async handle(request: Request) {
+    return applyCorsHeaders(request, await nativeApp.handle(request), ['https://client.example.test']);
+  },
+};
 
 function expectSecurityHeaders(response: Response) {
   for (const [name, expected] of Object.entries(expectedHeaders)) {

@@ -1,6 +1,7 @@
 import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { describe, expect, mock, test } from 'bun:test';
 import { authRoutes, logoutAdminSession, type AdminLogoutDependencies } from '../auth/index.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 function dependencies(response: Response | Error) {
   return {
@@ -21,13 +22,13 @@ describe('admin BFF logout', () => {
   test('deletes a development session without forwarding it to GoTrue', async () => {
     process.env.NODE_ENV = 'test';
     process.env["ADMIN_TOKEN"] = 'development-admin-token';
-    const login = await authRoutes.handle(new Request('http://localhost/v1/auth/login', {
+    const login = await operationTestPlugin(authRoutes).handle(new Request('http://localhost/v1/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ token: 'development-admin-token' }),
     }));
     const loginPayload = strictDecodeSchema(StrictType.Object({ "token": StrictType.String() }), await login.json());
-    const logout = await authRoutes.handle(new Request('http://localhost/v1/auth/logout', {
+    const logout = await operationTestPlugin(authRoutes).handle(new Request('http://localhost/v1/auth/logout', {
       method: 'POST',
       headers: { authorization: `Bearer ${loginPayload.token}` },
     }));

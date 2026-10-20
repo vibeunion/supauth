@@ -9,6 +9,7 @@ import {
 } from '../routes/account-password.js';
 import { sanitizeAccountCenterConfig } from '../routes/account-self-service.js';
 import { GOTRUE_PASSWORD_CHARACTER_POLICIES } from '../utils/password-policy.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const permissiveAccountCenterConfig = sanitizeAccountCenterConfig({
   enabled: true,
@@ -128,7 +129,7 @@ describe('account password self-service', () => {
   });
 
   test('public route validates input and returns a stable success response', async () => {
-    const app = new Elysia().use(createPublicAccountPasswordRoutes(enabledRouteOptions(
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountPasswordRoutes(enabledRouteOptions(
       async (input) => {
         expect(input).toEqual({
           email: 'user@example.test',
@@ -137,7 +138,7 @@ describe('account password self-service', () => {
         });
         return { ok: true, userId: 'user-1' };
       },
-    )));
+    ))));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-password/change', {
       method: 'POST',
@@ -155,9 +156,9 @@ describe('account password self-service', () => {
   });
 
   test('public route rejects mismatched password confirmation', async () => {
-    const app = new Elysia().use(createPublicAccountPasswordRoutes(
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountPasswordRoutes(
       enabledRouteOptions(async () => ({ ok: true })),
-    ));
+    )));
 
     const response = await app.handle(new Request('http://localhost/v1/public/account-password/change', {
       method: 'POST',
@@ -186,7 +187,7 @@ describe('account password self-service', () => {
     ] as const) {
       let authConfigReads = 0;
       let passwordChanges = 0;
-      const app = new Elysia().use(createPublicAccountPasswordRoutes({
+      const app = new Elysia().use(operationTestPlugin(createPublicAccountPasswordRoutes({
         getAccountCenterConfig: async () => accountCenterConfig,
         getAuthConfig: async () => {
           authConfigReads += 1;
@@ -196,7 +197,7 @@ describe('account password self-service', () => {
           passwordChanges += 1;
           return { ok: true };
         },
-      }));
+      })));
 
       const response = await app.handle(passwordChangeRequest(email));
 
@@ -216,7 +217,7 @@ describe('account password self-service', () => {
   test('returns a stable 503 when account center configuration cannot be read', async () => {
     let authConfigReads = 0;
     let passwordChanges = 0;
-    const app = new Elysia().use(createPublicAccountPasswordRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountPasswordRoutes({
       getAccountCenterConfig: async () => { throw new Error('postgres://secret@db.internal:5432'); },
       getAuthConfig: async () => {
         authConfigReads += 1;
@@ -226,7 +227,7 @@ describe('account password self-service', () => {
         passwordChanges += 1;
         return { ok: true };
       },
-    }));
+    })));
 
     const response = await app.handle(passwordChangeRequest('config-failure@example.test'));
     const body = strictRecord(await response.json());
@@ -248,7 +249,7 @@ describe('account password self-service', () => {
     let accountCenterReads = 0;
     let authConfigReads = 0;
     let passwordChanges = 0;
-    const app = new Elysia().use(createPublicAccountPasswordRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountPasswordRoutes({
       getAccountCenterConfig: async () => {
         accountCenterReads += 1;
         return sanitizeAccountCenterConfig({});
@@ -261,7 +262,7 @@ describe('account password self-service', () => {
         passwordChanges += 1;
         return { ok: true };
       },
-    }));
+    })));
 
     const response = await app.handle(passwordChangeRequest('missing-row@example.test'));
 
@@ -304,14 +305,14 @@ describe('account password self-service', () => {
 
     for (const policyCase of cases) {
       let passwordChanges = 0;
-      const app = new Elysia().use(createPublicAccountPasswordRoutes({
+      const app = new Elysia().use(operationTestPlugin(createPublicAccountPasswordRoutes({
         getAccountCenterConfig: async () => permissiveAccountCenterConfig,
         getAuthConfig: async () => policyCase.authConfig,
         changePassword: async () => {
           passwordChanges += 1;
           return { ok: true };
         },
-      }));
+      })));
 
       const response = await app.handle(passwordChangeRequest(policyCase.email, policyCase.password));
       const body = strictRecord(await response.json());
@@ -324,7 +325,7 @@ describe('account password self-service', () => {
 
   test('fails closed when GoTrue returns an invalid password policy', async () => {
     let passwordChanges = 0;
-    const app = new Elysia().use(createPublicAccountPasswordRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountPasswordRoutes({
       getAccountCenterConfig: async () => permissiveAccountCenterConfig,
       getAuthConfig: async () => ({
         password_min_length: 12,
@@ -334,7 +335,7 @@ describe('account password self-service', () => {
         passwordChanges += 1;
         return { ok: true };
       },
-    }));
+    })));
 
     const response = await app.handle(passwordChangeRequest('invalid-policy@example.test', 'ValidPass12!'));
 

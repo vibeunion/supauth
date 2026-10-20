@@ -34,7 +34,7 @@ describe('unhandled error boundary', () => {
     const logger = spyOn(console, 'error').mockImplementation(() => {});
     try {
       const app = new Elysia().use(observabilityMiddleware)
-        .post('/validated', ({ body }) => body, { body: t.Object({ name: t.String() }) })
+        .post('/validated', { body: t.Object({ name: t.String() }) }, ({ body }) => body)
         .get('/bad-details', () => { throw new ApiContractError(400, 'probe', 'probe', { binding_count: 'invalid' }); });
       for (const [request, expected] of [
         [new Request('http://localhost/missing'), 404],

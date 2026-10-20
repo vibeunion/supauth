@@ -1,6 +1,7 @@
-import { Elysia } from 'elysia';
+
 import { capabilityUnavailable } from '../utils/api-contract.js';
 import { hostedContract } from '../utils/hosted-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 function adminGrantRouteUnavailable(): never {
   throw capabilityUnavailable(
@@ -11,10 +12,11 @@ function adminGrantRouteUnavailable(): never {
 
 const hiddenRoute = hostedContract('retired', { hide: true });
 
-export const consentRoutes = new Elysia({ prefix: '/v1/consents' })
-  .get('/', adminGrantRouteUnavailable, hiddenRoute)
-  .get('/check', adminGrantRouteUnavailable, hiddenRoute)
-  .post('/decision', adminGrantRouteUnavailable, hiddenRoute)
-  .delete('/', adminGrantRouteUnavailable, hiddenRoute)
-  .get('/application/:applicationId', adminGrantRouteUnavailable, hiddenRoute)
-  .get('/user/:userId/all', adminGrantRouteUnavailable, hiddenRoute);
+export const consentRoutes = defineHttpOperations({ prefix: '/v1/consents' }, {
+  getRoot: defineHttpOperation('GET', '/', adminGrantRouteUnavailable, hiddenRoute),
+  getCheck: defineHttpOperation('GET', '/check', adminGrantRouteUnavailable, hiddenRoute),
+  postDecision: defineHttpOperation('POST', '/decision', adminGrantRouteUnavailable, hiddenRoute),
+  deleteRoot: defineHttpOperation('DELETE', '/', adminGrantRouteUnavailable, hiddenRoute),
+  getApplicationByApplicationId: defineHttpOperation('GET', '/application/:applicationId', adminGrantRouteUnavailable, hiddenRoute),
+  getUserByUserIdAll: defineHttpOperation('GET', '/user/:userId/all', adminGrantRouteUnavailable, hiddenRoute),
+});

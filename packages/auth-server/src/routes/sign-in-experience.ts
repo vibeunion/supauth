@@ -1,6 +1,6 @@
 // Sign-in Experience and Auth Config routes with OpenAPI annotations
 
-import { Elysia } from 'elysia';
+
 import { getSupaCloudAdapter, isSupaCloudApiError } from '../supacloud/adapter.js';
 import * as sieRepo from '../repositories/sign-in-experience.js';
 import * as connectorRepo from '../repositories/connectors.js';
@@ -42,6 +42,7 @@ import {
   type CustomUiCleanupQueue,
   type CustomUiManifest,
 } from '../utils/custom-ui-assets.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 const adapter = getSupaCloudAdapter();
 const config = getConfig();
@@ -884,23 +885,23 @@ export async function deleteCustomUiAssets() {
   return deleteStoredCustomUi(deactivated.state, auditIdentity);
 }
 
-export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
-  .get('/', async () => {
+export const sieRoutes = defineHttpOperations({ prefix: '/v1/sign-in-experience' }, {
+  getRoot: defineHttpOperation('GET', '/', async () => {
     decodeConfigurationInput('getSignInExperience', {});
     return sieRepo.getSignInExperience();
   }, configurationContract('getSignInExperience', {
     detail: { summary: 'Get sign-in experience configuration', tags: ['Sign-in Experience'] },
-  }))
+  })),
 
-  .get('/resolve', async ({ query }) => {
+  getResolve: defineHttpOperation('GET', '/resolve', async ({ query }) => {
     const { query: input } = decodeConfigurationInput('resolveSignInExperience', { query });
     const appId = input?.application_id;
     return sieRepo.resolveSignInExperience(appId, await getSupaCloudSignInSource(appId));
   }, configurationContract('resolveSignInExperience', {
     detail: { summary: 'Resolve effective sign-in experience for an application', tags: ['Sign-in Experience', 'Applications'] },
-  }))
+  })),
 
-  .put('/', async ({ body }) => {
+  putRoot: defineHttpOperation('PUT', '/', async ({ body }) => {
     const input = decodeConfigurationInput('updateSignInExperience', { body });
     const updated = requiredRow(await sieRepo.updateSignInExperience(definedFields({
       ...input.body,
@@ -911,17 +912,17 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
     return sieRepo.getSignInExperience();
   }, configurationContract('updateSignInExperience', {
     detail: { summary: 'Update sign-in experience configuration', tags: ['Sign-in Experience'] },
-  }))
+  })),
 
   // ─── Custom UI Assets management ────────────────────────────────────
-  .get('/custom-ui-assets', () => {
+  getCustomUiAssets: defineHttpOperation('GET', '/custom-ui-assets', () => {
     decodeConfigurationInput('getCustomUiStatus', {});
     return customUiStatus();
   }, configurationContract('getCustomUiStatus', {
     detail: { summary: 'Get safe Custom UI lifecycle status', tags: ['Sign-in Experience', 'Custom UI Assets'] },
-  }))
+  })),
 
-  .post('/custom-ui-assets', () => {
+  postCustomUiAssets: defineHttpOperation('POST', '/custom-ui-assets', () => {
     decodeConfigurationInput('uploadCustomUiAssets', {});
     throw new ApiContractError(
       501,
@@ -934,16 +935,17 @@ export const sieRoutes = new Elysia({ prefix: '/v1/sign-in-experience' })
     );
   }, configurationContract('uploadCustomUiAssets', {
     detail: { summary: 'Custom UI upload availability', tags: ['Sign-in Experience', 'Custom UI Assets'] },
-  }))
+  })),
 
-  .delete('/custom-ui-assets', async ({ set }) => {
+  deleteCustomUiAssets: defineHttpOperation('DELETE', '/custom-ui-assets', async ({ set }) => {
     decodeConfigurationInput('deleteCustomUiAssets', {});
     const deletionResult = await deleteCustomUiAssets();
     if ('audit_pending' in deletionResult && deletionResult.audit_pending) set.status = 202;
     return deletionResult;
   }, configurationContract('deleteCustomUiAssets', {
     detail: { summary: 'Delete custom UI assets, revert to default sign-in page', tags: ['Sign-in Experience', 'Custom UI Assets'] },
-  }));
+  })),
+});
 
 interface PublicSignInExperienceOptions {
   getExperience?: (applicationId?: string) => Promise<Record<string, unknown> | null>;
@@ -989,8 +991,8 @@ export async function resolvePublicSignInExperience(
   };
 }
 
-export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sign-in-experience' })
-  .get('/resolve', async ({ query }) => {
+export const publicSignInExperienceRoutes = defineHttpOperations({ prefix: '/v1/public/sign-in-experience' }, {
+  getResolve: defineHttpOperation('GET', '/resolve', async ({ query }) => {
     const { query: q } = decodeConfigurationInput('resolvePublicSignInExperience', { query });
     const applicationId = q?.application_id;
     const experience = await resolvePublicSignInExperience(applicationId);
@@ -999,10 +1001,11 @@ export const publicSignInExperienceRoutes = new Elysia({ prefix: '/v1/public/sig
       : experience;
   }, configurationContract('resolvePublicSignInExperience', {
     detail: { summary: 'Resolve public effective sign-in experience for hosted login pages', tags: ['Sign-in Experience', 'Public'] },
-  }));
+  })),
+});
 
-export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors' })
-  .get('/:connectorId/authorize', async ({ params, query, set }) => {
+export const publicConnectorRoutes = defineHttpOperations({ prefix: '/v1/public/connectors' }, {
+  getByConnectorIdAuthorize: defineHttpOperation('GET', '/:connectorId/authorize', async ({ params, query, set }) => {
     const connector = await getEnabledConnector(params.connectorId);
     if (!connector) {
       set.status = 404;
@@ -1044,10 +1047,11 @@ export const publicConnectorRoutes = new Elysia({ prefix: '/v1/public/connectors
     return { redirect: goTrueUrl.toString() };
   }, configurationContract('authorizePublicConnector', {
     detail: { summary: 'Redirect to social/SSO connector authorization', tags: ['Public', 'Connectors'] },
-  }));
+  })),
+});
 
-export const publicPhrasesRoutes = new Elysia({ prefix: '/v1/public/phrases' })
-  .get('/:languageTag', async ({ params }) => {
+export const publicPhrasesRoutes = defineHttpOperations({ prefix: '/v1/public/phrases' }, {
+  getByLanguageTag: defineHttpOperation('GET', '/:languageTag', async ({ params }) => {
     decodeConfigurationInput('getPublicPhrases', { params });
     const phrase = await tenantConfigRepo.getTenantConfig('phrase', params.languageTag);
     if (!phrase || !phrase.enabled) {
@@ -1057,10 +1061,11 @@ export const publicPhrasesRoutes = new Elysia({ prefix: '/v1/public/phrases' })
     return { language_tag: params.languageTag, phrases: phrase.value || {} };
   }, configurationContract('getPublicPhrases', {
     detail: { summary: 'Get custom phrases for a language tag', tags: ['Public', 'Tenant Config'] },
-  }));
+  })),
+});
 
-export const publicCustomUiRoutes = new Elysia({ prefix: '/v1/public/custom-ui' })
-  .get('/*', ({ params }) => {
+export const publicCustomUiRoutes = defineHttpOperations({ prefix: '/v1/public/custom-ui' }, {
+  getWildcard: defineHttpOperation('GET', '/*', ({ params }) => {
     decodeConfigurationInput('getPublicCustomUi', { params });
     return Response.json({ error: 'not_found' }, {
       status: 404,
@@ -1068,7 +1073,8 @@ export const publicCustomUiRoutes = new Elysia({ prefix: '/v1/public/custom-ui' 
     });
   }, configurationContract('getPublicCustomUi', {
     detail: { hide: true },
-  }));
+  })),
+});
 
 function oauthBearerToken(headers: Record<string, string | undefined>) {
   return headers["authorization"]?.match(/^Bearer\s+(.+)$/i)?.[1] || null;
@@ -1181,8 +1187,8 @@ async function recordConsentDecision(
   });
 }
 
-export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
-  .get('/authorizations/:authorizationId', async ({ headers, params, set }) => {
+export const publicOAuthRoutes = defineHttpOperations({ prefix: '/v1/public/oauth' }, {
+  getAuthorizationsByAuthorizationId: defineHttpOperation('GET', '/authorizations/:authorizationId', async ({ headers, params, set }) => {
     const accessToken = oauthBearerToken(headers);
     if (!accessToken) {
       set.status = 401;
@@ -1205,8 +1211,8 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
     }
   }, configurationContract('getOAuthAuthorization', {
     detail: { summary: 'Get authoritative GoTrue OAuth authorization details', tags: ['Public', 'Consent'] },
-  }))
-  .post('/authorizations/:authorizationId/consent', async ({ headers, params, body, set }) => {
+  })),
+  postAuthorizationsByAuthorizationIdConsent: defineHttpOperation('POST', '/authorizations/:authorizationId/consent', async ({ headers, params, body, set }) => {
     const accessToken = oauthBearerToken(headers);
     if (!accessToken) {
       set.status = 401;
@@ -1234,22 +1240,23 @@ export const publicOAuthRoutes = new Elysia({ prefix: '/v1/public/oauth' })
     }
   }, configurationContract('submitOAuthConsent', {
     detail: { summary: 'Submit an authoritative GoTrue OAuth consent decision', tags: ['Public', 'Consent'] },
-  }));
+  })),
+});
 
-export const authConfigRoutes = new Elysia({ prefix: '/v1/auth-config' })
-  .get('/', async () => {
+export const authConfigRoutes = defineHttpOperations({ prefix: '/v1/auth-config' }, {
+  getRoot: defineHttpOperation('GET', '/', async () => {
     decodeConfigurationInput('getAuthConfig', {});
     return withoutSecrets(await adapter.getAuthConfig());
   }, configurationContract('getAuthConfig', {
     detail: { summary: 'Get auth configuration (GoTrue)', tags: ['Auth Config'] },
-  }))
-  .get('/runtime-consistency', async () => {
+  })),
+  getRuntimeConsistency: defineHttpOperation('GET', '/runtime-consistency', async () => {
     decodeConfigurationInput('getAuthConfigRuntimeConsistency', {});
     return getAuthConfigRuntimeConsistency();
   }, configurationContract('getAuthConfigRuntimeConsistency', {
     detail: { summary: 'Compare desired auth config with GoTrue runtime settings', tags: ['Auth Config'] },
-  }))
-  .patch('/', async ({ body }) => {
+  })),
+  patchRoot: defineHttpOperation('PATCH', '/', async ({ body }) => {
     const { body: requested } = decodeConfigurationInput('updateAuthConfig', { body: authConfigPatch(body) });
     await adapter.updateAuthConfig(requested);
     const updated = await adapter.getAuthConfig();
@@ -1259,7 +1266,8 @@ export const authConfigRoutes = new Elysia({ prefix: '/v1/auth-config' })
     return result;
   }, configurationContract('updateAuthConfig', {
     detail: { summary: 'Update auth configuration (GoTrue)', tags: ['Auth Config'] },
-  }));
+  })),
+});
 
 function authConfigPatch(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) {

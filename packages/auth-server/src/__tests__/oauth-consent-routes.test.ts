@@ -2,6 +2,7 @@ import { strictRecord } from './helpers/strict-values.js';
 import { strictFetch } from './helpers/strict-fetch.js';
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
+import { operationTestPlugin } from './http-fixture.js';
 
 const recordOAuthConsentDecision = mock(async () => undefined);
 const logAudit = mock(async () => undefined);
@@ -19,7 +20,7 @@ loadConfig();
 const { publicOAuthRoutes } = await import('../routes/sign-in-experience.js');
 
 function oauthRequest(path: string, init?: RequestInit) {
-  const app = new Elysia().use(publicOAuthRoutes);
+  const app = new Elysia().use(operationTestPlugin(publicOAuthRoutes));
   const headers = new Headers(init?.headers);
   headers.set('Authorization', 'Bearer user-access-token');
   return app.handle(new Request(`https://auth.example.test/v1/public/oauth${path}`, {

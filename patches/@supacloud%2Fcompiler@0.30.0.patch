@@ -1,0 +1,188 @@
+diff --git a/dist/cli.js b/dist/cli.js
+index fe16cfe3b3c6e266f1b387a08f2824bce1152632..5f5ef71893a39b63838aa33e7518e5b50fab93a4 100755
+--- a/dist/cli.js
++++ b/dist/cli.js
+@@ -1433,7 +1433,7 @@ function renderApplication(graph, options) {
+     "}",
+     "",
+     "export async function initializeApplication(services: Record<string, unknown>): Promise<void> {",
+-    '  const initializers = [services.environmentInitializer ?? services["supacloud.environment-initializer"], services.appInitializer ?? services["supacloud.app-initializer"]];',
++    '  const initializers = [services[\'environmentInitializer\'] ?? services["supacloud.environment-initializer"], services[\'appInitializer\'] ?? services["supacloud.app-initializer"]];',
+     "  for (const group of initializers) {",
+     "    if (Array.isArray(group)) {",
+     "      for (const init of group) {",
+@@ -1446,21 +1446,21 @@ function renderApplication(graph, options) {
+     "}",
+     "",
+     "export async function destroyApplication(services: Record<string, unknown>): Promise<void> {",
+-    '  const destroyRef = (Object.prototype.propertyIsEnumerable.call(services, "destroyRef") ? services.destroyRef : undefined)',
++    '  const destroyRef = (Object.prototype.propertyIsEnumerable.call(services, "destroyRef") ? services[\'destroyRef\'] : undefined)',
+     '    ?? (Object.prototype.propertyIsEnumerable.call(services, "supacloud.destroy-ref") ? services["supacloud.destroy-ref"] : undefined);',
+-    "  if (isRecord(destroyRef) && isFunction(destroyRef.destroy)) {",
+-    "    await destroyRef.destroy();",
+-    "  } else if (isRecord(destroyRef) && Array.isArray(destroyRef._teardowns)) {",
+-    "    for (const teardown of [...destroyRef._teardowns].reverse()) {",
++    "  if (isRecord(destroyRef) && isFunction(destroyRef['destroy'])) {",
++    "    await destroyRef['destroy']();",
++    "  } else if (isRecord(destroyRef) && Array.isArray(destroyRef['_teardowns'])) {",
++    "    for (const teardown of [...destroyRef['_teardowns']].reverse()) {",
+     "      if (isFunction(teardown)) await teardown();",
+     "    }",
+     "  }",
+     "  const instances = Object.values(services);",
+     "  for (const inst of instances.reverse()) {",
+-    "    if (isRecord(inst) && isFunction(inst.onDestroy)) {",
+-    "      await inst.onDestroy();",
+-    "    } else if (isRecord(inst) && isFunction(inst.ngOnDestroy)) {",
+-    "      await inst.ngOnDestroy();",
++    "    if (isRecord(inst) && isFunction(inst['onDestroy'])) {",
++    "      await inst['onDestroy']();",
++    "    } else if (isRecord(inst) && isFunction(inst['ngOnDestroy'])) {",
++    "      await inst['ngOnDestroy']();",
+     "    }",
+     "  }",
+     "}",
+@@ -3511,8 +3511,8 @@ function isFunction(value: unknown): value is (...args: unknown[]) => unknown {
+ }
+ 
+ function resolveFactoryValue(value: unknown): unknown {
+-  if (!isRecord(value) || !isFunction(value.factory)) return undefined;
+-  return value.factory();
++  if (!isRecord(value) || !isFunction(value['factory'])) return undefined;
++  return value['factory']();
+ }
+ 
+ const scopeDestructions = new WeakMap<object, Promise<void>>();
+@@ -3539,10 +3539,10 @@ function destroyScopeInstances(
+       if (seen.has(instance)) continue;
+       seen.add(instance);
+       try {
+-        if (isRecord(instance) && isFunction(instance.onDestroy)) {
+-          await instance.onDestroy();
+-        } else if (isRecord(instance) && isFunction(instance.ngOnDestroy)) {
+-          await instance.ngOnDestroy();
++        if (isRecord(instance) && isFunction(instance['onDestroy'])) {
++          await instance['onDestroy']();
++        } else if (isRecord(instance) && isFunction(instance['ngOnDestroy'])) {
++          await instance['ngOnDestroy']();
+         }
+       } catch (error) {
+         errors.push(error);
+@@ -3568,8 +3568,8 @@ async function initializeServiceInstances(
+       : Array.isArray(value) ? value[entry.index] : undefined;
+     if (seen.has(instance)) continue;
+     seen.add(instance);
+-    if (!isRecord(instance) || !isFunction(instance.onInit)) continue;
+-    await instance.onInit();
++    if (!isRecord(instance) || !isFunction(instance['onInit'])) continue;
++    await instance['onInit']();
+   }
+ }
+ 
+@@ -3587,9 +3587,9 @@ async function destroyServiceInstances(
+     if (seen.has(instance)) continue;
+     seen.add(instance);
+     if (!isRecord(instance)) continue;
+-    const hook = isFunction(instance.onDestroy)
+-      ? instance.onDestroy
+-      : isFunction(instance.ngOnDestroy) ? instance.ngOnDestroy : undefined;
++    const hook = isFunction(instance['onDestroy'])
++      ? instance['onDestroy']
++      : isFunction(instance['ngOnDestroy']) ? instance['ngOnDestroy'] : undefined;
+     if (!hook) continue;
+     try {
+       await hook.call(instance);
+diff --git a/dist/index.js b/dist/index.js
+index c41bb0ce7dcb4452bb6e95da58611d850fa79734..454e16624822e8260d58c5ae8dc50649e3589575 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1432,7 +1432,7 @@ function renderApplication(graph, options) {
+     "}",
+     "",
+     "export async function initializeApplication(services: Record<string, unknown>): Promise<void> {",
+-    '  const initializers = [services.environmentInitializer ?? services["supacloud.environment-initializer"], services.appInitializer ?? services["supacloud.app-initializer"]];',
++    '  const initializers = [services[\'environmentInitializer\'] ?? services["supacloud.environment-initializer"], services[\'appInitializer\'] ?? services["supacloud.app-initializer"]];',
+     "  for (const group of initializers) {",
+     "    if (Array.isArray(group)) {",
+     "      for (const init of group) {",
+@@ -1445,21 +1445,21 @@ function renderApplication(graph, options) {
+     "}",
+     "",
+     "export async function destroyApplication(services: Record<string, unknown>): Promise<void> {",
+-    '  const destroyRef = (Object.prototype.propertyIsEnumerable.call(services, "destroyRef") ? services.destroyRef : undefined)',
++    '  const destroyRef = (Object.prototype.propertyIsEnumerable.call(services, "destroyRef") ? services[\'destroyRef\'] : undefined)',
+     '    ?? (Object.prototype.propertyIsEnumerable.call(services, "supacloud.destroy-ref") ? services["supacloud.destroy-ref"] : undefined);',
+-    "  if (isRecord(destroyRef) && isFunction(destroyRef.destroy)) {",
+-    "    await destroyRef.destroy();",
+-    "  } else if (isRecord(destroyRef) && Array.isArray(destroyRef._teardowns)) {",
+-    "    for (const teardown of [...destroyRef._teardowns].reverse()) {",
++    "  if (isRecord(destroyRef) && isFunction(destroyRef['destroy'])) {",
++    "    await destroyRef['destroy']();",
++    "  } else if (isRecord(destroyRef) && Array.isArray(destroyRef['_teardowns'])) {",
++    "    for (const teardown of [...destroyRef['_teardowns']].reverse()) {",
+     "      if (isFunction(teardown)) await teardown();",
+     "    }",
+     "  }",
+     "  const instances = Object.values(services);",
+     "  for (const inst of instances.reverse()) {",
+-    "    if (isRecord(inst) && isFunction(inst.onDestroy)) {",
+-    "      await inst.onDestroy();",
+-    "    } else if (isRecord(inst) && isFunction(inst.ngOnDestroy)) {",
+-    "      await inst.ngOnDestroy();",
++    "    if (isRecord(inst) && isFunction(inst['onDestroy'])) {",
++    "      await inst['onDestroy']();",
++    "    } else if (isRecord(inst) && isFunction(inst['ngOnDestroy'])) {",
++    "      await inst['ngOnDestroy']();",
+     "    }",
+     "  }",
+     "}",
+@@ -3510,8 +3510,8 @@ function isFunction(value: unknown): value is (...args: unknown[]) => unknown {
+ }
+ 
+ function resolveFactoryValue(value: unknown): unknown {
+-  if (!isRecord(value) || !isFunction(value.factory)) return undefined;
+-  return value.factory();
++  if (!isRecord(value) || !isFunction(value['factory'])) return undefined;
++  return value['factory']();
+ }
+ 
+ const scopeDestructions = new WeakMap<object, Promise<void>>();
+@@ -3538,10 +3538,10 @@ function destroyScopeInstances(
+       if (seen.has(instance)) continue;
+       seen.add(instance);
+       try {
+-        if (isRecord(instance) && isFunction(instance.onDestroy)) {
+-          await instance.onDestroy();
+-        } else if (isRecord(instance) && isFunction(instance.ngOnDestroy)) {
+-          await instance.ngOnDestroy();
++        if (isRecord(instance) && isFunction(instance['onDestroy'])) {
++          await instance['onDestroy']();
++        } else if (isRecord(instance) && isFunction(instance['ngOnDestroy'])) {
++          await instance['ngOnDestroy']();
+         }
+       } catch (error) {
+         errors.push(error);
+@@ -3567,8 +3567,8 @@ async function initializeServiceInstances(
+       : Array.isArray(value) ? value[entry.index] : undefined;
+     if (seen.has(instance)) continue;
+     seen.add(instance);
+-    if (!isRecord(instance) || !isFunction(instance.onInit)) continue;
+-    await instance.onInit();
++    if (!isRecord(instance) || !isFunction(instance['onInit'])) continue;
++    await instance['onInit']();
+   }
+ }
+ 
+@@ -3586,9 +3586,9 @@ async function destroyServiceInstances(
+     if (seen.has(instance)) continue;
+     seen.add(instance);
+     if (!isRecord(instance)) continue;
+-    const hook = isFunction(instance.onDestroy)
+-      ? instance.onDestroy
+-      : isFunction(instance.ngOnDestroy) ? instance.ngOnDestroy : undefined;
++    const hook = isFunction(instance['onDestroy'])
++      ? instance['onDestroy']
++      : isFunction(instance['ngOnDestroy']) ? instance['ngOnDestroy'] : undefined;
+     if (!hook) continue;
+     try {
+       await hook.call(instance);

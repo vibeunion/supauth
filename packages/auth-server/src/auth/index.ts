@@ -18,6 +18,7 @@ import { enterAdminRequestContext } from './request-context.js';
 import { parseAdminSsoRequireAal2 } from './admin-sso-aal2-policy.js';
 import { AdminLoginInputSchema } from '../../../shared/src/server-hosted.js';
 import { hostedContract, hostedInput } from '../utils/hosted-contract.js';
+import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
 
 // Env-var fallbacks: used before migration has run, or when DB is unreachable.
 const ENV_ADMIN_AUTH_MODE = (runtimeEnv('ADMIN_AUTH_MODE') || 'auto').toLowerCase();
@@ -462,46 +463,67 @@ function publicAdminPath(pathname: string): boolean {
     || pathname.startsWith('/swagger');
 }
 
-export const adminAuthGuard = new Elysia()
-  .derive({ as: 'global' }, async ({ request, headers }) => {
-    const pathname = new URL(request.url).pathname;
-    const adminCorrelationId = request.headers.get('x-request-id') || generateSessionToken().slice(0, 16);
-    if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) {
-      return { adminAccess: null, adminPrincipal: null, adminCorrelationId };
-    }
-    const adminAccess = await verifyAdminBearer(headers);
-    return {
-      adminAccess,
-      adminPrincipal: adminAccess.status === 'authenticated' ? adminPrincipalFromSession(adminAccess.session) : null,
-      adminCorrelationId,
-    };
-  })
-  .onBeforeHandle({ as: 'global' }, async ({
-    request,
-    headers,
-    adminAccess,
-    adminPrincipal,
-    adminCorrelationId,
-  }) => {
-    const pathname = new URL(request.url).pathname;
-    const ip = requestIp(headers);
-    const allowed = await consumeRateLimit(ip);
-    if (!allowed) {
-      return new Response('Too Many Requests', { status: 429 });
-    }
-    if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) return;
+type AdminRequestAccess = {
+  adminAccess: AdminBearerAccess | null;
+  adminPrincipal: AdminPrincipal | null;
+  adminCorrelationId: string;
+};
 
-    if (!adminAccess || adminAccess.status !== 'authenticated') {
-      return adminAuthorizationFailureResponse(adminAccess || { status: 'unauthenticated' });
-    }
-    if (adminPrincipal) {
-      enterAdminRequestContext({ requestId: adminCorrelationId, principal: adminPrincipal });
-    }
-    const requiredAction = requiredAdminAction(request.method, pathname);
-    if (requiredAction && (!adminPrincipal || !principalHasAction(adminPrincipal, requiredAction))) {
-      return adminPermissionFailureResponse(requiredAction, adminCorrelationId);
-    }
-  });
+export async function deriveAdminRequestAccess(
+  request: Request,
+  headers: Record<string, string | undefined>,
+): Promise<AdminRequestAccess> {
+  const pathname = new URL(request.url).pathname;
+  const adminCorrelationId = request.headers.get('x-request-id') || generateSessionToken().slice(0, 16);
+  if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) {
+    return { adminAccess: null, adminPrincipal: null, adminCorrelationId };
+  }
+  const adminAccess = await verifyAdminBearer(headers);
+  return {
+    adminAccess,
+    adminPrincipal: adminAccess.status === 'authenticated' ? adminPrincipalFromSession(adminAccess.session) : null,
+    adminCorrelationId,
+  };
+}
+
+async function authorizeDerivedAdminRequest(
+  request: Request,
+  headers: Record<string, string | undefined>,
+  { adminAccess, adminPrincipal, adminCorrelationId }: AdminRequestAccess,
+): Promise<Response | undefined> {
+  const pathname = new URL(request.url).pathname;
+  const ip = requestIp(headers);
+  const allowed = await consumeRateLimit(ip);
+  if (!allowed) {
+    return new Response('Too Many Requests', { status: 429 });
+  }
+  if (!pathname.startsWith('/v1/') || publicAdminPath(pathname)) return;
+
+  if (!adminAccess || adminAccess.status !== 'authenticated') {
+    return adminAuthorizationFailureResponse(adminAccess || { status: 'unauthenticated' });
+  }
+  if (adminPrincipal) {
+    enterAdminRequestContext({ requestId: adminCorrelationId, principal: adminPrincipal });
+  }
+  const requiredAction = requiredAdminAction(request.method, pathname);
+  if (requiredAction && (!adminPrincipal || !principalHasAction(adminPrincipal, requiredAction))) {
+    return adminPermissionFailureResponse(requiredAction, adminCorrelationId);
+  }
+}
+
+export async function authorizeAdminRequest(request: Request): Promise<Response | undefined> {
+  const headers = Object.fromEntries(request.headers);
+  return authorizeDerivedAdminRequest(request, headers, await deriveAdminRequestAccess(request, headers));
+}
+
+export { authorizeAdminRequest as guardAdminRequest };
+
+export const adminAuthGuard = new Elysia()
+  .derive(({ request, headers }) => deriveAdminRequestAccess(request, headers))
+  .beforeHandle(({ request, headers, adminAccess, adminPrincipal, adminCorrelationId }) => (
+    authorizeDerivedAdminRequest(request, headers, { adminAccess, adminPrincipal, adminCorrelationId })
+  ))
+  .as('global');
 
 export function adminPermissionFailureResponse(requiredAction: string, correlationId: string): Response {
   return Response.json({
@@ -515,8 +537,8 @@ export function adminPermissionFailureResponse(requiredAction: string, correlati
   }, { status: 403 });
 }
 
-export const authRoutes = new Elysia({ prefix: '/v1/auth' })
-  .post('/login', async ({ body, headers }) => {
+export const authRoutes = defineHttpOperations({ prefix: '/v1/auth' }, {
+  postLogin: defineHttpOperation('POST', '/login', async ({ body, headers }) => {
     const { token } = hostedInput(AdminLoginInputSchema, body);
     const ip = requestIp(headers);
 
@@ -547,11 +569,11 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
       return new Response('Too Many Requests', { status: 429 });
     }
     return { success: false, error: { message: await ssoMessage() || 'Invalid credentials' } };
-  }, hostedContract('adminLogin'))
-  .post('/logout', ({ headers }) => (
+  }, hostedContract('adminLogin')),
+  postLogout: defineHttpOperation('POST', '/logout', ({ headers }) => (
     logoutAdminSession(headers)
-  ), hostedContract('adminLogout'))
-  .get('/identity', async ({ headers }) => {
+  ), hostedContract('adminLogout')),
+  getIdentity: defineHttpOperation('GET', '/identity', async ({ headers }) => {
     const access = await verifyAdminBearer(headers);
     if (access.status !== 'authenticated') return adminAuthorizationFailureResponse(access);
     const { session } = access;
@@ -560,8 +582,9 @@ export const authRoutes = new Elysia({ prefix: '/v1/auth' })
       ...principal,
       avatar: null,
     };
-  }, hostedContract('adminIdentity'))
-  .get('/health', () => ({ status: 'ok' }), hostedContract('adminHealth'));
+  }, hostedContract('adminIdentity')),
+  getHealth: defineHttpOperation('GET', '/health', () => ({ status: 'ok' }), hostedContract('adminHealth')),
+});
 
 async function ssoMessage(): Promise<string | null> {
   const configurationError = await effectiveSsoAllowlistConfigurationError();

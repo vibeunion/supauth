@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { serverManagementContracts } from '../../../shared/src/server-management.js';
 import { fixtureUser } from './management-contract-fixtures.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const effects: string[] = [];
 const suspendUser = mock(async (_userId: string, _data: Record<string, unknown> = {}) => {
@@ -23,7 +24,7 @@ mock.module('../repositories/webhook-delivery.js', () => ({
 }));
 const { userRoutes } = await import('../routes/users.js');
 const { observabilityMiddleware } = await import('../middleware/index.js');
-const app = new Elysia().use(observabilityMiddleware).use(userRoutes);
+const app = new Elysia().use(observabilityMiddleware).use(operationTestPlugin(userRoutes));
 
 function request(body?: unknown) {
   return new Request('http://localhost/v1/users/user-one/suspend', {

@@ -14,13 +14,13 @@ import {
   serveAdminConsolePage,
 } from '../routes/hosted-pages.js';
 
-const hostedPageRoutes = createHostedPageRoutes({
+const hostedPageRoutes = operationTestPlugin(createHostedPageRoutes({
   authorize: await renderHostedPage('authorize'),
   claim: await renderHostedPage('claim'),
   account: await renderHostedPage('account'),
   changePassword: await renderHostedPage('change-password'),
   logout: await renderHostedPage('logout'),
-});
+}));
 
 function expectHosted(body: string) {
   // 断言浏览器实际产物，忽略打包器的引号、空白和声明关键字格式。
@@ -602,3 +602,4 @@ describe('hostedPageRoutes', () => {
   });
 });
 import { strictBunFile } from './helpers/strict-bun-file.js';
+import { operationTestPlugin } from './http-fixture.js';

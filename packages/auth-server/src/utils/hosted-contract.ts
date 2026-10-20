@@ -1,7 +1,7 @@
 import { decodeSchema, type Static, type TSchema } from '../../../shared/src/schema.js';
 import { hostedServerContracts, type HostedServerContractName } from '../../../shared/src/server-hosted.js';
 import { ApiContractError } from './api-contract.js';
-import { serverContract, type ServerContractContext } from './server-contract.js';
+import { serverContract, type ServerContractContext, type SERVER_CONTRACT_METADATA } from './server-contract.js';
 
 export function hostedInput<S extends TSchema>(schema: S, value: unknown): Static<S> {
   try { return decodeSchema(schema, value); } catch {

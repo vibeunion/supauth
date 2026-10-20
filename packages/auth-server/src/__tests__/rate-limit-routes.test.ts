@@ -7,6 +7,7 @@ import {
   resolveClientIp,
   SHARED_CLIENT_KEY,
 } from '../utils/rate-limit.js';
+import { operationTestPlugin } from './http-fixture.js';
 
 const getSecurityConfig = mock(async () => null);
 mock.module('../repositories/security-config.js', () => ({ getSecurityConfig }));
@@ -162,13 +163,13 @@ describe('forwarded client IP rate-limit boundaries', () => {
 
   it('does not let forwarded header rotation bypass the account claim limit', async () => {
     const claimIps: string[] = [];
-    const app = new Elysia().use(createPublicAccountClaimRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountClaimRoutes({
       getConfig: async () => sanitizeAccountClaimConfig({ enabled: true, value: {} }),
       claimAccount: async (input) => {
         claimIps.push(input.ip || '');
         return { status: 'unavailable' };
       },
-    }));
+    })));
     const statuses: number[] = [];
 
     for (let attempt = 0; attempt < 13; attempt += 1) {
@@ -184,7 +185,7 @@ describe('forwarded client IP rate-limit boundaries', () => {
     let accountConfigReads = 0;
     let authConfigReads = 0;
     let passwordChanges = 0;
-    const app = new Elysia().use(createPublicAccountPasswordRoutes({
+    const app = new Elysia().use(operationTestPlugin(createPublicAccountPasswordRoutes({
       getAccountCenterConfig: async () => {
         accountConfigReads += 1;
         return sanitizeAccountCenterConfig({
@@ -203,7 +204,7 @@ describe('forwarded client IP rate-limit boundaries', () => {
         passwordChanges += 1;
         return { ok: true };
       },
-    }));
+    })));
     const statuses: number[] = [];
 
     for (let attempt = 0; attempt < 9; attempt += 1) {
@@ -219,7 +220,7 @@ describe('forwarded client IP rate-limit boundaries', () => {
 
   it('bounds more than ten thousand trusted login-failure keys without evicting a hot key', async () => {
     configureProxyTrust(true);
-    const app = new Elysia().use(authRoutes);
+    const app = new Elysia().use(operationTestPlugin(authRoutes));
     let acceptedAllCapacityKeys = true;
 
     for (let index = 0; index < 10_000; index += 1) {

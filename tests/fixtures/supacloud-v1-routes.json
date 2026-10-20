@@ -1,0 +1,5958 @@
+{
+  "routes": [
+    {
+      "method": "OPTIONS",
+      "path": "/",
+      "source": "infra.cors.preflight",
+      "hidden": true
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/*",
+      "source": "infra.cors.preflight",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/login",
+      "source": "hosted:adminLogin",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth/logout",
+      "source": "hosted:adminLogout",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth/identity",
+      "source": "hosted:adminIdentity",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth/health",
+      "source": "hosted:adminHealth",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/hosted-auth.js",
+      "source": "hosted:script",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/favicon.ico",
+      "source": "hosted:favicon",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/favicon.svg",
+      "source": "hosted:favicon",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/oauth/authorize",
+      "source": "hosted:page",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/login.html",
+      "source": "hosted:page",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/login",
+      "source": "hosted:page",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/authorize.html",
+      "source": "hosted:page",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/logout",
+      "source": "hosted:logoutPage",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/logout.html",
+      "source": "hosted:logoutPage",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/claim",
+      "source": "hosted:page",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/claim.html",
+      "source": "hosted:page",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/account",
+      "source": "hosted:page",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/account.html",
+      "source": "hosted:page",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/account/password",
+      "source": "hosted:page",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/change-password",
+      "source": "hosted:page",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/change-password.html",
+      "source": "hosted:page",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "source": "hosted:page",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/custom-ui/*",
+      "source": "hosted:removedAsset",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/_app/*",
+      "source": "hosted:staticAsset",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin",
+      "source": "hosted:adminRoot",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/admin/*",
+      "source": "hosted:staticAsset",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/robots.txt",
+      "source": "hosted:robots",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/sign-in-experience/resolve",
+      "source": "configurationEndpoints.resolvePublicSignInExperience",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/oauth/authorizations/:authorizationId",
+      "source": "configurationEndpoints.getOAuthAuthorization",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/public/oauth/authorizations/:authorizationId/consent",
+      "source": "configurationEndpoints.submitOAuthConsent",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/connectors/:connectorId/authorize",
+      "source": "configurationEndpoints.authorizePublicConnector",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/phrases/:languageTag",
+      "source": "configurationEndpoints.getPublicPhrases",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/custom-ui/*",
+      "source": "configurationEndpoints.getPublicCustomUi",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account-claims/config",
+      "source": "server-account:claimConfig",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/public/account-claims/claim",
+      "source": "server-account:claim",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/public/account-password/change",
+      "source": "server-account:password",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account/config",
+      "source": "server-account:config",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account/me",
+      "source": "server-account:me",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account/permissions",
+      "source": "server-account:permissions",
+      "hidden": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/public/account/profile",
+      "source": "server-account:profile",
+      "hidden": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/public/account/email",
+      "source": "server-account:email",
+      "hidden": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/public/account/phone",
+      "source": "server-account:phone",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account/sessions",
+      "source": "server-account:sessions",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/public/account/sessions/:sessionId/revoke",
+      "source": "server-account:revokeSession",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account/grants",
+      "source": "server-account:grants",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/public/account/grants/:clientId",
+      "source": "server-account:revokeGrant",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account/identities",
+      "source": "server-account:identities",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/public/account/identities/authorize",
+      "source": "server-account:authorizeIdentity",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/public/account/identities/:identityId",
+      "source": "server-account:unlinkIdentity",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/public/account/logout",
+      "source": "server-account:logout",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account/passkeys",
+      "source": "server-account:passkeys",
+      "hidden": true
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/public/account/passkeys/:passkeyId/rename",
+      "source": "server-account:renamePasskey",
+      "hidden": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/public/account/passkeys/:passkeyId",
+      "source": "server-account:deletePasskey",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/account/mfa",
+      "source": "server-account:mfa",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/public/account/mfa/totp/enroll",
+      "source": "server-account:enroll",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/public/account/mfa/:factorId/verify",
+      "source": "server-account:verify",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/public/account/mfa/:factorId",
+      "source": "server-account:unenroll",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/public/account/",
+      "source": "server-account:delete",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth-hooks/before-user-created",
+      "source": "server-account:beforeSignup",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth-hooks/custom-access-token",
+      "source": "server-account:accessToken",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/organizations/:orgId/invitations/:invitationId/accept",
+      "source": "sdk:acceptOrganizationInvitation",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/oauth/sso/authorize",
+      "source": "server-account:authorize",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/oauth/sso/authorize",
+      "source": "server-account:authorize",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/swagger",
+      "source": "infra.swagger.ui",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/swagger/json",
+      "source": "infra.swagger.openapi",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/storage/buckets",
+      "source": "hosted:storageList",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/storage/buckets/:bucketId",
+      "source": "hosted:storageCreate",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/storage/upload/:bucketId/*",
+      "source": "hosted:storageUpload",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/storage/sign-url/:bucketId/*",
+      "source": "hosted:storageSign",
+      "hidden": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/storage/delete/:bucketId/*",
+      "source": "hosted:storageDelete",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/storage/avatar/:userId",
+      "source": "hosted:storageAvatar",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/storage/branding/:assetType",
+      "source": "hosted:storageBrandingRead",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/storage/branding/:assetType",
+      "source": "hosted:storageBrandingUpload",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/health",
+      "source": "operations:health",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/project",
+      "source": "operations:getProject",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/public/admin-sso-config",
+      "source": "operations:getPublicAdminSsoConfig",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/runtime/health",
+      "source": "operations:getRuntimeHealth",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/runtime/oauth-server",
+      "source": "operations:getOAuthServerStatus",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/runtime/discovery",
+      "source": "operations:getDiscovery",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/runtime/jwks",
+      "source": "operations:getJWKS",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth-hooks/registration-guide",
+      "source": "server-account:hookGuide",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth-hooks/custom-access-token/status",
+      "source": "server-account:accessTokenStatus",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth-hooks/custom-access-token/config",
+      "source": "server-account:accessTokenConfig",
+      "hidden": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/auth-hooks/custom-access-token/config",
+      "source": "server-account:updateAccessTokenConfig",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth-hooks/custom-access-token/verify",
+      "source": "server-account:verifyAccessToken",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth-hooks/before-user-created/status",
+      "source": "server-account:beforeSignupStatus",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/auth-hooks/before-user-created/verify",
+      "source": "server-account:verifyBeforeSignup",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "source": "operations:getCapabilities",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/",
+      "source": "sdk:listApplications",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/applications/",
+      "source": "sdk:createApplication",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId",
+      "source": "sdk:getApplication",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/applications/:appId",
+      "source": "sdk:updateApplication",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/applications/:appId",
+      "source": "sdk:deleteApplication",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/applications/:appId/rotate-secret",
+      "source": "sdk:rotateApplicationSecret",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/secrets",
+      "source": "server:GET:/v1/applications/:appId/secrets",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/applications/:appId/secrets",
+      "source": "server:POST:/v1/applications/:appId/secrets",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/applications/:appId/secrets/:secretId/disable",
+      "source": "server:POST:/v1/applications/:appId/secrets/:secretId/disable",
+      "hidden": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/applications/:appId/secrets/:secretId",
+      "source": "server:DELETE:/v1/applications/:appId/secrets/:secretId",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/consent",
+      "source": "server:getApplicationConsentSettings",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/applications/:appId/consent",
+      "source": "server:updateApplicationConsentSettings",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/access-control",
+      "source": "server:getApplicationAccessControl",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/applications/:appId/access-control",
+      "source": "server:updateApplicationAccessControl",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/sign-in-experience",
+      "source": "sdk:getApplicationSignInExperience",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/applications/:appId/sign-in-experience",
+      "source": "sdk:updateApplicationSignInExperience",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/applications/:appId/sign-in-experience",
+      "source": "sdk:deleteApplicationSignInExperience",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/bindings",
+      "source": "server:listApplicationBindings",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/applications/:appId/bindings",
+      "source": "server:createApplicationBinding",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/applications/:appId/bindings/:bindingId",
+      "source": "sdk:deleteApplicationBinding",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/scopes",
+      "source": "sdk:listApplicationScopes",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/roles",
+      "source": "sdk:listApplicationRoles",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/logs",
+      "source": "sdk:listApplicationLogs",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/applications/:appId/organizations",
+      "source": "sdk:listApplicationOrganizations",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/connectors/",
+      "source": "configurationEndpoints.listConnectors",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/connectors/factories",
+      "source": "configurationEndpoints.listConnectorFactories",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/connectors/factories/:factoryId",
+      "source": "configurationEndpoints.upsertConnectorFactory",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/connectors/from-factory/:factoryId",
+      "source": "configurationEndpoints.createConnectorFromFactory",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/connectors/:connectorId",
+      "source": "configurationEndpoints.getConnector",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/connectors/:connectorId/authorization-uri",
+      "source": "configurationEndpoints.getConnectorAuthorizationUri",
+      "hidden": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/connectors/:connectorId",
+      "source": "configurationEndpoints.updateConnector",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/connectors/:connectorId/test",
+      "source": "configurationEndpoints.testConnector",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/resources/",
+      "source": "server:listResources",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/resources/",
+      "source": "server:createResource",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/resources/:resourceId",
+      "source": "server:getResource",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/resources/:resourceId",
+      "source": "server:updateResource",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/resources/:resourceId",
+      "source": "sdk:deleteResource",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/resources/:resourceId/scopes",
+      "source": "server:addScope",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/resources/:resourceId/scopes/:scopeId",
+      "source": "server:updateScope",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/resources/:resourceId/scopes/:scopeId",
+      "source": "sdk:removeScope",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/resources/:resourceId/applications",
+      "source": "server:listResourceApplications",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/",
+      "source": "sdk:listUsers",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/users/",
+      "source": "sdk:createUser",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/:userId",
+      "source": "sdk:getUser",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/users/:userId",
+      "source": "sdk:updateUser",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/users/:userId/suspend",
+      "source": "sdk:suspendUser",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/users/:userId/unsuspend",
+      "source": "server:POST:/v1/users/:userId/unsuspend",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/users/:userId",
+      "source": "sdk:deleteUser",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/:userId/sessions",
+      "source": "server:GET:/v1/users/:userId/sessions",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/users/:userId/sessions",
+      "source": "server:POST:/v1/users/:userId/sessions",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/users/:userId/sessions/:sessionId/revoke",
+      "source": "server:POST:/v1/users/:userId/sessions/:sessionId/revoke",
+      "hidden": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/users/:userId/identities/:identityId",
+      "source": "server:DELETE:/v1/users/:userId/identities/:identityId",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/users/:userId/mfa/:factorId/reset",
+      "source": "sdk:resetUserMfa",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/:userId/permissions",
+      "source": "sdk:getUserPermissions",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/:userId/roles",
+      "source": "sdk:getUserRoles",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/:userId/logs",
+      "source": "sdk:listUserLogs",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/:userId/organizations",
+      "source": "sdk:listUserOrganizations",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/users/:userId/grants",
+      "source": "server:GET:/v1/users/:userId/grants",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/users/:userId/grants/:clientId",
+      "source": "server:DELETE:/v1/users/:userId/grants/:clientId",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/organizations/",
+      "source": "sdk:listOrganizations",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/organizations/",
+      "source": "sdk:createOrganization",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/organizations/:orgId",
+      "source": "sdk:getOrganization",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/organizations/:orgId",
+      "source": "sdk:updateOrganization",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/organizations/:orgId",
+      "source": "sdk:deleteOrganization",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/organizations/:orgId/members",
+      "source": "sdk:listOrganizationMembers",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/organizations/:orgId/members",
+      "source": "sdk:addOrganizationMember",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/organizations/:orgId/members/:userId",
+      "source": "sdk:removeOrganizationMember",
+      "hidden": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/organizations/:orgId/members/:userId",
+      "source": "sdk:updateOrganizationMemberRole",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/organizations/:orgId/roles",
+      "source": "sdk:getOrgRoleAssignments",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/organizations/:orgId/invitations",
+      "source": "sdk:listOrganizationInvitations",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/organizations/:orgId/invitations",
+      "source": "sdk:createOrganizationInvitation",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/organizations/:orgId/invitations/:invitationId",
+      "source": "sdk:revokeOrganizationInvitation",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/organizations/:orgId/invitations/:invitationId/:action",
+      "source": "server:POST:/v1/organizations/:orgId/invitations/:invitationId/:action",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/organizations/:orgId/jit",
+      "source": "sdk:getOrganizationJitSettings",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/organizations/:orgId/jit",
+      "source": "sdk:updateOrganizationJitSettings",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/organizations/:orgId/applications",
+      "source": "sdk:listOrganizationApplications",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/organizations/:orgId/applications/:appId",
+      "source": "sdk:bindOrganizationApplication",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/organizations/:orgId/applications/:appId",
+      "source": "sdk:removeOrganizationApplication",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/organizations/:orgId/branding",
+      "source": "sdk:getOrganizationBranding",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/organizations/:orgId/branding",
+      "source": "sdk:updateOrganizationBranding",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/roles/",
+      "source": "sdk:listRoles",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/roles/",
+      "source": "sdk:createRole",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/roles/:roleId",
+      "source": "sdk:getRole",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/roles/:roleId",
+      "source": "sdk:updateRole",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/roles/:roleId",
+      "source": "sdk:deleteRole",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/roles/:roleId/permissions",
+      "source": "sdk:createRolePermission",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/roles/:roleId/permissions/:permissionId",
+      "source": "sdk:deleteRolePermission",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/roles/:roleId/permissions",
+      "source": "sdk:listRolePermissions",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/roles/:roleId/assign",
+      "source": "sdk:listRoleAssignments",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/roles/:roleId/assign",
+      "source": "sdk:assignRole",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/roles/:roleId/assign/:assignmentId",
+      "source": "sdk:revokeRole",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/sign-in-experience/",
+      "source": "configurationEndpoints.getSignInExperience",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/sign-in-experience/resolve",
+      "source": "configurationEndpoints.resolveSignInExperience",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/sign-in-experience/",
+      "source": "configurationEndpoints.updateSignInExperience",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/sign-in-experience/custom-ui-assets",
+      "source": "configurationEndpoints.getCustomUiStatus",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/sign-in-experience/custom-ui-assets",
+      "source": "configurationEndpoints.uploadCustomUiAssets",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/sign-in-experience/custom-ui-assets",
+      "source": "configurationEndpoints.deleteCustomUiAssets",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth-config/",
+      "source": "configurationEndpoints.getAuthConfig",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/auth-config/runtime-consistency",
+      "source": "configurationEndpoints.getAuthConfigRuntimeConsistency",
+      "hidden": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/auth-config/",
+      "source": "configurationEndpoints.updateAuthConfig",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/webhooks/",
+      "source": "operations:listWebhooks",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/webhooks/",
+      "source": "operations:createWebhook",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/webhooks/events",
+      "source": "operations:listWebhookEvents",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/webhooks/:webhookId",
+      "source": "operations:getWebhook",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/webhooks/:webhookId/logs",
+      "source": "operations:listWebhookLogs",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/webhooks/:webhookId",
+      "source": "operations:updateWebhook",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/webhooks/:webhookId",
+      "source": "operations:deleteWebhook",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/webhooks/:webhookId/rotate-secret",
+      "source": "operations:rotateWebhookSecret",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/webhooks/:webhookId/test",
+      "source": "operations:testWebhook",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/webhooks/:webhookId/deliveries",
+      "source": "operations:listWebhookDeliveries",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/webhooks/:webhookId/deliveries/:deliveryId",
+      "source": "operations:getWebhookDelivery",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/webhooks/:webhookId/deliveries/:deliveryId/replay",
+      "source": "operations:replayWebhookDelivery",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/audit/",
+      "source": "operations:listAuditLogs",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/audit/export",
+      "source": "operations:createAuditExport",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/audit/export",
+      "source": "operations:createAuditExportFromQuery",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/audit/export/:exportId/download",
+      "source": "operations:getAuditExportDownload",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/audit/export/:exportId",
+      "source": "operations:getAuditExport",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/audit/integrity",
+      "source": "operations:getAuditIntegrity",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/audit/:logId",
+      "source": "operations:getAuditLog",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/compatibility/supabase",
+      "source": "operations:getCompatibilityReport",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/sync/user/:userId",
+      "source": "sync:user",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/sync/org/:orgId",
+      "source": "sync:organization",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/admin-tools/authorization-compiler",
+      "source": "operations:compileAuthorizationPlan",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/admin-tools/authorization-compiler/demo",
+      "source": "operations:getAuthorizationCompilerDemo",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/admin-tools/rls-migration",
+      "source": "operations:generateRLSMigration",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/admin-tools/rls-migration/demo",
+      "source": "operations:getRLSMigrationDemo",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/consents/",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/consents/check",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/consents/decision",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/consents/",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/consents/application/:applicationId",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/consents/user/:userId/all",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/org-templates/",
+      "source": "sdk:listOrgTemplates",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/org-templates/default",
+      "source": "server:GET:/v1/org-templates/default",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/org-templates/:templateId",
+      "source": "server:GET:/v1/org-templates/:templateId",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/org-templates/",
+      "source": "sdk:createOrgTemplate",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/org-templates/:templateId",
+      "source": "server:PUT:/v1/org-templates/:templateId",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/org-templates/:templateId",
+      "source": "server:DELETE:/v1/org-templates/:templateId",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/org-templates/:templateId/instantiate",
+      "source": "sdk:instantiateOrgTemplate",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/security-config/",
+      "source": "configurationEndpoints.getSecurityConfig",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/security-config/",
+      "source": "configurationEndpoints.updateSecurityConfig",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/security-config/status",
+      "source": "configurationEndpoints.getSecurityStatus",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/provisioning/:projectRef",
+      "source": "operations:getProvisioningStatus",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/provisioning/:projectRef/reconcile",
+      "source": "operations:reconcileProject",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/provisioning/:projectRef/rollback",
+      "source": "operations:rollbackProvisioning",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/enterprise-sso/",
+      "source": "configurationEndpoints.listEnterpriseSSOConfigs",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/enterprise-sso/domain/:domain",
+      "source": "configurationEndpoints.discoverEnterpriseSSO",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/enterprise-sso/:id",
+      "source": "configurationEndpoints.getEnterpriseSSOConfig",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/enterprise-sso/",
+      "source": "configurationEndpoints.createEnterpriseSSOConfig",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/enterprise-sso/:id",
+      "source": "configurationEndpoints.updateEnterpriseSSOConfig",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/enterprise-sso/:id",
+      "source": "configurationEndpoints.deleteEnterpriseSSOConfig",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/passkeys/:userId",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/passkeys/:passkeyId/rename",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/passkeys/:passkeyId",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/api-versions/",
+      "source": "operations:listApiVersions",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/api-versions/:version",
+      "source": "operations:getApiVersion",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/api-versions/",
+      "source": "operations:createApiVersion",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/tenant-config/",
+      "source": "configurationEndpoints.listTenantConfigs",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/tenant-config/:type/:key",
+      "source": "configurationEndpoints.getTenantConfig",
+      "hidden": false
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/tenant-config/:type/:key",
+      "source": "configurationEndpoints.upsertTenantConfig",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/tenant-config/:type/:key",
+      "source": "configurationEndpoints.deleteTenantConfig",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/tenant-config/domain/:domain/check",
+      "source": "configurationEndpoints.checkTenantDomain",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/tenant/members",
+      "source": "sdk:listTenantMembers",
+      "hidden": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/tenant/members/:memberId",
+      "source": "sdk:updateTenantMember",
+      "hidden": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/tenant/members/:memberId",
+      "source": "sdk:removeTenantMember",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/tenant/invitations",
+      "source": "sdk:listTenantInvitations",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/tenant/invitations",
+      "source": "sdk:createTenantInvitation",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/my-account/profile",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/my-account/profile",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/my-account/sessions",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "POST",
+      "path": "/v1/my-account/sessions/:sessionId/revoke",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/my-account/identities/:identityId",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/my-account/grants",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/my-account/grants/:clientId",
+      "source": "hosted:retired",
+      "hidden": true
+    },
+    {
+      "method": "GET",
+      "path": "/v1/rbac-bridge/default-policy",
+      "source": "operations:getRbacMigrationPolicy",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/rbac-bridge/dry-run",
+      "source": "operations:dryRunRbacMigration",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/rbac-bridge/import",
+      "source": "operations:importRbacMigration",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/rbac-bridge/compatibility-helper",
+      "source": "operations:getRbacCompatibilityHelper",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/route-gate/",
+      "source": "operations:getRouteGate",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/route-gate/routes",
+      "source": "operations:getRouteGateSummary",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/account-provisioning/import",
+      "source": "server-account:import",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/account-provisioning/records",
+      "source": "server-account:records",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/account-provisioning/sync",
+      "source": "server-account:sync",
+      "hidden": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/account-provisioning/sync/reconcile",
+      "source": "server-account:reconcile",
+      "hidden": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/account-provisioning/sync/status",
+      "source": "server-account:syncStatus",
+      "hidden": false
+    }
+  ],
+  "openapi": {
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "postV1AuthLogin",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "postV1AuthLogout",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth/identity": {
+      "get": {
+        "operationId": "getV1AuthIdentity",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth/health": {
+      "get": {
+        "operationId": "getV1AuthHealth",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/oauth/authorize": {
+      "get": {
+        "operationId": "getOauthAuthorize",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/login": {
+      "get": {
+        "operationId": "getLogin",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/logout": {
+      "get": {
+        "operationId": "getLogout",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/claim": {
+      "get": {
+        "operationId": "getClaim",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/account": {
+      "get": {
+        "operationId": "getAccount",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/account/password": {
+      "get": {
+        "operationId": "getAccountPassword",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/change-password": {
+      "get": {
+        "operationId": "getChange-password",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/": {
+      "get": {
+        "operationId": "getIndex",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/admin": {
+      "get": {
+        "operationId": "getAdmin",
+        "responses": [
+          "200",
+          "307",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/sign-in-experience/resolve": {
+      "get": {
+        "operationId": "getV1PublicSign-in-experienceResolve",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/oauth/authorizations/{authorizationId}": {
+      "get": {
+        "operationId": "getV1PublicOauthAuthorizationsByAuthorizationId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/oauth/authorizations/{authorizationId}/consent": {
+      "post": {
+        "operationId": "postV1PublicOauthAuthorizationsByAuthorizationIdConsent",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/connectors/{connectorId}/authorize": {
+      "get": {
+        "operationId": "getV1PublicConnectorsByConnectorIdAuthorize",
+        "responses": [
+          "302",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/phrases/{languageTag}": {
+      "get": {
+        "operationId": "getV1PublicPhrasesByLanguageTag",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account-claims/config": {
+      "get": {
+        "operationId": "getV1PublicAccount-claimsConfig",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account-claims/claim": {
+      "post": {
+        "operationId": "postV1PublicAccount-claimsClaim",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account-password/change": {
+      "post": {
+        "operationId": "postV1PublicAccount-passwordChange",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/config": {
+      "get": {
+        "operationId": "getV1PublicAccountConfig",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/me": {
+      "get": {
+        "operationId": "getV1PublicAccountMe",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/permissions": {
+      "get": {
+        "operationId": "getV1PublicAccountPermissions",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/profile": {
+      "patch": {
+        "operationId": "patchV1PublicAccountProfile",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/email": {
+      "patch": {
+        "operationId": "patchV1PublicAccountEmail",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/phone": {
+      "patch": {
+        "operationId": "patchV1PublicAccountPhone",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/grants": {
+      "get": {
+        "operationId": "getV1PublicAccountGrants",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/grants/{clientId}": {
+      "delete": {
+        "operationId": "deleteV1PublicAccountGrantsByClientId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/identities": {
+      "get": {
+        "operationId": "getV1PublicAccountIdentities",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/identities/authorize": {
+      "post": {
+        "operationId": "postV1PublicAccountIdentitiesAuthorize",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/identities/{identityId}": {
+      "delete": {
+        "operationId": "deleteV1PublicAccountIdentitiesByIdentityId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/logout": {
+      "post": {
+        "operationId": "postV1PublicAccountLogout",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/mfa": {
+      "get": {
+        "operationId": "getV1PublicAccountMfa",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/mfa/totp/enroll": {
+      "post": {
+        "operationId": "postV1PublicAccountMfaTotpEnroll",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/mfa/{factorId}/verify": {
+      "post": {
+        "operationId": "postV1PublicAccountMfaByFactorIdVerify",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/mfa/{factorId}": {
+      "delete": {
+        "operationId": "deleteV1PublicAccountMfaByFactorId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/account/": {
+      "delete": {
+        "operationId": "deleteV1PublicAccount",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-hooks/before-user-created": {
+      "post": {
+        "operationId": "postV1Auth-hooksBefore-user-created",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-hooks/custom-access-token": {
+      "post": {
+        "operationId": "postV1Auth-hooksCustom-access-token",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/invitations/{invitationId}/accept": {
+      "post": {
+        "operationId": "postV1OrganizationsByOrgIdInvitationsByInvitationIdAccept",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/oauth/sso/authorize": {
+      "get": {
+        "operationId": "getOauthSsoAuthorize",
+        "responses": [
+          "302",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/oauth/sso/authorize": {
+      "get": {
+        "operationId": "getV1PublicOauthSsoAuthorize",
+        "responses": [
+          "302",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/storage/buckets": {
+      "get": {
+        "operationId": "getV1StorageBuckets",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/storage/buckets/{bucketId}": {
+      "post": {
+        "operationId": "postV1StorageBucketsByBucketId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/storage/avatar/{userId}": {
+      "post": {
+        "operationId": "postV1StorageAvatarByUserId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/storage/branding/{assetType}": {
+      "get": {
+        "operationId": "getV1StorageBrandingByAssetType",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1StorageBrandingByAssetType",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "getV1Health",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/project": {
+      "get": {
+        "operationId": "getV1Project",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/public/admin-sso-config": {
+      "get": {
+        "operationId": "getV1PublicAdmin-sso-config",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/runtime/health": {
+      "get": {
+        "operationId": "getV1RuntimeHealth",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/runtime/oauth-server": {
+      "get": {
+        "operationId": "getV1RuntimeOauth-server",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/runtime/discovery": {
+      "get": {
+        "operationId": "getV1RuntimeDiscovery",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/runtime/jwks": {
+      "get": {
+        "operationId": "getV1RuntimeJwks",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-hooks/registration-guide": {
+      "get": {
+        "operationId": "getV1Auth-hooksRegistration-guide",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-hooks/custom-access-token/status": {
+      "get": {
+        "operationId": "getV1Auth-hooksCustom-access-tokenStatus",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-hooks/custom-access-token/config": {
+      "get": {
+        "operationId": "getV1Auth-hooksCustom-access-tokenConfig",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "patch": {
+        "operationId": "patchV1Auth-hooksCustom-access-tokenConfig",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-hooks/custom-access-token/verify": {
+      "post": {
+        "operationId": "postV1Auth-hooksCustom-access-tokenVerify",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-hooks/before-user-created/status": {
+      "get": {
+        "operationId": "getV1Auth-hooksBefore-user-createdStatus",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-hooks/before-user-created/verify": {
+      "post": {
+        "operationId": "postV1Auth-hooksBefore-user-createdVerify",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "getV1Capabilities",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/": {
+      "get": {
+        "operationId": "getV1Applications",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Applications",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1ApplicationsByAppId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1ApplicationsByAppId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/rotate-secret": {
+      "post": {
+        "operationId": "postV1ApplicationsByAppIdRotate-secret",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/consent": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdConsent",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1ApplicationsByAppIdConsent",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/access-control": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdAccess-control",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1ApplicationsByAppIdAccess-control",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/sign-in-experience": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdSign-in-experience",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1ApplicationsByAppIdSign-in-experience",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1ApplicationsByAppIdSign-in-experience",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/bindings": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdBindings",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1ApplicationsByAppIdBindings",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/bindings/{bindingId}": {
+      "delete": {
+        "operationId": "deleteV1ApplicationsByAppIdBindingsByBindingId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/scopes": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdScopes",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/roles": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdRoles",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/logs": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdLogs",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/applications/{appId}/organizations": {
+      "get": {
+        "operationId": "getV1ApplicationsByAppIdOrganizations",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/connectors/": {
+      "get": {
+        "operationId": "getV1Connectors",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/connectors/factories": {
+      "get": {
+        "operationId": "getV1ConnectorsFactories",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/connectors/factories/{factoryId}": {
+      "put": {
+        "operationId": "putV1ConnectorsFactoriesByFactoryId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/connectors/from-factory/{factoryId}": {
+      "post": {
+        "operationId": "postV1ConnectorsFrom-factoryByFactoryId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/connectors/{connectorId}": {
+      "get": {
+        "operationId": "getV1ConnectorsByConnectorId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "patch": {
+        "operationId": "patchV1ConnectorsByConnectorId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/connectors/{connectorId}/authorization-uri": {
+      "get": {
+        "operationId": "getV1ConnectorsByConnectorIdAuthorization-uri",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/connectors/{connectorId}/test": {
+      "post": {
+        "operationId": "postV1ConnectorsByConnectorIdTest",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/resources/": {
+      "get": {
+        "operationId": "getV1Resources",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Resources",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/resources/{resourceId}": {
+      "get": {
+        "operationId": "getV1ResourcesByResourceId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1ResourcesByResourceId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1ResourcesByResourceId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/resources/{resourceId}/scopes": {
+      "post": {
+        "operationId": "postV1ResourcesByResourceIdScopes",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/resources/{resourceId}/scopes/{scopeId}": {
+      "put": {
+        "operationId": "putV1ResourcesByResourceIdScopesByScopeId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1ResourcesByResourceIdScopesByScopeId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/resources/{resourceId}/applications": {
+      "get": {
+        "operationId": "getV1ResourcesByResourceIdApplications",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/": {
+      "get": {
+        "operationId": "getV1Users",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Users",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}": {
+      "get": {
+        "operationId": "getV1UsersByUserId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1UsersByUserId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1UsersByUserId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}/suspend": {
+      "post": {
+        "operationId": "postV1UsersByUserIdSuspend",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}/unsuspend": {
+      "post": {
+        "operationId": "postV1UsersByUserIdUnsuspend",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}/mfa/{factorId}/reset": {
+      "post": {
+        "operationId": "postV1UsersByUserIdMfaByFactorIdReset",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}/permissions": {
+      "get": {
+        "operationId": "getV1UsersByUserIdPermissions",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}/roles": {
+      "get": {
+        "operationId": "getV1UsersByUserIdRoles",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}/logs": {
+      "get": {
+        "operationId": "getV1UsersByUserIdLogs",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}/organizations": {
+      "get": {
+        "operationId": "getV1UsersByUserIdOrganizations",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/users/{userId}/grants": {
+      "get": {
+        "operationId": "getV1UsersByUserIdGrants",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/": {
+      "get": {
+        "operationId": "getV1Organizations",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Organizations",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1OrganizationsByOrgId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1OrganizationsByOrgId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/members": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdMembers",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1OrganizationsByOrgIdMembers",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/members/{userId}": {
+      "delete": {
+        "operationId": "deleteV1OrganizationsByOrgIdMembersByUserId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "patch": {
+        "operationId": "patchV1OrganizationsByOrgIdMembersByUserId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/roles": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdRoles",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/invitations": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdInvitations",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1OrganizationsByOrgIdInvitations",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/invitations/{invitationId}": {
+      "delete": {
+        "operationId": "deleteV1OrganizationsByOrgIdInvitationsByInvitationId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/jit": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdJit",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1OrganizationsByOrgIdJit",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/applications": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdApplications",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/applications/{appId}": {
+      "put": {
+        "operationId": "putV1OrganizationsByOrgIdApplicationsByAppId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1OrganizationsByOrgIdApplicationsByAppId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/organizations/{orgId}/branding": {
+      "get": {
+        "operationId": "getV1OrganizationsByOrgIdBranding",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1OrganizationsByOrgIdBranding",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/roles/": {
+      "get": {
+        "operationId": "getV1Roles",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Roles",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/roles/{roleId}": {
+      "get": {
+        "operationId": "getV1RolesByRoleId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1RolesByRoleId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1RolesByRoleId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/roles/{roleId}/permissions": {
+      "post": {
+        "operationId": "postV1RolesByRoleIdPermissions",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "get": {
+        "operationId": "getV1RolesByRoleIdPermissions",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/roles/{roleId}/permissions/{permissionId}": {
+      "delete": {
+        "operationId": "deleteV1RolesByRoleIdPermissionsByPermissionId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/roles/{roleId}/assign": {
+      "get": {
+        "operationId": "getV1RolesByRoleIdAssign",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1RolesByRoleIdAssign",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/roles/{roleId}/assign/{assignmentId}": {
+      "delete": {
+        "operationId": "deleteV1RolesByRoleIdAssignByAssignmentId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/sign-in-experience/": {
+      "get": {
+        "operationId": "getV1Sign-in-experience",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1Sign-in-experience",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/sign-in-experience/resolve": {
+      "get": {
+        "operationId": "getV1Sign-in-experienceResolve",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/sign-in-experience/custom-ui-assets": {
+      "get": {
+        "operationId": "getV1Sign-in-experienceCustom-ui-assets",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Sign-in-experienceCustom-ui-assets",
+        "responses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1Sign-in-experienceCustom-ui-assets",
+        "responses": [
+          "200",
+          "202",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-config/": {
+      "get": {
+        "operationId": "getV1Auth-config",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "patch": {
+        "operationId": "patchV1Auth-config",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/auth-config/runtime-consistency": {
+      "get": {
+        "operationId": "getV1Auth-configRuntime-consistency",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/": {
+      "get": {
+        "operationId": "getV1Webhooks",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Webhooks",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/events": {
+      "get": {
+        "operationId": "getV1WebhooksEvents",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/{webhookId}": {
+      "get": {
+        "operationId": "getV1WebhooksByWebhookId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1WebhooksByWebhookId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1WebhooksByWebhookId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/{webhookId}/logs": {
+      "get": {
+        "operationId": "getV1WebhooksByWebhookIdLogs",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/{webhookId}/rotate-secret": {
+      "post": {
+        "operationId": "postV1WebhooksByWebhookIdRotate-secret",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/{webhookId}/test": {
+      "post": {
+        "operationId": "postV1WebhooksByWebhookIdTest",
+        "responses": [
+          "202",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/{webhookId}/deliveries": {
+      "get": {
+        "operationId": "getV1WebhooksByWebhookIdDeliveries",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/{webhookId}/deliveries/{deliveryId}": {
+      "get": {
+        "operationId": "getV1WebhooksByWebhookIdDeliveriesByDeliveryId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/webhooks/{webhookId}/deliveries/{deliveryId}/replay": {
+      "post": {
+        "operationId": "postV1WebhooksByWebhookIdDeliveriesByDeliveryIdReplay",
+        "responses": [
+          "202",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/audit/": {
+      "get": {
+        "operationId": "getV1Audit",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/audit/export": {
+      "post": {
+        "operationId": "postV1AuditExport",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "get": {
+        "operationId": "getV1AuditExport",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/audit/export/{exportId}/download": {
+      "get": {
+        "operationId": "getV1AuditExportByExportIdDownload",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/audit/export/{exportId}": {
+      "get": {
+        "operationId": "getV1AuditExportByExportId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/audit/integrity": {
+      "get": {
+        "operationId": "getV1AuditIntegrity",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/audit/{logId}": {
+      "get": {
+        "operationId": "getV1AuditByLogId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/compatibility/supabase": {
+      "get": {
+        "operationId": "getV1CompatibilitySupabase",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/admin-tools/authorization-compiler": {
+      "post": {
+        "operationId": "postV1Admin-toolsAuthorization-compiler",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/admin-tools/authorization-compiler/demo": {
+      "get": {
+        "operationId": "getV1Admin-toolsAuthorization-compilerDemo",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/admin-tools/rls-migration": {
+      "post": {
+        "operationId": "postV1Admin-toolsRls-migration",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/admin-tools/rls-migration/demo": {
+      "get": {
+        "operationId": "getV1Admin-toolsRls-migrationDemo",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/org-templates/": {
+      "get": {
+        "operationId": "getV1Org-templates",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Org-templates",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/org-templates/default": {
+      "get": {
+        "operationId": "getV1Org-templatesDefault",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/org-templates/{templateId}": {
+      "get": {
+        "operationId": "getV1Org-templatesByTemplateId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1Org-templatesByTemplateId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1Org-templatesByTemplateId",
+        "responses": [
+          "200",
+          "204",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/org-templates/{templateId}/instantiate": {
+      "post": {
+        "operationId": "postV1Org-templatesByTemplateIdInstantiate",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/security-config/": {
+      "get": {
+        "operationId": "getV1Security-config",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1Security-config",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/security-config/status": {
+      "get": {
+        "operationId": "getV1Security-configStatus",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/provisioning/{projectRef}": {
+      "get": {
+        "operationId": "getV1ProvisioningByProjectRef",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/provisioning/{projectRef}/reconcile": {
+      "post": {
+        "operationId": "postV1ProvisioningByProjectRefReconcile",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/provisioning/{projectRef}/rollback": {
+      "post": {
+        "operationId": "postV1ProvisioningByProjectRefRollback",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/enterprise-sso/": {
+      "get": {
+        "operationId": "getV1Enterprise-sso",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Enterprise-sso",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/enterprise-sso/domain/{domain}": {
+      "get": {
+        "operationId": "getV1Enterprise-ssoDomainByDomain",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/enterprise-sso/{id}": {
+      "get": {
+        "operationId": "getV1Enterprise-ssoById",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1Enterprise-ssoById",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1Enterprise-ssoById",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/api-versions/": {
+      "get": {
+        "operationId": "getV1Api-versions",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Api-versions",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/api-versions/{version}": {
+      "get": {
+        "operationId": "getV1Api-versionsByVersion",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/tenant-config/": {
+      "get": {
+        "operationId": "getV1Tenant-config",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/tenant-config/{type}/{key}": {
+      "get": {
+        "operationId": "getV1Tenant-configByTypeByKey",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "put": {
+        "operationId": "putV1Tenant-configByTypeByKey",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1Tenant-configByTypeByKey",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/tenant-config/domain/{domain}/check": {
+      "post": {
+        "operationId": "postV1Tenant-configDomainByDomainCheck",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/tenant/members": {
+      "get": {
+        "operationId": "getV1TenantMembers",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/tenant/members/{memberId}": {
+      "patch": {
+        "operationId": "patchV1TenantMembersByMemberId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "delete": {
+        "operationId": "deleteV1TenantMembersByMemberId",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/tenant/invitations": {
+      "get": {
+        "operationId": "getV1TenantInvitations",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      },
+      "post": {
+        "operationId": "postV1TenantInvitations",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/rbac-bridge/default-policy": {
+      "get": {
+        "operationId": "getV1Rbac-bridgeDefault-policy",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/rbac-bridge/dry-run": {
+      "post": {
+        "operationId": "postV1Rbac-bridgeDry-run",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/rbac-bridge/import": {
+      "post": {
+        "operationId": "postV1Rbac-bridgeImport",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/rbac-bridge/compatibility-helper": {
+      "get": {
+        "operationId": "getV1Rbac-bridgeCompatibility-helper",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/route-gate/": {
+      "get": {
+        "operationId": "getV1Route-gate",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/route-gate/routes": {
+      "get": {
+        "operationId": "getV1Route-gateRoutes",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/account-provisioning/import": {
+      "post": {
+        "operationId": "postV1Account-provisioningImport",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/account-provisioning/records": {
+      "get": {
+        "operationId": "getV1Account-provisioningRecords",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/account-provisioning/sync": {
+      "post": {
+        "operationId": "postV1Account-provisioningSync",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/account-provisioning/sync/reconcile": {
+      "post": {
+        "operationId": "postV1Account-provisioningSyncReconcile",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    },
+    "/v1/account-provisioning/sync/status": {
+      "get": {
+        "operationId": "getV1Account-provisioningSyncStatus",
+        "responses": [
+          "200",
+          "400",
+          "401",
+          "403",
+          "404",
+          "409",
+          "422",
+          "429",
+          "500",
+          "501",
+          "502",
+          "503",
+          "504"
+        ]
+      }
+    }
+  }
+}

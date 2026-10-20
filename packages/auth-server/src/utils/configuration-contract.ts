@@ -4,7 +4,10 @@ import {
   type ConfigurationEndpointName, type ConfigurationEndpointInput,
 } from '../../../shared/src/server-configuration.js';
 import { decodeSchema, type Static, type TSchema } from '../../../shared/src/schema.js';
-import { serverContract, jsonWireValue } from './server-contract.js';
+import {
+  serverContract, jsonWireValue, SERVER_CONTRACT_METADATA,
+  type ServerContractMetadata,
+} from './server-contract.js';
 import { ApiContractError } from './api-contract.js';
 
 export function decodeConfigurationInput<K extends ConfigurationEndpointName>(
@@ -45,25 +48,32 @@ export function configurationContract<O extends { detail?: Record<string, unknow
   const { beforeHandle: _beforeHandle, ...checked } = serverContract(entry.source, {
     ...options, contract: entry.contract,
   });
-  // 输入在 handler 原校验点显式解码，以保留认证、专用错误码及只读预检的顺序。
+  const afterResponse = async (context: {
+    responseValue: unknown;
+    set: { status?: number | string | undefined; headers?: unknown };
+  }) => {
+    const response = context.responseValue;
+    const status = response instanceof Response ? response.status : Number(context.set.status || 200);
+    if (name === 'authorizePublicConnector' && status === 302) {
+      const headers = decodeConfigurationResponse(ConfigurationRedirectHeadersSchema,
+        response instanceof Response ? Object.fromEntries(response.headers) : context.set.headers);
+      const body = decodeConfigurationResponse(configurationEndpoints.authorizePublicConnector.result,
+        response instanceof Response ? await response.clone().json() : response);
+      if (headers.location !== body.redirect) {
+        throw new ApiContractError(502, 'invalid_upstream_response', 'Response does not match the declared contract');
+      }
+    }
+    await checked.afterHandle(context);
+  };
+  // 输入仍在 handler 原校验点解码；metadata 与兼容钩子共用最终响应校验。
+  const metadata: ServerContractMetadata = {
+    source: checked[SERVER_CONTRACT_METADATA].source,
+    contract: entry.contract,
+    afterResponse,
+  };
   return {
     ...checked,
-    afterHandle: async (context: {
-      responseValue: unknown;
-      set: { status?: number | string | undefined; headers?: unknown };
-    }) => {
-      const response = context.responseValue;
-      const status = response instanceof Response ? response.status : Number(context.set.status || 200);
-      if (name === 'authorizePublicConnector' && status === 302) {
-        const headers = decodeConfigurationResponse(ConfigurationRedirectHeadersSchema,
-          response instanceof Response ? Object.fromEntries(response.headers) : context.set.headers);
-        const body = decodeConfigurationResponse(configurationEndpoints.authorizePublicConnector.result,
-          response instanceof Response ? await response.clone().json() : response);
-        if (headers.location !== body.redirect) {
-          throw new ApiContractError(502, 'invalid_upstream_response', 'Response does not match the declared contract');
-        }
-      }
-      await checked.afterHandle(context);
-    },
+    [SERVER_CONTRACT_METADATA]: metadata,
+    afterHandle: afterResponse,
   };
 }

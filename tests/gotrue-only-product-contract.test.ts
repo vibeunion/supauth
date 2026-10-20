@@ -81,7 +81,7 @@ describe('GoTrue-only product contract', () => {
   });
 
   it('keeps incompatible product routes out of the server and console', () => {
-    const serverEntrypoint = source('packages/auth-server/src/index.ts');
+    const serverEntrypoint = source('packages/auth-server/generated/app.manifest.json');
     const accountRoutes = source('packages/auth-server/src/routes/account-self-service.ts');
     const navigation = source('packages/admin-console/src/lib/navigation.js');
 
@@ -94,7 +94,7 @@ describe('GoTrue-only product contract', () => {
       expect(serverEntrypoint).not.toContain(routeFragment);
       expect(navigation).not.toContain(routeFragment);
     }
-    expect(accountRoutes).not.toContain(".post('/passkeys/register'");
+    expect(accountRoutes).not.toContain("'POST', '/passkeys/register'");
     expect(navigation).not.toContain('Inline Hooks');
     expect(existsSync('packages/admin-console/src/routes/inline-hooks')).toBe(false);
   });
