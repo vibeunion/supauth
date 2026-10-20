@@ -12,8 +12,6 @@ import {
 import { ApiContractError } from '../utils/api-contract.js';
 import { operationTestPlugin } from './http-fixture.js';
 
-const adapterExports = { ...await import('../supacloud/adapter.js') };
-
 process.env["SUPACLOUD_INTERNAL_API_URL"] = 'http://supacloud.internal';
 process.env["SUPACLOUD_INTERNAL_TOKEN"] = 'test-token';
 process.env["SUPAOAUTH_BFF_SIGNING_SECRET"] = 'test-bff-signing-secret-32-characters';
@@ -178,7 +176,7 @@ mock.module('../repositories/audit.js', () => ({
   }),
 }));
 mock.module('../supacloud/adapter.js', () => ({
-  ...adapterExports,
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => storageAdapter,
   getSupaCloudAdapterForProject: () => storageAdapter,
   isSupaCloudApiError: (error: unknown, statuses?: number[]) => {
@@ -195,7 +193,7 @@ const {
 const { hostedPageRoutes } = await import('../routes/hosted-pages.js');
 const customUiApp = new Elysia().use(operationTestPlugin(hostedPageRoutes)).use(operationTestPlugin(publicCustomUiRoutes));
 const managementApp = new Elysia()
-  .error(({ error, set }) => {
+  .onError(({ error, set }) => {
     if (!(error instanceof ApiContractError)) return;
     set.status = error.status;
     return {

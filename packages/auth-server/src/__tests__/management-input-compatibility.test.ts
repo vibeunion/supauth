@@ -5,8 +5,6 @@ import { decodeSchema } from '../../../shared/src/schema.js';
 import { sdkEndpoints } from '../../../shared/src/sdk-endpoints.js';
 import { operationTestPlugin } from './http-fixture.js';
 
-const adapterExports = { ...await import('../supacloud/adapter.js') };
-
 const time = '2026-09-08T00:00:00Z';
 const member = {
   id: 'member-one', project_ref: 'project-one', principal_id: 'principal-one',
@@ -64,7 +62,7 @@ mock.module('../supacloud/adapter.js', () => {
     getCustomOidcProvider: async () => { providerReads++; return { identifier: 'custom:one' }; },
   };
   return {
-    ...adapterExports,
+    SupaCloudApiError: class extends Error {},
     getSupaCloudAdapter: () => adapter, getSupaCloudAdapterForProject: () => adapter,
     isSupaCloudApiError: () => false,
   };
@@ -158,7 +156,7 @@ const [{ applicationRoutes }, { resourceRoutes }, { tenantRoutes }, { tenantConf
   import('../routes/tenant.js'), import('../routes/tenant-config.js'),
   import('../routes/connectors.js'), import('../routes/enterprise-sso.js'), import('../routes/sign-in-experience.js'),
 ]);
-const app = new Elysia().error(({ error, set }) => {
+const app = new Elysia().onError(({ error, set }) => {
   if (error instanceof ApiContractError) {
     set.status = error.status;
     return { success: false, error: { code: error.code, message: error.message } };

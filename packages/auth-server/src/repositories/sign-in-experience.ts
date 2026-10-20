@@ -129,15 +129,7 @@ function firstString(source: Record<string, unknown> | null | undefined, paths: 
 
 function projectBrandingDefaults(project?: Record<string, unknown> | null): Branding {
   return {
-    // Issue #3436：项目 name 是内部机器标识（如 supauth-logout-e2e），不能直接当作用户可见系统名。
-    // 系统名优先采用可运营的 display_name/project_name，内部 name 仅作最后兜底。
-    page_title: firstString(project, [
-      ['display_name'],
-      ['project_name'],
-      ['config', 'display_name'],
-      ['config', 'project_name'],
-      ['name'],
-    ]),
+    page_title: firstString(project, [['name'], ['project_name'], ['display_name']]),
     logo_url: firstString(project, [
       ['logo_url'],
       ['logo_uri'],
@@ -220,8 +212,8 @@ export function mergeSupaCloudBrandingDefaults(
   const globalTitle = globalBranding.page_title;
   // 仅根据原始全局标题判断兜底，避免将与 stock 同名的应用再次覆盖。
   if (!globalTitle || STOCK_PAGE_TITLES.has(globalTitle)) {
-    const resolvedTitle = applicationDefaults.page_title ?? projectDefaults.page_title ?? globalTitle;
-    if (resolvedTitle !== undefined) branding.page_title = resolvedTitle;
+    const fallbackTitle = applicationDefaults.page_title ?? projectDefaults.page_title ?? globalTitle;
+    if (fallbackTitle !== undefined) branding.page_title = fallbackTitle;
   }
   return branding;
 }

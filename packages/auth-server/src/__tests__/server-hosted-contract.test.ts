@@ -10,7 +10,7 @@ import { createHostedPageRoutes } from '../routes/hosted-pages.js';
 import { operationTestPlugin } from './http-fixture.js';
 
 function contractApp() {
-  return new Elysia().error(({ error, set }) => {
+  return new Elysia().onError(({ error, set }) => {
     if (!(error instanceof ApiContractError)) throw error;
     set.status = error.status;
     return { success: false, error: { code: error.code, message: error.message } };

@@ -52,4 +52,20 @@ describe('full-stack compatibility cleanup', () => {
     expect(afterAllBody).not.toContain('primary.');
     expect(afterAllBody).not.toContain('secondary.');
   });
+
+  it('confirms Storage deletion before allowing fixture users to be removed', () => {
+    const fullStackTest = readFileSync('tests/integration/supabase-compat/full-stack.test.ts', 'utf8');
+    const storageCleanup = fullStackTest.slice(
+      fullStackTest.indexOf('function registerStorageCleanup'),
+      fullStackTest.indexOf('function registerRealtimeCleanup'),
+    );
+
+    expect(storageCleanup).toContain('ownerClient.storage.from(STORAGE_BUCKET)');
+    expect(storageCleanup).toContain('adminClient.storage.from(STORAGE_BUCKET)');
+    expect(storageCleanup).toContain('bucket.remove([objectPath])');
+    expect(storageCleanup).toContain('if (!removed.error) return;');
+    expect(storageCleanup).toContain('findStorageObject(adminClient.storage.from(STORAGE_BUCKET), objectPath)');
+    expect(storageCleanup).toContain('STORAGE_CLEANUP_ATTEMPTS');
+    expect(storageCleanup).toContain('STORAGE_CLEANUP_DELAY_MS');
+  });
 });

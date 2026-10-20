@@ -13,9 +13,9 @@
     "typecheck:tooling": "tsc --project ./tsconfig.config.json --noEmit && tsc --project ./scripts/tsconfig.json --noEmit && tsc --project ./tsconfig.bun.json --noEmit"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.113.0",
-    "@supacloud/contracts": "0.3.1",
-    "@supabase/auth-js": "^2.113.0",
+    "@supabase/supabase-js": "^2.118.0",
+    "@supacloud/contracts": "0.13.0",
+    "@supabase/auth-js": "2.118.0",
     "@supauth/shared": "workspace:*",
     "@svadmin/core": "^0.56.0",
     "@svadmin/sso": "^0.13.0",

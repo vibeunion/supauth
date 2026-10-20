@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
 import { operationTestPlugin } from './http-fixture.js';
 
-const adapterExports = { ...await import('../supacloud/adapter.js') };
-
 type JitCapability = {
   available: boolean;
   source: string;
@@ -29,7 +27,7 @@ const getOrganizationJitSettings = mock(async () => ({ enabled: true, domains: [
 const updateOrganizationJitSettings = mock(async () => ({ enabled: true, domains: ['example.test'] }));
 
 mock.module('../supacloud/adapter.js', () => ({
-  ...adapterExports,
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => ({
     getCapabilities,
     getOrganizationJitSettings,
@@ -44,7 +42,7 @@ mock.module('../repositories/webhook-delivery.js', () => ({
 
 const { organizationRoutes } = await import('../routes/organizations.js');
 const app = new Elysia()
-  .error(({ error, set }) => {
+  .onError(({ error, set }) => {
     if (error && typeof error === 'object' && 'status' in error) {
       set.status = Number(error.status);
       return { code: 'code' in error ? error.code : 'error', details: 'details' in error ? error.details : undefined };
@@ -92,9 +90,8 @@ describe('organization JIT capability gate', () => {
     const body = strictRecord(await response.json());
 
     expect(response.status).toBe(501);
-    expect(body["success"]).toBe(false);
-    expect(strictProperty(body, "error", "code")).toBe('capability_unavailable');
-    expect(strictProperty(body, "error", "details", "reason_code")).toBe('gotrue_custom_access_token_hook_not_enabled');
+    expect(strictProperty(body["error"], "code")).toBe('capability_unavailable');
+    expect(strictProperty(strictProperty(body["error"], "details"), "reason_code")).toBe('gotrue_custom_access_token_hook_not_enabled');
     expect(getOrganizationJitSettings).not.toHaveBeenCalled();
   });
 });

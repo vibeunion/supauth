@@ -369,6 +369,56 @@ shutdown draining are not established by this local migration test; shutdown
 draining covers active handler promises. The accepted beta dependency and its
 declaration-only patch remain release considerations.
 
+### Upgrade Contract (2026-10-07)
+
+- Goal: upgrade the SupaCloud packages while preserving strict checking across
+  the compiled server, shared request/response contracts, SDK consumers, and
+  admin console. No auth authority, database, deployment, or UI redesign changes.
+- Collaboration: explorer, scoped executors, independent verifier, orchestrator.
+  Preserve the pre-existing migration and branding changes in the dirty checkout.
+- Registry `latest` read-back: compiler 0.38.2, app 0.23.0, Elysia adapter 0.25.0,
+  JavaScript SDK 0.39.1, contracts 0.8.0. The adapter requires Elysia beta.21.
+- Compiler production-source scanning and generated-code checks are explicitly
+  enabled. The scan root remains `src/app`; this is not a claim that compiler
+  governance covers every domain implementation or frontend source file.
+- The existing shared `sdkEndpoints` contracts remain the server/SDK authority.
+  Framework `domain/native-json` transport metadata does not replace these
+  schemas, and the framework-generated client remains disabled.
+- Version-specific compiler and Elysia declaration patches retain
+  `noPropertyAccessFromIndexSignature`, `exactOptionalPropertyTypes`, and
+  `skipLibCheck: false`. Recheck these patches on every dependency update.
+- Function bundling must pass generated-artifact drift checking and the scoped
+  server typecheck. HTTP replacement executors retain their operation result type.
+- Given a stale generated factory, building must fail before bundling.
+- Given an invalid request or response, source and bundled Function entrypoints
+  must reject it using the existing domain contract.
+- Given a SDK consumer or admin-console type mismatch, its scoped typecheck must
+  fail; package upgrades must not use weaker TypeScript flags to pass.
+- Given a hidden or HEAD route, contract inventory must retain its real input
+  validation evidence and bodyless transport semantics.
+- Verification uses individual affected contract test files and scoped typechecks,
+  not the full test suite. Local results do not establish remote acceptance.
+- Rollback is limited to this upgrade's dependency/configuration/adapter changes;
+  do not reset the dirty checkout or remove earlier migration work.
+
+Local verification for this upgrade:
+
+- Frozen dependency installation and compiler drift checking passed.
+- Auth-server strict typecheck, SDK contract/consumer typechecks, and admin
+  console typecheck passed (admin: zero errors and warnings).
+- `tests/supacloud-framework-migration.test.ts`: 6 passed, including the actual
+  Function bundle and normalized route contract coverage.
+- `tests/type-safety-contract.test.ts`: 46 passed.
+- Contract coverage: 418/418, including 198 hidden routes, zero issues.
+- Independent final verification confirmed all 270 domain HTTP operations
+  retain their contract metadata, strict server types pass, and the diff is clean.
+- No full suite, commit, publication, deployment, or remote acceptance was run.
+
+Remaining type boundary: HTTP transport input is intentionally `unknown` until
+decoded by the shared domain schemas. This upgrade does not make every handler
+input/output automatically inferred from the framework-generated manifest.
+The manifest records delegated domain ownership, not a second schema authority.
+
 ## Release Boundary
 
 The local artifact and installed-app verifier are part of the release gate.

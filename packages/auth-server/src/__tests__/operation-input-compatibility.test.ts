@@ -5,8 +5,6 @@ import { ApiContractError } from '../utils/api-contract.js';
 import { operationInput, operationOutput } from '../utils/operation-contract.js';
 import { operationTestPlugin } from './http-fixture.js';
 
-const adapterExports = { ...await import('../supacloud/adapter.js') };
-
 const calls: Array<{ operation: string; input: unknown }> = [];
 let versionEntries: OperationResult<'createApiVersion'>[] = [];
 const defaultPolicy: RbacMigrationPolicy = {
@@ -34,7 +32,7 @@ mock.module('../repositories/rbac-bridge.js', () => ({
   generateCompatibilityHelper: (ref: string) => `sql:${ref}`,
 }));
 mock.module('../supacloud/adapter.js', () => ({
-  ...adapterExports,
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => ({
     exportAuditLogs: async (input: unknown) => {
       calls.push({ operation: 'exportAuditLogs', input });
@@ -56,7 +54,7 @@ const { rbacBridgeRoutes } = await import('../routes/rbac-bridge.js');
 const { auditRoutes } = await import('../routes/audit.js');
 const { apiVersionRoutes } = await import('../routes/api-versions.js');
 const app = new Elysia()
-  .error(({ error, set }) => {
+  .onError(({ error, set }) => {
     if (error instanceof ApiContractError) {
       set.status = error.status;
       return { code: error.code };

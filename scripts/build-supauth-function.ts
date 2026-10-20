@@ -18,6 +18,15 @@ if (architectureCheck.exitCode !== 0) {
   throw new Error('SupAuth App 编译产物检查失败，请运行 app:compile 并审查变更');
 }
 
+const typeCheck = Bun.spawnSync(['bun', '--no-env-file', 'run', 'typecheck'], {
+  cwd: authServerDir,
+  stdout: 'inherit',
+  stderr: 'inherit',
+});
+if (typeCheck.exitCode !== 0) {
+  throw new Error('SupAuth Function 类型检查失败，禁止打包未通过严格检查的候选产物');
+}
+
 function resolveRuntimeSafeEntry(packageName: string, entrypointName?: string) {
   try {
     return Bun.resolveSync(entrypointName ? `${packageName}/${entrypointName}` : packageName, authServerDir);

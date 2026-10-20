@@ -27,6 +27,8 @@ const RLS_TABLE = process.env["SUPABASE_COMPAT_RLS_TABLE"] || 'gotrue_compat_ite
 const STORAGE_BUCKET = process.env["SUPABASE_COMPAT_STORAGE_BUCKET"] || 'gotrue-compat-private';
 const FUNCTION_NAME = process.env["SUPABASE_COMPAT_FUNCTION_NAME"] || 'compat-claims';
 const TEST_TIMEOUT_MS = positiveIntegerFromEnv(process.env['SUPABASE_FULLSTACK_TIMEOUT_MS'], 60_000, 'SUPABASE_FULLSTACK_TIMEOUT_MS');
+const STORAGE_CLEANUP_ATTEMPTS = 5;
+const STORAGE_CLEANUP_DELAY_MS = 500;
 const RUN_ID = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
 if (STRICT_COMPAT) {
@@ -88,7 +90,7 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
     const upload = await primary.client.storage
       .from(STORAGE_BUCKET)
       .upload(objectPath, contents, { contentType: 'text/plain' });
-    if (!upload.error) registerStorageCleanup(adminClient, objectPath, cleanup);
+    if (!upload.error) registerStorageCleanup(adminClient, primary.client, objectPath, cleanup);
     expect(upload.error).toBeNull();
 
     const ownerDownload = await primary.client.storage.from(STORAGE_BUCKET).download(objectPath);
@@ -199,11 +201,43 @@ function registerRowCleanup(adminClient: SupabaseClient, rowId: string, cleanup:
   });
 }
 
-function registerStorageCleanup(adminClient: SupabaseClient, objectPath: string, cleanup: CleanupStack): void {
+function registerStorageCleanup(
+  adminClient: SupabaseClient,
+  ownerClient: SupabaseClient,
+  objectPath: string,
+  cleanup: CleanupStack,
+): void {
   cleanup.register(`Storage object ${objectPath}`, async () => {
-    const removed = await adminClient.storage.from(STORAGE_BUCKET).remove([objectPath]);
-    if (removed.error) throw removed.error;
+    const buckets = [
+      ownerClient.storage.from(STORAGE_BUCKET),
+      adminClient.storage.from(STORAGE_BUCKET),
+    ];
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < STORAGE_CLEANUP_ATTEMPTS; attempt++) {
+      for (const bucket of buckets) {
+        const removed = await bucket.remove([objectPath]);
+        if (!removed.error) return;
+        const remaining = await findStorageObject(adminClient.storage.from(STORAGE_BUCKET), objectPath);
+        if (!remaining.error && !remaining.exists) return;
+        lastError = removed.error || remaining.error || new Error(`Storage object ${objectPath} still exists after deletion`);
+      }
+      if (attempt < STORAGE_CLEANUP_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, STORAGE_CLEANUP_DELAY_MS));
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
   });
+}
+
+async function findStorageObject(bucket: ReturnType<SupabaseClient['storage']['from']>, objectPath: string) {
+  const separator = objectPath.lastIndexOf('/');
+  const parent = separator === -1 ? '' : objectPath.slice(0, separator);
+  const name = separator === -1 ? objectPath : objectPath.slice(separator + 1);
+  const listed = await bucket.list(parent, { limit: 100, search: name });
+  return {
+    error: listed.error,
+    exists: listed.data?.some((entry) => entry.name === name) ?? false,
+  };
 }
 
 function registerRealtimeCleanup(

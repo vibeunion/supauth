@@ -5,7 +5,7 @@ import {
 } from '../../../shared/src/server-configuration.js';
 import { decodeSchema, type Static, type TSchema } from '../../../shared/src/schema.js';
 import {
-  serverContract, jsonWireValue, SERVER_CONTRACT_METADATA,
+  serverContract, attachServerContractMetadata, getServerContractMetadata, jsonWireValue,
   type ServerContractMetadata,
 } from './server-contract.js';
 import { ApiContractError } from './api-contract.js';
@@ -66,14 +66,15 @@ export function configurationContract<O extends { detail?: Record<string, unknow
     await checked.afterHandle(context);
   };
   // 输入仍在 handler 原校验点解码；metadata 与兼容钩子共用最终响应校验。
+  const baseMetadata = getServerContractMetadata(checked);
+  if (!baseMetadata) throw new Error('Server contract metadata is missing');
   const metadata: ServerContractMetadata = {
-    source: checked[SERVER_CONTRACT_METADATA].source,
+    source: baseMetadata.source,
     contract: entry.contract,
     afterResponse,
   };
-  return {
+  return attachServerContractMetadata({
     ...checked,
-    [SERVER_CONTRACT_METADATA]: metadata,
     afterHandle: afterResponse,
-  };
+  }, metadata);
 }

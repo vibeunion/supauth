@@ -520,7 +520,7 @@ export { authorizeAdminRequest as guardAdminRequest };
 
 export const adminAuthGuard = new Elysia()
   .derive(({ request, headers }) => deriveAdminRequestAccess(request, headers))
-  .beforeHandle(({ request, headers, adminAccess, adminPrincipal, adminCorrelationId }) => (
+  .onBeforeHandle(({ request, headers, adminAccess, adminPrincipal, adminCorrelationId }) => (
     authorizeDerivedAdminRequest(request, headers, { adminAccess, adminPrincipal, adminCorrelationId })
   ))
   .as('global');

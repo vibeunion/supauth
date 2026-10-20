@@ -136,24 +136,25 @@ export function mapObservedError(request: Request, error: unknown): NormalizedAp
 }
 
 export const observabilityMiddleware = new Elysia({ name: 'observability' })
-  // beta 的 derive 在 beforeHandle 阶段，解析前保护必须放在 request。
-  .request(({ request, set }) => {
+  // beta 的 derive 在 beforeHandle 阶段，解析前保护必须放在 onRequest。
+  .onRequest(({ request, set }) => {
     beginObservedRequest(request, set.headers);
   })
   .derive(({ request }) => {
     const { requestId, startTime } = beginObservedRequest(request);
     return { requestId, startTime };
   })
-  .afterHandle(({ request, responseValue, set }) => {
+  .onAfterHandle(({ request, responseValue, set }) => {
     beginObservedRequest(request, set.headers);
-    if (responseValue instanceof Response) {
-      const csp = responseValue.headers.get('content-security-policy');
-      if (csp !== null) set.headers['content-security-policy'] = csp;
-      return protectObservedResponse(request, responseValue);
-    }
-    logObservedResponse(request);
+    if (!(responseValue instanceof Response)) logObservedResponse(request);
   })
-  .error(({ request, error, set }) => {
+  .mapResponse(({ request, responseValue, set }) => {
+    if (!(responseValue instanceof Response)) return;
+    const csp = responseValue.headers.get('content-security-policy');
+    if (csp !== null) set.headers['content-security-policy'] = csp;
+    return protectObservedResponse(request, responseValue);
+  })
+  .onError(({ request, error, set }) => {
     beginObservedRequest(request, set.headers);
     const normalizedError = mapObservedError(request, error);
     set.status = normalizedError.status;

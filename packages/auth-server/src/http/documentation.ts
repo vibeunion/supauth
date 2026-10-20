@@ -7,6 +7,14 @@ export interface DocumentedOperation {
   };
 }
 
+export function openApiPath(path: string): string {
+  return path.split('/').map(segment => {
+    if (!segment.startsWith(':')) return segment;
+    const name = segment.slice(1);
+    return `{${name.endsWith('?') ? name.slice(0, -1) : name}}`;
+  }).join('/');
+}
+
 const info = {
   title: 'SupaOAuth Management API',
   version: '0.3.0',
@@ -54,14 +62,6 @@ const tags = [
   { name: 'SSO', description: 'GoTrue-compatible SSO authorization entrypoints' },
   { name: 'Account Provisioning', description: 'Bulk account provisioning, SupaOAuth user creation, and self-service account claiming' },
 ];
-
-export function openApiPath(path: string): string {
-  return path.split('/').map(segment => {
-    if (!segment.startsWith(':')) return segment;
-    const name = segment.slice(1);
-    return `{${name.endsWith('?') ? name.slice(0, -1) : name}}`;
-  }).join('/');
-}
 
 // 保持 @elysiajs/swagger 1.3.1 的路径分段与首字符大写规则，稳定既有客户端标识。
 function generateOperationId(method: string, path: string): string {

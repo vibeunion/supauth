@@ -5,7 +5,7 @@ import {
 } from '../../../shared/src/server-account.js';
 import { ApiContractError } from './api-contract.js';
 import {
-  serverContract, jsonWireValue, SERVER_CONTRACT_METADATA,
+  serverContract, attachServerContractMetadata, getServerContractMetadata, jsonWireValue,
   type ServerContractMetadata,
 } from './server-contract.js';
 
@@ -75,14 +75,15 @@ export function accountContract<O extends { detail?: Record<string, unknown> }>(
     await afterHandle(context);
   };
   // account 的输入验证由业务 handler 完成，receipt 只能在其返回后检查。
+  const baseMetadata = getServerContractMetadata(hooks);
+  if (!baseMetadata) throw new Error('Server contract metadata is missing');
   const metadata: ServerContractMetadata = {
-    source: hooks[SERVER_CONTRACT_METADATA].source,
+    source: baseMetadata.source,
     contract,
     afterResponse,
   };
-  return {
+  return attachServerContractMetadata({
     ...hooks,
-    [SERVER_CONTRACT_METADATA]: metadata,
     detail: {
       ...hooks.detail,
       ...(normalizationName ? {
@@ -91,5 +92,5 @@ export function accountContract<O extends { detail?: Record<string, unknown> }>(
       } : {}),
     },
     afterHandle: afterResponse,
-  };
+  }, metadata);
 }

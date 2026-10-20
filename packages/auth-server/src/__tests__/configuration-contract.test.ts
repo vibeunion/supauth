@@ -174,7 +174,7 @@ describe('configuration route contracts', () => {
   test('executes the handler decoder and output hook without preempting authentication', async () => {
     let mutations = 0;
     const app = new Elysia()
-      .beforeHandle(({ request }) => request.headers.has('authorization') ? undefined : new Response('Unauthorized', { status: 401 }))
+      .onBeforeHandle(({ request }) => request.headers.has('authorization') ? undefined : new Response('Unauthorized', { status: 401 }))
       .put('/security', configurationContract('updateSecurityConfig', { detail: { summary: 'Security' } }), ({ body }) => {
         decodeConfigurationInput('updateSecurityConfig', { body });
         mutations++;

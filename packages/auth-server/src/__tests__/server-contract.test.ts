@@ -47,7 +47,7 @@ describe('server contract execution', () => {
 
   test('global authentication remains ahead of local contract validation', async () => {
     const app = new Elysia()
-      .beforeHandle(() => new Response('Unauthorized', { status: 401 }))
+      .onBeforeHandle(() => new Response('Unauthorized', { status: 401 }))
       .post('/resource', serverContract('test:auth', { contract }), () => ({ id: 'one' }));
     expect((await app.handle(request({ name: 123 }))).status).toBe(401);
   });
