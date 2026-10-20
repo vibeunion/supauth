@@ -63,6 +63,7 @@ describe('full-stack compatibility cleanup', () => {
     expect(storageCleanup).toContain('ownerClient.storage.from(STORAGE_BUCKET)');
     expect(storageCleanup).toContain('adminClient.storage.from(STORAGE_BUCKET)');
     expect(storageCleanup).toContain('bucket.remove([objectPath])');
+    expect(storageCleanup).toContain('if (!removed.error) return;');
     expect(storageCleanup).toContain('findStorageObject(adminClient.storage.from(STORAGE_BUCKET), objectPath)');
     expect(storageCleanup).toContain('STORAGE_CLEANUP_ATTEMPTS');
     expect(storageCleanup).toContain('STORAGE_CLEANUP_DELAY_MS');

@@ -216,6 +216,7 @@ function registerStorageCleanup(
     for (let attempt = 0; attempt < STORAGE_CLEANUP_ATTEMPTS; attempt++) {
       for (const bucket of buckets) {
         const removed = await bucket.remove([objectPath]);
+        if (!removed.error) return;
         const remaining = await findStorageObject(adminClient.storage.from(STORAGE_BUCKET), objectPath);
         if (!remaining.error && !remaining.exists) return;
         lastError = removed.error || remaining.error || new Error(`Storage object ${objectPath} still exists after deletion`);
