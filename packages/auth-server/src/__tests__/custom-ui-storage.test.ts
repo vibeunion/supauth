@@ -176,6 +176,7 @@ mock.module('../repositories/audit.js', () => ({
   }),
 }));
 mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: class extends Error {},
   getSupaCloudAdapter: () => storageAdapter,
   getSupaCloudAdapterForProject: () => storageAdapter,
   isSupaCloudApiError: (error: unknown, statuses?: number[]) => {

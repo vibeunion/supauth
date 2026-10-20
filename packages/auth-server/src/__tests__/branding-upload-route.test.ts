@@ -45,6 +45,7 @@ class MockSupaCloudApiError extends Error {
 }
 
 mock.module('../supacloud/adapter.js', () => ({
+  SupaCloudApiError: MockSupaCloudApiError,
   isSupaCloudApiError: (error: unknown, statuses?: number[]) => (
     error instanceof MockSupaCloudApiError
     && (!statuses || statuses.includes(error.status))

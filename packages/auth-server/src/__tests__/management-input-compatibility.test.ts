@@ -62,6 +62,7 @@ mock.module('../supacloud/adapter.js', () => {
     getCustomOidcProvider: async () => { providerReads++; return { identifier: 'custom:one' }; },
   };
   return {
+    SupaCloudApiError: class extends Error {},
     getSupaCloudAdapter: () => adapter, getSupaCloudAdapterForProject: () => adapter,
     isSupaCloudApiError: () => false,
   };
