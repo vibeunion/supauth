@@ -53,7 +53,7 @@ const { rbacBridgeRoutes } = await import('../routes/rbac-bridge.js');
 const { auditRoutes } = await import('../routes/audit.js');
 const { apiVersionRoutes } = await import('../routes/api-versions.js');
 const app = new Elysia()
-  .error(({ error, set }) => {
+  .onError(({ error, set }) => {
     if (error instanceof ApiContractError) {
       set.status = error.status;
       return { code: error.code };

@@ -6,7 +6,7 @@ const root = resolve(import.meta.dir, '..');
 
 const positive = `
 import Elysia, { t } from "elysia";
-import { swagger } from "@elysiajs/swagger";
+import type { ElysiaSwaggerConfig } from "@elysiajs/swagger";
 import type { ComposeElysiaResponse, MacroToContext } from "elysia/types";
 import type { SelectiveStatus } from "elysia/error";
 import type { SQL, SQLWrapper } from "drizzle-orm";
@@ -22,23 +22,22 @@ type Id = Assert<Equal<typeof users.$inferSelect.id, number>>;
 declare const query: PgRelationalQuery<{ id: number }[]>;
 const statement: SQL = query.getSQL();
 const wrapper: SQLWrapper = query;
-type Disabled = MacroToContext<{ auth: { resolve: () => { user: string } } }, { auth: false }>;
-type DisabledResolve = Assert<Equal<Disabled["resolve"], {}>>;
+type Disabled = MacroToContext<{ auth: { derive: () => { user: string } } }, { auth: false }>;
+type DisabledDerive = Assert<Equal<Disabled["derive"], {}>>;
 type DisabledReturn = Assert<Equal<Disabled["return"], {}>>;
-type QuotedResponse = ComposeElysiaResponse<{ response: { "200": { id: number } } }, () => string, {}>;
+type QuotedResponse = ComposeElysiaResponse<{ response: { 200: { id: number } } }, () => string, {}>;
 type SchemaWins = Assert<Equal<QuotedResponse[200], { id: number }>>;
-declare const quotedStatus: SelectiveStatus<{ "200": { id: number }; "404": { missing: true } }>;
+declare const quotedStatus: SelectiveStatus<{ 200: { id: number }; 404: { missing: true } }>;
 const ok = quotedStatus(200, { id: 1 });
-type StatusCode = Assert<Equal<typeof ok.code, 200>>;
+type StatusCode = Assert<Equal<typeof ok.status, 200>>;
 quotedStatus("Not Found", { missing: true });
-new Elysia().use(swagger()).macro({ auth: { resolve: () => ({ user: { id: 1 } }) } })
-  .get("/selected", ({ user }) => { type UserId = Assert<Equal<typeof user.id, number>>; return user.id; }, { auth: true });
-new Elysia().get("/quoted", ({ status }) => status(200, { id: 1 }), { response: { "200": t.Object({ id: t.Number() }) } });
+const swaggerConfig: ElysiaSwaggerConfig<"/swagger"> = {};
+new Elysia().macro({ auth: { derive: () => ({ user: { id: 1 } }) } })
+  .get("/selected", { auth: true }, ({ user }) => { type UserId = Assert<Equal<typeof user.id, number>>; return user.id; });
+new Elysia().get("/quoted", { response: { 200: t.Object({ id: t.Number() }) } }, ({ status }) => status(200, { id: 1 }));
 const app = new Elysia().model({ User: t.Object({ id: t.Number() }) });
-type Parsed = Assert<Equal<ReturnType<typeof app.models.User.parse>, { id: number }>>;
-const parsed = app.models.User.safeParse({ id: 1 });
-if (parsed.success) { const id: number = parsed.data.id; const error: null = parsed.error; }
-else { const empty: null = parsed.data; const error: string | undefined = parsed.error; }
+const userModel: typeof app.models.User = app.models.User;
+const modelKind: "Object" = app.models.User["~kind"];
 declare const rootSession: PostgresJsSession<Sql, {}, {}>;
 const rootBase: PgSession<PostgresJsQueryResultHKT, {}, {}> = rootSession;
 const rootResult: Promise<number> = rootBase.transaction(async () => 1);
@@ -65,15 +64,15 @@ const widenedView: PgSession<PostgresJsQueryResultHKT, Record<string, unknown>, 
 transactionView.transaction(async () => 1); // DIAGNOSTIC 2339
 transactionView.client.end(); // DIAGNOSTIC 2339
 const wrongSql: SQL = 1; // DIAGNOSTIC 2322
-new Elysia().macro({ auth: { resolve: () => ({ user: { id: 1 } }) } })
-  .get("/selected", ({ user }) => { const wrong: string = user.id; return wrong; }, { auth: true }); // DIAGNOSTIC 2322
-new Elysia().macro({ auth: { resolve: () => ({ user: { id: 1 } }) } })
-  .get("/disabled", context => context.user.id, { auth: false }); // DIAGNOSTIC 2339
-declare const quotedStatus: SelectiveStatus<{ "200": { id: number } }>;
+new Elysia().macro({ auth: { derive: () => ({ user: { id: 1 } }) } })
+  .get("/selected", { auth: true }, ({ user }) => { const wrong: string = user.id; return wrong; }); // DIAGNOSTIC 2322
+new Elysia().macro({ auth: { derive: () => ({ user: { id: 1 } }) } })
+  .get("/disabled", { auth: false }, context => context.user.id); // DIAGNOSTIC 2339
+declare const quotedStatus: SelectiveStatus<{ 200: { id: number } }>;
 quotedStatus(200, { id: "bad" }); // DIAGNOSTIC 2322
 quotedStatus("200", { id: 1 }); // DIAGNOSTIC 2345
 const app = new Elysia().model({ User: t.Object({ id: t.Number() }) });
-const wrongParsed: string = app.models.User.parse({ id: 1 }).id; // DIAGNOSTIC 2322
+const wrongModel: "Array" = app.models.User["~kind"]; // DIAGNOSTIC 2322
 pgPolicy("invalid", { as: undefined }); // DIAGNOSTIC 2379
 pgRole("invalid", { createDb: undefined }); // DIAGNOSTIC 2379
 `;

@@ -26,7 +26,7 @@ export function createSupAuthHttpApplication(
     const failure = mapObservedError(context.request, error);
     return Response.json(failure.body, { status: failure.status });
   };
-  application.error(({ request, error }) => errorMapper(error, { request }));
+  application.onError(({ request, error }) => errorMapper(error, { request }));
 
   for (const module of modules) {
     const owned = services[module.name];

@@ -3,7 +3,7 @@ import { decodeSchema, type TSchema } from '../../../shared/src/schema.js';
 import { mapObservedError } from '../middleware/index.js';
 import { ApiContractError } from '../utils/api-contract.js';
 import {
-  SERVER_CONTRACT_METADATA,
+  getServerContractMetadata,
   type ServerContractContext,
   type ServerContractMetadataCarrier,
   type ServerContractVerifier,
@@ -208,7 +208,7 @@ export function defineHttpOperation<const Path extends string, Result>(
           }
         }
         // metadata 保存最终有效钩子；account receipt 只能在业务 handler 后检查。
-        const metadata = options[SERVER_CONTRACT_METADATA];
+        const metadata = getServerContractMetadata(options);
         const before = metadata ? metadata.beforeRequest : options.beforeHandle;
         const after = metadata ? metadata.afterResponse : options.afterHandle;
         const early = await before?.(context);

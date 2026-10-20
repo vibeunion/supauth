@@ -41,7 +41,7 @@ mock.module('../repositories/audit.js', () => ({
 
 const { rbacBridgeRoutes } = await import('../routes/rbac-bridge.js');
 const app = new Elysia()
-  .error(({ error, set }) => {
+  .onError(({ error, set }) => {
     if (error instanceof ApiContractError) {
       set.status = error.status;
       return { code: error.code };

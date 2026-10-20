@@ -39,16 +39,30 @@ export interface ServerContractMetadataCarrier {
   readonly [SERVER_CONTRACT_METADATA]: ServerContractMetadata;
 }
 
-export function getServerContractMetadata(
-  options: ServerContractMetadataCarrier,
-): ServerContractMetadata {
-  return options[SERVER_CONTRACT_METADATA];
-}
-
-interface ContractOptions {
+type ContractOptions = {
   contract: ServerRouteContract;
   detail?: Record<string, unknown>;
   beforeValidate?: ServerContractVerifier;
+};
+
+export function getServerContractMetadata(
+  options: unknown,
+): ServerContractMetadata | undefined {
+  if (!isRecord(options)) return undefined;
+  return (options as Partial<ServerContractMetadataCarrier>)[SERVER_CONTRACT_METADATA];
+}
+
+export function attachServerContractMetadata<T extends object>(
+  options: T,
+  metadata: ServerContractMetadata,
+): Omit<T, typeof SERVER_CONTRACT_METADATA> {
+  Object.defineProperty(options, SERVER_CONTRACT_METADATA, {
+    configurable: false,
+    enumerable: true,
+    value: metadata,
+    writable: false,
+  });
+  return options as Omit<T, typeof SERVER_CONTRACT_METADATA>;
 }
 
 function inputFailure(): ApiContractError {
@@ -278,7 +292,10 @@ export async function validateServerRequest(
   }
 }
 
-export function serverContract<const O extends ContractOptions>(source: string, options: O) {
+export function serverContract<const O extends ContractOptions>(
+  source: string,
+  options: O,
+) {
   const { contract, beforeValidate, detail, ...routeOptions } = options;
   if (!source || !Object.keys(contract.responses).length) throw new Error('A complete route contract is required');
   if ((contract.request === 'raw-signed' || contract.request === 'protocol') && !beforeValidate) {
@@ -320,9 +337,8 @@ export function serverContract<const O extends ContractOptions>(source: string, 
     beforeRequest: beforeHandle,
     afterResponse: afterHandle,
   };
-  return {
+  return attachServerContractMetadata({
     ...routeOptions,
-    [SERVER_CONTRACT_METADATA]: metadata,
     detail: {
       ...detail,
       ...inputDocumentation(contract.input),
@@ -337,5 +353,5 @@ export function serverContract<const O extends ContractOptions>(source: string, 
     },
     beforeHandle,
     afterHandle,
-  };
+  }, metadata);
 }

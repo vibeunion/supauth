@@ -192,7 +192,7 @@ const {
 const { hostedPageRoutes } = await import('../routes/hosted-pages.js');
 const customUiApp = new Elysia().use(operationTestPlugin(hostedPageRoutes)).use(operationTestPlugin(publicCustomUiRoutes));
 const managementApp = new Elysia()
-  .error(({ error, set }) => {
+  .onError(({ error, set }) => {
     if (!(error instanceof ApiContractError)) return;
     set.status = error.status;
     return {

@@ -155,7 +155,7 @@ const [{ applicationRoutes }, { resourceRoutes }, { tenantRoutes }, { tenantConf
   import('../routes/tenant.js'), import('../routes/tenant-config.js'),
   import('../routes/connectors.js'), import('../routes/enterprise-sso.js'), import('../routes/sign-in-experience.js'),
 ]);
-const app = new Elysia().error(({ error, set }) => {
+const app = new Elysia().onError(({ error, set }) => {
   if (error instanceof ApiContractError) {
     set.status = error.status;
     return { success: false, error: { code: error.code, message: error.message } };

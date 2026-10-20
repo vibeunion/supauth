@@ -46,7 +46,7 @@ mock.module('../repositories/audit.js', () => ({
 }));
 // 运行真实路由与仓储，仅在数据库边界捕获 values/set，不重写描述默认逻辑。
 const { resourceRoutes } = await import('../routes/resources.js');
-const app = new Elysia().error(({ error, set }) => {
+const app = new Elysia().onError(({ error, set }) => {
   if (error instanceof ApiContractError) {
     set.status = error.status;
     return { code: error.code };

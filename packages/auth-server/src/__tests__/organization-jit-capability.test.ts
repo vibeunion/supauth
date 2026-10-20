@@ -41,7 +41,7 @@ mock.module('../repositories/webhook-delivery.js', () => ({
 
 const { organizationRoutes } = await import('../routes/organizations.js');
 const app = new Elysia()
-  .error(({ error, set }) => {
+  .onError(({ error, set }) => {
     if (error && typeof error === 'object' && 'status' in error) {
       set.status = Number(error.status);
       return { code: 'code' in error ? error.code : 'error', details: 'details' in error ? error.details : undefined };

@@ -25,7 +25,7 @@ mock.module('../repositories/webhook-delivery.js', () => ({
 
 const { webhookRoutes } = await import('../routes/webhooks.js');
 const app = new Elysia()
-  .error(({ error, set }) => {
+  .onError(({ error, set }) => {
     if (error instanceof ApiContractError) {
       set.status = error.status;
       return { code: error.code };
