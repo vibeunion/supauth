@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/vibeunion/supauth/compare/auth-server-v0.10.1...auth-server-v0.11.0) (2026-10-20)
+
+
+### Features
+
+* **auth:** migrate to latest SupaCloud app ([#140](https://github.com/vibeunion/supauth/issues/140)) ([6dfd41a](https://github.com/vibeunion/supauth/commit/6dfd41a2a49e7f31b9f2e000ae735124873d89cf))
+
 ## [0.10.1](https://github.com/vibeunion/supauth/compare/auth-server-v0.10.0...auth-server-v0.10.1) (2026-10-06)
 
 
