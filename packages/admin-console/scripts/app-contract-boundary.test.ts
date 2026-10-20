@@ -11,17 +11,17 @@ const adminDirectory = fileURLToPath(new URL('../', import.meta.url));
 const contractEntry = realpathSync(fileURLToPath(import.meta.resolve('@supacloud/contracts/client')));
 const packageDirectory = dirname(dirname(contractEntry));
 const virtualEntry = join(adminDirectory, '__contracts_boundary_entry__.js');
-const expectedEntry = realpathSync(join(packageDirectory, 'dist/client.js'));
-const expectedSharedEntry = realpathSync(join(packageDirectory, 'dist/index-cbp7cdwr.js'));
+const expectedEntry = realpathSync(join(packageDirectory, 'dist/client.mjs'));
+const expectedSharedEntry = realpathSync(join(packageDirectory, 'dist/index-3g9015wn.mjs'));
 const expectedEntries = new Set([expectedEntry, expectedSharedEntry]);
 const transpiler = new Transpiler({ loader: 'js', target: 'browser' });
 
-// 来自已核验的 npm 0.3.1 发布包；升级必须重新审核发布物和依赖边界。
+// 来自已核验的 npm 0.13.0 发布包；升级必须重新审核发布物和依赖边界。
 const artifactHashes = {
-  'dist/client.js': '58afbe7818c96f2700559eb8b3c3376cb787e684baec1df11624a5b06b7501be',
-  'dist/client.d.ts': 'fec3352c409e20bffe34dddcd1bcc09e5836f8816acfd6c88bcd28b37848b513',
-  'dist/index-cbp7cdwr.js': '5a352f33ea612e76a97c42bcfea526f40aef9e0a8fc7b49c1f6d7ab0830e13b5',
-  'dist/http_contract.d.ts': '5c742f85e2519046afa7c074d594f7e544eedbe04387f64fa33a06314784b747',
+  'dist/client.mjs': 'cfc45e27f0084d5ff9103a6c494c6ea3e5ec34f134210ac6ed0acc303c6d61a8',
+  'dist/client.d.mts': '1a3107d6bc354b168cfdd66ad7887d6bde64a945ef076065bbfaac4da2a7f996',
+  'dist/index-3g9015wn.mjs': '78753bb2dca3c0810ae9551899483317829572eaadb6724efe756cae7f55a612',
+  'dist/http_contract.d.mts': '5c742f85e2519046afa7c074d594f7e544eedbe04387f64fa33a06314784b747',
 };
 
 function checkRuntimeGraph(paths: ReadonlySet<string>): void {
@@ -212,7 +212,7 @@ const label = "import '@supacloud/app'";
 `, 'page.svelte')).toEqual([]);
   });
 
-  test('resolves the reviewed 0.3.1 export and exact published artifacts', () => {
+  test('resolves the reviewed 0.13.0 export and exact published artifacts', () => {
     const manifest: unknown = JSON.parse(
       readFileSync(join(packageDirectory, 'package.json'), 'utf8'),
     );
@@ -222,20 +222,19 @@ const label = "import '@supacloud/app'";
       throw new Error('Invalid installed @supacloud/contracts manifest');
     }
     expect(manifest.name).toBe('@supacloud/contracts');
-    expect(manifest.version).toBe('0.3.1');
+    expect(manifest.version).toBe('0.13.0');
     expect(manifest.exports).toEqual({
       '.': {
-        types: './dist/index.d.ts',
-        import: './dist/index.js',
-        default: './dist/index.js',
+        import: { types: './dist/index.d.mts', default: './dist/index.mjs' },
+        require: { types: './dist/index.d.cts', default: './dist/index.cjs' },
       },
       './client': {
-        types: './dist/client.d.ts',
-        import: './dist/client.js',
+        import: { types: './dist/client.d.mts', default: './dist/client.mjs' },
+        require: { types: './dist/client.d.cts', default: './dist/client.cjs' },
       },
       './browser': {
-        types: './dist/browser.d.ts',
-        import: './dist/browser.js',
+        import: { types: './dist/browser.d.mts', default: './dist/browser.mjs' },
+        require: { types: './dist/browser.d.cts', default: './dist/browser.cjs' },
       },
     });
     const dependencies = 'dependencies' in manifest ? manifest.dependencies : undefined;
@@ -247,9 +246,9 @@ const label = "import '@supacloud/app'";
     }
 
     const runtime = readFileSync(expectedEntry, 'utf8');
-    expect(Buffer.byteLength(runtime)).toBe(7567);
+    expect(Buffer.byteLength(runtime)).toBe(13113);
     const runtimeScan = transpiler.scan(runtime);
-    expect(runtimeScan.imports).toEqual([{ kind: 'import-statement', path: './index-cbp7cdwr.js' }]);
+    expect(runtimeScan.imports).toEqual([{ kind: 'import-statement', path: './index-3g9015wn.mjs' }]);
     expect(runtimeScan.exports).toContain('createContractCommandClient');
     expect(runtimeScan.exports).toContain('createAuthoritativeCommandClient');
   });
@@ -289,7 +288,7 @@ const label = "import '@supacloud/app'";
     });
     expect(result.success).toBe(true);
     expect(result.logs).toEqual([]);
-    expect(new Set(requestedImports)).toEqual(new Set(['@supacloud/contracts/client', './index-cbp7cdwr.js']));
+    expect(new Set(requestedImports)).toEqual(new Set(['@supacloud/contracts/client', './index-3g9015wn.mjs']));
     checkRuntimeGraph(loadedPaths);
     expect(result.outputs).toHaveLength(1);
     const [output] = result.outputs;
@@ -306,8 +305,8 @@ const label = "import '@supacloud/app'";
   test('the graph gate rejects missing runtime and every extra reachable module', () => {
     expect(() => checkRuntimeGraph(new Set())).toThrow('Unexpected contracts browser graph');
     for (const extra of [
-      join(packageDirectory, 'dist/index.js'),
-      join(packageDirectory, 'dist/browser.js'),
+      join(packageDirectory, 'dist/index.mjs'),
+      join(packageDirectory, 'dist/browser.mjs'),
       join(packageDirectory, 'dist/decorators.js'),
       join(packageDirectory, 'dist/injector.js'),
       join(adminDirectory, 'node_modules/@angular/core/fesm2022/core.mjs'),
