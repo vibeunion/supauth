@@ -1,4 +1,4 @@
-import { HOSTED_MIGRATIONS } from '../packages/auth-server/src/db/migrate.js';
+import { HOSTED_MIGRATION_CATALOG } from '../packages/auth-server/src/db/migrations/catalog.js';
 import { Type, decodeSchema } from '../packages/shared/src/schema.js';
 import { requireRecord } from './tooling-values.js';
 
@@ -284,7 +284,7 @@ export function createSupacloudAppManifest(input: {
       '/realtime/v1/*',
       '/functions/v1/*',
     ],
-    migrations: HOSTED_MIGRATIONS.map((migration) => ({
+    migrations: HOSTED_MIGRATION_CATALOG.map((migration) => ({
       name: migration.name,
       command: 'SupaCloud Management API POST /v1/projects/{projectRef}/database/sql',
       database_env: 'SUPACLOUD_DATABASE_URL',

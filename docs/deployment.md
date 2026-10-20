@@ -51,11 +51,18 @@ SupAuth **所有 HTTP 运行形态都必须由 SupaCloud Function 托管调用**
 
 ## SupaOAuth SupaCloud Function (BFF)
 
-- **技术栈**：Elysia handler + SupaCloud Functions + drizzle-orm + postgres.js
+- **技术栈**：Elysia handler + SupaCloud Functions + Bun SQL + drizzle-orm
 - **生产入口**：`packages/auth-server/src/supacloud-function.ts`
 - **本地开发端口**：4010，仅 `bun run dev:function` 的 Function emulator 使用
 - **环境变量**：见 `.env.example`
-- **数据库**：共享 SupaCloud 的 Postgres 实例，使用 `supaoauth` schema
+- **数据库**：共享 SupaCloud 的 Postgres 实例，使用 Bun 原生 SQL 建立共享连接，
+  Drizzle 保留现有 schema 和类型化查询。Commands 持久化尚未接入；后续接入应复用
+  SupaCloud 提供的 Bun SQL adapter 和共享连接池，不新增第三方数据库驱动。
+  Function 请求不会创建或升级数据库表。
+- **Commands 迁移验收边界**：启用前必须验证 Workflow/PGMQ 前置条件、安装角色与运行
+  角色的最小权限、已有回执的升级路径，以及平台托管的恢复入口。远程 runtime 更新、
+  平台审计和 webhook 不属于本地 SQL 事务；必须分别确认结果，不能宣称跨服务原子性。
+  当前连接切换不代表这些能力已经实现或通过线上验收。
 - **认证**：开发模式先用原始 `ADMIN_TOKEN` 调用 `POST /api/v1/auth/login` 换取管理 session token；生产模式用 `@svadmin/sso` access token。原始 `ADMIN_TOKEN` 不能直接作为管理 API Bearer token
 
 ### 部署步骤

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { operationTestPlugin } from '../packages/auth-server/src/__tests__/http-fixture.js';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createSupacloudAppManifest } from '../scripts/supacloud-app-contract.js';
@@ -160,13 +161,14 @@ describe('GoTrue-only product contract', () => {
     const compatibilitySource = source('packages/auth-server/src/routes/passkeys.ts');
     expect(compatibilitySource.match(/capabilityUnavailable\('gotrue_passkey_ceremony'/g) || []).toHaveLength(3);
     const { passkeyRoutes } = await import('../packages/auth-server/src/routes/passkeys.js');
-    passkeyRoutes.compile();
-    expect(passkeyRoutes.routes.map(({ method, path }) => [method, path])).toEqual([
+    const passkeyApp = operationTestPlugin(passkeyRoutes);
+    passkeyApp.compile();
+    expect(passkeyApp.routes.map(({ method, path }) => [method, path])).toEqual([
       ['GET', '/v1/passkeys/:userId'],
       ['PUT', '/v1/passkeys/:passkeyId/rename'],
       ['DELETE', '/v1/passkeys/:passkeyId'],
     ]);
-    for (const route of passkeyRoutes.routes) {
+    for (const route of passkeyApp.routes) {
       expect(route.hooks.detail?.hide).toBe(true);
     }
     for (const [method, path] of [
@@ -174,7 +176,7 @@ describe('GoTrue-only product contract', () => {
       ['PUT', '/v1/passkeys/passkey-id/rename'],
       ['DELETE', '/v1/passkeys/passkey-id'],
     ] as const) {
-      const response = await passkeyRoutes.handle(new Request(`http://localhost${path}`, { method }));
+      const response = await passkeyApp.handle(new Request(`http://localhost${path}`, { method }));
       expect(response.status).toBe(501);
     }
   });

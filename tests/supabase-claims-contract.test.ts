@@ -110,8 +110,12 @@ describe('Supabase claims compatibility contract', () => {
     expect(sessionPreparation).toContain("`${runtimeBaseUrl}/auth/v1/health`");
     expect(sessionPreparation).toContain('resolveManagementApiBaseCandidates(process.env, runtimeUrl)');
     expect(sessionPreparation).toContain('verifiedRuntimeVersion(runtimeUrl, expectedCompatVersion)');
-    expect(sessionPreparation).toContain('runtimeVersion === currentCompatVersion');
-    expect(sessionPreparation).toContain("new Set(['v2.192.0', currentCompatVersion])");
+    expect(sessionPreparation).toContain('compatibilityScopes(runtimeVersion)');
+    expect(oauthFixture).toContain('requiresOfflineAccess(runtimeVersion)');
+    for (const consumer of [sessionPreparation, oauthFixture]) {
+      expect(consumer).toContain('supabase-auth-compat-version.js');
+      expect(consumer).not.toMatch(/runtimeVersion === (currentCompatVersion|CURRENT_COMPAT_VERSION)/);
+    }
     expect(sessionPreparation).toContain('const publicKey = requiredSupabasePublicKey()');
     expect(sessionPreparation).toContain('const adminKey = requiredSupabaseAdminKey()');
     expect(sessionPreparation).not.toContain('SUPABASE_FULLSTACK_');
@@ -134,6 +138,7 @@ describe('Supabase claims compatibility contract', () => {
     expect(cleanupScript).toContain('admin.auth.admin.deleteUser(userId)');
     for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/live-compat.yml']) {
       const workflow = readFileSync(workflowPath, 'utf8');
+      expect(workflow.match(/SUPABASE_AUTH_COMPAT_VERSION: \$\{\{ vars\.LIVE_SUPABASE_AUTH_COMPAT_VERSION \|\| 'v2\.197\.0' \}\}/g)).toHaveLength(2);
       expect(workflow).toContain('MANAGEMENT_URL: ${{ secrets.LIVE_MANAGEMENT_URL }}');
       expect(workflow).toContain("SUPACLOUD_AUTH_AUTHORITY_REF: ${{ vars.SUPACLOUD_AUTH_AUTHORITY_REF || vars.LIVE_SUPACLOUD_AUTH_AUTHORITY_REF || 'lhevaxecbonjjdbardgi' }}");
       expect(workflow).not.toContain("|| 'jbknfiwdgbatcxfbiopo'");

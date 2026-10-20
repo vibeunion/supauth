@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
+import baseline from '../../../../tests/fixtures/hosted-migrations-baseline.json';
+import { installMigrationPlan } from '../../../../scripts/real-contract-install.js';
+import { createSupacloudAppManifest } from '../../../../scripts/supacloud-app-contract.js';
+import { HOSTED_MIGRATION_CATALOG } from '../db/migrations/catalog.js';
+import { HOSTED_MIGRATIONS as sourceMigrations } from '../db/migrations/index.js';
 import {
   HOSTED_MIGRATIONS,
   MIGRATION_SQL,
@@ -24,10 +31,153 @@ import {
 
 const __dirname2 = dirname(fileURLToPath(import.meta.url));
 const migrateSrc = readFileSync(join(__dirname2, '../db/migrate.ts'), 'utf-8');
+const root = resolve(__dirname2, '../../../..');
+
+async function bundleSource(path: string, target: 'bun' | 'browser' = 'bun') {
+  const inputs: string[] = [];
+  const build = await Bun.build({
+    entrypoints: [resolve(root, path)],
+    target,
+    format: 'esm',
+    plugins: [{
+      name: 'record-migration-boundary-inputs',
+      setup(builder) {
+        builder.onLoad({ filter: /\.[cm]?[jt]s$/ }, (args) => {
+          inputs.push(args.path);
+          return undefined;
+        });
+      },
+    }],
+  });
+  expect(build.success).toBe(true);
+  expect(build.outputs).toHaveLength(1);
+  const output = build.outputs[0];
+  if (!output) throw new Error(`Missing bundle: ${path}`);
+  return { text: await output.text(), inputs };
+}
+
+describe('SQL source boundaries', () => {
+  it('typechecks the changed SQL modules, tooling, and regression assertions', () => {
+    const configPath = resolve(root, 'packages/auth-server/tsconfig.json');
+    const config = ts.parseJsonSourceFileConfigFileContent(
+      ts.readJsonConfigFile(configPath, ts.sys.readFile),
+      ts.sys,
+      dirname(configPath),
+    );
+    expect(config.errors).toEqual([]);
+    const migrationsDir = resolve(__dirname2, '../db/migrations');
+    const files = [
+      fileURLToPath(import.meta.url),
+      resolve(__dirname2, '../db/migrate.ts'),
+      ...readdirSync(migrationsDir).filter((name) => name.endsWith('.ts'))
+        .map((name) => resolve(migrationsDir, name)),
+      ...[
+        'scripts/supacloud-app-contract.ts',
+        'scripts/verify-supacloud-app-artifact.ts',
+        'scripts/install-supacloud-app.ts',
+        'scripts/real-contract-install.ts',
+      ].map((path) => resolve(root, path)),
+    ];
+    // 仅检查本次 SQL 范围，不把已有框架迁移的类型问题混入本任务。
+    const program = ts.createProgram(files, { ...config.options, noEmit: true });
+    const diagnostics = [...program.getOptionsDiagnostics()];
+    for (const file of files) {
+      const source = program.getSourceFile(file);
+      if (!source) throw new Error(`Missing TypeScript source: ${file}`);
+      diagnostics.push(...program.getSyntacticDiagnostics(source), ...program.getSemanticDiagnostics(source));
+    }
+    expect(diagnostics.map((diagnostic) =>
+      `${diagnostic.file?.fileName ?? 'compiler'}:${diagnostic.code}: ${
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
+      }`,
+    )).toEqual([]);
+  });
+
+  it('preserves pre-refactor migration bytes, ordering, and installed ledger checksums', () => {
+    // 基线取自搬移前的导出值，不允许从新正文自动更新来掩盖历史改写。
+    const catalog: readonly (typeof baseline)[number][] = HOSTED_MIGRATION_CATALOG;
+    expect(catalog).toEqual(baseline);
+    expect(sourceMigrations).toBe(HOSTED_MIGRATIONS);
+    const rawHashes: { name: string; sha256: string }[] = sourceMigrations.map(({ name, sql }) => ({
+      name,
+      sha256: createHash('sha256').update(sql).digest('hex'),
+    }));
+    expect(rawHashes).toEqual(baseline.map(({ name, sha256 }) => ({ name, sha256 })));
+    const installedHashes: { name: string; version: string; checksum: string }[] =
+      installMigrationPlan().map(({ name, version, checksum }) => ({
+        name, version, checksum,
+      }));
+    expect(installedHashes).toEqual(baseline.map(({ name, version, checksum }) => ({
+      name, version, checksum,
+    })));
+  });
+
+  it('keeps manifest declarations identical using metadata only', () => {
+    const manifest = createSupacloudAppManifest({
+      functionBundle: 'function-bundle/index.ts',
+      adminStaticDir: 'function-bundle/admin-console/build',
+      openapiPath: 'openapi.json',
+    });
+    const declarations: readonly { name: string; command: string; database_env: string }[] = manifest.migrations;
+    expect(declarations).toEqual(baseline.map(({ name }) => ({
+      name,
+      command: 'SupaCloud Management API POST /v1/projects/{projectRef}/database/sql',
+      database_env: 'SUPACLOUD_DATABASE_URL',
+    })));
+  });
+
+  it('bundles historical SQL without the database executor or runtime assets', async () => {
+    const { text, inputs } = await bundleSource('packages/auth-server/src/db/migrations/index.ts', 'browser');
+    expect(inputs.some((path) => path.endsWith('/db/migrate.ts'))).toBe(false);
+    expect(text).not.toMatch(/(?:from\s*|import\s*\()\s*['"](?:node:|bun:|postgres)/);
+    const result = Bun.spawnSync([process.execPath, '--no-env-file', '-e',
+      `${text}\nconsole.log(JSON.stringify(HOSTED_MIGRATIONS));`,
+    ], { env: {}, cwd: root, stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stderr.toString()).toBe('');
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout.toString()) as unknown).toEqual(HOSTED_MIGRATIONS);
+  });
+
+  for (const path of [
+    'packages/auth-server/src/db/migrations/catalog.ts',
+    'packages/auth-server/src/db/schema.ts',
+    'scripts/supacloud-app-contract.ts',
+    'scripts/verify-supacloud-app-artifact.ts',
+  ]) {
+    it(`does not load historical SQL through ${path}`, async () => {
+      const { inputs } = await bundleSource(path);
+      expect(inputs.filter((input) =>
+        input.endsWith('/db/migrate.ts')
+        || (input.includes('/db/migrations/') && !input.endsWith('/catalog.ts')),
+      )).toEqual([]);
+    });
+  }
+
+  it('keeps operational SQL consumers off the compatibility executor', () => {
+    for (const path of [
+      'scripts/install-supacloud-app.ts',
+      'scripts/real-contract-install.ts',
+      'packages/auth-server/src/routes/provisioning.ts',
+    ]) {
+      const source = readFileSync(resolve(root, path), 'utf8');
+      expect(source).toContain('/db/migrations/index.js');
+      expect(source).not.toContain('/db/migrate.js');
+    }
+    expect(migrateSrc).not.toMatch(/CREATE\s+(?:TABLE|SCHEMA|OR REPLACE FUNCTION)/);
+  });
+
+  it('still refuses direct migration without contacting a database', () => {
+    const result = Bun.spawnSync([
+      process.execPath, '--no-env-file', resolve(__dirname2, '../db/migrate.ts'),
+    ], { env: {}, stdout: 'pipe', stderr: 'pipe' });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain('Direct DB migration is removed');
+  });
+});
 
 describe('Migration V4 — SQL structure', () => {
   it('defines MIGRATION_V4_SQL constant', () => {
-    expect(migrateSrc).toContain('MIGRATION_V4_SQL');
+    expect(MIGRATION_V4_SQL).toBeString();
   });
 
   it('does not create a local webhook delivery table', () => {
@@ -36,12 +186,12 @@ describe('Migration V4 — SQL structure', () => {
   });
 
   it('creates partial unique consent index', () => {
-    expect(migrateSrc).toContain('uq_user_consents_active');
-    expect(migrateSrc).toContain('WHERE revoked_at IS NULL');
+    expect(MIGRATION_V4_SQL).toContain('uq_user_consents_active');
+    expect(MIGRATION_V4_SQL).toContain('WHERE revoked_at IS NULL');
   });
 
   it('adds secret_hash column to application_secrets', () => {
-    expect(migrateSrc).toContain('ALTER TABLE supaoauth.application_secrets ADD COLUMN IF NOT EXISTS secret_hash');
+    expect(MIGRATION_V4_SQL).toContain('ALTER TABLE supaoauth.application_secrets ADD COLUMN IF NOT EXISTS secret_hash');
   });
 
   it('wires V4 into runMigration', () => {
@@ -54,19 +204,19 @@ describe('Migration V4 — SQL structure', () => {
 
 describe('Migration V5 — provisioning unique constraint', () => {
   it('defines MIGRATION_V5_SQL constant', () => {
-    expect(migrateSrc).toContain('MIGRATION_V5_SQL');
+    expect(MIGRATION_V5_SQL).toBeString();
   });
 
   it('deduplicates legacy provisioning rows before creating the unique index', () => {
     // Collapsing dupes is required so CREATE UNIQUE INDEX succeeds on tables
     // that accumulated duplicate (project_ref, step) rows pre-fix.
-    expect(migrateSrc).toContain('DELETE FROM supaoauth.provisioning_records');
-    expect(migrateSrc).toMatch(/keep\.updated_at.*keep\.id.*p\.updated_at.*p\.id/s);
+    expect(MIGRATION_V5_SQL).toContain('DELETE FROM supaoauth.provisioning_records');
+    expect(MIGRATION_V5_SQL).toMatch(/keep\.updated_at.*keep\.id.*p\.updated_at.*p\.id/s);
   });
 
   it('creates unique index on (project_ref, step)', () => {
-    expect(migrateSrc).toContain('uq_provisioning_records_project_step');
-    expect(migrateSrc).toContain('ON supaoauth.provisioning_records (project_ref, step)');
+    expect(MIGRATION_V5_SQL).toContain('uq_provisioning_records_project_step');
+    expect(MIGRATION_V5_SQL).toContain('ON supaoauth.provisioning_records (project_ref, step)');
   });
 
   it('wires V5 into runMigration after V4', () => {
@@ -122,7 +272,6 @@ describe('Hosted migration chain', () => {
       name: 'supauth-overlay-function-access-repair-v16',
       sql: MIGRATION_V16_SQL,
     });
-    expect(migrateSrc).toContain('forward-only, idempotent copy');
   });
 
   it('deduplicates existing defaults before enforcing one default template', () => {

@@ -1,8 +1,8 @@
 // Database connection — uses SupaCloud's Postgres instance
 // SupaOAuth metadata lives in the `supaoauth` schema, separate from `auth` (GoTrue)
 
-import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { SQL } from 'bun';
+import { drizzle, type BunSQLDatabase } from 'drizzle-orm/bun-sql';
 import * as schema from './schema.js';
 import { runtimeEnv } from '../config/platform-env.js';
 
@@ -18,29 +18,36 @@ function getConnectionConfig(): DbConfig {
   return { url };
 }
 
-let _db: PostgresJsDatabase<typeof schema> | null = null;
-let _sql: ReturnType<typeof postgres> | null = null;
+let _db: BunSQLDatabase<typeof schema> | null = null;
+let _sql: SQL | null = null;
+
+export function getSql() {
+  if (_sql) return _sql;
+  const { url } = getConnectionConfig();
+
+  _sql = new SQL(url, {
+    max: 10,
+    idleTimeout: 20,
+    connectionTimeout: 2,
+  });
+  return _sql;
+}
 
 export function getDb() {
   if (_db) return _db;
-  const { url } = getConnectionConfig();
-  _sql = postgres(url, {
-    max: 10,
-    idle_timeout: 20,
-    connect_timeout: 2,
-  });
-  _db = drizzle(_sql, { schema });
+  _db = drizzle(getSql(), { schema });
   return _db;
 }
 
 export async function closeDb() {
-  if (_sql) {
-    await _sql.end();
-    _sql = null;
-    _db = null;
+  const sql = _sql;
+  _sql = null;
+  _db = null;
+  if (sql) {
+    await sql.close();
   }
 }
 
 // Re-export schema for convenience
 export { schema };
-export type Database = PostgresJsDatabase<typeof schema>;
+export type Database = BunSQLDatabase<typeof schema>;

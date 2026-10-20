@@ -20,6 +20,7 @@ import { isUnknownArray, parseJson } from "../../../scripts/tooling-values.js";
 
 import { describe, it, expect } from 'bun:test';
 import { createClient } from '@supabase/supabase-js';
+import { withLiveStep } from './live-step-diagnostics.js';
 import { resolveSupabaseAdminKey, resolveSupabasePublicKey } from '../../../scripts/supabase-compat-env.js';
 import {
   SUPABASE_METADATA_CLAIMS,
@@ -33,6 +34,9 @@ const MANAGEMENT_PORT = positiveIntegerFromEnv(process.env['PORT'], 4010, 'PORT'
 const MANAGEMENT_URL = trimTrailingSlash(process.env["MANAGEMENT_URL"] || `http://localhost:${MANAGEMENT_PORT}`);
 const STRICT_COMPAT = process.env["REQUIRE_SUPABASE_AUTH_COMPAT"] === '1';
 const RUN_LIVE = STRICT_COMPAT || process.env["RUN_SUPABASE_RUNTIME_COMPAT"] === '1' || process.env["RUN_SUPABASE_OAUTH21_COMPAT"] === '1';
+// 实时套件可能经过高延迟链路（如 Tailscale 中继），默认 5s 会误判超时；
+// 放宽并通过环境变量覆盖。
+const LIVE_TIMEOUT_MS = positiveIntegerFromEnv(process.env['SUPABASE_RUNTIME_TIMEOUT_MS'], 60_000, 'SUPABASE_RUNTIME_TIMEOUT_MS');
 const SUPABASE_PUBLIC_KEY = resolveSupabasePublicKey();
 const SUPABASE_ADMIN_KEY = resolveSupabaseAdminKey();
 const TEST_EMAIL = process.env["SUPABASE_TEST_EMAIL"] || '';
@@ -41,15 +45,15 @@ const TEST_PASSWORD = process.env["SUPABASE_TEST_PASSWORD"] || '';
 type LiveTestHandler = () => void | Promise<unknown>;
 
 function liveIt(name: string, fn: LiveTestHandler) {
-  if (RUN_LIVE) it(name, fn);
+  if (RUN_LIVE) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 function supabaseJsIt(name: string, fn: LiveTestHandler) {
-  if (RUN_LIVE && SUPABASE_PUBLIC_KEY) it(name, fn);
+  if (RUN_LIVE && SUPABASE_PUBLIC_KEY) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 function authIt(name: string, fn: LiveTestHandler) {
-  if (RUN_LIVE && SUPABASE_PUBLIC_KEY && TEST_EMAIL && TEST_PASSWORD) it(name, fn);
+  if (RUN_LIVE && SUPABASE_PUBLIC_KEY && TEST_EMAIL && TEST_PASSWORD) it(name, fn, LIVE_TIMEOUT_MS);
 }
 
 if (STRICT_COMPAT) {
@@ -156,8 +160,8 @@ describe('Supabase runtime compatibility', () => {
 
   authIt('supabase-js completes TOTP and verifies the v2.193+ admin factor downgrade', async () => {
     const client = supabaseClient();
-    const gotrueVersion = await readGotrueVersion();
-    const signIn = await client.auth.signInWithPassword({ email: TEST_EMAIL, password: TEST_PASSWORD });
+    const gotrueVersion = await withLiveStep('version', () => readGotrueVersion());
+    const signIn = await withLiveStep('sign-in', () => client.auth.signInWithPassword({ email: TEST_EMAIL, password: TEST_PASSWORD }));
     expect(signIn.error).toBeNull();
     expect(signIn.data.session?.access_token).toBeDefined();
     expect(signIn.data.user?.id).toBeDefined();
@@ -165,11 +169,11 @@ describe('Supabase runtime compatibility', () => {
     let factorId: string | null = null;
     let factorRemoved = false;
     try {
-      const enrollment = await client.auth.mfa.enroll({
+      const enrollment = await withLiveStep('enroll', () => client.auth.mfa.enroll({
         factorType: 'totp',
         friendlyName: `supaoauth-compat-${Date.now()}`,
         issuer: 'SupaOAuth compatibility',
-      });
+      }));
       expect(enrollment.error).toBeNull();
       expect(enrollment.data?.type).toBe('totp');
       factorId = enrollment.data?.id || null;
@@ -177,15 +181,15 @@ describe('Supabase runtime compatibility', () => {
       expect(factorId).toBeTruthy();
       expect(secret).toBeTruthy();
 
-      const challenge = await client.auth.mfa.challenge({ factorId: requireString(factorId) });
+      const challenge = await withLiveStep('challenge', () => client.auth.mfa.challenge({ factorId: requireString(factorId) }));
       expect(challenge.error).toBeNull();
       expect(challenge.data?.id).toBeTruthy();
 
-      const verification = await client.auth.mfa.verify({
+      const verification = await withLiveStep('verify', async () => client.auth.mfa.verify({
         factorId: requireString(factorId),
         challengeId: requireString(challenge.data?.id),
         code: await generateTotpCode(requireString(secret)),
-      });
+      }));
       expect(verification.error).toBeNull();
       expect(verification.data?.access_token).toBeDefined();
       const verifiedPayload = decodeJwtPayload(verification.data?.access_token || '');
@@ -193,7 +197,7 @@ describe('Supabase runtime compatibility', () => {
       expect(amrMethods(verifiedPayload)).toContain('totp');
       expect(amrEntries(verifiedPayload).every((entry) => !('factor_type' in entry))).toBe(true);
 
-      const assurance = await client.auth.mfa.getAuthenticatorAssuranceLevel();
+      const assurance = await withLiveStep('assurance', () => client.auth.mfa.getAuthenticatorAssuranceLevel());
       expect(assurance.error).toBeNull();
       expect(assurance.data?.currentLevel).toBe('aal2');
 
@@ -201,30 +205,31 @@ describe('Supabase runtime compatibility', () => {
         const adminClient = createClient(RUNTIME_URL, SUPABASE_ADMIN_KEY, {
           auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
         });
-        const deletion = await adminClient.auth.admin.mfa.deleteFactor({
+        const deletion = await withLiveStep('delete-factor', () => adminClient.auth.admin.mfa.deleteFactor({
           userId: requireString(signIn.data.user?.id),
           id: requireString(factorId),
-        });
+        }));
         expect(deletion.error).toBeNull();
         factorRemoved = true;
 
-        const downgraded = await client.auth.refreshSession();
+        const downgraded = await withLiveStep('refresh', () => client.auth.refreshSession());
         expect(downgraded.error).toBeNull();
         const downgradedPayload = decodeJwtPayload(downgraded.data.session?.access_token || '');
         expect(downgradedPayload["aal"]).toBe('aal1');
         expect(amrMethods(downgradedPayload)).not.toContain('totp');
         expect(amrEntries(downgradedPayload).every((entry) => !('factor_type' in entry))).toBe(true);
       } else {
-        const unenroll = await client.auth.mfa.unenroll({ factorId: requireString(factorId) });
+        const unenroll = await withLiveStep('unenroll', () => client.auth.mfa.unenroll({ factorId: requireString(factorId) }));
         expect(unenroll.error).toBeNull();
         factorRemoved = true;
       }
     } finally {
       if (factorId && !factorRemoved) {
-        const cleanup = await client.auth.mfa.unenroll({ factorId });
+        const cleanupFactorId = factorId;
+        const cleanup = await withLiveStep('cleanup', () => client.auth.mfa.unenroll({ factorId: cleanupFactorId }));
         expect(cleanup.error).toBeNull();
       }
-      const signOut = await client.auth.signOut({ scope: 'local' });
+      const signOut = await withLiveStep('sign-out', () => client.auth.signOut({ scope: 'local' }));
       expect(signOut.error).toBeNull();
     }
   });

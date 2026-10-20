@@ -22,6 +22,6 @@
       "@supauth/shared": ["../shared/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "generated/**/*.ts", "supacloud.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

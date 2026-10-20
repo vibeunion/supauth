@@ -14,6 +14,7 @@ import { isUnknownArray, requireDefined } from "../../../scripts/tooling-values.
  */
 
 import { describe, it, expect, beforeAll } from 'bun:test';
+import { operationTestPlugin } from '../../../packages/auth-server/src/__tests__/http-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import {
@@ -144,7 +145,8 @@ describeLive('SupaCloud adapter live contract', () => {
   it('project route returns an allowlisted, redacted DTO', async () => {
     try {
       const { healthRoutes } = await import('../../../packages/auth-server/src/routes/health.js');
-      const response = await healthRoutes.handle(new Request('http://localhost/v1/project'));
+      const healthApp = operationTestPlugin(healthRoutes);
+      const response = await healthApp.handle(new Request('http://localhost/v1/project'));
       const project = requireRecord(await response.json());
       expect(response.status).toBe(200);
       assertEnvelope(project, ['id']);

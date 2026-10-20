@@ -1,0 +1,170 @@
+name: "SSH Bootstrap Check"
+
+# 目的：在干净的 ubuntu-latest runner 上验证 check-github-ssh.sh 的行为。
+#
+# 本 workflow 不需要任何 secret、不需要 SSH 私钥。
+# 原因：仓库为 public，checkout 走 HTTPS 即可；需要 SSH 鉴权的场景
+# （拉取私有依赖）在本仓库不存在。
+#
+# 要验证的是脚本的行为契约，与是否持有密钥无关：
+#   1. 在干净 runner（无 known_hosts / 无 ssh-agent / 无密钥）上不崩溃
+#   2. 无密钥时返回 1（而非 0，也不是崩溃码 2/127 等）
+#   3. host key 校验通过 —— 失败原因必须是 Permission denied，
+#      而不是 Host key verification failed/Connection refused
+#   4. 零副作用：不改 ~/.ssh/known_hosts、不改 git --global、不留临时文件
+#   5. 幂等性：连续两次运行退出码一致
+#   6. 失败路径：不可达主机必须返回非 0
+#   7. 临时 known_hosts 确实含 GitHub 官方 host key
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "ci/ssh-bootstrap-check"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: "Verify on clean runner"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: "Assert runner starts clean"
+        run: |
+          set -euo pipefail
+          echo "HOME=$HOME"
+          if [ -e "$HOME/.ssh/known_hosts" ]; then
+            echo "FAIL: known_hosts 预先存在，runner 不干净"
+            exit 1
+          fi
+          if [ -n "${SSH_AUTH_SOCK:-}" ]; then
+            echo "FAIL: runner 上有 ssh-agent，无法验证无密钥场景"
+            exit 1
+          fi
+          echo "OK: runner 干净，无 known_hosts、无 ssh-agent、无密钥"
+
+      # 断言完干净的 runner 之后再取代码；此处用 fetch-depth: 1 即可，
+      # 因为本 job 不依赖 git 历史。
+      - name: "Checkout repository"
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: "No key: must exit 1, must not crash"
+        run: |
+          set -euo pipefail
+          # set +e 取退出码，避免 set -e 下 rc=$? 不可达
+          set +e
+          bash .github/scripts/check-github-ssh.sh
+          rc=$?
+          set -e
+          echo "exit_code=$rc"
+          if [ "$rc" -ne 1 ]; then
+            echo "FAIL: 无密钥时应返回 1，实际 $rc"
+            exit 1
+          fi
+          echo "OK: 无密钥时正确返回 1"
+
+      - name: "Failure reason must be auth, not host key"
+        run: |
+          set -euo pipefail
+          LOG=/tmp/hostkey_probe.log
+          set +e
+          bash .github/scripts/check-github-ssh.sh >"$LOG" 2>&1
+          set -e
+          cat "$LOG"
+          # 若此处出现主机密钥类错误，说明 known_hosts 拼装有问题
+          if grep -q 'Host key verification failed' "$LOG"; then
+            echo "FAIL: known_hosts 校验失败，host key 拼装有问题"
+            exit 1
+          fi
+          if grep -q 'Connection refused\|Connection timed out\|Could not resolve' "$LOG"; then
+            echo "FAIL: 网络层不可达，无法验证 host key"
+            exit 1
+          fi
+          echo "OK: 失败原因与主机密钥无关（host key 校验已通过）"
+
+      - name: "Zero side effect assertions"
+        run: |
+          set -euo pipefail
+          before_keys=$(wc -l < "$HOME/.ssh/known_hosts" 2>/dev/null || echo 0)
+          before_cfg=$(git config --global --list 2>/dev/null | md5sum || echo none)
+
+          set +e
+          bash .github/scripts/check-github-ssh.sh
+          rc=$?
+          set -e
+          echo "exit_code=$rc"
+
+          after_keys=$(wc -l < "$HOME/.ssh/known_hosts" 2>/dev/null || echo 0)
+          after_cfg=$(git config --global --list 2>/dev/null | md5sum || echo none)
+
+          if [ "$before_keys" != "$after_keys" ]; then
+            echo "FAIL: known_hosts 被修改 ($before_keys -> $after_keys)"
+            exit 1
+          fi
+          if [ "$before_cfg" != "$after_cfg" ]; then
+            echo "FAIL: git --global 配置被修改"
+            exit 1
+          fi
+          if compgen -G "/tmp/gh_known_hosts.*" >/dev/null || compgen -G "/tmp/gh_ssh_check.*" >/dev/null; then
+            echo "FAIL: 临时文件未清理"
+            exit 1
+          fi
+          echo "OK: 零副作用断言全部通过（known_hosts / git --global / 临时文件）"
+
+      - name: "Idempotency (exit codes must match)"
+        run: |
+          set -euo pipefail
+          set +e
+          bash .github/scripts/check-github-ssh.sh >/dev/null 2>&1
+          rc1=$?
+          bash .github/scripts/check-github-ssh.sh >/dev/null 2>&1
+          rc2=$?
+          set -e
+          echo "rc1=$rc1 rc2=$rc2"
+          if [ "$rc1" != "$rc2" ]; then
+            echo "FAIL: 两次运行退出码不一致"
+            exit 1
+          fi
+          echo "OK: 幂等性通过"
+
+      - name: "Negative check (bad host must fail)"
+        run: |
+          set -euo pipefail
+          set +e
+          GITHUB_SSH_HOST=nonexistent.invalid bash .github/scripts/check-github-ssh.sh
+          rc=$?
+          set -e
+          echo "negative_exit_code=$rc"
+          if [ "$rc" -eq 0 ]; then
+            echo "FAIL: 不可达主机应返回非 0"
+            exit 1
+          fi
+          echo "OK: 失败路径正确返回非 0"
+
+      - name: "Temp known_hosts must contain official GitHub keys"
+        run: |
+          set -euo pipefail
+          # 探针：只复现脚本的拼装逻辑，不做连接
+          cat > /tmp/probe.sh <<'PROBE'
+          set -euo pipefail
+          TMP="$(mktemp -t gh_known_hosts.XXXXXX)"
+          trap 'rm -f "$TMP"' EXIT
+          if [[ -f "$HOME/.ssh/known_hosts" ]]; then
+            ssh-keygen -F github.com     -f "$HOME/.ssh/known_hosts" >"$TMP"  2>/dev/null || true
+            ssh-keygen -F ssh.github.com -f "$HOME/.ssh/known_hosts" >>"$TMP" 2>/dev/null || true
+          fi
+          if ! grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' "$TMP"; then
+            printf '%s\n' \
+              'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+              'ssh.github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >>"$TMP"
+          fi
+          echo "entries=$(wc -l < "$TMP")"
+          grep -q 'github.com ssh-ed25519' "$TMP"
+          PROBE
+          bash /tmp/probe.sh
+          echo "OK: 官方 host key 已正确写入临时文件"

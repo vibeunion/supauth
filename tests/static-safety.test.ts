@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspectStaticSafety, inspectStrictOptions } from '../scripts/static-safety.js';
-import { uncoveredSourceFiles, readCheckedProject, maintainedSourceFiles } from '../scripts/static-safety-projects.js';
+import { CHECKED_PROJECTS, uncoveredSourceFiles, readCheckedProject, maintainedSourceFiles } from '../scripts/static-safety-projects.js';
 import { inspectMaintainedSource } from '../scripts/static-safety-check.js';
 
 describe('Node automation runtime contract', () => {
@@ -119,6 +119,27 @@ describe('static safety syntax gate', () => {
 });
 
 describe('maintained source coverage', () => {
+  it('assigns compiled auth-server sources and compiler configuration to its executed strict project', () => {
+    const root = new URL('..', import.meta.url).pathname;
+    const config = 'packages/auth-server/tsconfig.json';
+    expect(CHECKED_PROJECTS).toContain(config);
+    const project = readCheckedProject(root, config);
+    expect(project.errors).toEqual([]);
+    const maintained = maintainedSourceFiles(root);
+    const owned = [
+      'packages/auth-server/generated/application.ts',
+      'packages/auth-server/generated/permissions.ts',
+      'packages/auth-server/supacloud.config.ts',
+    ].map(file => join(root, file));
+    for (const file of owned) {
+      expect(maintained).toContain(file);
+      expect(project.files).toContain(file);
+    }
+    expect(uncoveredSourceFiles(owned, [project])).toEqual([]);
+    expect(uncoveredSourceFiles(owned, [{ ...project, files: project.files.filter(file => !owned.includes(file)) }]))
+      .toEqual(owned);
+  });
+
   it('rejects a maintained source absent from all executed checking projects', () => {
     expect(uncoveredSourceFiles(['/repo/a.ts', '/repo/b.svelte'], [{
       config: 'tsconfig.json', files: ['/repo/a.ts'], errors: [],

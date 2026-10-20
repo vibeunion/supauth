@@ -1,6 +1,6 @@
 import { Type as StrictType, decodeSchema as strictDecodeSchema } from '../../../shared/src/schema.js';
 import { strictFetch } from './helpers/strict-fetch.js';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 const getSecurityConfig = mock(async () => null);
 mock.module('../repositories/security-config.js', () => ({ getSecurityConfig }));
@@ -34,17 +34,26 @@ describe('SupAuth function entrypoint', () => {
   it('does not bind a standalone server when imported', async () => {
     setSupacloudFunctionEnv();
 
-    const { app, handleSupAuthRequest } = await import('../index.js');
-
-    expect(app.server).toBeNull();
-
-    const response = await handleSupAuthRequest(new Request('http://supauth.local/v1/health'));
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      status: 'ok',
-      runtime_mode: 'gotrue',
+    const serve = spyOn(Bun, 'serve').mockImplementation(() => {
+      throw new Error('Function entrypoint must not bind a standalone server');
     });
-    expect(app.server).toBeNull();
+    try {
+      const { app, handleSupAuthRequest } = await import('../index.js');
+
+      expect(app.server == null).toBe(true);
+      expect(serve).not.toHaveBeenCalled();
+
+      const response = await handleSupAuthRequest(new Request('http://supauth.local/v1/health'));
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        status: 'ok',
+        runtime_mode: 'gotrue',
+      });
+      expect(app.server == null).toBe(true);
+      expect(serve).not.toHaveBeenCalled();
+    } finally {
+      serve.mockRestore();
+    }
   });
 
   it('accepts SupaCloud manifest /api routes without a standalone proxy', async () => {

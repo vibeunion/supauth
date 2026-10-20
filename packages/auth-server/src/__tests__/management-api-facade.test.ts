@@ -195,7 +195,7 @@ describe('SupaCloud Management API facade routes', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('never forwards a browser-supplied invitation user ID to the platform', async () => {
+  it('rejects a browser-supplied invitation user ID before platform access', async () => {
     const { publicOrganizationRoutes } = await import('../routes/organizations.js');
     const app = new Elysia().use(operationTestPlugin(publicOrganizationRoutes));
     const response = await app.handle(new Request(
@@ -207,10 +207,16 @@ describe('SupaCloud Management API facade routes', () => {
       },
     ));
 
-    expect(response.ok).toBe(false);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.body).toBe('{"token":"one-time-token"}');
-    expect(calls[0]?.body).not.toContain('user_id');
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: {
+        code: 'validation_error',
+        message: 'Request validation failed',
+        correlation_id: expect.stringMatching(/\S/),
+      },
+    });
+    expect(calls).toHaveLength(0);
   });
 
   it('proxies safe user profile updates while preserving SupaOAuth metadata', async () => {

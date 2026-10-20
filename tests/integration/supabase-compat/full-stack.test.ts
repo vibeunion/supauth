@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
 import { resolveSupabaseAdminKey, resolveSupabasePublicKey } from '../../../scripts/supabase-compat-env.js';
 import { CleanupStack } from './cleanup.js';
+import { safeLiveError } from './live-step-diagnostics.js';
 
 const STRICT_COMPAT = process.env["REQUIRE_SUPABASE_AUTH_COMPAT"] === '1';
 const RUN_FULL_STACK = STRICT_COMPAT || process.env["RUN_SUPABASE_FULL_STACK_COMPAT"] === '1';
@@ -25,7 +26,7 @@ const TEST_PASSWORD = process.env["SUPABASE_FULLSTACK_TEST_PASSWORD"]
 const RLS_TABLE = process.env["SUPABASE_COMPAT_RLS_TABLE"] || 'gotrue_compat_items';
 const STORAGE_BUCKET = process.env["SUPABASE_COMPAT_STORAGE_BUCKET"] || 'gotrue-compat-private';
 const FUNCTION_NAME = process.env["SUPABASE_COMPAT_FUNCTION_NAME"] || 'compat-claims';
-const TEST_TIMEOUT_MS = positiveIntegerFromEnv(process.env['SUPABASE_FULLSTACK_TIMEOUT_MS'], 30_000, 'SUPABASE_FULLSTACK_TIMEOUT_MS');
+const TEST_TIMEOUT_MS = positiveIntegerFromEnv(process.env['SUPABASE_FULLSTACK_TIMEOUT_MS'], 60_000, 'SUPABASE_FULLSTACK_TIMEOUT_MS');
 const RUN_ID = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 
 if (STRICT_COMPAT) {
@@ -164,7 +165,7 @@ async function createAuthenticatedFixture(
     if (!signedIn.error && signedIn.data.session) {
       return { client, userId: compatibilityUser.userId };
     }
-    lastError = new Error(`Unable to sign in ${label} compatibility user: ${signedIn.error?.message || 'missing session'}`);
+    lastError = new Error(`Unable to sign in ${label} compatibility user: attempt=${attempt + 1} error=${JSON.stringify(safeLiveError(signedIn.error))}`);
   }
   throw lastError ?? new Error(`Unable to sign in ${label} compatibility user`);
 }
@@ -240,7 +241,7 @@ function waitForSubscription(channel: RealtimeChannel): Promise<void> {
         clearTimeout(timer);
         reject(new Error(`Realtime subscription failed: ${status}`));
       }
-    });
+    }, TEST_TIMEOUT_MS);
   });
 }
 
