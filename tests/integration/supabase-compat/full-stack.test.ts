@@ -90,7 +90,7 @@ describe('Stock GoTrue token compatibility with Supabase services', () => {
     const upload = await primary.client.storage
       .from(STORAGE_BUCKET)
       .upload(objectPath, contents, { contentType: 'text/plain' });
-    if (!upload.error) registerStorageCleanup(adminClient, objectPath, cleanup);
+    if (!upload.error) registerStorageCleanup(adminClient, primary.client, objectPath, cleanup);
     expect(upload.error).toBeNull();
 
     const ownerDownload = await primary.client.storage.from(STORAGE_BUCKET).download(objectPath);
@@ -201,15 +201,25 @@ function registerRowCleanup(adminClient: SupabaseClient, rowId: string, cleanup:
   });
 }
 
-function registerStorageCleanup(adminClient: SupabaseClient, objectPath: string, cleanup: CleanupStack): void {
+function registerStorageCleanup(
+  adminClient: SupabaseClient,
+  ownerClient: SupabaseClient,
+  objectPath: string,
+  cleanup: CleanupStack,
+): void {
   cleanup.register(`Storage object ${objectPath}`, async () => {
-    const bucket = adminClient.storage.from(STORAGE_BUCKET);
+    const buckets = [
+      ownerClient.storage.from(STORAGE_BUCKET),
+      adminClient.storage.from(STORAGE_BUCKET),
+    ];
     let lastError: unknown = null;
     for (let attempt = 0; attempt < STORAGE_CLEANUP_ATTEMPTS; attempt++) {
-      const removed = await bucket.remove([objectPath]);
-      const remaining = await findStorageObject(bucket, objectPath);
-      if (!remaining.error && !remaining.exists) return;
-      lastError = removed.error || remaining.error || new Error(`Storage object ${objectPath} still exists after deletion`);
+      for (const bucket of buckets) {
+        const removed = await bucket.remove([objectPath]);
+        const remaining = await findStorageObject(adminClient.storage.from(STORAGE_BUCKET), objectPath);
+        if (!remaining.error && !remaining.exists) return;
+        lastError = removed.error || remaining.error || new Error(`Storage object ${objectPath} still exists after deletion`);
+      }
       if (attempt < STORAGE_CLEANUP_ATTEMPTS - 1) {
         await new Promise((resolve) => setTimeout(resolve, STORAGE_CLEANUP_DELAY_MS));
       }
