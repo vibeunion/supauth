@@ -81,6 +81,7 @@ function normalizePublicBaseUrl(value?: string) {
 export function createSsoAuthorizeRoutes(
   prefix: string,
   config: Pick<ServerConfig, 'publicBaseUrl' | 'trustProxyHeaders'> = getConfig(),
+  fetcher: (input: URL, init: RequestInit) => Promise<Response> = (input, init) => fetch(input, init),
 ) {
   return defineHttpOperations({ prefix }, {
     getAuthorize: defineHttpOperation('GET', '/authorize', async ({ query, request, set }) => {
@@ -113,6 +114,51 @@ export function createSsoAuthorizeRoutes(
       const publicBaseUrl = normalizePublicBaseUrl(config.publicBaseUrl) || publicOriginFromRequest(request, config.trustProxyHeaders);
       const input = readAccountInput('authorize', request, { query });
       const goTrueUrl = buildGoTrueOAuthAuthorizeUrl(publicBaseUrl, input.query);
+      const prompts = stringParam(input.query, 'prompt').split(/\s+/);
+      set.headers['cache-control'] = 'no-store';
+      if (prompts.includes('login')) {
+        if (prompts.includes('none')) {
+          set.status = 400;
+          return { error: 'invalid_request', error_description: 'prompt=none cannot be combined with login' };
+        }
+        // 服务端取授权 ID 时仅访问配置域名，绝不信任请求 Host 发起出站请求。
+        if (!config.publicBaseUrl || goTrueUrl.protocol !== 'https:' || goTrueUrl.username || goTrueUrl.password) {
+          set.status = 503;
+          return { success: false, error: { code: 'interactive_auth_origin_unavailable', message: 'Interactive authentication origin is unavailable' } };
+        }
+        try {
+          // 不携带旧会话，也不跟随跳转；GoTrue 仍负责 client、回调和 PKCE 的权威校验。
+          const response = await fetcher(goTrueUrl, {
+            redirect: 'manual',
+            credentials: 'omit',
+            signal: AbortSignal.timeout(10_000),
+          });
+          const location = response.headers.get('location');
+          await response.body?.cancel();
+          if (response.status === 400) {
+            set.status = 400;
+            return { error: 'invalid_request', error_description: 'Authorization request was rejected' };
+          }
+          if (response.status !== 302 || !location) throw new Error('Missing hosted authorization redirect');
+          const hosted = new URL(location, goTrueUrl);
+          const authorizationIds = hosted.searchParams.getAll('authorization_id');
+          if (hosted.origin !== goTrueUrl.origin || hosted.pathname !== '/oauth/authorize'
+            || hosted.username || hosted.password || hosted.hash
+            || authorizationIds.length !== 1 || !authorizationIds[0]?.trim()
+            || hosted.searchParams.has('code') || hosted.searchParams.has('access_token')
+            || hosted.searchParams.has('refresh_token')) {
+            throw new Error('Invalid hosted authorization redirect');
+          }
+          // GoTrue 部分版本不将 prompt 透传到登录 UI，绑定新授权 ID 后补齐交互要求。
+          hosted.searchParams.set('prompt', stringParam(input.query, 'prompt'));
+          set.status = 302;
+          set.headers['location'] = hosted.toString();
+          return accountOutput('authorize', { redirect: hosted.toString() });
+        } catch {
+          set.status = 502;
+          return { success: false, error: { code: 'interactive_auth_unavailable', message: 'Interactive authentication is unavailable; please retry from the application' } };
+        }
+      }
       set.status = 302;
       set.headers['location'] = goTrueUrl.toString();
       return accountOutput('authorize', { redirect: goTrueUrl.toString() });
