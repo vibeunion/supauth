@@ -20,6 +20,12 @@ function createTestApp() {
   }));
 }
 
+function requireRedirectLocation(response: Response): URL {
+  const location = response.headers.get('location');
+  if (location === null) throw new Error('Missing redirect location');
+  return new URL(location);
+}
+
 describe('GoTrue-compatible SSO authorize entrypoint', () => {
   it('validates redirect_uri syntax before handing off to GoTrue', () => {
     expect(isSafeRedirectUriSyntax('https://app.example.test/callback')).toBe(true);
@@ -207,19 +213,21 @@ describe('explicit reauthentication after legacy sessions', () => {
     const response = await app.handle(interactiveRequest());
     expect(response.status).toBe(302);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    const destination = new URL(response.headers.get('location')!);
+    const destination = requireRedirectLocation(response);
     expect(destination.origin).toBe(publicConfig.publicBaseUrl);
     expect(destination.searchParams.get('authorization_id')).toBe('fresh-id');
     expect(destination.searchParams.get('prompt')).toBe('login');
     expect(requests).toHaveLength(1);
-    expect(requests[0]!.url.pathname).toBe('/auth/v1/oauth/authorize');
-    expect(requests[0]!.url.searchParams.get('state')).toBe('fresh-state');
-    expect(requests[0]!.url.searchParams.get('code_challenge')).toBe('fresh-pkce-challenge');
-    expect(requests[0]!.init.redirect).toBe('manual');
-    expect(requests[0]!.init.credentials).toBe('omit');
-    expect(requests[0]!.init.signal).toBeInstanceOf(AbortSignal);
-    expect(new Headers(requests[0]!.init.headers).has('cookie')).toBe(false);
-    expect(new Headers(requests[0]!.init.headers).has('authorization')).toBe(false);
+    const forwarded = requests[0];
+    if (!forwarded) throw new Error('Expected one outbound authorization request');
+    expect(forwarded.url.pathname).toBe('/auth/v1/oauth/authorize');
+    expect(forwarded.url.searchParams.get('state')).toBe('fresh-state');
+    expect(forwarded.url.searchParams.get('code_challenge')).toBe('fresh-pkce-challenge');
+    expect(forwarded.init.redirect).toBe('manual');
+    expect(forwarded.init.credentials).toBe('omit');
+    expect(forwarded.init.signal).toBeInstanceOf(AbortSignal);
+    expect(new Headers(forwarded.init.headers).has('cookie')).toBe(false);
+    expect(new Headers(forwarded.init.headers).has('authorization')).toBe(false);
 
     // 执行真实托管页初始化函数，确认最终地址触发退出，而非读取并复用旧会话。
     const source = ts.createSourceFile('authorize.ts', readFileSync(
@@ -252,7 +260,7 @@ describe('explicit reauthentication after legacy sessions', () => {
     }));
     const response = await app.handle(interactiveRequest('none'));
     expect(response.status).toBe(302);
-    expect(new URL(response.headers.get('location')!).pathname).toBe('/auth/v1/oauth/authorize');
+    expect(requireRedirectLocation(response).pathname).toBe('/auth/v1/oauth/authorize');
   });
 
   it('rejects incompatible prompts and unconfigured outbound origins before fetching', async () => {
