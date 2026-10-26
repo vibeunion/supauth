@@ -294,7 +294,7 @@ describe('explicit reauthentication after legacy sessions', () => {
       const response = await app.handle(interactiveRequest());
       expect(response.status).toBe(502);
       expect(response.headers.get('location')).toBeNull();
-      const body = await response.json();
+      const body: unknown = await response.json();
       expect(body).toMatchObject({ success: false, error: { code: 'interactive_auth_unavailable' } });
       expect(JSON.stringify(body)).not.toContain('private');
     });
@@ -310,7 +310,7 @@ describe('explicit reauthentication after legacy sessions', () => {
       const response = await app.handle(interactiveRequest());
       expect(response.status).toBe(status === 400 ? 400 : 502);
       expect(response.headers.get('location')).toBeNull();
-      const body = await response.json();
+      const body: unknown = await response.json();
       expect(body).toMatchObject(status === 400
         ? { error: 'invalid_request' }
         : { success: false, error: { code: 'interactive_auth_unavailable' } });
