@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/vibeunion/supauth/compare/auth-server-v0.10.1...auth-server-v0.11.0) (2026-10-26)
+
+
+### Features
+
+* **auth:** migrate to latest SupaCloud app ([#140](https://github.com/vibeunion/supauth/issues/140)) ([6dfd41a](https://github.com/vibeunion/supauth/commit/6dfd41a2a49e7f31b9f2e000ae735124873d89cf))
+
+
+### Bug Fixes
+
+* **auth:** preserve forced reauthentication handoff ([#142](https://github.com/vibeunion/supauth/issues/142)) ([bbefb0d](https://github.com/vibeunion/supauth/commit/bbefb0d967d32ea16c2486d0d2902eb60c9e9d6c))
+
 ## [0.10.1](https://github.com/vibeunion/supauth/compare/auth-server-v0.10.0...auth-server-v0.10.1) (2026-10-06)
 
 
