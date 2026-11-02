@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/vibeunion/supauth/compare/authorization-conformance-v0.4.0...authorization-conformance-v0.5.0) (2026-11-02)
+
+
+### Features
+
+* **auth:** migrate to latest SupaCloud app and SVAdmin UI ([f2fd67d](https://github.com/vibeunion/supauth/commit/f2fd67d089238bfdb2cd190220b5fac84e741aa5))
+
 ## [0.4.0](https://github.com/vibeunion/supauth/compare/authorization-conformance-v0.3.3...authorization-conformance-v0.4.0) (2026-09-18)
 
 

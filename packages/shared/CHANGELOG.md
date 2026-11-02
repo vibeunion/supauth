@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/vibeunion/supauth/compare/shared-v0.9.0...shared-v0.10.0) (2026-11-02)
+
+
+### Features
+
+* **auth:** migrate to latest SupaCloud app and SVAdmin UI ([f2fd67d](https://github.com/vibeunion/supauth/commit/f2fd67d089238bfdb2cd190220b5fac84e741aa5))
+
 ## [0.9.0](https://github.com/vibeunion/supauth/compare/shared-v0.8.0...shared-v0.9.0) (2026-09-18)
 
 
