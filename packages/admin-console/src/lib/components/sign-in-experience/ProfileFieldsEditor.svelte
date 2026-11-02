@@ -1,12 +1,14 @@
 <script lang="ts">
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import { decodeSchema, JsonObjectSchema, type AdminEndpointResult } from '@supauth/shared';
-  import { errorMessage } from '$lib/resource-page.js';
+  import { errorMessage } from '#lib/resource-page.js';
   import { onMount } from 'svelte';
-  import { deleteTenantConfig, listTenantConfigs, upsertTenantConfig } from '$lib/api/client.js';
-  import { t } from '$lib/i18n.js';
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
-  import Input from '@svadmin/ui/components/ui/input/input.svelte';
-  import Textarea from '@svadmin/ui/components/ui/textarea/textarea.svelte';
+  import { deleteTenantConfig, listTenantConfigs, upsertTenantConfig } from '#lib/api/client.js';
+  import { t } from '#lib/i18n.js';
+  import { Button } from '@svadmin/ui';
+  import { Input } from '@svadmin/ui';
+  import { Textarea } from '@svadmin/ui';
 
   let loading = $state(true);
   let saving = $state(false);
@@ -56,11 +58,11 @@
 </script>
 
 <div class="mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t('profileFields.title')}</h2>
+  <ContentPageHeader title={t('profileFields.title')} headingLevel="h2" />
   <p class="mt-1 text-sm text-surface-500">{t('profileFields.description')}</p>
 </div>
 
-{#if error}<div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>{/if}
+{#if error}<FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />{/if}
 
 <section class="console-card mb-6 space-y-4 p-6">
   <div>

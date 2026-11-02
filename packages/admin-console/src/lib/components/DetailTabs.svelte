@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { base } from "$app/paths";
-  import { t } from "$lib/i18n.js";
-  import { resolveConsolePath } from "$lib/navigation.js";
+  import { base } from "#lib/sveltekit-paths.js";
+  import { t } from "#lib/i18n.js";
+  import { resolveConsolePath } from "#lib/navigation.js";
 
   interface DetailTab {
     value: string;

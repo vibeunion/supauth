@@ -1,12 +1,13 @@
 <script lang="ts">
-  import type { RoleView, PermissionView, AssignmentView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import { FeedbackNotice } from '@svadmin/ui';
+  import type { RoleView, PermissionView, AssignmentView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "#lib/management-view-types.js";
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { resolve } from "$app/paths";
-  import DetailTabs from "$lib/components/DetailTabs.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { t } from "$lib/i18n.js";
-  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import DetailTabs from "#lib/components/DetailTabs.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { t } from "#lib/i18n.js";
+  import { createDurableMutationLockStore } from "#lib/mutation-reconciliation.js";
   import {
     collectionItems,
     completeCollectionItems,
@@ -14,7 +15,7 @@
     isLatestResourceLoad,
     mutationOutcomeUnknown,
     tabFromRoute,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     createRolePermission,
     deleteRolePermission,
@@ -23,7 +24,7 @@
     listRolePermissions,
     revokeRole,
     updateRole,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   const tabs = [
     { value: "general", labelKey: "detail.general" },
@@ -394,12 +395,7 @@
 </div>
 
 {#if mutationStorageError}
-  <div
-    class="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800"
-    role="alert"
-  >
-    {mutationStorageError}
-  </div>
+  <FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 <DetailTabs

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { t } from "$lib/i18n.js";
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
+  import { t } from "#lib/i18n.js";
+  import { Button } from '@svadmin/ui';
 
   let { secret }: { secret: string } = $props();
   let copied = $state(false);

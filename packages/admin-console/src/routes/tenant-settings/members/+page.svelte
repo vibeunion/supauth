@@ -1,8 +1,10 @@
 <script lang="ts">
+  import DataPanel from "@svadmin/ui/components/content/DataPanel.svelte";
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import { adminEndpoints, decodeSchema, type AdminEndpointResult } from "@supauth/shared";
   import { onMount } from "svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { AdminApiError } from "$lib/admin-api.js";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { AdminApiError } from "#lib/admin-api.js";
   import {
     createTenantInvitation,
     getCapabilities,
@@ -10,13 +12,13 @@
     listTenantMembers,
     removeTenantMember,
     updateTenantMember,
-  } from "$lib/api/client.js";
-  import { t } from "$lib/i18n.js";
-  import { capabilityAvailable, collectionItems } from "$lib/resource-page.js";
+  } from "#lib/api/client.js";
+  import { t } from "#lib/i18n.js";
+  import { capabilityAvailable, collectionItems } from "#lib/resource-page.js";
   import {
     invitationStatusLabelKey,
     tenantRoleLabelKey,
-  } from "$lib/tenant-settings.js";
+  } from "#lib/tenant-settings.js";
 
   let members = $state<AdminEndpointResult<"listTenantMembers">["items"]>([]);
   let invitations = $state<AdminEndpointResult<"listTenantInvitations">["items"]>([]);
@@ -79,7 +81,7 @@
 </script>
 
 <div class="mb-6">
-  <h2 class="text-2xl font-bold text-surface-950">{t("tenant.members.title")}</h2>
+  <ContentPageHeader title={t("tenant.members.title")} headingLevel="h2" />
   <p class="mt-2 text-sm text-surface-500">
     {t("tenant.members.description")}
   </p>
@@ -87,8 +89,7 @@
 
 <RequestState {loading} {error} onRetry={loadMembers}>
   <div class="space-y-5">
-    <section class="console-card p-5">
-      <h3 class="font-semibold text-surface-900">{t("tenant.members.invite")}</h3>
+    <DataPanel title={t("tenant.members.invite")} headingLevel="h3">
       <div class="mt-4 grid gap-3 md:grid-cols-[1fr_10rem_auto]">
         <input
           type="email"
@@ -107,9 +108,9 @@
           >{t("organizations.invite")}</button
         >
       </div>
-    </section>
+    </DataPanel>
     <RequestState empty={members.length === 0} emptyTitle={t("tenant.members.empty")}
-      ><div class="console-card overflow-hidden">
+      ><DataPanel padding="none" class="overflow-hidden">
         <table>
           <thead
             ><tr><th>{t("Email")}</th><th>{t("tenant.members.role")}</th><th></th></tr></thead
@@ -137,12 +138,9 @@
               >{/each}</tbody
           >
         </table>
-      </div></RequestState
+      </DataPanel></RequestState
     >
-    <section class="console-card p-5">
-      <h3 class="font-semibold text-surface-900">
-        {t("organizations.invitations")}
-      </h3>
+    <DataPanel title={t("organizations.invitations")} headingLevel="h3">
       <div class="mt-4 space-y-2">
         {#each invitations as invitation (invitation.id)}<p
             class="rounded-lg bg-surface-50 px-3 py-2 text-sm text-surface-600"
@@ -151,6 +149,6 @@
             {t(invitationStatusLabelKey(invitation.status))}
           </p>{/each}
       </div>
-    </section>
+    </DataPanel>
   </div>
 </RequestState>

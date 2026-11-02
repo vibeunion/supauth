@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "schema": [
+    "src/db/schema.ts"
+  ],
+  "functions": "src/db/functions",
+  "migrations": "src/db/migrations-sql",
+  "contracts": "src/db/contracts",
+  "audit": "output/database-audit",
+  "consumers": [
+    "src/app",
+    "src/http",
+    "src/routes"
+  ],
+  "auditConsumers": [],
+  "role": "authenticated"
+}

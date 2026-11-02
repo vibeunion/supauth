@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "scope": "local-source-contracts",
+  "role": "authenticated",
+  "functions": [
+    {
+      "name": "supaoauth.app_has_org_permission",
+      "identity": "supaoauth.app_has_org_permission(text, uuid, text)",
+      "parameters": [
+        {
+          "name": "client_id",
+          "sqlType": "text",
+          "optional": false
+        },
+        {
+          "name": "organization_id",
+          "sqlType": "uuid",
+          "optional": false
+        },
+        {
+          "name": "permission_name",
+          "sqlType": "text",
+          "optional": false
+        }
+      ],
+      "returnType": "boolean",
+      "callable": true
+    },
+    {
+      "name": "supaoauth.authorize",
+      "identity": "supaoauth.authorize(text, uuid)",
+      "parameters": [
+        {
+          "name": "permission_name",
+          "sqlType": "text",
+          "optional": false
+        },
+        {
+          "name": "target_organization_id",
+          "sqlType": "uuid",
+          "optional": true
+        }
+      ],
+      "returnType": "boolean",
+      "callable": true
+    },
+    {
+      "name": "supaoauth.current_permission_claims",
+      "identity": "supaoauth.current_permission_claims(uuid)",
+      "parameters": [
+        {
+          "name": "target_organization_id",
+          "sqlType": "uuid",
+          "optional": true
+        }
+      ],
+      "returnType": "jsonb",
+      "callable": false
+    },
+    {
+      "name": "supaoauth.current_project_claims",
+      "identity": "supaoauth.current_project_claims()",
+      "parameters": [],
+      "returnType": "jsonb",
+      "callable": true
+    },
+    {
+      "name": "supaoauth.current_project_ref",
+      "identity": "supaoauth.current_project_ref()",
+      "parameters": [],
+      "returnType": "text",
+      "callable": false
+    },
+    {
+      "name": "supaoauth.has_org_permission",
+      "identity": "supaoauth.has_org_permission(uuid, text)",
+      "parameters": [
+        {
+          "name": "organization_id",
+          "sqlType": "uuid",
+          "optional": false
+        },
+        {
+          "name": "permission_name",
+          "sqlType": "text",
+          "optional": false
+        }
+      ],
+      "returnType": "boolean",
+      "callable": true
+    },
+    {
+      "name": "supaoauth.has_permission",
+      "identity": "supaoauth.has_permission(text, uuid)",
+      "parameters": [
+        {
+          "name": "permission_name",
+          "sqlType": "text",
+          "optional": false
+        },
+        {
+          "name": "target_organization_id",
+          "sqlType": "uuid",
+          "optional": true
+        }
+      ],
+      "returnType": "boolean",
+      "callable": true
+    }
+  ]
+}

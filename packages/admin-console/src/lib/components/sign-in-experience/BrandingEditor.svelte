@@ -1,17 +1,19 @@
 <script lang="ts">
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import { adminEndpoints, decodeSchema, type AdminEndpointResult } from '@supauth/shared';
-  import { errorMessage } from '$lib/resource-page.js';
-  import type { MutationReconciliation } from '$lib/mutation-reconciliation.js';
+  import { errorMessage } from '#lib/resource-page.js';
+  import type { MutationReconciliation } from '#lib/mutation-reconciliation.js';
   type AssetType = 'logo' | 'favicon';
   import { onDestroy, onMount } from 'svelte';
-  import { getBrandingAsset, getSignInExperience, updateSignInExperience, uploadBranding } from '$lib/api/client.js';
+  import { getBrandingAsset, getSignInExperience, updateSignInExperience, uploadBranding } from '#lib/api/client.js';
   import {
     brandingSettingsAuthority,
     settleAuthoritativeSettingsMutation,
-  } from '$lib/authoritative-settings-readback.js';
-  import { t } from '$lib/i18n.js';
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
-  import Input from '@svadmin/ui/components/ui/input/input.svelte';
+  } from '#lib/authoritative-settings-readback.js';
+  import { t } from '#lib/i18n.js';
+  import { Button } from '@svadmin/ui';
+  import { Input } from '@svadmin/ui';
 
   const MAX_BRANDING_FILE_SIZE = 5 * 1024 * 1024;
   const BRANDING_FILE_TYPES = new Set([
@@ -199,7 +201,7 @@
 
 <div class="mb-6 flex items-start justify-between gap-4">
   <div>
-    <h2 class="text-2xl font-bold text-surface-900">{t('signIn.brandingTitle')}</h2>
+    <ContentPageHeader title={t('signIn.brandingTitle')} headingLevel="h2" />
     <p class="mt-1 text-sm text-surface-500">{t('signIn.brandingDescription')}</p>
   </div>
   <Button onclick={saveBranding} disabled={loading || saving}>
@@ -208,7 +210,7 @@
 </div>
 
 {#if error}
-  <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>
+  <FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 {#if reconciliationStatus}
   <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900" role="alert">

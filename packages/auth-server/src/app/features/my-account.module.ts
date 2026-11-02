@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Patch, Post, Delete } from '
 import { myAccountRoutes } from '../../routes/my-account.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class MyAccountPatchProfileAction {
@@ -47,65 +49,107 @@ export class MyAccountController {
 
   @Get("/profile", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/my-account.ts#getProfile" },
     aspects: [adminHttpAspect],
   })
-  getProfile(ctx: HttpInvocation): Promise<Response> {
-    return myAccountRoutes.operations.getProfile.invoke(ctx);
+  getProfile(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => myAccountRoutes.operations.getProfile.invoke(ctx));
   }
 
   @Patch("/profile", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/my-account.ts#patchProfile" },
     aspects: [adminHttpAspect],
   })
-  patchProfile(ctx: HttpInvocation): Promise<Response> {
-    return myAccountRoutes.operations.patchProfile.invoke(ctx, context => this.patchProfileAction.execute(context));
+  patchProfile(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => myAccountRoutes.operations.patchProfile.invoke(ctx, context => this.patchProfileAction.execute(context)));
   }
 
   @Get("/sessions", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/my-account.ts#getSessions" },
     aspects: [adminHttpAspect],
   })
-  getSessions(ctx: HttpInvocation): Promise<Response> {
-    return myAccountRoutes.operations.getSessions.invoke(ctx);
+  getSessions(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => myAccountRoutes.operations.getSessions.invoke(ctx));
   }
 
   @Post("/sessions/:sessionId/revoke", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/my-account.ts#postSessionsBySessionIdRevoke" },
     aspects: [adminHttpAspect],
   })
-  postSessionsBySessionIdRevoke(ctx: HttpInvocation): Promise<Response> {
-    return myAccountRoutes.operations.postSessionsBySessionIdRevoke.invoke(ctx, context => this.postSessionsBySessionIdRevokeAction.execute(context));
+  postSessionsBySessionIdRevoke(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => myAccountRoutes.operations.postSessionsBySessionIdRevoke.invoke(ctx, context => this.postSessionsBySessionIdRevokeAction.execute(context)));
   }
 
   @Delete("/identities/:identityId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/my-account.ts#deleteIdentitiesByIdentityId" },
     aspects: [adminHttpAspect],
   })
-  deleteIdentitiesByIdentityId(ctx: HttpInvocation): Promise<Response> {
-    return myAccountRoutes.operations.deleteIdentitiesByIdentityId.invoke(ctx, context => this.deleteIdentitiesByIdentityIdAction.execute(context));
+  deleteIdentitiesByIdentityId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => myAccountRoutes.operations.deleteIdentitiesByIdentityId.invoke(ctx, context => this.deleteIdentitiesByIdentityIdAction.execute(context)));
   }
 
   @Get("/grants", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/my-account.ts#getGrants" },
     aspects: [adminHttpAspect],
   })
-  getGrants(ctx: HttpInvocation): Promise<Response> {
-    return myAccountRoutes.operations.getGrants.invoke(ctx);
+  getGrants(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => myAccountRoutes.operations.getGrants.invoke(ctx));
   }
 
   @Delete("/grants/:clientId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/my-account.ts#deleteGrantsByClientId" },
     aspects: [adminHttpAspect],
   })
-  deleteGrantsByClientId(ctx: HttpInvocation): Promise<Response> {
-    return myAccountRoutes.operations.deleteGrantsByClientId.invoke(ctx, context => this.deleteGrantsByClientIdAction.execute(context));
+  deleteGrantsByClientId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => myAccountRoutes.operations.deleteGrantsByClientId.invoke(ctx, context => this.deleteGrantsByClientIdAction.execute(context)));
   }
 
 }

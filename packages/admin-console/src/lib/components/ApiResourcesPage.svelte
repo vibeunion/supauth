@@ -1,15 +1,16 @@
 <script lang="ts">
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import type { AdminEndpointResult } from "@supauth/shared";
-  import { collectionItems, errorMessage } from "$lib/resource-page.js";
-  import { resolveConsolePath } from "$lib/navigation.js";
+  import { collectionItems, errorMessage } from "#lib/resource-page.js";
+  import { resolveConsolePath } from "#lib/navigation.js";
   import { onMount } from "svelte";
-  import { base } from "$app/paths";
-  import { t } from "$lib/i18n.js";
+  import { base } from "#lib/sveltekit-paths.js";
+  import { t } from "#lib/i18n.js";
   import {
     listResources,
     createResource,
     deleteResource,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   let resources = $state<AdminEndpointResult<"listResources">["items"]>([]);
   let loading = $state(true);
@@ -61,7 +62,7 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t("API Resources")}</h2>
+  <ContentPageHeader title={t("API Resources")} headingLevel="h2" />
   <button
     onclick={() => (showCreate = !showCreate)}
     class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"

@@ -1,14 +1,14 @@
 <script lang="ts">
   import { afterNavigate, beforeNavigate } from '$app/navigation';
-  import { base } from '$app/paths';
+  import { base } from '#lib/sveltekit-paths.js';
   import { page } from '$app/state';
   import { onMount, tick, type Snippet } from 'svelte';
-  import { t } from '$lib/i18n.js';
-  import { createAdminLogoutController } from '$lib/admin-logout.js';
-  import { brand, loadBrand } from '$lib/brand.svelte.js';
-  import { navigationSections, isNavigationEntryActive, resolveConsolePath } from '$lib/navigation.js';
-  import { initializeAdminAuthProvider, supaoauthAuthProvider } from '$lib/providers/auth.js';
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
+  import { t } from '#lib/i18n.js';
+  import { createAdminLogoutController } from '#lib/admin-logout.js';
+  import { brand, loadBrand } from '#lib/brand.svelte.js';
+  import { navigationSections, isNavigationEntryActive, resolveConsolePath } from '#lib/navigation.js';
+  import { initializeAdminAuthProvider, supaoauthAuthProvider } from '#lib/providers/auth.js';
+  import { Button } from '@svadmin/ui';
 
   let { children }: { children: Snippet } = $props();
   let loggingOut = $state(false);

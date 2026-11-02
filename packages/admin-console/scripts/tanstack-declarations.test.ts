@@ -36,8 +36,8 @@ test('the native Svelte redirect preserves real exports and unchanged implementa
   expect(readFileSync(declaration, 'utf8')).toBe("export * from './containers.svelte.js';\n");
   const hash = (file: string): string => createHash('sha256')
     .update(readFileSync(join(dist, file))).digest('hex');
-  expect(hash('containers.svelte.js')).toBe('6cc48ea049d78b9650aa41f19ac6c8ddc64b4c923fb51f0d0f8d24de962450b3');
-  expect(hash('containers.svelte.d.ts')).toBe('f9c67becbd1406702196f9a3617467787c5f479895923eca0b689398337d1a11');
+  expect(hash('containers.svelte.js')).toBe('5bbb3d6b03c05d5aee7a086c0094af79204315737ea363a943dc0450496131d5');
+  expect(hash('containers.svelte.d.ts')).toBe('27fbf659557aa84f1eb645a98750e6c6248ab405a40a89d711bbe1f980ca63ee');
 });
 
 test('the native Svelte redirect retains generic inference without inventing a default export', () => {

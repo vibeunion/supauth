@@ -1,16 +1,18 @@
 <script lang="ts">
-  import type { WebhookView, WebhookDeliveryView, WebhookAction, DurableMutationLocks, KeyedOperation, CollectionPayload, WebhookEventCatalogEntry } from "$lib/management-view-types.js";
+  import { FeedbackNotice, StatusPill } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
+  import type { WebhookView, WebhookDeliveryView, WebhookAction, DurableMutationLocks, KeyedOperation, CollectionPayload, WebhookEventCatalogEntry } from "#lib/management-view-types.js";
   import type { AdminEndpointResult } from "@supauth/shared";
   import { onMount } from "svelte";
-  import { resolve } from "$app/paths";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { t } from "$lib/i18n.js";
-  import { toggleWebhookCommand } from "$lib/webhook-toggle-command.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { t } from "#lib/i18n.js";
+  import { toggleWebhookCommand } from "#lib/webhook-toggle-command.js";
   import {
     createDurableMutationLockStore,
     reconciledCreatedWebhook,
     validatedWebhookCommandAck,
-  } from "$lib/mutation-reconciliation.js";
+  } from "#lib/mutation-reconciliation.js";
   import {
     completeCollectionItems,
     completeCursorCollectionItems,
@@ -19,7 +21,7 @@
     createLatestRequestTracker,
     mutationOutcomeUnknown,
     errorMessage,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     listWebhooks,
     createWebhook,
@@ -31,11 +33,11 @@
     listWebhookLogs,
     testWebhook,
     replayWebhookDelivery,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
   import {
     normalizedWebhookSelection,
     webhookEventChoices,
-  } from "$lib/webhook-form.js";
+  } from "#lib/webhook-form.js";
 
   type WebhookOperation = KeyedOperation<string, { action: string; webhookId: string }>;
   type WebhookLocks = DurableMutationLocks<WebhookAction>;
@@ -916,7 +918,7 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t("Webhooks")}</h2>
+  <ContentPageHeader title={t("Webhooks")} headingLevel="h2" />
   {#if !showCreate}
     <button
       onclick={() => (showCreate = true)}
@@ -928,18 +930,11 @@
 </div>
 
 {#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">
-    {error}
-  </div>
+  <FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if mutationStorageError}
-  <div
-    class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
-    role="alert"
-  >
-    {mutationStorageError}
-  </div>
+  <FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if webhookMutationLocked("create", "new")}
@@ -1121,13 +1116,10 @@
             </p>
           </div>
           <div class="flex items-center gap-3">
-            <span
-              class="text-xs px-2 py-0.5 rounded-full {wh.enabled
-                ? 'bg-green-100 text-green-700'
-                : 'bg-surface-100 text-surface-500'}"
-            >
-              {wh.enabled ? t("Active") : t("Disabled")}
-            </span>
+            <StatusPill
+              label={wh.enabled ? t("Active") : t("Disabled")}
+              tone={wh.enabled ? "success" : "neutral"}
+            />
             <fieldset
               class="contents"
               disabled={!mutationStorageReady ||

@@ -1,9 +1,9 @@
-import { base } from '$app/paths';
+import { base } from '#lib/sveltekit-paths.js';
 import { redirect } from '@sveltejs/kit';
 import { resolveConsolePath } from './navigation.js';
 
 /**
- * @param {import('$app/types').Pathname} targetPath
+ * @param {string} targetPath
  * @returns {({ url }: { url: URL }) => never}
  */
 export function createLegacyRouteRedirect(targetPath) {

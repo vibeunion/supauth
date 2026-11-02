@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Put, Post, Patch } from '@su
 import { connectorRoutes } from '../../routes/connectors.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class ConnectorPutFactoriesByFactoryIdAction {
@@ -47,74 +49,122 @@ export class ConnectorController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/connectors.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return connectorRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => connectorRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Get("/factories", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/connectors.ts#getFactories" },
     aspects: [adminHttpAspect],
   })
-  getFactories(ctx: HttpInvocation): Promise<Response> {
-    return connectorRoutes.operations.getFactories.invoke(ctx);
+  getFactories(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => connectorRoutes.operations.getFactories.invoke(ctx));
   }
 
   @Put("/factories/:factoryId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/connectors.ts#putFactoriesByFactoryId" },
     aspects: [adminHttpAspect],
   })
-  putFactoriesByFactoryId(ctx: HttpInvocation): Promise<Response> {
-    return connectorRoutes.operations.putFactoriesByFactoryId.invoke(ctx, context => this.putFactoriesByFactoryIdAction.execute(context));
+  putFactoriesByFactoryId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => connectorRoutes.operations.putFactoriesByFactoryId.invoke(ctx, context => this.putFactoriesByFactoryIdAction.execute(context)));
   }
 
   @Post("/from-factory/:factoryId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/connectors.ts#postFromFactoryByFactoryId" },
     aspects: [adminHttpAspect],
   })
-  postFromFactoryByFactoryId(ctx: HttpInvocation): Promise<Response> {
-    return connectorRoutes.operations.postFromFactoryByFactoryId.invoke(ctx, context => this.postFromFactoryByFactoryIdAction.execute(context));
+  postFromFactoryByFactoryId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => connectorRoutes.operations.postFromFactoryByFactoryId.invoke(ctx, context => this.postFromFactoryByFactoryIdAction.execute(context)));
   }
 
   @Get("/:connectorId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/connectors.ts#getByConnectorId" },
     aspects: [adminHttpAspect],
   })
-  getByConnectorId(ctx: HttpInvocation): Promise<Response> {
-    return connectorRoutes.operations.getByConnectorId.invoke(ctx);
+  getByConnectorId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => connectorRoutes.operations.getByConnectorId.invoke(ctx));
   }
 
   @Get("/:connectorId/authorization-uri", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/connectors.ts#getByConnectorIdAuthorizationUri" },
     aspects: [adminHttpAspect],
   })
-  getByConnectorIdAuthorizationUri(ctx: HttpInvocation): Promise<Response> {
-    return connectorRoutes.operations.getByConnectorIdAuthorizationUri.invoke(ctx);
+  getByConnectorIdAuthorizationUri(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => connectorRoutes.operations.getByConnectorIdAuthorizationUri.invoke(ctx));
   }
 
   @Patch("/:connectorId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/connectors.ts#patchByConnectorId" },
     aspects: [adminHttpAspect],
   })
-  patchByConnectorId(ctx: HttpInvocation): Promise<Response> {
-    return connectorRoutes.operations.patchByConnectorId.invoke(ctx, context => this.patchByConnectorIdAction.execute(context));
+  patchByConnectorId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => connectorRoutes.operations.patchByConnectorId.invoke(ctx, context => this.patchByConnectorIdAction.execute(context)));
   }
 
   @Post("/:connectorId/test", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/connectors.ts#postByConnectorIdTest" },
     aspects: [adminHttpAspect],
   })
-  postByConnectorIdTest(ctx: HttpInvocation): Promise<Response> {
-    return connectorRoutes.operations.postByConnectorIdTest.invoke(ctx, context => this.postByConnectorIdTestAction.execute(context));
+  postByConnectorIdTest(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => connectorRoutes.operations.postByConnectorIdTest.invoke(ctx, context => this.postByConnectorIdTestAction.execute(context)));
   }
 
 }

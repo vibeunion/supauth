@@ -1,4 +1,4 @@
-import postgres from 'postgres';
+import { SQL } from 'bun';
 
 export interface AdminSsoAllowlistVerification {
   emailCount: number;
@@ -33,10 +33,10 @@ export function adminSsoAllowlistCountsFromRow(
 export async function verifyAdminSsoAllowlist(databaseUrl: string): Promise<AdminSsoAllowlistVerification> {
   if (!databaseUrl) throw new Error('SUPACLOUD_DATABASE_URL is required for Admin SSO allowlist verification');
 
-  const sql = postgres(databaseUrl, {
+  const sql = new SQL(databaseUrl, {
     max: 1,
-    connect_timeout: CONNECT_TIMEOUT_SEC,
-    idle_timeout: 5,
+    connectionTimeout: CONNECT_TIMEOUT_SEC,
+    idleTimeout: 5,
     connection: { application_name: 'supaoauth-admin-sso-install-verify' },
   });
 
@@ -49,6 +49,6 @@ export async function verifyAdminSsoAllowlist(databaseUrl: string): Promise<Admi
       LIMIT 1`;
     return adminSsoAllowlistCountsFromRow(rows[0]);
   } finally {
-    await sql.end({ timeout: 3 });
+    await sql.close({ timeout: 3 });
   }
 }

@@ -45,7 +45,7 @@ describe("webhook replay lock rendering", () => {
 
   test("renders list failures through the localized request state", () => {
     expect(webhookPage).toContain(
-      'import RequestState from "$lib/components/RequestState.svelte";',
+      'import RequestState from "#lib/components/RequestState.svelte";',
     );
     expect(compiledScript).toContain("let loadError = $state(null);");
     expect(compiledScript).toContain("loadError = requestError;");

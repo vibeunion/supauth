@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Put } from '@supacloud/app';
 import { securityConfigRoutes } from '../../routes/security-config.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class SecurityConfigPutRootAction {
@@ -20,29 +22,47 @@ export class SecurityConfigController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/security-config.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return securityConfigRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => securityConfigRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Put("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/security-config.ts#putRoot" },
     aspects: [adminHttpAspect],
   })
-  putRoot(ctx: HttpInvocation): Promise<Response> {
-    return securityConfigRoutes.operations.putRoot.invoke(ctx, context => this.putRootAction.execute(context));
+  putRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => securityConfigRoutes.operations.putRoot.invoke(ctx, context => this.putRootAction.execute(context)));
   }
 
   @Get("/status", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/security-config.ts#getStatus" },
     aspects: [adminHttpAspect],
   })
-  getStatus(ctx: HttpInvocation): Promise<Response> {
-    return securityConfigRoutes.operations.getStatus.invoke(ctx);
+  getStatus(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => securityConfigRoutes.operations.getStatus.invoke(ctx));
   }
 
 }

@@ -1,6 +1,9 @@
 <script lang="ts">
   import type { CapabilityStatus } from "@supauth/shared";
-  import { t } from "$lib/i18n.js";
+  import DataPanel from "@svadmin/ui/components/content/DataPanel.svelte";
+  import DescriptionList from "@svadmin/ui/components/content/DescriptionList.svelte";
+  import StatusBadge from "@svadmin/ui/components/content/StatusBadge.svelte";
+  import { t } from "#lib/i18n.js";
 
   let { name, capability = null }: { name: string; capability?: CapabilityStatus | null | undefined } = $props();
 
@@ -45,20 +48,20 @@
   }
 </script>
 
-<article class="rounded-xl border border-surface-200 bg-white p-4">
-  <div class="flex items-start justify-between gap-3">
-    <div>
-      <h4 class="font-semibold text-surface-900">{capabilityLabel(name)}</h4>
-    </div>
-    <span class={available
-      ? "rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"
-      : "rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"}
-    >{available ? t("capability.available") : t("capability.unavailable")}</span>
-  </div>
-  <dl class="mt-4 grid gap-2 text-xs text-surface-600 sm:grid-cols-2">
-    <div><dt class="text-surface-400">{t("capability.source")}</dt><dd class="mt-0.5 font-medium">{sourceLabel(source)}</dd></div>
-    <div><dt class="text-surface-400">{t("capability.version")}</dt><dd class="mt-0.5 font-medium">{capability?.version || t("common.notAvailable")}</dd></div>
-    <div class="sm:col-span-2"><dt class="text-surface-400">{t("capability.reason")}</dt><dd class="mt-0.5">{reasonLabel(reasonCode)}</dd></div>
-    <div class="sm:col-span-2"><dt class="text-surface-400">{t("capability.lastVerified")}</dt><dd class="mt-0.5">{timestamp(capability?.last_verified_at)}</dd></div>
-  </dl>
-</article>
+<DataPanel title={capabilityLabel(name)} headingLevel="h3">
+  {#snippet actions()}
+    <StatusBadge
+      status={available ? "success" : "warning"}
+      label={available ? t("capability.available") : t("capability.unavailable")}
+    />
+  {/snippet}
+  <DescriptionList
+    columns={2}
+    items={[
+      { label: t("capability.source"), value: sourceLabel(source) },
+      { label: t("capability.version"), value: capability?.version || t("common.notAvailable") },
+      { label: t("capability.reason"), value: reasonLabel(reasonCode), span: 2 },
+      { label: t("capability.lastVerified"), value: timestamp(capability?.last_verified_at), span: 2 },
+    ]}
+  />
+</DataPanel>

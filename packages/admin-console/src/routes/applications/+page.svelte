@@ -1,29 +1,31 @@
 <script lang="ts">
-  import type { ApplicationView, DurableMutationLocks, RotationState, ValueEvent, CollectionPayload } from "$lib/management-view-types.js";
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
+  import type { ApplicationView, DurableMutationLocks, RotationState, ValueEvent, CollectionPayload } from "#lib/management-view-types.js";
   import { adminEndpoints, decodeSchema, type SdkEndpointInput } from "@supauth/shared";
   import { onMount } from "svelte";
-  import { t } from "$lib/i18n.js";
-  import { resolve } from "$app/paths";
-  import OneTimeSecret from "$lib/components/OneTimeSecret.svelte";
-  import { GOTRUE_OAUTH_GRANT_TYPES } from "$lib/oauth-grant-types.js";
+  import { t } from "#lib/i18n.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import OneTimeSecret from "#lib/components/OneTimeSecret.svelte";
+  import { GOTRUE_OAUTH_GRANT_TYPES } from "#lib/oauth-grant-types.js";
   import {
     createDurableMutationLockStore,
     reconciledCreatedApplication,
-  } from "$lib/mutation-reconciliation.js";
+  } from "#lib/mutation-reconciliation.js";
   import {
     completeCollectionItems,
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     mutationOutcomeUnknown,
     errorMessage,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     listApplications,
     createApplication,
     deleteApplication,
     getApplication,
     rotateApplicationSecret,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   const CONFIDENTIAL_AUTH_METHODS = [
     "client_secret_basic",
@@ -486,7 +488,7 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t("Applications")}</h2>
+  <ContentPageHeader title={t("Applications")} headingLevel="h2" />
   <button
     onclick={() => (showCreate = !showCreate)}
     class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"
@@ -496,18 +498,11 @@
 </div>
 
 {#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">
-    {error}
-  </div>
+  <FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if mutationStorageError}
-  <div
-    class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
-    role="alert"
-  >
-    {mutationStorageError}
-  </div>
+  <FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if applicationMutationLocked("create", "new")}

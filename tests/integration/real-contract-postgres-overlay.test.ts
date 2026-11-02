@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { randomBytes, randomUUID } from 'node:crypto';
-import postgres from 'postgres';
+import { SQL } from 'bun';
 import { Type, decodeSchema, type Static, type TSchema } from '../../packages/shared/src/schema.js';
 import { WireResourceSchema } from '../../packages/shared/src/sdk-models.js';
 import { HOSTED_MIGRATIONS } from '../../packages/auth-server/src/db/migrate.js';
@@ -13,14 +13,14 @@ import { postgresDatabaseName, postgresSqlState, verifyPostgresTarget } from '..
 
 const runId = process.env['REAL_CONTRACT_POSTGRES_RUN'];
 const real = runId ? describe : describe.skip;
-let sql: ReturnType<typeof postgres> | undefined;
-let projectSql: ReturnType<typeof postgres> | undefined;
+let sql: SQL | undefined;
+let projectSql: SQL | undefined;
 let applied = 0;
 let projectRole = '';
 const namesSchema = Type.Object({ name: Type.String() });
 const countSchema = Type.Object({ count: Type.Integer({ minimum: 0 }) });
 
-function database(): ReturnType<typeof postgres> {
+function database(): SQL {
   if (!sql) throw new Error('real_database_not_initialized');
   return sql;
 }
@@ -57,7 +57,7 @@ real('real PostgreSQL overlay migrations and repositories', () => {
   beforeAll(async () => {
     if (!runId) throw new Error('real_postgres_run_required');
     const target = verifyPostgresTarget(process.env['AUTHORIZATION_POSTGRES_URL'] ?? '', runId);
-    sql = postgres(target.href, { max: 1, connect_timeout: 2, onnotice: () => {} });
+    sql = new SQL(target.href, { max: 1, connectionTimeout: 2 });
     const identities = await rows(Type.Object({
       database: Type.Literal(postgresDatabaseName(runId)),
       run_id: Type.Literal(runId),
@@ -82,7 +82,7 @@ real('real PostgreSQL overlay migrations and repositories', () => {
     projectUrl.username = projectRole;
     projectUrl.password = password;
     process.env['SUPACLOUD_DATABASE_URL'] = projectUrl.href;
-    projectSql = postgres(projectUrl.href, { max: 1, connect_timeout: 2, onnotice: () => {} });
+    projectSql = new SQL(projectUrl.href, { max: 1, connectionTimeout: 2 });
   }, 30_000);
 
   afterAll(async () => {
@@ -90,9 +90,9 @@ real('real PostgreSQL overlay migrations and repositories', () => {
       await closeDb();
     } finally {
       try {
-        await projectSql?.end({ timeout: 3 });
+        await projectSql?.close({ timeout: 3 });
       } finally {
-        await sql?.end({ timeout: 3 });
+        await sql?.close({ timeout: 3 });
       }
     }
   });
@@ -126,10 +126,10 @@ real('real PostgreSQL overlay migrations and repositories', () => {
     const db = database();
     const indicator = `urn:real:${randomUUID()}`;
     await db`INSERT INTO supaoauth.api_resources (name, indicator) VALUES ('constraint', ${indicator})`;
-    await rejectsSqlState(async () => db`INSERT INTO supaoauth.api_resources (name, indicator) VALUES ('duplicate', ${indicator})`, '23505');
-    await rejectsSqlState(async () => db`INSERT INTO supaoauth.api_resources (name, indicator) VALUES (NULL, ${randomUUID()})`, '23502');
-    await rejectsSqlState(async () => db`INSERT INTO supaoauth.scopes (name, resource_id) VALUES ('missing-parent', ${randomUUID()})`, '23503');
-    await rejectsSqlState(async () => db`
+    await rejectsSqlState(async () => db<unknown[]>`INSERT INTO supaoauth.api_resources (name, indicator) VALUES ('duplicate', ${indicator})`, '23505');
+    await rejectsSqlState(async () => db<unknown[]>`INSERT INTO supaoauth.api_resources (name, indicator) VALUES (NULL, ${randomUUID()})`, '23502');
+    await rejectsSqlState(async () => db<unknown[]>`INSERT INTO supaoauth.scopes (name, resource_id) VALUES ('missing-parent', ${randomUUID()})`, '23503');
+    await rejectsSqlState(async () => db<unknown[]>`
       INSERT INTO supaoauth.oauth_consent_decisions (user_id, application_id, decision)
       VALUES (${randomUUID()}, 'test-app', 'invalid')
     `, '23514');

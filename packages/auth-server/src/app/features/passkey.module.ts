@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Put, Delete } from '@supaclo
 import { passkeyRoutes } from '../../routes/passkeys.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class PasskeyPutByPasskeyIdRenameAction {
@@ -29,29 +31,47 @@ export class PasskeyController {
 
   @Get("/:userId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/passkeys.ts#getByUserId" },
     aspects: [adminHttpAspect],
   })
-  getByUserId(ctx: HttpInvocation): Promise<Response> {
-    return passkeyRoutes.operations.getByUserId.invoke(ctx);
+  getByUserId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => passkeyRoutes.operations.getByUserId.invoke(ctx));
   }
 
   @Put("/:passkeyId/rename", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/passkeys.ts#putByPasskeyIdRename" },
     aspects: [adminHttpAspect],
   })
-  putByPasskeyIdRename(ctx: HttpInvocation): Promise<Response> {
-    return passkeyRoutes.operations.putByPasskeyIdRename.invoke(ctx, context => this.putByPasskeyIdRenameAction.execute(context));
+  putByPasskeyIdRename(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => passkeyRoutes.operations.putByPasskeyIdRename.invoke(ctx, context => this.putByPasskeyIdRenameAction.execute(context)));
   }
 
   @Delete("/:passkeyId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/passkeys.ts#deleteByPasskeyId" },
     aspects: [adminHttpAspect],
   })
-  deleteByPasskeyId(ctx: HttpInvocation): Promise<Response> {
-    return passkeyRoutes.operations.deleteByPasskeyId.invoke(ctx, context => this.deleteByPasskeyIdAction.execute(context));
+  deleteByPasskeyId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => passkeyRoutes.operations.deleteByPasskeyId.invoke(ctx, context => this.deleteByPasskeyIdAction.execute(context)));
   }
 
 }

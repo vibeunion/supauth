@@ -1,6 +1,6 @@
 <script lang="ts">
   import { decodeSchema, JsonObjectSchema, type AdminEndpointResult, type JsonValue } from "@supauth/shared";
-  import { errorMessage } from "$lib/resource-page.js";
+  import { errorMessage } from "#lib/resource-page.js";
   import { onMount } from "svelte";
   import {
     SUPABASE_REQUIRED_CLAIMS,
@@ -16,19 +16,19 @@
     getProject,
     updateCustomAccessTokenHookConfig,
     verifyCustomAccessTokenHook,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
   import {
     authHookStatusIsActive,
     parseAuthHookStatus,
-  } from "$lib/auth-hook-status.js";
-  import { t } from "$lib/i18n.js";
-  import { compatibilityCheckLabel } from "$lib/compatibility-check-label.js";
-  import { normalizeAuthHookSecret } from "$lib/auth-hook-secret.js";
+  } from "#lib/auth-hook-status.js";
+  import { t } from "#lib/i18n.js";
+  import { compatibilityCheckLabel } from "#lib/compatibility-check-label.js";
+  import { normalizeAuthHookSecret } from "#lib/auth-hook-secret.js";
   import {
     SUPAOAUTH_FIELD_TYPES,
     buildJwtExtensionExample,
     validateExtensionDraft,
-  } from "$lib/jwt-preview.js";
+  } from "#lib/jwt-preview.js";
 
   const hookPath = "/api/v1/auth-hooks/custom-access-token";
   const hookStateClasses = {

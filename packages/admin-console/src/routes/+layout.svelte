@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
   import { goto } from '$app/navigation';
-  import { resolve } from '$app/paths';
+  import { resolve } from '#lib/sveltekit-paths.js';
   import {
     setActiveRouterProvider,
     setAuthProvider,
@@ -10,13 +10,13 @@
     type AuthProvider,
     type CheckResult,
   } from '@svadmin/core';
-  import PageSkeleton from '@svadmin/ui/components/PageSkeleton.svelte';
-  import FeedbackNotice from '@svadmin/ui/components/content/FeedbackNotice.svelte';
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
-  import Input from '@svadmin/ui/components/ui/input/input.svelte';
-  import Select from '@svadmin/ui/components/ui/select/select.svelte';
+  import { PageSkeleton } from '@svadmin/ui';
+  import { FeedbackNotice } from '@svadmin/ui';
+  import { Button } from '@svadmin/ui';
+  import { Input } from '@svadmin/ui';
+  import { Select } from '@svadmin/ui';
   import '@svadmin/ui/app.css';
-  import type { AdminMfaFactor, AdminTotpEnrollment } from '$lib/admin-mfa-step-up';
+  import type { AdminMfaFactor, AdminTotpEnrollment } from '#lib/admin-mfa-step-up';
   import {
     adminSsoEnabled,
     enrollAdminTotp,
@@ -24,16 +24,16 @@
     initializeAdminAuthProvider,
     prepareAdminAuthCallbackRetry,
     verifyAdminMfaStepUp,
-  } from '$lib/providers/auth.js';
-  import { supaoauthResources } from '$lib/providers/resources.js';
-  import { t } from '$lib/i18n.js';
-  import { retireLegacyCustomUiServiceWorkers } from '$lib/legacy-custom-ui-service-workers.js';
+  } from '#lib/providers/auth.js';
+  import { supaoauthResources } from '#lib/providers/resources.js';
+  import { t } from '#lib/i18n.js';
+  import { retireLegacyCustomUiServiceWorkers } from '#lib/legacy-custom-ui-service-workers.js';
   import { createAdminAuthInitializationController, type AdminAuthInitializationState } from './admin-auth-initialization.js';
   import {
     createAdminRouterProvider,
     registerAdminAccessControl,
     resetAdminAccessControl,
-  } from '$lib/providers/svadmin.js';
+  } from '#lib/providers/svadmin.js';
   import AdminLayout from '../layouts/AdminLayout.svelte';
   import '../app.css';
 

@@ -1,14 +1,15 @@
 <script lang="ts">
-  import type { OrganizationView, OrganizationMemberView, OrganizationApplicationView, OrganizationJitView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import { FeedbackNotice } from '@svadmin/ui';
+  import type { OrganizationView, OrganizationMemberView, OrganizationApplicationView, OrganizationJitView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "#lib/management-view-types.js";
   import type { SdkEndpointResult } from "@supauth/shared";
-  import type { DeepReadonly } from "$lib/authoritative-settings-readback.js";
-  import type { WriteCommand } from "$lib/mutation-reconciliation.js";
+  import type { DeepReadonly } from "#lib/authoritative-settings-readback.js";
+  import type { WriteCommand } from "#lib/mutation-reconciliation.js";
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { resolve } from "$app/paths";
-  import DetailTabs from "$lib/components/DetailTabs.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { t } from "$lib/i18n.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import DetailTabs from "#lib/components/DetailTabs.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { t } from "#lib/i18n.js";
   import {
     capabilityAvailable,
     collectionItems,
@@ -17,7 +18,7 @@
     isLatestResourceLoad,
     mutationOutcomeUnknown,
     tabFromRoute,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     addOrganizationMember,
     createOrganizationInvitation,
@@ -34,15 +35,15 @@
     updateOrganizationBranding,
     updateOrganizationJit,
     upsertOrganizationApplication,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
   import {
     canonicalTrimmedStringSet,
     organizationSettingsAuthority,
     settleAuthoritativeSettingsMutation,
-  } from "$lib/authoritative-settings-readback.js";
+  } from "#lib/authoritative-settings-readback.js";
   import {
     createDurableMutationLockStore,
-  } from "$lib/mutation-reconciliation.js";
+  } from "#lib/mutation-reconciliation.js";
 
   const tabs = [
     { value: "settings", labelKey: "detail.settings" },
@@ -600,12 +601,7 @@
       {t(`save.${reconciliationStatus}.description`)}
     </p>
   </div>{/if}
-{#if mutationStorageError}<div
-    class="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800"
-    role="alert"
-  >
-    {mutationStorageError}
-  </div>{/if}
+{#if mutationStorageError}<FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />{/if}
 
 <RequestState {loading} {error} onRetry={loadOrganization}>
   {#if activeTab === "settings"}

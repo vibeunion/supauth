@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import postgres from 'postgres';
+import { SQL } from 'bun';
 import { Type, decodeSchema } from '../packages/shared/src/schema.js';
 
 export interface PostgresAcceptanceResult {
@@ -308,7 +308,7 @@ export async function executePostgresAcceptance(
 
 async function verifyDatabase(url: string, runId: string): Promise<void> {
   verifyPostgresTarget(url, runId);
-  const sql = postgres(url, { max: 1, connect_timeout: 2, idle_timeout: 1, onnotice: () => {} });
+  const sql = new SQL(url, { max: 1, connectionTimeout: 2, idleTimeout: 1 });
   try {
     const rows = await sql<Record<string, unknown>[]>`
       SELECT current_database() AS database, current_user AS username,
@@ -323,7 +323,7 @@ async function verifyDatabase(url: string, runId: string): Promise<void> {
     if (rows.length !== 1) throw new Error('database_target_mismatch');
     decodeSchema(schema, rows[0]);
   } finally {
-    await sql.end({ timeout: 3 });
+    await sql.close({ timeout: 3 });
   }
 }
 

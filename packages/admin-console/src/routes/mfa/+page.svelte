@@ -1,15 +1,16 @@
 <script lang="ts">
+  import MetricBlock from "@svadmin/ui/components/content/MetricBlock.svelte";
   import type { AdminEndpointResult } from "@supauth/shared";
   import { onMount } from "svelte";
-  import { resolve } from "$app/paths";
-  import RequestState from "$lib/components/RequestState.svelte";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import RequestState from "#lib/components/RequestState.svelte";
   import {
     getAuthConfig,
     listUsers,
     updateAuthConfig,
-  } from "$lib/api/client.js";
-  import { t } from "$lib/i18n.js";
-  import { collectionItems } from "$lib/resource-page.js";
+  } from "#lib/api/client.js";
+  import { t } from "#lib/i18n.js";
+  import { collectionItems } from "#lib/resource-page.js";
 
   let users = $state<AdminEndpointResult<"listUsers">["items"]>([]);
   let maximumEnrolledFactors = $state(10);
@@ -97,37 +98,13 @@
 <RequestState {loading} {error} onRetry={loadMfaStatus}>
   <div class="space-y-6">
     <div class="grid gap-4 md:grid-cols-3">
-      <section class="console-card p-5">
-        <p
-          class="text-xs font-semibold uppercase tracking-wide text-surface-500"
-        >
-          {t("mfa.method")}
-        </p>
-        <p class="mt-2 text-2xl font-bold text-surface-950">TOTP</p>
-      </section>
-      <section class="console-card p-5">
-        <p
-          class="text-xs font-semibold uppercase tracking-wide text-surface-500"
-        >
-          {t("mfa.loadedVerifiedFactors")}
-        </p>
-        <p class="mt-2 text-2xl font-bold text-surface-950">
-          {verifiedTotpFactors}
-        </p>
-      </section>
-      <section class="console-card p-5">
-        <p
-          class="text-xs font-semibold uppercase tracking-wide text-surface-500"
-        >
-          {t("mfa.loadedUsersWithVerifiedTotp")}
-        </p>
-        <p class="mt-2 text-2xl font-bold text-surface-950">
-          {usersWithVerifiedTotp}
-        </p>
-        <p class="mt-1 text-xs text-surface-500">
-          {t("mfa.aalCapabilityHint")}
-        </p>
-      </section>
+      <MetricBlock label={t("mfa.method")} value="TOTP" />
+      <MetricBlock label={t("mfa.loadedVerifiedFactors")} value={verifiedTotpFactors} />
+      <MetricBlock
+        label={t("mfa.loadedUsersWithVerifiedTotp")}
+        value={usersWithVerifiedTotp}
+        detail={t("mfa.aalCapabilityHint")}
+      />
     </div>
     <p class="text-xs text-surface-500">{t("mfa.loadedUserLimitHint")}</p>
     <section class="console-card p-6">

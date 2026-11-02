@@ -16,10 +16,10 @@ const expectedSharedEntry = realpathSync(join(packageDirectory, 'dist/index-3g90
 const expectedEntries = new Set([expectedEntry, expectedSharedEntry]);
 const transpiler = new Transpiler({ loader: 'js', target: 'browser' });
 
-// 来自已核验的 npm 0.13.0 发布包；升级必须重新审核发布物和依赖边界。
+// 来自已核验的 npm 0.15.2 发布包；升级必须重新审核发布物和依赖边界。
 const artifactHashes = {
-  'dist/client.mjs': 'cfc45e27f0084d5ff9103a6c494c6ea3e5ec34f134210ac6ed0acc303c6d61a8',
-  'dist/client.d.mts': '1a3107d6bc354b168cfdd66ad7887d6bde64a945ef076065bbfaac4da2a7f996',
+  'dist/client.mjs': '6b5a43d950094174a93052dcedeeed686f9130160727151dc46f807a1d68b924',
+  'dist/client.d.mts': '297202d36be658faada1d32cdccd062ff8848bb82f86e532bab6a7034b320315',
   'dist/index-3g9015wn.mjs': '78753bb2dca3c0810ae9551899483317829572eaadb6724efe756cae7f55a612',
   'dist/http_contract.d.mts': '5c742f85e2519046afa7c074d594f7e544eedbe04387f64fa33a06314784b747',
 };
@@ -212,7 +212,7 @@ const label = "import '@supacloud/app'";
 `, 'page.svelte')).toEqual([]);
   });
 
-  test('resolves the reviewed 0.13.0 export and exact published artifacts', () => {
+  test('resolves the reviewed 0.15.2 export and exact published artifacts', () => {
     const manifest: unknown = JSON.parse(
       readFileSync(join(packageDirectory, 'package.json'), 'utf8'),
     );
@@ -222,7 +222,7 @@ const label = "import '@supacloud/app'";
       throw new Error('Invalid installed @supacloud/contracts manifest');
     }
     expect(manifest.name).toBe('@supacloud/contracts');
-    expect(manifest.version).toBe('0.13.0');
+    expect(manifest.version).toBe('0.15.2');
     expect(manifest.exports).toEqual({
       '.': {
         import: { types: './dist/index.d.mts', default: './dist/index.mjs' },
@@ -246,7 +246,7 @@ const label = "import '@supacloud/app'";
     }
 
     const runtime = readFileSync(expectedEntry, 'utf8');
-    expect(Buffer.byteLength(runtime)).toBe(13113);
+    expect(Buffer.byteLength(runtime)).toBe(14265);
     const runtimeScan = transpiler.scan(runtime);
     expect(runtimeScan.imports).toEqual([{ kind: 'import-statement', path: './index-3g9015wn.mjs' }]);
     expect(runtimeScan.exports).toContain('createContractCommandClient');

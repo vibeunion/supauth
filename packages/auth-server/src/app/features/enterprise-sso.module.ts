@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post, Put, Delete } from '@s
 import { enterpriseSSORoutes } from '../../routes/enterprise-sso.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class EnterpriseSSOPostRootAction {
@@ -38,56 +40,92 @@ export class EnterpriseSSOController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/enterprise-sso.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return enterpriseSSORoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => enterpriseSSORoutes.operations.getRoot.invoke(ctx));
   }
 
   @Get("/domain/:domain", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/enterprise-sso.ts#getDomainByDomain" },
     aspects: [adminHttpAspect],
   })
-  getDomainByDomain(ctx: HttpInvocation): Promise<Response> {
-    return enterpriseSSORoutes.operations.getDomainByDomain.invoke(ctx);
+  getDomainByDomain(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => enterpriseSSORoutes.operations.getDomainByDomain.invoke(ctx));
   }
 
   @Get("/:id", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/enterprise-sso.ts#getById" },
     aspects: [adminHttpAspect],
   })
-  getById(ctx: HttpInvocation): Promise<Response> {
-    return enterpriseSSORoutes.operations.getById.invoke(ctx);
+  getById(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => enterpriseSSORoutes.operations.getById.invoke(ctx));
   }
 
   @Post("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/enterprise-sso.ts#postRoot" },
     aspects: [adminHttpAspect],
   })
-  postRoot(ctx: HttpInvocation): Promise<Response> {
-    return enterpriseSSORoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context));
+  postRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => enterpriseSSORoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context)));
   }
 
   @Put("/:id", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/enterprise-sso.ts#putById" },
     aspects: [adminHttpAspect],
   })
-  putById(ctx: HttpInvocation): Promise<Response> {
-    return enterpriseSSORoutes.operations.putById.invoke(ctx, context => this.putByIdAction.execute(context));
+  putById(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => enterpriseSSORoutes.operations.putById.invoke(ctx, context => this.putByIdAction.execute(context)));
   }
 
   @Delete("/:id", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/enterprise-sso.ts#deleteById" },
     aspects: [adminHttpAspect],
   })
-  deleteById(ctx: HttpInvocation): Promise<Response> {
-    return enterpriseSSORoutes.operations.deleteById.invoke(ctx, context => this.deleteByIdAction.execute(context));
+  deleteById(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => enterpriseSSORoutes.operations.deleteById.invoke(ctx, context => this.deleteByIdAction.execute(context)));
   }
 
 }

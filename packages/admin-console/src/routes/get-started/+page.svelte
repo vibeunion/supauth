@@ -1,17 +1,18 @@
 <script lang="ts">
+  import { FeedbackNotice } from '@svadmin/ui';
   import type { AdminEndpointResult } from '@supauth/shared';
   import { onMount } from 'svelte';
-  import { base } from '$app/paths';
-  import { resolveConsolePath } from '$lib/navigation.js';
-  import { collectionItems, errorMessage } from '$lib/resource-page.js';
+  import { base } from '#lib/sveltekit-paths.js';
+  import { resolveConsolePath } from '#lib/navigation.js';
+  import { collectionItems, errorMessage } from '#lib/resource-page.js';
   import {
     listApplications,
     listConnectors,
     listOrganizations,
     listResources,
     resolvePublicSignInExperience,
-  } from '$lib/api/client.js';
-  import { t } from '$lib/i18n.js';
+  } from '#lib/api/client.js';
+  import { t } from '#lib/i18n.js';
 
   const quickstarts = [
     {
@@ -131,7 +132,7 @@
 {#if loading}
   <p class="text-surface-400">{t('common.loading')}</p>
 {:else if error}
-  <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>
+  <FeedbackNotice message={error} tone="danger" priority="blocking" />
 {:else}
   <div class="grid gap-4 lg:grid-cols-2">
     {#each onboardingSteps as onboardingStep, stepIndex (onboardingStep.path)}

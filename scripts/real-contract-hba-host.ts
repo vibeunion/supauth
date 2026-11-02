@@ -260,7 +260,7 @@ async function directoryProof(): Promise<string> {
 }
 
 export function effectiveConfigQuerySucceeded(result: {
-  exitCode: number; success: boolean; signalCode?: string | null | undefined;
+  exitCode: number; success: boolean; signalCode?: string | number | null | undefined;
 }): boolean {
   return result.exitCode === 0 && result.success === true && result.signalCode == null;
 }

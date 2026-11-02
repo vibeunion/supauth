@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post, Put, Delete } from '@s
 import { applicationRoutes } from '../../routes/applications.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class ApplicationPostRootAction {
@@ -128,218 +130,362 @@ export class ApplicationController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Post("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#postRoot" },
     aspects: [adminHttpAspect],
   })
-  postRoot(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context));
+  postRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context)));
   }
 
   @Get("/:appId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppId" },
     aspects: [adminHttpAspect],
   })
-  getByAppId(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppId.invoke(ctx);
+  getByAppId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppId.invoke(ctx));
   }
 
   @Put("/:appId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#putByAppId" },
     aspects: [adminHttpAspect],
   })
-  putByAppId(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.putByAppId.invoke(ctx, context => this.putByAppIdAction.execute(context));
+  putByAppId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.putByAppId.invoke(ctx, context => this.putByAppIdAction.execute(context)));
   }
 
   @Delete("/:appId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#deleteByAppId" },
     aspects: [adminHttpAspect],
   })
-  deleteByAppId(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.deleteByAppId.invoke(ctx, context => this.deleteByAppIdAction.execute(context));
+  deleteByAppId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.deleteByAppId.invoke(ctx, context => this.deleteByAppIdAction.execute(context)));
   }
 
   @Post("/:appId/rotate-secret", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#postByAppIdRotateSecret" },
     aspects: [adminHttpAspect],
   })
-  postByAppIdRotateSecret(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.postByAppIdRotateSecret.invoke(ctx, context => this.postByAppIdRotateSecretAction.execute(context));
+  postByAppIdRotateSecret(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.postByAppIdRotateSecret.invoke(ctx, context => this.postByAppIdRotateSecretAction.execute(context)));
   }
 
   @Get("/:appId/secrets", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdSecrets" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdSecrets(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdSecrets.invoke(ctx);
+  getByAppIdSecrets(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdSecrets.invoke(ctx));
   }
 
   @Post("/:appId/secrets", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#postByAppIdSecrets" },
     aspects: [adminHttpAspect],
   })
-  postByAppIdSecrets(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.postByAppIdSecrets.invoke(ctx, context => this.postByAppIdSecretsAction.execute(context));
+  postByAppIdSecrets(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.postByAppIdSecrets.invoke(ctx, context => this.postByAppIdSecretsAction.execute(context)));
   }
 
   @Post("/:appId/secrets/:secretId/disable", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#postByAppIdSecretsBySecretIdDisable" },
     aspects: [adminHttpAspect],
   })
-  postByAppIdSecretsBySecretIdDisable(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.postByAppIdSecretsBySecretIdDisable.invoke(ctx, context => this.postByAppIdSecretsBySecretIdDisableAction.execute(context));
+  postByAppIdSecretsBySecretIdDisable(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.postByAppIdSecretsBySecretIdDisable.invoke(ctx, context => this.postByAppIdSecretsBySecretIdDisableAction.execute(context)));
   }
 
   @Delete("/:appId/secrets/:secretId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#deleteByAppIdSecretsBySecretId" },
     aspects: [adminHttpAspect],
   })
-  deleteByAppIdSecretsBySecretId(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.deleteByAppIdSecretsBySecretId.invoke(ctx, context => this.deleteByAppIdSecretsBySecretIdAction.execute(context));
+  deleteByAppIdSecretsBySecretId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.deleteByAppIdSecretsBySecretId.invoke(ctx, context => this.deleteByAppIdSecretsBySecretIdAction.execute(context)));
   }
 
   @Get("/:appId/consent", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdConsent" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdConsent(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdConsent.invoke(ctx);
+  getByAppIdConsent(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdConsent.invoke(ctx));
   }
 
   @Put("/:appId/consent", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#putByAppIdConsent" },
     aspects: [adminHttpAspect],
   })
-  putByAppIdConsent(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.putByAppIdConsent.invoke(ctx, context => this.putByAppIdConsentAction.execute(context));
+  putByAppIdConsent(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.putByAppIdConsent.invoke(ctx, context => this.putByAppIdConsentAction.execute(context)));
   }
 
   @Get("/:appId/access-control", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdAccessControl" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdAccessControl(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdAccessControl.invoke(ctx);
+  getByAppIdAccessControl(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdAccessControl.invoke(ctx));
   }
 
   @Put("/:appId/access-control", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#putByAppIdAccessControl" },
     aspects: [adminHttpAspect],
   })
-  putByAppIdAccessControl(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.putByAppIdAccessControl.invoke(ctx, context => this.putByAppIdAccessControlAction.execute(context));
+  putByAppIdAccessControl(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.putByAppIdAccessControl.invoke(ctx, context => this.putByAppIdAccessControlAction.execute(context)));
   }
 
   @Get("/:appId/sign-in-experience", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdSignInExperience" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdSignInExperience(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdSignInExperience.invoke(ctx);
+  getByAppIdSignInExperience(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdSignInExperience.invoke(ctx));
   }
 
   @Put("/:appId/sign-in-experience", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#putByAppIdSignInExperience" },
     aspects: [adminHttpAspect],
   })
-  putByAppIdSignInExperience(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.putByAppIdSignInExperience.invoke(ctx, context => this.putByAppIdSignInExperienceAction.execute(context));
+  putByAppIdSignInExperience(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.putByAppIdSignInExperience.invoke(ctx, context => this.putByAppIdSignInExperienceAction.execute(context)));
   }
 
   @Delete("/:appId/sign-in-experience", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#deleteByAppIdSignInExperience" },
     aspects: [adminHttpAspect],
   })
-  deleteByAppIdSignInExperience(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.deleteByAppIdSignInExperience.invoke(ctx, context => this.deleteByAppIdSignInExperienceAction.execute(context));
+  deleteByAppIdSignInExperience(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.deleteByAppIdSignInExperience.invoke(ctx, context => this.deleteByAppIdSignInExperienceAction.execute(context)));
   }
 
   @Get("/:appId/bindings", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdBindings" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdBindings(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdBindings.invoke(ctx);
+  getByAppIdBindings(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdBindings.invoke(ctx));
   }
 
   @Post("/:appId/bindings", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#postByAppIdBindings" },
     aspects: [adminHttpAspect],
   })
-  postByAppIdBindings(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.postByAppIdBindings.invoke(ctx, context => this.postByAppIdBindingsAction.execute(context));
+  postByAppIdBindings(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.postByAppIdBindings.invoke(ctx, context => this.postByAppIdBindingsAction.execute(context)));
   }
 
   @Delete("/:appId/bindings/:bindingId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#deleteByAppIdBindingsByBindingId" },
     aspects: [adminHttpAspect],
   })
-  deleteByAppIdBindingsByBindingId(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.deleteByAppIdBindingsByBindingId.invoke(ctx, context => this.deleteByAppIdBindingsByBindingIdAction.execute(context));
+  deleteByAppIdBindingsByBindingId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.deleteByAppIdBindingsByBindingId.invoke(ctx, context => this.deleteByAppIdBindingsByBindingIdAction.execute(context)));
   }
 
   @Get("/:appId/scopes", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdScopes" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdScopes(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdScopes.invoke(ctx);
+  getByAppIdScopes(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdScopes.invoke(ctx));
   }
 
   @Get("/:appId/roles", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdRoles" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdRoles(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdRoles.invoke(ctx);
+  getByAppIdRoles(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdRoles.invoke(ctx));
   }
 
   @Get("/:appId/logs", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdLogs" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdLogs(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdLogs.invoke(ctx);
+  getByAppIdLogs(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdLogs.invoke(ctx));
   }
 
   @Get("/:appId/organizations", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/applications.ts#getByAppIdOrganizations" },
     aspects: [adminHttpAspect],
   })
-  getByAppIdOrganizations(ctx: HttpInvocation): Promise<Response> {
-    return applicationRoutes.operations.getByAppIdOrganizations.invoke(ctx);
+  getByAppIdOrganizations(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => applicationRoutes.operations.getByAppIdOrganizations.invoke(ctx));
   }
 
 }

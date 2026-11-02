@@ -1,22 +1,23 @@
 <script lang="ts">
-  import type { MutationReconciliation } from "$lib/mutation-reconciliation.js";
-  import { errorMessage } from "$lib/resource-page.js";
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
+  import type { MutationReconciliation } from "#lib/mutation-reconciliation.js";
+  import { errorMessage } from "#lib/resource-page.js";
   import { onMount } from "svelte";
   import {
     getAuthConfig,
     getSignInExperience,
     updateAuthConfig,
     updateSignInExperience,
-  } from "$lib/api/client.js";
-  import { t } from "$lib/i18n.js";
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
-  import Switch from '@svadmin/ui/components/ui/switch/switch.svelte';
+  } from "#lib/api/client.js";
+  import { t } from "#lib/i18n.js";
+  import { Button } from '@svadmin/ui';
+  import { Switch } from '@svadmin/ui';
   import { resolveAuthoritativeSignupEnabled } from "./signup-authority.js";
   import {
     canonicalStringSet,
     signInMethodsSettingsAuthority,
     settleAuthoritativeSettingsMutation,
-  } from "$lib/authoritative-settings-readback.js";
+  } from "#lib/authoritative-settings-readback.js";
 
   const signInMethods = [
     { value: "password", labelKey: "Password" },
@@ -130,9 +131,7 @@
 
 <div class="mb-6 flex items-start justify-between gap-4">
   <div>
-    <h2 class="text-2xl font-bold text-surface-900">
-      {t("signIn.methodsTitle")}
-    </h2>
+    <ContentPageHeader title={t("signIn.methodsTitle")} headingLevel="h2" />
     <p class="mt-1 text-sm text-surface-500">
       {t("signIn.methodsDescription")}
     </p>

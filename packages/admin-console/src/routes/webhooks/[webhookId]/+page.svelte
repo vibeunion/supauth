@@ -1,16 +1,17 @@
 <script lang="ts">
-  import type { WebhookView, WebhookDeliveryView, WebhookAction, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import { FeedbackNotice } from '@svadmin/ui';
+  import type { WebhookView, WebhookDeliveryView, WebhookAction, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "#lib/management-view-types.js";
   import type { AdminEndpointResult } from "@supauth/shared";
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { resolve } from "$app/paths";
-  import DetailTabs from "$lib/components/DetailTabs.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { t } from "$lib/i18n.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import DetailTabs from "#lib/components/DetailTabs.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { t } from "#lib/i18n.js";
   import {
     createDurableMutationLockStore,
     validatedWebhookCommandAck,
-  } from "$lib/mutation-reconciliation.js";
+  } from "#lib/mutation-reconciliation.js";
   import {
     completeCursorCollectionItems,
     cursorCollectionPage,
@@ -19,7 +20,7 @@
     isLatestResourceLoad,
     mutationOutcomeUnknown,
     tabFromRoute,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     getWebhook,
     getWebhookDelivery,
@@ -28,7 +29,7 @@
     rotateWebhookSecret,
     testWebhook,
     updateWebhook,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   const tabs = [
     { value: "settings", labelKey: "detail.settings" },
@@ -588,12 +589,7 @@
 </div>
 
 {#if mutationStorageError}
-  <div
-    class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
-    role="alert"
-  >
-    {mutationStorageError}
-  </div>
+  <FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#each (["rotate", "test"] as const) as action (action)}

@@ -1,11 +1,13 @@
 <script lang="ts">
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import type { AdminEndpointResult } from '@supauth/shared';
-  import { errorMessage } from '$lib/resource-page.js';
+  import { errorMessage } from '#lib/resource-page.js';
   type Domain = AdminEndpointResult<'listTenantConfigs'>['items'][number];
   type DomainCheck = AdminEndpointResult<'checkTenantDomain'> | {status: 'error'; error: string};
   import { onMount } from 'svelte';
-  import { checkTenantDomain, deleteTenantConfig, listTenantConfigs, upsertTenantConfig } from '$lib/api/client.js';
-  import { t } from '$lib/i18n.js';
+  import { checkTenantDomain, deleteTenantConfig, listTenantConfigs, upsertTenantConfig } from '#lib/api/client.js';
+  import { t } from '#lib/i18n.js';
 
   let loading = $state(true);
   let saving = $state(false);
@@ -63,11 +65,11 @@
 </script>
 
 <div class="mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t('tenant.domainsTitle')}</h2>
+  <ContentPageHeader title={t('tenant.domainsTitle')} headingLevel="h2" />
   <p class="mt-1 text-sm text-surface-500">{t('tenant.domainsDescription')}</p>
 </div>
 
-{#if error}<div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>{/if}
+{#if error}<FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />{/if}
 
 <section class="console-card mb-6 p-6">
   <label for="tenant-domain" class="mb-1 block text-sm font-medium text-surface-700">{t('tenant.domainName')}</label>

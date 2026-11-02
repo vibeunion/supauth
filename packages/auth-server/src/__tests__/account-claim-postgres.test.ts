@@ -5,7 +5,7 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
-import postgres from 'postgres';
+import { SQL } from 'bun';
 import { MIGRATION_V12_SQL } from '../db/migrate.js';
 
 const DATABASE_URL = process.env["ACCOUNT_CLAIM_POSTGRES_URL"] || '';
@@ -40,7 +40,7 @@ type AccountProvisioningModule = typeof import('../repositories/account-provisio
 type AccountClaimInput = Parameters<AccountProvisioningModule['claimAccount']>[0];
 
 let accountProvisioning: AccountProvisioningModule;
-let metadataSql: ReturnType<typeof postgres>;
+let metadataSql: SQL;
 let closeMetadataDb: () => Promise<void>;
 
 function deferredSignal() {
@@ -80,7 +80,7 @@ describePostgres('account claim PostgreSQL linearization', () => {
   beforeAll(async () => {
     process.env["ACCOUNT_CLAIM_SECRET"] = CLAIM_SECRET;
     process.env["SUPACLOUD_DATABASE_URL"] = DATABASE_URL;
-    metadataSql = postgres(DATABASE_URL, { max: 4 });
+    metadataSql = new SQL(DATABASE_URL, { max: 4 });
     await metadataSql.unsafe(`
       DROP SCHEMA IF EXISTS supaoauth CASCADE;
       CREATE SCHEMA supaoauth;
@@ -112,7 +112,7 @@ describePostgres('account claim PostgreSQL linearization', () => {
 
   afterAll(async () => {
     await closeMetadataDb?.();
-    await metadataSql?.end();
+    await metadataSql?.close();
   });
 
   beforeEach(async () => {
@@ -167,7 +167,7 @@ describePostgres('account claim PostgreSQL linearization', () => {
 
     await expect(claim.promise).resolves.toEqual({ status: 'unavailable' });
     expect(updatePassword).not.toHaveBeenCalled();
-    const [record] = await metadataSql`
+    const [record] = await metadataSql<{ source_status: string; initial_password_claimed: boolean; claim_state: string }[]>`
       SELECT source_status, initial_password_claimed, claim_state
       FROM supaoauth.account_provisioning_records
       WHERE id = ${RECORD_ID}::uuid
@@ -197,7 +197,7 @@ describePostgres('account claim PostgreSQL linearization', () => {
 
     await expect(claimPromise).resolves.toMatchObject({ status: 'claimed', passwordSet: true });
     expect(updatePassword).toHaveBeenCalledTimes(1);
-    const [record] = await metadataSql`
+    const [record] = await metadataSql<{ source_status: string; initial_password_claimed: boolean; claim_state: string; claim_count: number }[]>`
       SELECT source_status, initial_password_claimed, claim_state, claim_count
       FROM supaoauth.account_provisioning_records
       WHERE id = ${RECORD_ID}::uuid
@@ -217,7 +217,7 @@ describePostgres('account claim PostgreSQL linearization', () => {
     await expect(accountProvisioning.claimAccount(passwordClaimInput(updatePassword)))
       .rejects.toThrow('timeout after remote success');
 
-    const [unknownRecord] = await metadataSql`
+    const [unknownRecord] = await metadataSql<{ claim_state: string; claim_password_hash: string | null; claim_operation_id: string | null }[]>`
       SELECT claim_state, claim_password_hash, claim_operation_id
       FROM supaoauth.account_provisioning_records
       WHERE id = ${RECORD_ID}::uuid

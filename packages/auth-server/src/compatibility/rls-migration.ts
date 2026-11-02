@@ -9,7 +9,7 @@
 //   Existing:  USING (owner_id = auth.uid())
 //   Wrapper:   USING (owner_id = auth.uid() OR supaoauth.authorize('resource.read'))
 
-import postgres from 'postgres';
+import { SQL } from 'bun';
 import { Type, decodeSchema } from '../../../shared/src/schema.js';
 import { ExistingPolicySchema, type ExistingPolicy, type WrapperPolicy, type MigrationResult } from '../../../shared/src/sdk-models.js';
 
@@ -40,9 +40,9 @@ ORDER BY p.schemaname, p.tablename, p.policyname;
 `;
 
 export async function scanExistingPolicies(databaseUrl: string): Promise<ExistingPolicy[]> {
-  const sql = postgres(databaseUrl, { max: 1 });
+  const sql = new SQL(databaseUrl, { max: 1 });
   try {
-    const rows = await sql.unsafe(SCAN_POLICIES_SQL);
+    const rows = await sql.unsafe<Record<string, unknown>[]>(SCAN_POLICIES_SQL);
     // Group by policy name (multiple roles become multiple rows)
     const policyMap = new Map<string, ExistingPolicy>();
     for (const row of decodeSchema(policyRowsSchema, Array.from(rows))) {
@@ -67,7 +67,7 @@ export async function scanExistingPolicies(databaseUrl: string): Promise<Existin
     }
     return [...policyMap.values()];
   } finally {
-    await sql.end();
+    await sql.close();
   }
 }
 

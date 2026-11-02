@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post, Delete } from '@supacl
 import { consentRoutes } from '../../routes/consents.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class ConsentPostDecisionAction {
@@ -29,56 +31,92 @@ export class ConsentController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/consents.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return consentRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => consentRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Get("/check", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/consents.ts#getCheck" },
     aspects: [adminHttpAspect],
   })
-  getCheck(ctx: HttpInvocation): Promise<Response> {
-    return consentRoutes.operations.getCheck.invoke(ctx);
+  getCheck(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => consentRoutes.operations.getCheck.invoke(ctx));
   }
 
   @Post("/decision", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/consents.ts#postDecision" },
     aspects: [adminHttpAspect],
   })
-  postDecision(ctx: HttpInvocation): Promise<Response> {
-    return consentRoutes.operations.postDecision.invoke(ctx, context => this.postDecisionAction.execute(context));
+  postDecision(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => consentRoutes.operations.postDecision.invoke(ctx, context => this.postDecisionAction.execute(context)));
   }
 
   @Delete("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/consents.ts#deleteRoot" },
     aspects: [adminHttpAspect],
   })
-  deleteRoot(ctx: HttpInvocation): Promise<Response> {
-    return consentRoutes.operations.deleteRoot.invoke(ctx, context => this.deleteRootAction.execute(context));
+  deleteRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => consentRoutes.operations.deleteRoot.invoke(ctx, context => this.deleteRootAction.execute(context)));
   }
 
   @Get("/application/:applicationId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/consents.ts#getApplicationByApplicationId" },
     aspects: [adminHttpAspect],
   })
-  getApplicationByApplicationId(ctx: HttpInvocation): Promise<Response> {
-    return consentRoutes.operations.getApplicationByApplicationId.invoke(ctx);
+  getApplicationByApplicationId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => consentRoutes.operations.getApplicationByApplicationId.invoke(ctx));
   }
 
   @Get("/user/:userId/all", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/consents.ts#getUserByUserIdAll" },
     aspects: [adminHttpAspect],
   })
-  getUserByUserIdAll(ctx: HttpInvocation): Promise<Response> {
-    return consentRoutes.operations.getUserByUserIdAll.invoke(ctx);
+  getUserByUserIdAll(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => consentRoutes.operations.getUserByUserIdAll.invoke(ctx));
   }
 
 }

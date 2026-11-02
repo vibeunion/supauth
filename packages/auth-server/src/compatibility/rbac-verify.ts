@@ -1,7 +1,7 @@
 // RBAC migration verification (P1-8).
 // Short-lived read-only probe used after SupaCloud hosted migrations are applied.
 
-import postgres from 'postgres';
+import { SQL } from 'bun';
 import { Type, decodeSchema, type Static, type TSchema } from '../../../shared/src/schema.js';
 
 const nullableBoolean = Type.Union([Type.Boolean(), Type.Null()]);
@@ -35,7 +35,7 @@ export type UnsafePolicyRow = Static<typeof UnsafePolicyRowSchema>;
 function decodeProbeRows<S extends TSchema>(schema: S, value: unknown): Static<S> {
   try {
     if (!Array.isArray(value)) throw new Error('Invalid database result container');
-    // postgres Result 自带查询元数据；只归一数组容器，行内容仍须严格解码。
+    // Bun SQL 直接返回行数组；行内容仍须严格解码。
     return decodeSchema(schema, Array.from(value));
   } catch {
     throw new Error('RBAC verification returned an invalid database row');
@@ -68,7 +68,11 @@ export interface RbacDbVerification {
 const CONNECT_TIMEOUT_SEC = 3;
 const PROBE_BUDGET_MS = 6000;
 
-async function probe(sql: ReturnType<typeof postgres>): Promise<RbacDbVerification> {
+export interface RbacProbeClient {
+  (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown>;
+}
+
+export async function probeRbacDatabase(sql: RbacProbeClient): Promise<RbacDbVerification> {
   const result: RbacDbVerification = { reachable: false };
 
   // 连通性探针：连不上直接回退，不再执行后续目录查询。
@@ -187,16 +191,21 @@ async function probe(sql: ReturnType<typeof postgres>): Promise<RbacDbVerificati
   return result;
 }
 
-export async function verifyRbacAgainstDatabase(databaseUrl?: string): Promise<RbacDbVerification> {
+export async function verifyRbacAgainstDatabase(
+  databaseUrl?: string,
+  client?: RbacProbeClient,
+): Promise<RbacDbVerification> {
   const url = databaseUrl || process.env["SUPACLOUD_DATABASE_URL"] || process.env["SUPABASE_DB_URL"] || '';
-  if (!url) return { reachable: false };
+  if (!url && !client) return { reachable: false };
 
-  const sql = postgres(url, {
+  const owned = client === undefined ? new SQL(url, {
     max: 1,
-    connect_timeout: CONNECT_TIMEOUT_SEC,
-    idle_timeout: 5,
+    connectionTimeout: CONNECT_TIMEOUT_SEC,
+    idleTimeout: 5,
     connection: { application_name: 'supaoauth-install-verify' },
-  });
+  }) : undefined;
+  const sql = client ?? owned;
+  if (!sql) return { reachable: false };
 
   // 用整体预算包住探测，超时则强制结束连接并回退为不可达。
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -208,11 +217,11 @@ export async function verifyRbacAgainstDatabase(databaseUrl?: string): Promise<R
   });
 
   try {
-    return await Promise.race([probe(sql), budget]);
+    return await Promise.race([probeRbacDatabase(sql), budget]);
   } catch (e) {
     return { reachable: false, error: e instanceof Error ? e.message : String(e) };
   } finally {
     if (timer) clearTimeout(timer);
-    await sql.end({ timeout: 3 }).catch(() => {});
+    await owned?.close({ timeout: 3 }).catch(() => {});
   }
 }

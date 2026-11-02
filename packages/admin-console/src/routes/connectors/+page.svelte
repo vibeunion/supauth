@@ -1,16 +1,18 @@
 <script lang="ts">
-  import type { ConnectorView, ConnectorFactoryView, DurableMutationLocks, CollectionPayload, KeyedOperation } from "$lib/management-view-types.js";
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
+  import type { ConnectorView, ConnectorFactoryView, DurableMutationLocks, CollectionPayload, KeyedOperation } from "#lib/management-view-types.js";
   import { adminEndpoints, decodeSchema, Type } from "@supauth/shared";
   import { onMount } from "svelte";
-  import { t } from "$lib/i18n.js";
-  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
+  import { t } from "#lib/i18n.js";
+  import { createDurableMutationLockStore } from "#lib/mutation-reconciliation.js";
   import {
     completeCollectionItems,
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     mutationOutcomeUnknown,
     errorMessage,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     createConnectorFromFactory,
     getConnector,
@@ -18,7 +20,7 @@
     updateConnector,
     testConnector,
     listConnectorFactories,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   let connectors = $state<ConnectorView[]>([]);
   let factories = $state<ConnectorFactoryView[]>([]);
@@ -540,19 +542,15 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t("Connectors")}</h2>
+  <ContentPageHeader title={t("Connectors")} headingLevel="h2" />
 </div>
 
 {#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">
-    {error}
-  </div>
+  <FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if mutationStorageError}
-  <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700" role="alert">
-    {mutationStorageError}
-  </div>
+  <FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if factoryCreateOutcomeUnknown}

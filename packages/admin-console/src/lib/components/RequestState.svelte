@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { t } from "$lib/i18n.js";
-  import { errorMessage, requestErrorState } from "$lib/resource-page.js";
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
+  import DataState, { type DataStateKind } from "@svadmin/ui/components/content/DataState.svelte";
+  import { definedOptions } from "@svadmin/core/options";
+  import { t } from "#lib/i18n.js";
+  import { errorMessage, requestErrorState } from "#lib/resource-page.js";
 
   let {
     loading = false,
@@ -37,47 +38,33 @@
   };
 
   let errorKind = $derived(requestErrorState(error) || "error");
-  let errorTitle = $derived(
-    t(errorTitleKeys[errorKind] || "state.requestFailed"),
-  );
+  let errorTitle = $derived(t(errorTitleKeys[errorKind] || "state.requestFailed"));
   let descriptionKey = $derived(errorDescriptionKeys[errorKind]);
   let errorDescription = $derived(
-    descriptionKey
-      ? t(descriptionKey)
-      : errorMessage(error),
+    descriptionKey ? t(descriptionKey) : errorMessage(error),
+  );
+  let dataState = $derived<DataStateKind | null>(
+    loading ? "loading" : error ? (errorKind === "forbidden" ? "forbidden" : "error") : empty ? "empty" : null,
+  );
+  let dataTitle = $derived(
+    loading ? t("common.loading") : error ? errorTitle : t(emptyTitle),
+  );
+  let dataDescription = $derived(
+    loading ? undefined : error ? errorDescription : emptyDescription ? t(emptyDescription) : undefined,
+  );
+  let retryAction = $derived(
+    error && onRetry ? () => { void onRetry?.(); } : undefined,
   );
 </script>
 
-{#if loading}
-  <div
-    class="rounded-xl border border-surface-200 bg-white p-8 text-center text-sm text-surface-500"
-    role="status"
-  >
-    {t("common.loading")}
-  </div>
-{:else if error}
-  <div class="rounded-xl border border-red-200 bg-red-50 p-6" role="alert">
-    <h3 class="font-semibold text-red-900">{errorTitle}</h3>
-    <p class="mt-1 text-sm text-red-700">{errorDescription}</p>
-    {#if onRetry}
-      <Button
-        type="button"
-        onclick={onRetry}
-        variant="outline"
-        class="mt-4 border-red-300 text-red-800 hover:bg-red-100"
-        >{t("Refresh")}</Button
-      >
-    {/if}
-  </div>
-{:else if empty}
-  <div
-    class="rounded-xl border border-surface-200 bg-surface-50 p-8 text-center"
-  >
-    <h3 class="font-medium text-surface-700">{t(emptyTitle)}</h3>
-    {#if emptyDescription}<p class="mt-2 text-sm text-surface-500">
-        {t(emptyDescription)}
-      </p>{/if}
-  </div>
+{#if dataState}
+  <DataState
+    state={dataState}
+    title={dataTitle}
+    loadingLabel={t("common.loading")}
+    retryLabel={t("Refresh")}
+    {...definedOptions({ description: dataDescription, retry: retryAction })}
+  />
 {:else}
   {@render children()}
 {/if}

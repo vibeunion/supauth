@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post, Put, Delete } from '@s
 import { webhookRoutes } from '../../routes/webhooks.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class WebhookPostRootAction {
@@ -65,110 +67,182 @@ export class WebhookController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Post("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#postRoot" },
     aspects: [adminHttpAspect],
   })
-  postRoot(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context));
+  postRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context)));
   }
 
   @Get("/events", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#getEvents" },
     aspects: [adminHttpAspect],
   })
-  getEvents(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.getEvents.invoke(ctx);
+  getEvents(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.getEvents.invoke(ctx));
   }
 
   @Get("/:webhookId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#getByWebhookId" },
     aspects: [adminHttpAspect],
   })
-  getByWebhookId(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.getByWebhookId.invoke(ctx);
+  getByWebhookId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.getByWebhookId.invoke(ctx));
   }
 
   @Get("/:webhookId/logs", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#getByWebhookIdLogs" },
     aspects: [adminHttpAspect],
   })
-  getByWebhookIdLogs(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.getByWebhookIdLogs.invoke(ctx);
+  getByWebhookIdLogs(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.getByWebhookIdLogs.invoke(ctx));
   }
 
   @Put("/:webhookId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#putByWebhookId" },
     aspects: [adminHttpAspect],
   })
-  putByWebhookId(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.putByWebhookId.invoke(ctx, context => this.putByWebhookIdAction.execute(context));
+  putByWebhookId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.putByWebhookId.invoke(ctx, context => this.putByWebhookIdAction.execute(context)));
   }
 
   @Delete("/:webhookId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#deleteByWebhookId" },
     aspects: [adminHttpAspect],
   })
-  deleteByWebhookId(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.deleteByWebhookId.invoke(ctx, context => this.deleteByWebhookIdAction.execute(context));
+  deleteByWebhookId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.deleteByWebhookId.invoke(ctx, context => this.deleteByWebhookIdAction.execute(context)));
   }
 
   @Post("/:webhookId/rotate-secret", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#postByWebhookIdRotateSecret" },
     aspects: [adminHttpAspect],
   })
-  postByWebhookIdRotateSecret(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.postByWebhookIdRotateSecret.invoke(ctx, context => this.postByWebhookIdRotateSecretAction.execute(context));
+  postByWebhookIdRotateSecret(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.postByWebhookIdRotateSecret.invoke(ctx, context => this.postByWebhookIdRotateSecretAction.execute(context)));
   }
 
   @Post("/:webhookId/test", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#postByWebhookIdTest" },
     aspects: [adminHttpAspect],
   })
-  postByWebhookIdTest(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.postByWebhookIdTest.invoke(ctx, context => this.postByWebhookIdTestAction.execute(context));
+  postByWebhookIdTest(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.postByWebhookIdTest.invoke(ctx, context => this.postByWebhookIdTestAction.execute(context)));
   }
 
   @Get("/:webhookId/deliveries", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#getByWebhookIdDeliveries" },
     aspects: [adminHttpAspect],
   })
-  getByWebhookIdDeliveries(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.getByWebhookIdDeliveries.invoke(ctx);
+  getByWebhookIdDeliveries(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.getByWebhookIdDeliveries.invoke(ctx));
   }
 
   @Get("/:webhookId/deliveries/:deliveryId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#getByWebhookIdDeliveriesByDeliveryId" },
     aspects: [adminHttpAspect],
   })
-  getByWebhookIdDeliveriesByDeliveryId(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.getByWebhookIdDeliveriesByDeliveryId.invoke(ctx);
+  getByWebhookIdDeliveriesByDeliveryId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.getByWebhookIdDeliveriesByDeliveryId.invoke(ctx));
   }
 
   @Post("/:webhookId/deliveries/:deliveryId/replay", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/webhooks.ts#postByWebhookIdDeliveriesByDeliveryIdReplay" },
     aspects: [adminHttpAspect],
   })
-  postByWebhookIdDeliveriesByDeliveryIdReplay(ctx: HttpInvocation): Promise<Response> {
-    return webhookRoutes.operations.postByWebhookIdDeliveriesByDeliveryIdReplay.invoke(ctx, context => this.postByWebhookIdDeliveriesByDeliveryIdReplayAction.execute(context));
+  postByWebhookIdDeliveriesByDeliveryIdReplay(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => webhookRoutes.operations.postByWebhookIdDeliveriesByDeliveryIdReplay.invoke(ctx, context => this.postByWebhookIdDeliveriesByDeliveryIdReplayAction.execute(context)));
   }
 
 }

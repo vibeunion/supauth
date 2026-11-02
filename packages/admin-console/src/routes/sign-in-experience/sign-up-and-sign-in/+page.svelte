@@ -1,5 +1,5 @@
 <script lang="ts">
-  import SignInMethodsEditor from '$lib/components/sign-in-experience/SignInMethodsEditor.svelte';
+  import SignInMethodsEditor from '#lib/components/sign-in-experience/SignInMethodsEditor.svelte';
 </script>
 
 <SignInMethodsEditor />

@@ -11,10 +11,7 @@ import { isUnknownArray, parseJson } from "./tooling-values.js";
 
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import {
-  initSync as initModuleLexerSync,
-  parse as parseModuleImports,
-} from 'es-module-lexer';
+import { parse as parseModuleImports } from 'es-module-lexer/minimal';
 import { HOSTED_MIGRATION_CATALOG } from '../packages/auth-server/src/db/migrations/catalog.js';
 import { SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE } from './supacloud-app-contract.js';
 
@@ -364,7 +361,6 @@ function parseFunctionBundleModuleImports(
   functionSource: string,
 ): readonly ModuleImport[] | null {
   try {
-    initModuleLexerSync();
     return parseModuleImports(functionSource)[0];
   } catch (error) {
     result.errors.push(`Function bundle module lexer failed: ${error instanceof Error ? error.message : String(error)}`);

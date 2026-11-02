@@ -1,23 +1,23 @@
 <script lang="ts">
   import { adminEndpoints, decodeSchema } from "@supauth/shared";
-  import type { EnterpriseSsoView, CapabilitiesView, ResourceLoadContext, Operation } from "$lib/management-view-types.js";
+  import type { EnterpriseSsoView, CapabilitiesView, ResourceLoadContext, Operation } from "#lib/management-view-types.js";
   import { page } from "$app/state";
-  import { resolve } from "$app/paths";
-  import DetailTabs from "$lib/components/DetailTabs.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { AdminApiError } from "$lib/admin-api.js";
-  import { t } from "$lib/i18n.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import DetailTabs from "#lib/components/DetailTabs.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { AdminApiError } from "#lib/admin-api.js";
+  import { t } from "#lib/i18n.js";
   import {
     capabilityAvailable,
     createOperationTracker,
     isLatestResourceLoad,
     tabFromRoute,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     getCapabilities,
     getEnterpriseSSOConfig,
     updateEnterpriseSSOConfig,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   const baseTabs = [
     { value: "connection", labelKey: "detail.connection" },

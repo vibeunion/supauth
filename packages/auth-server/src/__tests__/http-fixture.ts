@@ -19,7 +19,7 @@ export function operationTestPlugin(input: TestOperationGroup | readonly TestOpe
   const groups = 'prefix' in input ? [input] : input;
   for (const group of groups) {
     for (const operation of Object.values(group.operations)) {
-      app.method(operation.method, `${group.prefix}${operation.path}`, {
+      app.route(operation.method, `${group.prefix}${operation.path}`, {
         parse: 'none',
         ...(operation.options.detail === undefined ? {} : { detail: operation.options.detail }),
       }, ({ request, params, query }) => operation.invoke({ request, params, query }));

@@ -1,19 +1,19 @@
 <script lang="ts">
-  import type { ResourceView, ResourceApplicationView, ResourceLoadContext, Operation, DurableMutationLocks } from "$lib/management-view-types.js";
+  import type { ResourceView, ResourceApplicationView, ResourceLoadContext, Operation, DurableMutationLocks } from "#lib/management-view-types.js";
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { resolve } from "$app/paths";
-  import DetailTabs from "$lib/components/DetailTabs.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { t } from "$lib/i18n.js";
-  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import DetailTabs from "#lib/components/DetailTabs.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { t } from "#lib/i18n.js";
+  import { createDurableMutationLockStore } from "#lib/mutation-reconciliation.js";
   import {
     collectionItems,
     createOperationTracker,
     isLatestResourceLoad,
     mutationOutcomeUnknown,
     tabFromRoute,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     createResourceScope,
     deleteResourceScope,
@@ -21,7 +21,7 @@
     listResourceApplications,
     updateResource,
     updateResourceScope,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   const tabs = [
     { value: "general", labelKey: "detail.general" },

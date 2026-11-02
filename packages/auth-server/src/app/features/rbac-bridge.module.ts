@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post } from '@supacloud/app'
 import { rbacBridgeRoutes } from '../../routes/rbac-bridge.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class RbacBridgePostDryRunAction {
@@ -29,38 +31,62 @@ export class RbacBridgeController {
 
   @Get("/default-policy", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/rbac-bridge.ts#getDefaultPolicy" },
     aspects: [adminHttpAspect],
   })
-  getDefaultPolicy(ctx: HttpInvocation): Promise<Response> {
-    return rbacBridgeRoutes.operations.getDefaultPolicy.invoke(ctx);
+  getDefaultPolicy(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => rbacBridgeRoutes.operations.getDefaultPolicy.invoke(ctx));
   }
 
   @Post("/dry-run", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/rbac-bridge.ts#postDryRun" },
     aspects: [adminHttpAspect],
   })
-  postDryRun(ctx: HttpInvocation): Promise<Response> {
-    return rbacBridgeRoutes.operations.postDryRun.invoke(ctx, context => this.postDryRunAction.execute(context));
+  postDryRun(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => rbacBridgeRoutes.operations.postDryRun.invoke(ctx, context => this.postDryRunAction.execute(context)));
   }
 
   @Post("/import", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/rbac-bridge.ts#postImport" },
     aspects: [adminHttpAspect],
   })
-  postImport(ctx: HttpInvocation): Promise<Response> {
-    return rbacBridgeRoutes.operations.postImport.invoke(ctx, context => this.postImportAction.execute(context));
+  postImport(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => rbacBridgeRoutes.operations.postImport.invoke(ctx, context => this.postImportAction.execute(context)));
   }
 
   @Get("/compatibility-helper", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/rbac-bridge.ts#getCompatibilityHelper" },
     aspects: [adminHttpAspect],
   })
-  getCompatibilityHelper(ctx: HttpInvocation): Promise<Response> {
-    return rbacBridgeRoutes.operations.getCompatibilityHelper.invoke(ctx);
+  getCompatibilityHelper(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => rbacBridgeRoutes.operations.getCompatibilityHelper.invoke(ctx));
   }
 
 }

@@ -1,184 +1,318 @@
 import { Controller, defineModule, Injectable, Get, Patch, Post, Delete, Put } from '@supacloud/app';
 import { publicAccountRoutes } from '../../routes/account-self-service.js';
 import type { HttpInvocation } from '../../http/operation.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable({ scope: 'application' })
 @Controller("/v1/public/account")
 export class PublicAccountController {
   @Get("/config", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#getConfig" },
   })
-  getConfig(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.getConfig.invoke(ctx);
+  getConfig(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.getConfig.invoke(ctx));
   }
 
   @Get("/me", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#getMe" },
   })
-  getMe(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.getMe.invoke(ctx);
+  getMe(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.getMe.invoke(ctx));
   }
 
   @Get("/permissions", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#getPermissions" },
   })
-  getPermissions(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.getPermissions.invoke(ctx);
+  getPermissions(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.getPermissions.invoke(ctx));
   }
 
   @Patch("/profile", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#patchProfile" },
   })
-  patchProfile(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.patchProfile.invoke(ctx);
+  patchProfile(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.patchProfile.invoke(ctx));
   }
 
   @Patch("/email", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#patchEmail" },
   })
-  patchEmail(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.patchEmail.invoke(ctx);
+  patchEmail(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.patchEmail.invoke(ctx));
   }
 
   @Patch("/phone", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#patchPhone" },
   })
-  patchPhone(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.patchPhone.invoke(ctx);
+  patchPhone(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.patchPhone.invoke(ctx));
   }
 
   @Get("/sessions", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#getSessions" },
   })
-  getSessions(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.getSessions.invoke(ctx);
+  getSessions(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.getSessions.invoke(ctx));
   }
 
   @Post("/sessions/:sessionId/revoke", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#postSessionsBySessionIdRevoke" },
   })
-  postSessionsBySessionIdRevoke(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.postSessionsBySessionIdRevoke.invoke(ctx);
+  postSessionsBySessionIdRevoke(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.postSessionsBySessionIdRevoke.invoke(ctx));
   }
 
   @Get("/grants", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#getGrants" },
   })
-  getGrants(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.getGrants.invoke(ctx);
+  getGrants(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.getGrants.invoke(ctx));
   }
 
   @Delete("/grants/:clientId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#deleteGrantsByClientId" },
   })
-  deleteGrantsByClientId(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.deleteGrantsByClientId.invoke(ctx);
+  deleteGrantsByClientId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.deleteGrantsByClientId.invoke(ctx));
   }
 
   @Get("/identities", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#getIdentities" },
   })
-  getIdentities(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.getIdentities.invoke(ctx);
+  getIdentities(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.getIdentities.invoke(ctx));
   }
 
   @Post("/identities/authorize", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#postIdentitiesAuthorize" },
   })
-  postIdentitiesAuthorize(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.postIdentitiesAuthorize.invoke(ctx);
+  postIdentitiesAuthorize(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.postIdentitiesAuthorize.invoke(ctx));
   }
 
   @Delete("/identities/:identityId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#deleteIdentitiesByIdentityId" },
   })
-  deleteIdentitiesByIdentityId(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.deleteIdentitiesByIdentityId.invoke(ctx);
+  deleteIdentitiesByIdentityId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.deleteIdentitiesByIdentityId.invoke(ctx));
   }
 
   @Post("/logout", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#postLogout" },
   })
-  postLogout(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.postLogout.invoke(ctx);
+  postLogout(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.postLogout.invoke(ctx));
   }
 
   @Get("/passkeys", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#getPasskeys" },
   })
-  getPasskeys(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.getPasskeys.invoke(ctx);
+  getPasskeys(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.getPasskeys.invoke(ctx));
   }
 
   @Put("/passkeys/:passkeyId/rename", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#putPasskeysByPasskeyIdRename" },
   })
-  putPasskeysByPasskeyIdRename(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.putPasskeysByPasskeyIdRename.invoke(ctx);
+  putPasskeysByPasskeyIdRename(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.putPasskeysByPasskeyIdRename.invoke(ctx));
   }
 
   @Delete("/passkeys/:passkeyId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#deletePasskeysByPasskeyId" },
   })
-  deletePasskeysByPasskeyId(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.deletePasskeysByPasskeyId.invoke(ctx);
+  deletePasskeysByPasskeyId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.deletePasskeysByPasskeyId.invoke(ctx));
   }
 
   @Get("/mfa", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#getMfa" },
   })
-  getMfa(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.getMfa.invoke(ctx);
+  getMfa(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.getMfa.invoke(ctx));
   }
 
   @Post("/mfa/totp/enroll", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#postMfaTotpEnroll" },
   })
-  postMfaTotpEnroll(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.postMfaTotpEnroll.invoke(ctx);
+  postMfaTotpEnroll(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.postMfaTotpEnroll.invoke(ctx));
   }
 
   @Post("/mfa/:factorId/verify", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#postMfaByFactorIdVerify" },
   })
-  postMfaByFactorIdVerify(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.postMfaByFactorIdVerify.invoke(ctx);
+  postMfaByFactorIdVerify(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.postMfaByFactorIdVerify.invoke(ctx));
   }
 
   @Delete("/mfa/:factorId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#deleteMfaByFactorId" },
   })
-  deleteMfaByFactorId(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.deleteMfaByFactorId.invoke(ctx);
+  deleteMfaByFactorId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.deleteMfaByFactorId.invoke(ctx));
   }
 
   @Delete("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-self-service.ts#deleteRoot" },
   })
-  deleteRoot(ctx: HttpInvocation): Promise<Response> {
-    return publicAccountRoutes.operations.deleteRoot.invoke(ctx);
+  deleteRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => publicAccountRoutes.operations.deleteRoot.invoke(ctx));
   }
 
 }

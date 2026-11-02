@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import type { AdminEndpointResult } from '@supauth/shared';
-  import { errorMessage } from '$lib/resource-page.js';
+  import { errorMessage } from '#lib/resource-page.js';
   import { onMount } from 'svelte';
-  import { getDiscovery, getJWKS, getOAuthServerStatus } from '$lib/api/client.js';
-  import { t } from '$lib/i18n.js';
+  import { getDiscovery, getJWKS, getOAuthServerStatus } from '#lib/api/client.js';
+  import { t } from '#lib/i18n.js';
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -22,14 +24,14 @@
 </script>
 
 <div class="mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t('tenant.oidcTitle')}</h2>
+  <ContentPageHeader title={t('tenant.oidcTitle')} headingLevel="h2" />
   <p class="mt-1 text-sm text-surface-500">{t('tenant.oidcDescription')}</p>
 </div>
 
 {#if loading}
   <p class="text-surface-400">{t('common.loading')}</p>
 {:else if error}
-  <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>
+  <FeedbackNotice message={error} tone="danger" priority="blocking" />
 {:else}
   <div class="space-y-6">
     <section class="grid gap-4 lg:grid-cols-3">

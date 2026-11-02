@@ -1,20 +1,21 @@
 <script lang="ts">
-  import type { ApplicationView, AssignmentView, AuditEntryView, OrganizationView, ApplicationBindingView, ResourceView, ApplicationConsentView, ApplicationAccessControlView, ApplicationBrandingView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import { FeedbackNotice } from '@svadmin/ui';
+  import type { ApplicationView, AssignmentView, AuditEntryView, OrganizationView, ApplicationBindingView, ResourceView, ApplicationConsentView, ApplicationAccessControlView, ApplicationBrandingView, ResourceLoadContext, Operation, DurableMutationLocks, CollectionPayload } from "#lib/management-view-types.js";
   import { adminEndpoints, decodeSchema } from "@supauth/shared";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
-  import { resolve } from "$app/paths";
+  import { resolve } from "#lib/sveltekit-paths.js";
   import { page } from "$app/state";
-  import DetailTabs from "$lib/components/DetailTabs.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import OneTimeSecret from "$lib/components/OneTimeSecret.svelte";
-  import { AdminApiError } from "$lib/admin-api.js";
-  import { t } from "$lib/i18n.js";
-  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
+  import DetailTabs from "#lib/components/DetailTabs.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import OneTimeSecret from "#lib/components/OneTimeSecret.svelte";
+  import { AdminApiError } from "#lib/admin-api.js";
+  import { t } from "#lib/i18n.js";
+  import { createDurableMutationLockStore } from "#lib/mutation-reconciliation.js";
   import {
     GOTRUE_OAUTH_GRANT_TYPES,
     supportedOAuthGrantTypes,
-  } from "$lib/oauth-grant-types.js";
+  } from "#lib/oauth-grant-types.js";
   import {
     applicationDetailTabValues,
     collectionItems,
@@ -23,7 +24,7 @@
     isLatestResourceLoad,
     mutationOutcomeUnknown,
     tabFromRoute,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     createApplicationBinding,
     deleteApplication,
@@ -44,7 +45,7 @@
     updateApplicationAccessControl,
     updateApplicationConsent,
     updateApplicationSignInExperience,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   const allTabs = [
     { value: "settings", labelKey: "detail.settings" },
@@ -799,12 +800,7 @@
 </div>
 
 {#if mutationStorageError}
-  <div
-    class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
-    role="alert"
-  >
-    {mutationStorageError}
-  </div>
+  <FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if deletionOutcomeUnknown}

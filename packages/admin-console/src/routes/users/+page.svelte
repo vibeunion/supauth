@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { UserView, UserRoleView, UserPermissionView, ApplicationView, KeyedOperation, CollectionPayload, ValueEvent } from "$lib/management-view-types.js";
+  import { StatusPill } from '@svadmin/ui';
+  import type { UserView, UserRoleView, UserPermissionView, ApplicationView, KeyedOperation, CollectionPayload, ValueEvent } from "#lib/management-view-types.js";
   import { onMount, tick } from "svelte";
-  import { resolve } from "$app/paths";
+  import { resolve } from "#lib/sveltekit-paths.js";
   import { page } from "$app/state";
-  import { t } from "$lib/i18n.js";
+  import { t } from "#lib/i18n.js";
   import {
     collectionItems,
     collectionPage,
@@ -11,7 +12,7 @@
     createLatestRequestTracker,
     mutationOutcomeUnknown,
     errorMessage,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     listUsers,
     createUser,
@@ -23,11 +24,11 @@
     getUserRoles,
     getUserPermissions,
     listApplications,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
   import {
     permissionDescription,
     permissionLabel,
-  } from "$lib/permission-catalog.js";
+  } from "#lib/permission-catalog.js";
 
   const USER_MUTATION_LOCKS_KEY =
     "supaoauth.admin.user-mutation-locks.v1";
@@ -1023,22 +1024,10 @@
               </div>
             </td>
             <td class="px-4 py-3">
-              {#if suspended}
-                <span
-                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700"
-                >
-                  <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>{t(
-                    "users.suspended",
-                  )}
-                </span>
-              {:else}
-                <span
-                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700"
-                >
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"
-                  ></span>{t("users.active")}
-                </span>
-              {/if}
+              <StatusPill
+                label={suspended ? t("users.suspended") : t("users.active")}
+                tone={suspended ? "danger" : "success"}
+              />
             </td>
             <td class="px-4 py-3 text-surface-500"
               >{formatDate(user.last_sign_in_at) || t("users.never")}</td

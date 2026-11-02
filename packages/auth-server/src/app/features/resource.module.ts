@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post, Put, Delete } from '@s
 import { resourceRoutes } from '../../routes/resources.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class ResourcePostRootAction {
@@ -65,83 +67,137 @@ export class ResourceController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Post("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#postRoot" },
     aspects: [adminHttpAspect],
   })
-  postRoot(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context));
+  postRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context)));
   }
 
   @Get("/:resourceId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#getByResourceId" },
     aspects: [adminHttpAspect],
   })
-  getByResourceId(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.getByResourceId.invoke(ctx);
+  getByResourceId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.getByResourceId.invoke(ctx));
   }
 
   @Put("/:resourceId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#putByResourceId" },
     aspects: [adminHttpAspect],
   })
-  putByResourceId(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.putByResourceId.invoke(ctx, context => this.putByResourceIdAction.execute(context));
+  putByResourceId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.putByResourceId.invoke(ctx, context => this.putByResourceIdAction.execute(context)));
   }
 
   @Delete("/:resourceId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#deleteByResourceId" },
     aspects: [adminHttpAspect],
   })
-  deleteByResourceId(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.deleteByResourceId.invoke(ctx, context => this.deleteByResourceIdAction.execute(context));
+  deleteByResourceId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.deleteByResourceId.invoke(ctx, context => this.deleteByResourceIdAction.execute(context)));
   }
 
   @Post("/:resourceId/scopes", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#postByResourceIdScopes" },
     aspects: [adminHttpAspect],
   })
-  postByResourceIdScopes(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.postByResourceIdScopes.invoke(ctx, context => this.postByResourceIdScopesAction.execute(context));
+  postByResourceIdScopes(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.postByResourceIdScopes.invoke(ctx, context => this.postByResourceIdScopesAction.execute(context)));
   }
 
   @Put("/:resourceId/scopes/:scopeId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#putByResourceIdScopesByScopeId" },
     aspects: [adminHttpAspect],
   })
-  putByResourceIdScopesByScopeId(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.putByResourceIdScopesByScopeId.invoke(ctx, context => this.putByResourceIdScopesByScopeIdAction.execute(context));
+  putByResourceIdScopesByScopeId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.putByResourceIdScopesByScopeId.invoke(ctx, context => this.putByResourceIdScopesByScopeIdAction.execute(context)));
   }
 
   @Delete("/:resourceId/scopes/:scopeId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#deleteByResourceIdScopesByScopeId" },
     aspects: [adminHttpAspect],
   })
-  deleteByResourceIdScopesByScopeId(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.deleteByResourceIdScopesByScopeId.invoke(ctx, context => this.deleteByResourceIdScopesByScopeIdAction.execute(context));
+  deleteByResourceIdScopesByScopeId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.deleteByResourceIdScopesByScopeId.invoke(ctx, context => this.deleteByResourceIdScopesByScopeIdAction.execute(context)));
   }
 
   @Get("/:resourceId/applications", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/resources.ts#getByResourceIdApplications" },
     aspects: [adminHttpAspect],
   })
-  getByResourceIdApplications(ctx: HttpInvocation): Promise<Response> {
-    return resourceRoutes.operations.getByResourceIdApplications.invoke(ctx);
+  getByResourceIdApplications(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => resourceRoutes.operations.getByResourceIdApplications.invoke(ctx));
   }
 
 }

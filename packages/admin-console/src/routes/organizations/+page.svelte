@@ -1,26 +1,27 @@
 <script lang="ts">
-  import type { OrganizationView, KeyedOperation, CollectionPayload } from "$lib/management-view-types.js";
+  import { FeedbackNotice } from '@svadmin/ui';
+  import type { OrganizationView, KeyedOperation, CollectionPayload } from "#lib/management-view-types.js";
   import { onMount } from "svelte";
-  import { resolve } from "$app/paths";
-  import RequestState from "$lib/components/RequestState.svelte";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import RequestState from "#lib/components/RequestState.svelte";
   import {
     createOrganization,
     deleteOrganization,
     getOrganization,
     listOrganizations,
-  } from "$lib/api/client.js";
-  import { t } from "$lib/i18n.js";
+  } from "#lib/api/client.js";
+  import { t } from "#lib/i18n.js";
   import {
     organizationDraft,
     organizationSlugIssue,
-  } from "$lib/organization-form.js";
+  } from "#lib/organization-form.js";
   import {
     collectionPage,
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     emptyCollectionFallbackPage,
     mutationOutcomeUnknown,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
 
   const ORGANIZATION_MUTATION_LOCKS_KEY =
     "supaoauth.admin.organization-mutation-locks.v1";
@@ -511,12 +512,7 @@
 </div>
 
 {#if mutationStorageError}
-  <div
-    class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"
-    role="alert"
-  >
-    {mutationStorageError}
-  </div>
+  <FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if organizationUnverifiedMutations.length}

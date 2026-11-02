@@ -2,7 +2,7 @@
 // SupaCloud owns identity management tables; this migration intentionally does
 // not create duplicate Organizations/RBAC/Users/Audit/Webhooks source tables.
 
-import postgres from 'postgres';
+import { SQL } from 'bun';
 import { HOSTED_MIGRATIONS } from './migrations/index.js';
 
 export * from './migrations/index.js';
@@ -10,7 +10,7 @@ export * from './migrations/index.js';
 export async function runMigration(databaseUrl?: string) {
   const url = databaseUrl || process.env["SUPACLOUD_DATABASE_URL"] || process.env["DATABASE_URL"] || '';
   if (!url) throw new Error('SUPACLOUD_DATABASE_URL or DATABASE_URL is required for migration');
-  const sql = postgres(url, { max: 1 });
+  const sql = new SQL(url, { max: 1 });
 
   try {
     for (const migration of HOSTED_MIGRATIONS) {
@@ -21,7 +21,7 @@ export async function runMigration(databaseUrl?: string) {
     console.error(`Migration failed: ${e instanceof Error ? e.message : String(e)}`);
     throw e;
   } finally {
-    await sql.end();
+    await sql.close();
   }
 }
 

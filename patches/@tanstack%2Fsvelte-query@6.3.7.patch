@@ -1,0 +1,7 @@
+diff --git a/dist/containers.d.svelte.ts b/dist/containers.d.svelte.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a9310b2ac223e8ffa6454c4c830f74608b95441e
+--- /dev/null
++++ b/dist/containers.d.svelte.ts
+@@ -0,0 +1 @@
++export * from './containers.svelte.js';

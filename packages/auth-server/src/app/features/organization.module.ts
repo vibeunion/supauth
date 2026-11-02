@@ -3,6 +3,8 @@ import { organizationRoutes } from '../../routes/organizations.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { PublicOrganizationController } from './public-organization.module.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class OrganizationPostRootAction {
@@ -129,191 +131,317 @@ export class OrganizationController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Post("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#postRoot" },
     aspects: [adminHttpAspect],
   })
-  postRoot(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context));
+  postRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context)));
   }
 
   @Get("/:orgId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#getByOrgId" },
     aspects: [adminHttpAspect],
   })
-  getByOrgId(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.getByOrgId.invoke(ctx);
+  getByOrgId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.getByOrgId.invoke(ctx));
   }
 
   @Put("/:orgId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#putByOrgId" },
     aspects: [adminHttpAspect],
   })
-  putByOrgId(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.putByOrgId.invoke(ctx, context => this.putByOrgIdAction.execute(context));
+  putByOrgId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.putByOrgId.invoke(ctx, context => this.putByOrgIdAction.execute(context)));
   }
 
   @Delete("/:orgId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#deleteByOrgId" },
     aspects: [adminHttpAspect],
   })
-  deleteByOrgId(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.deleteByOrgId.invoke(ctx, context => this.deleteByOrgIdAction.execute(context));
+  deleteByOrgId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.deleteByOrgId.invoke(ctx, context => this.deleteByOrgIdAction.execute(context)));
   }
 
   @Get("/:orgId/members", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#getByOrgIdMembers" },
     aspects: [adminHttpAspect],
   })
-  getByOrgIdMembers(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.getByOrgIdMembers.invoke(ctx);
+  getByOrgIdMembers(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.getByOrgIdMembers.invoke(ctx));
   }
 
   @Post("/:orgId/members", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#postByOrgIdMembers" },
     aspects: [adminHttpAspect],
   })
-  postByOrgIdMembers(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.postByOrgIdMembers.invoke(ctx, context => this.postByOrgIdMembersAction.execute(context));
+  postByOrgIdMembers(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.postByOrgIdMembers.invoke(ctx, context => this.postByOrgIdMembersAction.execute(context)));
   }
 
   @Delete("/:orgId/members/:userId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#deleteByOrgIdMembersByUserId" },
     aspects: [adminHttpAspect],
   })
-  deleteByOrgIdMembersByUserId(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.deleteByOrgIdMembersByUserId.invoke(ctx, context => this.deleteByOrgIdMembersByUserIdAction.execute(context));
+  deleteByOrgIdMembersByUserId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.deleteByOrgIdMembersByUserId.invoke(ctx, context => this.deleteByOrgIdMembersByUserIdAction.execute(context)));
   }
 
   @Patch("/:orgId/members/:userId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#patchByOrgIdMembersByUserId" },
     aspects: [adminHttpAspect],
   })
-  patchByOrgIdMembersByUserId(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.patchByOrgIdMembersByUserId.invoke(ctx, context => this.patchByOrgIdMembersByUserIdAction.execute(context));
+  patchByOrgIdMembersByUserId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.patchByOrgIdMembersByUserId.invoke(ctx, context => this.patchByOrgIdMembersByUserIdAction.execute(context)));
   }
 
   @Get("/:orgId/roles", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#getByOrgIdRoles" },
     aspects: [adminHttpAspect],
   })
-  getByOrgIdRoles(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.getByOrgIdRoles.invoke(ctx);
+  getByOrgIdRoles(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.getByOrgIdRoles.invoke(ctx));
   }
 
   @Get("/:orgId/invitations", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#getByOrgIdInvitations" },
     aspects: [adminHttpAspect],
   })
-  getByOrgIdInvitations(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.getByOrgIdInvitations.invoke(ctx);
+  getByOrgIdInvitations(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.getByOrgIdInvitations.invoke(ctx));
   }
 
   @Post("/:orgId/invitations", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#postByOrgIdInvitations" },
     aspects: [adminHttpAspect],
   })
-  postByOrgIdInvitations(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.postByOrgIdInvitations.invoke(ctx, context => this.postByOrgIdInvitationsAction.execute(context));
+  postByOrgIdInvitations(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.postByOrgIdInvitations.invoke(ctx, context => this.postByOrgIdInvitationsAction.execute(context)));
   }
 
   @Delete("/:orgId/invitations/:invitationId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#deleteByOrgIdInvitationsByInvitationId" },
     aspects: [adminHttpAspect],
   })
-  deleteByOrgIdInvitationsByInvitationId(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.deleteByOrgIdInvitationsByInvitationId.invoke(ctx, context => this.deleteByOrgIdInvitationsByInvitationIdAction.execute(context));
+  deleteByOrgIdInvitationsByInvitationId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.deleteByOrgIdInvitationsByInvitationId.invoke(ctx, context => this.deleteByOrgIdInvitationsByInvitationIdAction.execute(context)));
   }
 
   @Post("/:orgId/invitations/:invitationId/:action", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#postByOrgIdInvitationsByInvitationIdByAction" },
     aspects: [adminHttpAspect],
   })
-  postByOrgIdInvitationsByInvitationIdByAction(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.postByOrgIdInvitationsByInvitationIdByAction.invoke(ctx, context => this.postByOrgIdInvitationsByInvitationIdByActionAction.execute(context));
+  postByOrgIdInvitationsByInvitationIdByAction(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.postByOrgIdInvitationsByInvitationIdByAction.invoke(ctx, context => this.postByOrgIdInvitationsByInvitationIdByActionAction.execute(context)));
   }
 
   @Get("/:orgId/jit", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#getByOrgIdJit" },
     aspects: [adminHttpAspect],
   })
-  getByOrgIdJit(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.getByOrgIdJit.invoke(ctx);
+  getByOrgIdJit(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.getByOrgIdJit.invoke(ctx));
   }
 
   @Put("/:orgId/jit", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#putByOrgIdJit" },
     aspects: [adminHttpAspect],
   })
-  putByOrgIdJit(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.putByOrgIdJit.invoke(ctx, context => this.putByOrgIdJitAction.execute(context));
+  putByOrgIdJit(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.putByOrgIdJit.invoke(ctx, context => this.putByOrgIdJitAction.execute(context)));
   }
 
   @Get("/:orgId/applications", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#getByOrgIdApplications" },
     aspects: [adminHttpAspect],
   })
-  getByOrgIdApplications(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.getByOrgIdApplications.invoke(ctx);
+  getByOrgIdApplications(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.getByOrgIdApplications.invoke(ctx));
   }
 
   @Put("/:orgId/applications/:appId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#putByOrgIdApplicationsByAppId" },
     aspects: [adminHttpAspect],
   })
-  putByOrgIdApplicationsByAppId(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.putByOrgIdApplicationsByAppId.invoke(ctx, context => this.putByOrgIdApplicationsByAppIdAction.execute(context));
+  putByOrgIdApplicationsByAppId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.putByOrgIdApplicationsByAppId.invoke(ctx, context => this.putByOrgIdApplicationsByAppIdAction.execute(context)));
   }
 
   @Delete("/:orgId/applications/:appId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#deleteByOrgIdApplicationsByAppId" },
     aspects: [adminHttpAspect],
   })
-  deleteByOrgIdApplicationsByAppId(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.deleteByOrgIdApplicationsByAppId.invoke(ctx, context => this.deleteByOrgIdApplicationsByAppIdAction.execute(context));
+  deleteByOrgIdApplicationsByAppId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.deleteByOrgIdApplicationsByAppId.invoke(ctx, context => this.deleteByOrgIdApplicationsByAppIdAction.execute(context)));
   }
 
   @Get("/:orgId/branding", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#getByOrgIdBranding" },
     aspects: [adminHttpAspect],
   })
-  getByOrgIdBranding(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.getByOrgIdBranding.invoke(ctx);
+  getByOrgIdBranding(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.getByOrgIdBranding.invoke(ctx));
   }
 
   @Put("/:orgId/branding", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/organizations.ts#putByOrgIdBranding" },
     aspects: [adminHttpAspect],
   })
-  putByOrgIdBranding(ctx: HttpInvocation): Promise<Response> {
-    return organizationRoutes.operations.putByOrgIdBranding.invoke(ctx, context => this.putByOrgIdBrandingAction.execute(context));
+  putByOrgIdBranding(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => organizationRoutes.operations.putByOrgIdBranding.invoke(ctx, context => this.putByOrgIdBrandingAction.execute(context)));
   }
 
 }

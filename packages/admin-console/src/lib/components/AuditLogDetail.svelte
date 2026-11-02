@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { base } from "$app/paths";
-  import { resolveConsolePath } from "$lib/navigation.js";
+  import { base } from "#lib/sveltekit-paths.js";
+  import { resolveConsolePath } from "#lib/navigation.js";
   import { auditText, auditDetails, type AuditEntry } from "./audit-view.js";
-  import { auditResourcePath } from "$lib/audit-resource.js";
-  import { t } from "$lib/i18n.js";
+  import { auditResourcePath } from "#lib/audit-resource.js";
+  import { t } from "#lib/i18n.js";
 
   let { entry }: { entry: AuditEntry | null } = $props();
   let resourcePath = $derived(auditResourcePath(entry));

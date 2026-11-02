@@ -1,4 +1,4 @@
-import { base } from "$app/paths";
+import { base } from "#lib/sveltekit-paths.js";
 import { error, redirect } from "@sveltejs/kit";
 import { resolveConsolePath } from "./navigation.js";
 

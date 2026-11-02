@@ -1,0 +1,20 @@
+diff --git a/dist/bits/button/components/button.svelte.d.ts b/dist/bits/button/components/button.svelte.d.ts
+index 4cd35080daa1dd9be92fc29c2a94578870cfcd40..3022393337b7a9114d5252c80f3c7cd6f611aaba 100644
+--- a/dist/bits/button/components/button.svelte.d.ts
++++ b/dist/bits/button/components/button.svelte.d.ts
+@@ -1,4 +1,5 @@
+ import type { ButtonRootProps } from "../types.js";
++// @ts-ignore -- Svelte Component props union exceeds TS representation limit
+ declare const Button: import("svelte").Component<ButtonRootProps, {}, "ref">;
+ type Button = ReturnType<typeof Button>;
+ export default Button;
+diff --git a/dist/bits/calendar/components/calendar.svelte.d.ts b/dist/bits/calendar/components/calendar.svelte.d.ts
+index 725e3b5af7f9041853403ef6a8005860e5a957b9..ee5a9a6c9396bc279aac979cec862faf13c705ea 100644
+--- a/dist/bits/calendar/components/calendar.svelte.d.ts
++++ b/dist/bits/calendar/components/calendar.svelte.d.ts
+@@ -1,4 +1,5 @@
+ import type { CalendarRootProps } from "../types.js";
++// @ts-ignore -- Svelte Component props union exceeds TS representation limit
+ declare const Calendar: import("svelte").Component<CalendarRootProps, {}, "value" | "ref" | "placeholder">;
+ type Calendar = ReturnType<typeof Calendar>;
+ export default Calendar;

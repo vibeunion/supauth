@@ -2,6 +2,8 @@
   "version": 1,
   "commands": [],
   "queries": [],
+  "jobs": [],
+  "features": [],
   "routes": [
     {
       "method": "DELETE",

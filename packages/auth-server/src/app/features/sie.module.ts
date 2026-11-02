@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Put, Post, Delete } from '@s
 import { sieRoutes } from '../../routes/sign-in-experience.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class SiePutRootAction {
@@ -38,56 +40,92 @@ export class SieController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/sign-in-experience.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return sieRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => sieRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Get("/resolve", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/sign-in-experience.ts#getResolve" },
     aspects: [adminHttpAspect],
   })
-  getResolve(ctx: HttpInvocation): Promise<Response> {
-    return sieRoutes.operations.getResolve.invoke(ctx);
+  getResolve(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => sieRoutes.operations.getResolve.invoke(ctx));
   }
 
   @Put("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/sign-in-experience.ts#putRoot" },
     aspects: [adminHttpAspect],
   })
-  putRoot(ctx: HttpInvocation): Promise<Response> {
-    return sieRoutes.operations.putRoot.invoke(ctx, context => this.putRootAction.execute(context));
+  putRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => sieRoutes.operations.putRoot.invoke(ctx, context => this.putRootAction.execute(context)));
   }
 
   @Get("/custom-ui-assets", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/sign-in-experience.ts#getCustomUiAssets" },
     aspects: [adminHttpAspect],
   })
-  getCustomUiAssets(ctx: HttpInvocation): Promise<Response> {
-    return sieRoutes.operations.getCustomUiAssets.invoke(ctx);
+  getCustomUiAssets(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => sieRoutes.operations.getCustomUiAssets.invoke(ctx));
   }
 
   @Post("/custom-ui-assets", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/sign-in-experience.ts#postCustomUiAssets" },
     aspects: [adminHttpAspect],
   })
-  postCustomUiAssets(ctx: HttpInvocation): Promise<Response> {
-    return sieRoutes.operations.postCustomUiAssets.invoke(ctx, context => this.postCustomUiAssetsAction.execute(context));
+  postCustomUiAssets(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => sieRoutes.operations.postCustomUiAssets.invoke(ctx, context => this.postCustomUiAssetsAction.execute(context)));
   }
 
   @Delete("/custom-ui-assets", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/sign-in-experience.ts#deleteCustomUiAssets" },
     aspects: [adminHttpAspect],
   })
-  deleteCustomUiAssets(ctx: HttpInvocation): Promise<Response> {
-    return sieRoutes.operations.deleteCustomUiAssets.invoke(ctx, context => this.deleteCustomUiAssetsAction.execute(context));
+  deleteCustomUiAssets(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => sieRoutes.operations.deleteCustomUiAssets.invoke(ctx, context => this.deleteCustomUiAssetsAction.execute(context)));
   }
 
 }

@@ -1,11 +1,13 @@
 <script lang="ts">
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import { decodeSchema, JsonObjectSchema, type AdminEndpointResult } from '@supauth/shared';
-  import { errorMessage } from '$lib/resource-page.js';
+  import { errorMessage } from '#lib/resource-page.js';
   type TenantConfig = AdminEndpointResult<'listTenantConfigs'>['items'][number];
   import { onMount } from 'svelte';
-  import { t } from '$lib/i18n.js';
-  import { parseTenantConfigValue } from '$lib/tenant-settings.js';
-  import { listTenantConfigs, upsertTenantConfig, deleteTenantConfig, checkTenantDomain } from '$lib/api/client.js';
+  import { t } from '#lib/i18n.js';
+  import { parseTenantConfigValue } from '#lib/tenant-settings.js';
+  import { listTenantConfigs, upsertTenantConfig, deleteTenantConfig, checkTenantDomain } from '#lib/api/client.js';
 
   const configTypes = ['captcha', 'email_template', 'sms_template', 'domain', 'phrase', 'profile_field', 'branding_asset', 'account_center', 'account_claim'];
 
@@ -73,13 +75,13 @@
 
 <div class="flex items-center justify-between mb-6">
   <div>
-    <h2 class="text-2xl font-bold text-surface-900">{t('Tenant Config')}</h2>
+    <ContentPageHeader title={t('Tenant Config')} headingLevel="h2" />
     <p class="text-sm text-surface-500 mt-1">{t('Captcha, templates, domains, phrases, branding, and custom profile fields.')}</p>
   </div>
 </div>
 
 {#if error}
-  <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4">{error}</div>
+  <FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 <div class="bg-white rounded-xl border border-surface-200 p-6 mb-6">

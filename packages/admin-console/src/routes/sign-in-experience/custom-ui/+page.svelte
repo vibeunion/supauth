@@ -1,24 +1,25 @@
 <script lang="ts">
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import type { AdminEndpointResult } from "@supauth/shared";
-  import type { DurableMutationLocks, MutationLockDescriptor } from "$lib/mutation-reconciliation.js";
+  import type { DurableMutationLocks, MutationLockDescriptor } from "#lib/mutation-reconciliation.js";
   type CustomUiStatus = AdminEndpointResult<"getCustomUiStatus">;
   type MutationAction = "delete" | "upload";
   import { onMount } from "svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
   import {
     deleteCustomUiAssets,
     getCustomUiStatus,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
   import {
     customUiActionAllowed,
     customUiMutationTarget,
     customUiReadBackConfirms,
     customUiStatusReady,
-  } from "$lib/custom-ui-reconciliation.js";
-  import { t } from "$lib/i18n.js";
-  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
-  import { errorMessage } from "$lib/resource-page.js";
-  import { deleteCustomUiCommand } from "$lib/custom-ui-command.js";
+  } from "#lib/custom-ui-reconciliation.js";
+  import { t } from "#lib/i18n.js";
+  import { createDurableMutationLockStore } from "#lib/mutation-reconciliation.js";
+  import { errorMessage } from "#lib/resource-page.js";
+  import { deleteCustomUiCommand } from "#lib/custom-ui-command.js";
 
   const CUSTOM_UI_LOCK_OWNER = "sign-in-experience";
   // 保留 upload 仅为恢复升级前的持久锁；新上传在 UI 与服务端均被阻断。
@@ -224,7 +225,7 @@
 
 <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
   <div>
-    <h2 class="text-2xl font-bold text-surface-900">{t("customUi.title")}</h2>
+    <ContentPageHeader title={t("customUi.title")} headingLevel="h2" />
     <p class="mt-1 max-w-3xl text-sm leading-6 text-surface-500">
       {t("customUi.description")}
     </p>

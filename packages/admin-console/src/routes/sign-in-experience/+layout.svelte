@@ -1,5 +1,5 @@
 <script>
-  import PageTabs from '$lib/components/PageTabs.svelte';
+  import PageTabs from '#lib/components/PageTabs.svelte';
 
   let { children } = $props();
 

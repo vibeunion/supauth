@@ -1,15 +1,15 @@
 <script lang="ts">
   import { decodeSchema, JsonObjectSchema, type AdminEndpointResult } from "@supauth/shared";
-  import type { SettingsMutationOptions } from "$lib/authoritative-settings-readback.js";
-  import type { MutationReconciliation } from "$lib/mutation-reconciliation.js";
-  import { captchaValue, blocklistValue } from "$lib/components/settings-values.js";
+  import type { SettingsMutationOptions } from "#lib/authoritative-settings-readback.js";
+  import type { MutationReconciliation } from "#lib/mutation-reconciliation.js";
+  import { captchaValue, blocklistValue } from "#lib/components/settings-values.js";
   type SecuritySnapshot = Awaited<ReturnType<typeof fetchSecuritySnapshot>>;
   type TenantConfig = AdminEndpointResult<"listTenantConfigs">["items"][number];
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import DetailTabs from "$lib/components/DetailTabs.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { t } from "$lib/i18n.js";
+  import DetailTabs from "#lib/components/DetailTabs.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { t } from "#lib/i18n.js";
   import { blocklistHookReasonKey } from "./blocklist-hook-reason.js";
   import {
     blocklistSettingsAuthority,
@@ -18,8 +18,8 @@
     generalSecuritySettingsAuthority,
     passwordPolicySettingsAuthority,
     settleAuthoritativeSettingsMutation,
-  } from "$lib/authoritative-settings-readback.js";
-  import { collectionItems, tabFromRoute } from "$lib/resource-page.js";
+  } from "#lib/authoritative-settings-readback.js";
+  import { collectionItems, tabFromRoute } from "#lib/resource-page.js";
   import {
     getAuthConfig,
     getAuthConfigRuntimeConsistency,
@@ -29,7 +29,7 @@
     updateAuthConfig,
     updateSecurityConfig,
     upsertTenantConfig,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   const tabs = [
     { value: "password", labelKey: "detail.password" },

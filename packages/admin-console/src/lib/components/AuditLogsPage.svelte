@@ -1,14 +1,15 @@
 <script lang="ts">
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import type { AdminEndpointResult } from "@supauth/shared";
   import { auditText, type AuditEntry } from "./audit-view.js";
   import { onMount } from "svelte";
-  import { resolve } from "$app/paths";
-  import AuditLogDetail from "$lib/components/AuditLogDetail.svelte";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import AuditLogDetail from "#lib/components/AuditLogDetail.svelte";
   import {
     auditExportStatusLabelKey,
     auditIntegrityStatusLabelKey,
-  } from "$lib/audit-status.js";
-  import { t } from "$lib/i18n.js";
+  } from "#lib/audit-status.js";
+  import { t } from "#lib/i18n.js";
   import {
     downloadAuditExport,
     exportAuditLogs,
@@ -16,8 +17,8 @@
     getAuditIntegrity,
     getAuditLog,
     listAuditLogs,
-  } from "$lib/api/client.js";
-  import { collectionItems, errorMessage } from "$lib/resource-page.js";
+  } from "#lib/api/client.js";
+  import { collectionItems, errorMessage } from "#lib/resource-page.js";
 
   type ExportJob = AdminEndpointResult<"getAuditExport">;
   type Integrity = AdminEndpointResult<"getAuditIntegrity">;
@@ -218,7 +219,7 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t("Audit Logs")}</h2>
+  <ContentPageHeader title={t("Audit Logs")} headingLevel="h2" />
   <div class="flex gap-2">
     <button
       disabled={exporting}

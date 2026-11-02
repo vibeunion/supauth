@@ -1,22 +1,24 @@
 <script lang="ts">
-  import type { ConnectorView, EnterpriseSsoView, DurableMutationLocks, CollectionPayload } from "$lib/management-view-types.js";
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
+  import type { ConnectorView, EnterpriseSsoView, DurableMutationLocks, CollectionPayload } from "#lib/management-view-types.js";
   import { decodeSchema, Type } from "@supauth/shared";
   import { onMount } from "svelte";
-  import { resolve } from "$app/paths";
-  import { t } from "$lib/i18n.js";
-  import { createDurableMutationLockStore } from "$lib/mutation-reconciliation.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import { t } from "#lib/i18n.js";
+  import { createDurableMutationLockStore } from "#lib/mutation-reconciliation.js";
   import {
     completeCollectionItems,
     createKeyedSingleFlightTracker,
     createLatestRequestTracker,
     mutationOutcomeUnknown,
     errorMessage,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     listEnterpriseSSOConfigs,
     createEnterpriseSSOConfig,
     listConnectors,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   let configs = $state<EnterpriseSsoView[]>([]);
   let enterpriseConnectors = $state<ConnectorView[]>([]);
@@ -281,7 +283,7 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t("Enterprise SSO")}</h2>
+  <ContentPageHeader title={t("Enterprise SSO")} headingLevel="h2" />
   {#if !showCreate}
     <button
       onclick={startCreate}
@@ -293,22 +295,11 @@
 </div>
 
 {#if error}
-  <div
-    class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-4"
-    role="alert"
-    aria-live="assertive"
-  >
-    {error}
-  </div>
+  <FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if mutationStorageError}
-  <div
-    class="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800"
-    role="alert"
-  >
-    {mutationStorageError}
-  </div>
+  <FeedbackNotice message={mutationStorageError} tone="danger" priority="blocking" class="mb-4" />
 {/if}
 
 {#if createOutcomeUnknown}

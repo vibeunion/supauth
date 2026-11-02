@@ -1,14 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
-const resultModule: unknown = await import(new URL('../../node_modules/postgres/src/result.js', import.meta.url).href);
-if (!resultModule || typeof resultModule !== 'object' || !('default' in resultModule)
-  || typeof resultModule.default !== 'function') throw new Error('Installed postgres Result is unavailable');
-const InstalledResult = resultModule.default;
+// Bun SQL 直接返回行数组，不再有 postgres.js 的 Result 包装。
 function driverResult(rows: unknown[]) {
-  const result: unknown = Reflect.construct(InstalledResult, []);
-  if (!Array.isArray(result)) throw new Error('Installed postgres Result is not an array');
-  result.push(...rows);
-  return result;
+  return [...rows];
 }
 
 const flags = [
@@ -29,13 +23,15 @@ let helperRows: unknown = [validHelper];
 let policyRows: unknown = [validPolicy];
 let queryIndex = 0;
 const end = mock(async () => {});
-const sql = Object.assign(async () => {
-  queryIndex += 1;
-  return queryIndex === 1 ? [] : queryIndex === 2 ? helperRows : policyRows;
-}, { end });
-mock.module('postgres', () => ({ default: () => sql }));
+const sql: import('../compatibility/rbac-verify.js').RbacProbeClient = Object.assign(
+  async (_strings: TemplateStringsArray, ..._values: unknown[]) => {
+    queryIndex += 1;
+    return queryIndex === 1 ? [] : queryIndex === 2 ? helperRows : policyRows;
+  },
+  { end },
+);
 const { verifyRbacAgainstDatabase } = await import('../compatibility/rbac-verify.js');
-const verify = () => verifyRbacAgainstDatabase('postgres://fixture-only');
+const verify = () => verifyRbacAgainstDatabase('postgres://fixture-only', sql);
 
 beforeEach(() => {
   helperRows = [validHelper];
@@ -45,18 +41,16 @@ beforeEach(() => {
 });
 
 describe('RBAC database projection boundary', () => {
-  test('accepts the installed driver Result metadata without trusting its rows', async () => {
+  test('accepts native driver row arrays without trusting their rows', async () => {
     const helperResult = driverResult([validHelper]);
     helperRows = helperResult;
     policyRows = driverResult([validPolicy]);
-    expect(Reflect.ownKeys(helperResult)).toEqual(expect.arrayContaining([
-      'count', 'state', 'command', 'columns', 'statement',
-    ]));
+    expect(Array.isArray(helperResult)).toBe(true);
     expect(await verify()).toMatchObject({
       reachable: true, authorizeExists: true, unsafePolicies: [validPolicy],
     });
     expect(queryIndex).toBe(3);
-    expect(end).toHaveBeenCalledTimes(1);
+    expect(end).not.toHaveBeenCalled();
   });
 
   test('accepts empty installed Result containers with fail-closed helper flags', async () => {
@@ -65,7 +59,7 @@ describe('RBAC database projection boundary', () => {
     expect(await verify()).toMatchObject({
       reachable: true, authorizeExists: false, authorizeGranted: false, unsafePolicies: [],
     });
-    expect(end).toHaveBeenCalledTimes(1);
+    expect(end).not.toHaveBeenCalled();
   });
 
   test('rejects a bad helper row inside an actual Result', async () => {
@@ -75,7 +69,7 @@ describe('RBAC database projection boundary', () => {
       reachable: false, error: 'RBAC verification returned an invalid database row',
     });
     expect(queryIndex).toBe(2);
-    expect(end).toHaveBeenCalledTimes(1);
+    expect(end).not.toHaveBeenCalled();
   });
 
   test('rejects a bad policy row inside an actual Result', async () => {
@@ -85,7 +79,7 @@ describe('RBAC database projection boundary', () => {
       reachable: false, error: 'RBAC verification returned an invalid database row',
     });
     expect(queryIndex).toBe(3);
-    expect(end).toHaveBeenCalledTimes(1);
+    expect(end).not.toHaveBeenCalled();
   });
 
   test('does not treat an arbitrary iterable as a database result', async () => {
@@ -101,7 +95,7 @@ describe('RBAC database projection boundary', () => {
     expect(result.authorizeExists).toBe(true);
     expect(result.currentPermissionClaimsSearchPathHardened).toBe(true);
     expect(result.unsafePolicies).toEqual([validPolicy]);
-    expect(end).toHaveBeenCalledTimes(1);
+    expect(end).not.toHaveBeenCalled();
   });
 
   test('null or absent helper rows still yield false without granting access', async () => {
@@ -119,7 +113,7 @@ describe('RBAC database projection boundary', () => {
         reachable: false, error: 'RBAC verification returned an invalid database row',
       });
       expect(queryIndex).toBe(2);
-      expect(end).toHaveBeenCalledTimes(1);
+      expect(end).not.toHaveBeenCalled();
     },
   );
 
@@ -133,6 +127,6 @@ describe('RBAC database projection boundary', () => {
     expect(await verify()).toEqual({
       reachable: false, error: 'RBAC verification returned an invalid database row',
     });
-    expect(end).toHaveBeenCalledTimes(1);
+    expect(end).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Post, Get } from '@supacloud/app'
 import { accountProvisioningRoutes } from '../../routes/account-provisioning.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class AccountProvisioningPostImportAction {
@@ -38,47 +40,77 @@ export class AccountProvisioningController {
 
   @Post("/import", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-provisioning.ts#postImport" },
     aspects: [adminHttpAspect],
   })
-  postImport(ctx: HttpInvocation): Promise<Response> {
-    return accountProvisioningRoutes.operations.postImport.invoke(ctx, context => this.postImportAction.execute(context));
+  postImport(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => accountProvisioningRoutes.operations.postImport.invoke(ctx, context => this.postImportAction.execute(context)));
   }
 
   @Get("/records", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-provisioning.ts#getRecords" },
     aspects: [adminHttpAspect],
   })
-  getRecords(ctx: HttpInvocation): Promise<Response> {
-    return accountProvisioningRoutes.operations.getRecords.invoke(ctx);
+  getRecords(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => accountProvisioningRoutes.operations.getRecords.invoke(ctx));
   }
 
   @Post("/sync", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-provisioning.ts#postSync" },
     aspects: [adminHttpAspect],
   })
-  postSync(ctx: HttpInvocation): Promise<Response> {
-    return accountProvisioningRoutes.operations.postSync.invoke(ctx, context => this.postSyncAction.execute(context));
+  postSync(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => accountProvisioningRoutes.operations.postSync.invoke(ctx, context => this.postSyncAction.execute(context)));
   }
 
   @Post("/sync/reconcile", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-provisioning.ts#postSyncReconcile" },
     aspects: [adminHttpAspect],
   })
-  postSyncReconcile(ctx: HttpInvocation): Promise<Response> {
-    return accountProvisioningRoutes.operations.postSyncReconcile.invoke(ctx, context => this.postSyncReconcileAction.execute(context));
+  postSyncReconcile(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => accountProvisioningRoutes.operations.postSyncReconcile.invoke(ctx, context => this.postSyncReconcileAction.execute(context)));
   }
 
   @Get("/sync/status", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/account-provisioning.ts#getSyncStatus" },
     aspects: [adminHttpAspect],
   })
-  getSyncStatus(ctx: HttpInvocation): Promise<Response> {
-    return accountProvisioningRoutes.operations.getSyncStatus.invoke(ctx);
+  getSyncStatus(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => accountProvisioningRoutes.operations.getSyncStatus.invoke(ctx));
   }
 
 }

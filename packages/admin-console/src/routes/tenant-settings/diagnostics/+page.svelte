@@ -1,5 +1,5 @@
 <script lang="ts">
-  import DiagnosticsPage from '$lib/components/DiagnosticsPage.svelte';
+  import DiagnosticsPage from '#lib/components/DiagnosticsPage.svelte';
 </script>
 
 <DiagnosticsPage />

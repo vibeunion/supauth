@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Patch, Delete, Post } from '
 import { tenantRoutes } from '../../routes/tenant.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class TenantPatchMembersByMemberIdAction {
@@ -38,47 +40,77 @@ export class TenantController {
 
   @Get("/members", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant.ts#getMembers" },
     aspects: [adminHttpAspect],
   })
-  getMembers(ctx: HttpInvocation): Promise<Response> {
-    return tenantRoutes.operations.getMembers.invoke(ctx);
+  getMembers(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantRoutes.operations.getMembers.invoke(ctx));
   }
 
   @Patch("/members/:memberId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant.ts#patchMembersByMemberId" },
     aspects: [adminHttpAspect],
   })
-  patchMembersByMemberId(ctx: HttpInvocation): Promise<Response> {
-    return tenantRoutes.operations.patchMembersByMemberId.invoke(ctx, context => this.patchMembersByMemberIdAction.execute(context));
+  patchMembersByMemberId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantRoutes.operations.patchMembersByMemberId.invoke(ctx, context => this.patchMembersByMemberIdAction.execute(context)));
   }
 
   @Delete("/members/:memberId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant.ts#deleteMembersByMemberId" },
     aspects: [adminHttpAspect],
   })
-  deleteMembersByMemberId(ctx: HttpInvocation): Promise<Response> {
-    return tenantRoutes.operations.deleteMembersByMemberId.invoke(ctx, context => this.deleteMembersByMemberIdAction.execute(context));
+  deleteMembersByMemberId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantRoutes.operations.deleteMembersByMemberId.invoke(ctx, context => this.deleteMembersByMemberIdAction.execute(context)));
   }
 
   @Get("/invitations", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant.ts#getInvitations" },
     aspects: [adminHttpAspect],
   })
-  getInvitations(ctx: HttpInvocation): Promise<Response> {
-    return tenantRoutes.operations.getInvitations.invoke(ctx);
+  getInvitations(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantRoutes.operations.getInvitations.invoke(ctx));
   }
 
   @Post("/invitations", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant.ts#postInvitations" },
     aspects: [adminHttpAspect],
   })
-  postInvitations(ctx: HttpInvocation): Promise<Response> {
-    return tenantRoutes.operations.postInvitations.invoke(ctx, context => this.postInvitationsAction.execute(context));
+  postInvitations(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantRoutes.operations.postInvitations.invoke(ctx, context => this.postInvitationsAction.execute(context)));
   }
 
 }

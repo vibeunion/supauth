@@ -1,5 +1,5 @@
 <script>
-  import AuditLogsPage from '$lib/components/AuditLogsPage.svelte';
+  import AuditLogsPage from '#lib/components/AuditLogsPage.svelte';
 </script>
 
 <AuditLogsPage />

@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post, Delete } from '@supacl
 import { storageRoutes } from '../../storage/index.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class StoragePostBucketsByBucketIdAction {
@@ -56,74 +58,122 @@ export class StorageController {
 
   @Get("/buckets", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/storage/index.ts#getBuckets" },
     aspects: [adminHttpAspect],
   })
-  getBuckets(ctx: HttpInvocation): Promise<Response> {
-    return storageRoutes.operations.getBuckets.invoke(ctx);
+  getBuckets(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => storageRoutes.operations.getBuckets.invoke(ctx));
   }
 
   @Post("/buckets/:bucketId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/storage/index.ts#postBucketsByBucketId" },
     aspects: [adminHttpAspect],
   })
-  postBucketsByBucketId(ctx: HttpInvocation): Promise<Response> {
-    return storageRoutes.operations.postBucketsByBucketId.invoke(ctx, context => this.postBucketsByBucketIdAction.execute(context));
+  postBucketsByBucketId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => storageRoutes.operations.postBucketsByBucketId.invoke(ctx, context => this.postBucketsByBucketIdAction.execute(context)));
   }
 
   @Post("/upload/:bucketId/*", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/storage/index.ts#postUploadByBucketIdWildcard" },
     aspects: [adminHttpAspect],
   })
-  postUploadByBucketIdWildcard(ctx: HttpInvocation): Promise<Response> {
-    return storageRoutes.operations.postUploadByBucketIdWildcard.invoke(ctx, context => this.postUploadByBucketIdWildcardAction.execute(context));
+  postUploadByBucketIdWildcard(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => storageRoutes.operations.postUploadByBucketIdWildcard.invoke(ctx, context => this.postUploadByBucketIdWildcardAction.execute(context)));
   }
 
   @Get("/sign-url/:bucketId/*", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/storage/index.ts#getSignUrlByBucketIdWildcard" },
     aspects: [adminHttpAspect],
   })
-  getSignUrlByBucketIdWildcard(ctx: HttpInvocation): Promise<Response> {
-    return storageRoutes.operations.getSignUrlByBucketIdWildcard.invoke(ctx);
+  getSignUrlByBucketIdWildcard(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => storageRoutes.operations.getSignUrlByBucketIdWildcard.invoke(ctx));
   }
 
   @Delete("/delete/:bucketId/*", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/storage/index.ts#deleteDeleteByBucketIdWildcard" },
     aspects: [adminHttpAspect],
   })
-  deleteDeleteByBucketIdWildcard(ctx: HttpInvocation): Promise<Response> {
-    return storageRoutes.operations.deleteDeleteByBucketIdWildcard.invoke(ctx, context => this.deleteDeleteByBucketIdWildcardAction.execute(context));
+  deleteDeleteByBucketIdWildcard(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => storageRoutes.operations.deleteDeleteByBucketIdWildcard.invoke(ctx, context => this.deleteDeleteByBucketIdWildcardAction.execute(context)));
   }
 
   @Post("/avatar/:userId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/storage/index.ts#postAvatarByUserId" },
     aspects: [adminHttpAspect],
   })
-  postAvatarByUserId(ctx: HttpInvocation): Promise<Response> {
-    return storageRoutes.operations.postAvatarByUserId.invoke(ctx, context => this.postAvatarByUserIdAction.execute(context));
+  postAvatarByUserId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => storageRoutes.operations.postAvatarByUserId.invoke(ctx, context => this.postAvatarByUserIdAction.execute(context)));
   }
 
   @Get("/branding/:assetType", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/storage/index.ts#getBrandingByAssetType" },
     aspects: [adminHttpAspect],
   })
-  getBrandingByAssetType(ctx: HttpInvocation): Promise<Response> {
-    return storageRoutes.operations.getBrandingByAssetType.invoke(ctx);
+  getBrandingByAssetType(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => storageRoutes.operations.getBrandingByAssetType.invoke(ctx));
   }
 
   @Post("/branding/:assetType", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/storage/index.ts#postBrandingByAssetType" },
     aspects: [adminHttpAspect],
   })
-  postBrandingByAssetType(ctx: HttpInvocation): Promise<Response> {
-    return storageRoutes.operations.postBrandingByAssetType.invoke(ctx, context => this.postBrandingByAssetTypeAction.execute(context));
+  postBrandingByAssetType(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => storageRoutes.operations.postBrandingByAssetType.invoke(ctx, context => this.postBrandingByAssetTypeAction.execute(context)));
   }
 
 }

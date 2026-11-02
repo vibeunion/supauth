@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { AdminEndpointResult } from "@supauth/shared";
-  import type { ResourceLoadContext } from "$lib/resource-page.js";
+  import type { ResourceLoadContext } from "#lib/resource-page.js";
   import { page } from "$app/state";
-  import { resolve } from "$app/paths";
-  import AuditLogDetail from "$lib/components/AuditLogDetail.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { getAuditLog } from "$lib/api/client.js";
-  import { isLatestResourceLoad } from "$lib/resource-page.js";
-  import { t } from "$lib/i18n.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import AuditLogDetail from "#lib/components/AuditLogDetail.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { getAuditLog } from "#lib/api/client.js";
+  import { isLatestResourceLoad } from "#lib/resource-page.js";
+  import { t } from "#lib/i18n.js";
 
   let entry = $state<AdminEndpointResult<"getAuditLog"> | null>(null);
   let loading = $state(true);

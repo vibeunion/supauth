@@ -12,6 +12,7 @@ export interface RoutePermissionBinding {
   handler: string;
   command?: string;
   permission?: string;
+  idempotency?: "required" | "none";
 }
 
 export const RoutePermissions: RoutePermissionBinding[] = [

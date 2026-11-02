@@ -1,11 +1,13 @@
 <script lang="ts">
+  import DataPanel from "@svadmin/ui/components/content/DataPanel.svelte";
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import type { AdminEndpointResult } from '@supauth/shared';
-  import { errorMessage } from '$lib/resource-page.js';
+  import { errorMessage } from '#lib/resource-page.js';
   import { onMount } from 'svelte';
-  import { t } from '$lib/i18n.js';
-  import { adminAuthModeLabelKey, securityWarningLabelKey } from '$lib/tenant-settings.js';
-  import { getProject, getSecurityStatus, reconcileProject } from '$lib/api/client.js';
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
+  import { t } from '#lib/i18n.js';
+  import { adminAuthModeLabelKey, securityWarningLabelKey } from '#lib/tenant-settings.js';
+  import { getProject, getSecurityStatus, reconcileProject } from '#lib/api/client.js';
+  import { Button } from '@svadmin/ui';
 
   let project = $state<AdminEndpointResult<'getProject'> | null>(null);
   let security = $state<AdminEndpointResult<'getSecurityStatus'> | null>(null);
@@ -72,7 +74,7 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">{t('Operations')}</h2>
+  <ContentPageHeader title={t('Operations')} headingLevel="h2" />
   <Button onclick={load} variant="secondary" size="sm">{t('Refresh')}</Button>
 </div>
 
@@ -84,8 +86,7 @@
   <p class="text-surface-400">{t('Loading...')}</p>
 {:else}
   <div class="space-y-6">
-    <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Project Reconcile')}</h3>
+    <DataPanel title={t('Project Reconcile')} headingLevel="h3">
       <p class="font-mono text-sm text-surface-600 mb-4">{project?.ref || project?.id || project?.project_ref || t('unknown project')}</p>
       <Button onclick={runReconcile} disabled={running}>
         {running ? t('Reconciling...') : t('Run Reconcile')}
@@ -108,10 +109,9 @@
           </div>
         </div>
       {/if}
-    </section>
+    </DataPanel>
 
-    <section class="bg-white rounded-xl border border-surface-200 p-6">
-      <h3 class="text-lg font-semibold text-surface-800 mb-4">{t('Security Gate')}</h3>
+    <DataPanel title={t('Security Gate')} headingLevel="h3">
       {#if security}
         <div class="grid grid-cols-2 gap-3 text-sm">
           <p class="text-surface-600">{t('Admin auth:')} <span class="font-medium text-surface-900">{t(adminAuthModeLabelKey(security.admin_auth_mode))}</span></p>
@@ -129,6 +129,6 @@
       {:else}
         <p class="text-surface-500">{t('Security status unavailable')}</p>
       {/if}
-    </section>
+    </DataPanel>
   </div>
 {/if}

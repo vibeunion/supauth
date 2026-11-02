@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { RoleView, PermissionView, UserView, ApplicationView, OrganizationView, AssignmentView, ResourceLoadContext, Operation, KeyedOperation, CollectionPage, CollectionPayload, ValueEvent, TextValues } from "$lib/management-view-types.js";
+  import type { RoleView, PermissionView, UserView, ApplicationView, OrganizationView, AssignmentView, ResourceLoadContext, Operation, KeyedOperation, CollectionPage, CollectionPayload, ValueEvent, TextValues } from "#lib/management-view-types.js";
   import { onDestroy, onMount, tick } from "svelte";
-  import { resolve } from "$app/paths";
-  import { t } from "$lib/i18n.js";
-  import RequestState from "$lib/components/RequestState.svelte";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import { t } from "#lib/i18n.js";
+  import RequestState from "#lib/components/RequestState.svelte";
   import {
     collectionPage,
     collectionItems,
@@ -14,14 +14,14 @@
     isLatestResourceLoad,
     mergeCollectionPages,
     resourceOwnedItems,
-  } from "$lib/resource-page.js";
+  } from "#lib/resource-page.js";
   import {
     PERMISSION_CATALOG,
     PERMISSION_GROUPS,
     permissionDescription,
     permissionLabel,
     permissionMeta,
-  } from "$lib/permission-catalog.js";
+  } from "#lib/permission-catalog.js";
   import {
     listApplications,
     listOrganizations,
@@ -35,7 +35,7 @@
     assignRole,
     listRoleAssignments,
     revokeRole,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   type RoleListContext = ResourceLoadContext & { ownerRoleId: string | null };
   type RoleOperation = Operation<RoleListContext>;

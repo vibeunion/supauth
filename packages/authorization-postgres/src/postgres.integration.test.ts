@@ -5,7 +5,7 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import postgres from 'postgres';
+import { SQL, type TransactionSQL } from 'bun';
 import { checkAuthorizationExplain } from '../../authorization-conformance/src/index.js';
 import {
   generateAuthorizationProjectionPreflightSql,
@@ -42,7 +42,7 @@ if (postgresGateRequested && !isDisposableDatabaseUrl(DATABASE_URL)) {
 }
 const describePostgres = postgresGateRequested ? describe : describe.skip;
 
-let sql: ReturnType<typeof postgres>;
+let sql: SQL;
 
 const nativeClaims = {
   iss: ISSUER,
@@ -90,7 +90,7 @@ async function seedAuthorizationState(): Promise<void> {
 
 async function withClaims<T>(
   claims: Record<string, unknown>,
-  execute: (transaction: postgres.TransactionSql) => Promise<T>,
+  execute: (transaction: TransactionSQL) => Promise<T>,
 ) {
   return sql.begin(async transaction => {
     await transaction.unsafe('SET LOCAL ROLE authenticated');
@@ -138,7 +138,7 @@ async function projectionViolationRules(schema: string): Promise<string[]> {
 
 describePostgres('@supauth/authorization-postgres real RLS', () => {
   beforeAll(async () => {
-    sql = postgres(DATABASE_URL, { max: 4, onnotice: () => {} });
+    sql = new SQL(DATABASE_URL, { max: 4 });
     await sql.unsafe(`
       DO $$
       BEGIN
@@ -297,7 +297,7 @@ describePostgres('@supauth/authorization-postgres real RLS', () => {
       DROP SCHEMA IF EXISTS ${DATA_SCHEMA} CASCADE;
       DROP SCHEMA IF EXISTS ${STRICT_DATA_SCHEMA} CASCADE;
     `);
-    await sql.end();
+    await sql.close();
   });
 
   beforeEach(seedAuthorizationState);

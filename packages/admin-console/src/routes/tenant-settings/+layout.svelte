@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { AdminEndpointResult } from "@supauth/shared";
   import { onMount, type Snippet } from "svelte";
-  import PageTabs from "$lib/components/PageTabs.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { getCapabilities } from "$lib/api/client.js";
-  import { capabilityAvailable } from "$lib/resource-page.js";
+  import PageTabs from "#lib/components/PageTabs.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { getCapabilities } from "#lib/api/client.js";
+  import { capabilityAvailable } from "#lib/resource-page.js";
 
   let { children }: { children: Snippet } = $props();
 

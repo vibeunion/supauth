@@ -1,14 +1,15 @@
 <script lang="ts">
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import type { AdminEndpointResult } from "@supauth/shared";
-  import { errorMessage } from "$lib/resource-page.js";
+  import { errorMessage } from "#lib/resource-page.js";
   import { onMount } from "svelte";
-  import { t } from "$lib/i18n.js";
-  import RequestState from "$lib/components/RequestState.svelte";
+  import { t } from "#lib/i18n.js";
+  import RequestState from "#lib/components/RequestState.svelte";
   import {
     listOrgTemplates,
     createOrgTemplate,
     deleteOrgTemplate,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
 
   type Template = AdminEndpointResult<"listOrgTemplates">["items"][number];
   type TemplateRole = NonNullable<Template["templateRoles"]>[number];
@@ -217,9 +218,7 @@
 </script>
 
 <div class="flex items-center justify-between mb-6">
-  <h2 class="text-2xl font-bold text-surface-900">
-    {t("Organization Templates")}
-  </h2>
+  <ContentPageHeader title={t("Organization Templates")} headingLevel="h2" />
   <button
     onclick={() => (showCreate = !showCreate)}
     class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700"

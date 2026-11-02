@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post } from '@supacloud/app'
 import { provisioningRoutes } from '../../routes/provisioning.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class ProvisioningPostByProjectRefReconcileAction {
@@ -29,29 +31,47 @@ export class ProvisioningController {
 
   @Get("/:projectRef", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/provisioning.ts#getByProjectRef" },
     aspects: [adminHttpAspect],
   })
-  getByProjectRef(ctx: HttpInvocation): Promise<Response> {
-    return provisioningRoutes.operations.getByProjectRef.invoke(ctx);
+  getByProjectRef(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => provisioningRoutes.operations.getByProjectRef.invoke(ctx));
   }
 
   @Post("/:projectRef/reconcile", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/provisioning.ts#postByProjectRefReconcile" },
     aspects: [adminHttpAspect],
   })
-  postByProjectRefReconcile(ctx: HttpInvocation): Promise<Response> {
-    return provisioningRoutes.operations.postByProjectRefReconcile.invoke(ctx, context => this.postByProjectRefReconcileAction.execute(context));
+  postByProjectRefReconcile(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => provisioningRoutes.operations.postByProjectRefReconcile.invoke(ctx, context => this.postByProjectRefReconcileAction.execute(context)));
   }
 
   @Post("/:projectRef/rollback", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/provisioning.ts#postByProjectRefRollback" },
     aspects: [adminHttpAspect],
   })
-  postByProjectRefRollback(ctx: HttpInvocation): Promise<Response> {
-    return provisioningRoutes.operations.postByProjectRefRollback.invoke(ctx, context => this.postByProjectRefRollbackAction.execute(context));
+  postByProjectRefRollback(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => provisioningRoutes.operations.postByProjectRefRollback.invoke(ctx, context => this.postByProjectRefRollbackAction.execute(context)));
   }
 
 }

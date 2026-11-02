@@ -1,13 +1,15 @@
 <script lang="ts">
+  import { FeedbackNotice } from '@svadmin/ui';
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import { decodeSchema, JsonValueSchema, type AdminEndpointResult, type JsonValue } from '@supauth/shared';
-  import { errorMessage } from '$lib/resource-page.js';
+  import { errorMessage } from '#lib/resource-page.js';
   import { onMount } from 'svelte';
-  import { getSignInExperience, updateSignInExperience } from '$lib/api/client.js';
-  import { t } from '$lib/i18n.js';
-  import Button from '@svadmin/ui/components/ui/button/button.svelte';
-  import Input from '@svadmin/ui/components/ui/input/input.svelte';
-  import Select from '@svadmin/ui/components/ui/select/select.svelte';
-  import Textarea from '@svadmin/ui/components/ui/textarea/textarea.svelte';
+  import { getSignInExperience, updateSignInExperience } from '#lib/api/client.js';
+  import { t } from '#lib/i18n.js';
+  import { Button } from '@svadmin/ui';
+  import { Input } from '@svadmin/ui';
+  import { Select } from '@svadmin/ui';
+  import { Textarea } from '@svadmin/ui';
 
   const illustrationOptions = [
     { value: '', labelKey: 'No Illustration' },
@@ -93,7 +95,7 @@
 
 <div class="mb-6 flex items-start justify-between gap-4">
   <div>
-    <h2 class="text-2xl font-bold text-surface-900">{t('signIn.contentTitle')}</h2>
+    <ContentPageHeader title={t('signIn.contentTitle')} headingLevel="h2" />
     <p class="mt-1 text-sm text-surface-500">{t('signIn.contentDescription')}</p>
   </div>
   <Button onclick={saveContent} disabled={loading || saving}>
@@ -101,7 +103,7 @@
   </Button>
 </div>
 
-{#if error}<div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error}</div>{/if}
+{#if error}<FeedbackNotice message={error} tone="danger" priority="blocking" class="mb-4" />{/if}
 {#if saved}<div class="mb-4 rounded-lg border border-green-200 bg-green-50 p-4 text-green-700">{t('Saved')}</div>{/if}
 
 {#if loading}

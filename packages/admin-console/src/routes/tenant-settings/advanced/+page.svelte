@@ -1,5 +1,5 @@
 <script lang="ts">
-  import AdvancedTenantConfigPage from '$lib/components/AdvancedTenantConfigPage.svelte';
+  import AdvancedTenantConfigPage from '#lib/components/AdvancedTenantConfigPage.svelte';
 </script>
 
 <AdvancedTenantConfigPage />

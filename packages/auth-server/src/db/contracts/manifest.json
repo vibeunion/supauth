@@ -1,0 +1,100 @@
+{
+  "generator": "supacloud-db/source-contracts/v1",
+  "inputs": {
+    "database.sources.json": "b48146a29bbec3645d246c0c8e968abc6e438c4ed7dcd2ce334ed9a94a7ef7a1",
+    "src/db/functions/app_has_org_permission.sql": "244693338cc4f38117a48637c7359be629c502742a76da3cd1ad211c53b2c437",
+    "src/db/functions/authorize.sql": "3bbc00bd35e054b209ea443172510429bb4704218544f599e681073cb882ab0b",
+    "src/db/functions/current_permission_claims.sql": "acdc31b45545660dd4a5e870fcf378c4eb663ed4bf2fc24025f1d3cdffb0cd49",
+    "src/db/functions/current_project_claims.sql": "6a89f3d6db480bfd86e1b11db176d37fbb165b8bfe1baf5caa392b46f70a7c94",
+    "src/db/functions/current_project_ref.sql": "e5055437a322f38814787564c956de6452c71d56e67d8df89730cf79c31bbdda",
+    "src/db/functions/has_org_permission.sql": "79f00dd1c68cfc6f92f890c997af702fccae1e519633640320f99281b5366857",
+    "src/db/functions/has_permission.sql": "af81efdab3a68facab8acf24e26ca2758a7702f8ff21ebd09ca5c64dc6458444",
+    "src/db/migrations-sql/0001_supauth-overlay-schema-v1.sql": "1005f2d0f5cd77ad86e2d954a77d42a93c96bf530029c59fdd10f8f451d8bf17",
+    "src/db/migrations-sql/0004_supauth-overlay-hardening-v4.sql": "be1281ef23755cebe3a04fa897216de85bc44bba3aedc61963824800882e1c59",
+    "src/db/migrations-sql/0005_supauth-overlay-provisioning-v5.sql": "c6048ca18e880abe4e13e0b1edc46863476228f3514a6421a1b72b6cb95cbf18",
+    "src/db/migrations-sql/0006_supauth-overlay-gotrue-authority-v6.sql": "58cbb87278a8d30a4c19726b066a458619f8625c7c38fe6b5be560d4e41f898f",
+    "src/db/migrations-sql/0007_supauth-overlay-function-access-v7.sql": "6d190c9707e2b27de6b8860dca44d266475f5fddef62aca3f9b05d62844b5bb3",
+    "src/db/migrations-sql/0008_supauth-overlay-project-claims-v8.sql": "babc7287cac9d03416bd01ef1c6db4e4c8023e03bbb8c44adfb4bce4162f8998",
+    "src/db/migrations-sql/0009_supauth-overlay-legacy-webhook-revoke-v9.sql": "3e00daa8021e901b22884ede6a0ba8e128e28e7e994e902cbad5d0d82549eaf2",
+    "src/db/migrations-sql/0010_supauth-overlay-legacy-webhook-retirement-v10.sql": "a19a760893640820ab30f5e6d0061e110a4baf49b2d46332d139de77ceca511c",
+    "src/db/migrations-sql/0011_supauth-overlay-application-permissions-v11.sql": "3bda7ae11a5666fe74c0e1df956f4059ac22750c954e2408c389fa3434412670",
+    "src/db/migrations-sql/0012_supauth-overlay-account-claim-state-v12.sql": "76bb06a933c64f80cee24c0969114e1e3f465b3c95bcbaf452270559d7fa542c",
+    "src/db/migrations-sql/0013_supauth-overlay-rls-permission-projection-v13.sql": "91139b9ac626411f28864230122e82278374a9951c655a513bc8ad0aebb0d3fc",
+    "src/db/migrations-sql/0014_supauth-overlay-connector-runtime-kind-v14.sql": "7d0d081f7943e8276c7a9c9f6cd246b4bea599bed86cd1494e0f2bcad1f337a9",
+    "src/db/migrations-sql/0015_supauth-overlay-connector-runtime-kind-repair-v15.sql": "9268e1bf61c4385175394d3f2fbc3105cd5785f666333db5eb66a915985d16ec",
+    "src/db/migrations-sql/0016_supauth-overlay-function-access-repair-v16.sql": "6d190c9707e2b27de6b8860dca44d266475f5fddef62aca3f9b05d62844b5bb3",
+    "src/db/migrations-sql/0017_supauth-overlay-organization-template-default-v17.sql": "26946bcba446e98257231f679c1166b30d0279ffd148d63149b14f94cb99d464",
+    "src/db/migrations-sql/0018_supauth-overlay-organization-template-idempotency-v18.sql": "109a7363218fbd46ce1ee487ad54e678263c9247245563448f48b4203b3ce6a2",
+    "src/db/schema.ts": "25fec9735dd5e8edef4cf3d3793bec66a5b52b9e4c672a74e0149183a104d5f7"
+  },
+  "migrations": [
+    {
+      "path": "src/db/migrations-sql/0001_supauth-overlay-schema-v1.sql",
+      "sha256": "1005f2d0f5cd77ad86e2d954a77d42a93c96bf530029c59fdd10f8f451d8bf17"
+    },
+    {
+      "path": "src/db/migrations-sql/0004_supauth-overlay-hardening-v4.sql",
+      "sha256": "be1281ef23755cebe3a04fa897216de85bc44bba3aedc61963824800882e1c59"
+    },
+    {
+      "path": "src/db/migrations-sql/0005_supauth-overlay-provisioning-v5.sql",
+      "sha256": "c6048ca18e880abe4e13e0b1edc46863476228f3514a6421a1b72b6cb95cbf18"
+    },
+    {
+      "path": "src/db/migrations-sql/0006_supauth-overlay-gotrue-authority-v6.sql",
+      "sha256": "58cbb87278a8d30a4c19726b066a458619f8625c7c38fe6b5be560d4e41f898f"
+    },
+    {
+      "path": "src/db/migrations-sql/0007_supauth-overlay-function-access-v7.sql",
+      "sha256": "6d190c9707e2b27de6b8860dca44d266475f5fddef62aca3f9b05d62844b5bb3"
+    },
+    {
+      "path": "src/db/migrations-sql/0008_supauth-overlay-project-claims-v8.sql",
+      "sha256": "babc7287cac9d03416bd01ef1c6db4e4c8023e03bbb8c44adfb4bce4162f8998"
+    },
+    {
+      "path": "src/db/migrations-sql/0009_supauth-overlay-legacy-webhook-revoke-v9.sql",
+      "sha256": "3e00daa8021e901b22884ede6a0ba8e128e28e7e994e902cbad5d0d82549eaf2"
+    },
+    {
+      "path": "src/db/migrations-sql/0010_supauth-overlay-legacy-webhook-retirement-v10.sql",
+      "sha256": "a19a760893640820ab30f5e6d0061e110a4baf49b2d46332d139de77ceca511c"
+    },
+    {
+      "path": "src/db/migrations-sql/0011_supauth-overlay-application-permissions-v11.sql",
+      "sha256": "3bda7ae11a5666fe74c0e1df956f4059ac22750c954e2408c389fa3434412670"
+    },
+    {
+      "path": "src/db/migrations-sql/0012_supauth-overlay-account-claim-state-v12.sql",
+      "sha256": "76bb06a933c64f80cee24c0969114e1e3f465b3c95bcbaf452270559d7fa542c"
+    },
+    {
+      "path": "src/db/migrations-sql/0013_supauth-overlay-rls-permission-projection-v13.sql",
+      "sha256": "91139b9ac626411f28864230122e82278374a9951c655a513bc8ad0aebb0d3fc"
+    },
+    {
+      "path": "src/db/migrations-sql/0014_supauth-overlay-connector-runtime-kind-v14.sql",
+      "sha256": "7d0d081f7943e8276c7a9c9f6cd246b4bea599bed86cd1494e0f2bcad1f337a9"
+    },
+    {
+      "path": "src/db/migrations-sql/0015_supauth-overlay-connector-runtime-kind-repair-v15.sql",
+      "sha256": "9268e1bf61c4385175394d3f2fbc3105cd5785f666333db5eb66a915985d16ec"
+    },
+    {
+      "path": "src/db/migrations-sql/0016_supauth-overlay-function-access-repair-v16.sql",
+      "sha256": "6d190c9707e2b27de6b8860dca44d266475f5fddef62aca3f9b05d62844b5bb3"
+    },
+    {
+      "path": "src/db/migrations-sql/0017_supauth-overlay-organization-template-default-v17.sql",
+      "sha256": "26946bcba446e98257231f679c1166b30d0279ffd148d63149b14f94cb99d464"
+    },
+    {
+      "path": "src/db/migrations-sql/0018_supauth-overlay-organization-template-idempotency-v18.sql",
+      "sha256": "109a7363218fbd46ce1ee487ad54e678263c9247245563448f48b4203b3ce6a2"
+    }
+  ],
+  "outputs": {
+    "rpc-catalog.json": "2e06d3d44bbdd668d5b5552bfa3ec3dacc616c35c1b2053068de8739a4c2fa3d",
+    "rpc-types.ts": "87e24091dbbb522326bf29cebcfb5118e2a349e9f306afe0b5b4db6e60272942"
+  }
+}

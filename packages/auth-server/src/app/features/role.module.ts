@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Post, Put, Delete } from '@s
 import { roleRoutes } from '../../routes/roles.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class RolePostRootAction {
@@ -74,101 +76,167 @@ export class RoleController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Post("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#postRoot" },
     aspects: [adminHttpAspect],
   })
-  postRoot(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context));
+  postRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.postRoot.invoke(ctx, context => this.postRootAction.execute(context)));
   }
 
   @Get("/:roleId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#getByRoleId" },
     aspects: [adminHttpAspect],
   })
-  getByRoleId(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.getByRoleId.invoke(ctx);
+  getByRoleId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.getByRoleId.invoke(ctx));
   }
 
   @Put("/:roleId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#putByRoleId" },
     aspects: [adminHttpAspect],
   })
-  putByRoleId(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.putByRoleId.invoke(ctx, context => this.putByRoleIdAction.execute(context));
+  putByRoleId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.putByRoleId.invoke(ctx, context => this.putByRoleIdAction.execute(context)));
   }
 
   @Delete("/:roleId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#deleteByRoleId" },
     aspects: [adminHttpAspect],
   })
-  deleteByRoleId(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.deleteByRoleId.invoke(ctx, context => this.deleteByRoleIdAction.execute(context));
+  deleteByRoleId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.deleteByRoleId.invoke(ctx, context => this.deleteByRoleIdAction.execute(context)));
   }
 
   @Post("/:roleId/permissions", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#postByRoleIdPermissions" },
     aspects: [adminHttpAspect],
   })
-  postByRoleIdPermissions(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.postByRoleIdPermissions.invoke(ctx, context => this.postByRoleIdPermissionsAction.execute(context));
+  postByRoleIdPermissions(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.postByRoleIdPermissions.invoke(ctx, context => this.postByRoleIdPermissionsAction.execute(context)));
   }
 
   @Delete("/:roleId/permissions/:permissionId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#deleteByRoleIdPermissionsByPermissionId" },
     aspects: [adminHttpAspect],
   })
-  deleteByRoleIdPermissionsByPermissionId(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.deleteByRoleIdPermissionsByPermissionId.invoke(ctx, context => this.deleteByRoleIdPermissionsByPermissionIdAction.execute(context));
+  deleteByRoleIdPermissionsByPermissionId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.deleteByRoleIdPermissionsByPermissionId.invoke(ctx, context => this.deleteByRoleIdPermissionsByPermissionIdAction.execute(context)));
   }
 
   @Get("/:roleId/permissions", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#getByRoleIdPermissions" },
     aspects: [adminHttpAspect],
   })
-  getByRoleIdPermissions(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.getByRoleIdPermissions.invoke(ctx);
+  getByRoleIdPermissions(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.getByRoleIdPermissions.invoke(ctx));
   }
 
   @Get("/:roleId/assign", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#getByRoleIdAssign" },
     aspects: [adminHttpAspect],
   })
-  getByRoleIdAssign(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.getByRoleIdAssign.invoke(ctx);
+  getByRoleIdAssign(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.getByRoleIdAssign.invoke(ctx));
   }
 
   @Post("/:roleId/assign", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#postByRoleIdAssign" },
     aspects: [adminHttpAspect],
   })
-  postByRoleIdAssign(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.postByRoleIdAssign.invoke(ctx, context => this.postByRoleIdAssignAction.execute(context));
+  postByRoleIdAssign(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.postByRoleIdAssign.invoke(ctx, context => this.postByRoleIdAssignAction.execute(context)));
   }
 
   @Delete("/:roleId/assign/:assignmentId", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/roles.ts#deleteByRoleIdAssignByAssignmentId" },
     aspects: [adminHttpAspect],
   })
-  deleteByRoleIdAssignByAssignmentId(ctx: HttpInvocation): Promise<Response> {
-    return roleRoutes.operations.deleteByRoleIdAssignByAssignmentId.invoke(ctx, context => this.deleteByRoleIdAssignByAssignmentIdAction.execute(context));
+  deleteByRoleIdAssignByAssignmentId(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => roleRoutes.operations.deleteByRoleIdAssignByAssignmentId.invoke(ctx, context => this.deleteByRoleIdAssignByAssignmentIdAction.execute(context)));
   }
 
 }

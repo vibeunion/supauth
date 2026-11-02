@@ -2,7 +2,7 @@
 // Does NOT touch `auth` schema (GoTrue owns that)
 
 import { pgSchema, uuid, varchar, text, boolean, integer, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
-import type { JsonValue } from '../../../shared/src/schema.js';
+import type { JsonValue } from '@supauth/shared';
 
 const supaoauth = pgSchema('supaoauth');
 

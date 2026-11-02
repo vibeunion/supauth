@@ -2,6 +2,8 @@ import { Controller, defineModule, Injectable, Get, Put, Delete, Post } from '@s
 import { tenantConfigRoutes } from '../../routes/tenant-config.js';
 import type { HttpInvocation } from '../../http/operation.js';
 import { adminHttpAspect, requireAdminAction } from '../admin-aspect.js';
+import { Effect } from 'effect';
+import { routeEffect, type RouteFailure } from '../route-effect.js';
 
 @Injectable()
 export class TenantConfigPutByTypeByKeyAction {
@@ -38,47 +40,77 @@ export class TenantConfigController {
 
   @Get("/", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant-config.ts#getRoot" },
     aspects: [adminHttpAspect],
   })
-  getRoot(ctx: HttpInvocation): Promise<Response> {
-    return tenantConfigRoutes.operations.getRoot.invoke(ctx);
+  getRoot(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantConfigRoutes.operations.getRoot.invoke(ctx));
   }
 
   @Get("/:type/:key", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant-config.ts#getByTypeByKey" },
     aspects: [adminHttpAspect],
   })
-  getByTypeByKey(ctx: HttpInvocation): Promise<Response> {
-    return tenantConfigRoutes.operations.getByTypeByKey.invoke(ctx);
+  getByTypeByKey(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantConfigRoutes.operations.getByTypeByKey.invoke(ctx));
   }
 
   @Put("/:type/:key", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant-config.ts#putByTypeByKey" },
     aspects: [adminHttpAspect],
   })
-  putByTypeByKey(ctx: HttpInvocation): Promise<Response> {
-    return tenantConfigRoutes.operations.putByTypeByKey.invoke(ctx, context => this.putByTypeByKeyAction.execute(context));
+  putByTypeByKey(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantConfigRoutes.operations.putByTypeByKey.invoke(ctx, context => this.putByTypeByKeyAction.execute(context)));
   }
 
   @Delete("/:type/:key", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant-config.ts#deleteByTypeByKey" },
     aspects: [adminHttpAspect],
   })
-  deleteByTypeByKey(ctx: HttpInvocation): Promise<Response> {
-    return tenantConfigRoutes.operations.deleteByTypeByKey.invoke(ctx, context => this.deleteByTypeByKeyAction.execute(context));
+  deleteByTypeByKey(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantConfigRoutes.operations.deleteByTypeByKey.invoke(ctx, context => this.deleteByTypeByKeyAction.execute(context)));
   }
 
   @Post("/domain/:domain/check", {
     parse: 'none',
+    effect: {
+      required: true,
+      errors: [{ tag: 'RouteFailure', status: 500, code: 'internal_error' }],
+      dependencies: [],
+      retry: 'none',
+    },
     contract: { body: 'domain', response: 'native-json', evidence: "src/routes/tenant-config.ts#postDomainByDomainCheck" },
     aspects: [adminHttpAspect],
   })
-  postDomainByDomainCheck(ctx: HttpInvocation): Promise<Response> {
-    return tenantConfigRoutes.operations.postDomainByDomainCheck.invoke(ctx, context => this.postDomainByDomainCheckAction.execute(context));
+  postDomainByDomainCheck(ctx: HttpInvocation): Effect.Effect<Response, RouteFailure, never> {
+    return routeEffect(() => tenantConfigRoutes.operations.postDomainByDomainCheck.invoke(ctx, context => this.postDomainByDomainCheckAction.execute(context)));
   }
 
 }

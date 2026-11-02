@@ -1,11 +1,12 @@
 <script lang="ts">
+  import ContentPageHeader from "@svadmin/ui/components/content/ContentPageHeader.svelte";
   import { decodeSchema, JsonObjectSchema } from "@supauth/shared";
   import type { AccountCenterRow } from "./account-center-settings.js";
-  import type { MutationReconciliation } from "$lib/mutation-reconciliation.js";
+  import type { MutationReconciliation } from "#lib/mutation-reconciliation.js";
   import { accountCenterValue } from "./settings-values.js";
   import { onMount } from "svelte";
-  import { t } from "$lib/i18n.js";
-  import { listTenantConfigs, upsertTenantConfig } from "$lib/api/client.js";
+  import { t } from "#lib/i18n.js";
+  import { listTenantConfigs, upsertTenantConfig } from "#lib/api/client.js";
   import {
     readAccountCenterConfig,
     validateExternalDeleteAccountUrlDraft,
@@ -13,7 +14,7 @@
   import {
     accountCenterSettingsAuthority,
     settleAuthoritativeSettingsMutation,
-  } from "$lib/authoritative-settings-readback.js";
+  } from "#lib/authoritative-settings-readback.js";
 
   let loading = $state(true);
   let saving = $state(false);
@@ -167,7 +168,7 @@
 
 <div class="flex items-center justify-between mb-6">
   <div>
-    <h2 class="text-2xl font-bold text-surface-900">{t("Account Center")}</h2>
+    <ContentPageHeader title={t("Account Center")} headingLevel="h2" />
     <p class="text-sm text-surface-500 mt-1">
       {t(
         "Configure the hosted self-service account center exposed at /account.",

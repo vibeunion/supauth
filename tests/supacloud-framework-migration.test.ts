@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { initSync, parse } from 'es-module-lexer';
+import { parse } from 'es-module-lexer/minimal';
 
 const root = resolve(import.meta.dir, '..');
 const authServer = resolve(root, 'packages/auth-server');
@@ -42,7 +42,6 @@ describe('SupAuth compiled application migration', () => {
         output: build.exitCode === 0 ? '' : new TextDecoder().decode(build.stderr),
       }).toEqual({ exitCode: 0, output: '' });
       const bundleSource = readFileSync(resolve(authServer, 'dist/supacloud-function/supacloud-function.js'), 'utf8');
-      initSync();
       const [imports] = parse(bundleSource);
       const loaderAccess = imports.filter(entry => entry.d === -2
         && !/^\s*\.\s*(?:url|dir)\b/.test(bundleSource.slice(entry.e)));

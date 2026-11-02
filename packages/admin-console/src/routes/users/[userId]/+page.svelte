@@ -1,12 +1,16 @@
 <script lang="ts">
-  import type { UserView, UserRoleView, UserPermissionView, ApplicationView, OrganizationView, AuditEntryView, UserGrantView, CapabilitiesView } from "$lib/management-view-types.js";
+  import SectionHeader from "@svadmin/ui/components/content/SectionHeader.svelte";
+  import { StatusPill } from '@svadmin/ui';
+  import DataPanel from "@svadmin/ui/components/content/DataPanel.svelte";
+  import DescriptionList from "@svadmin/ui/components/content/DescriptionList.svelte";
+  import type { UserView, UserRoleView, UserPermissionView, ApplicationView, OrganizationView, AuditEntryView, UserGrantView, CapabilitiesView } from "#lib/management-view-types.js";
   import { page } from "$app/state";
-  import { resolve } from "$app/paths";
-  import DetailTabs from "$lib/components/DetailTabs.svelte";
-  import CapabilityStatus from "$lib/components/CapabilityStatus.svelte";
-  import RequestState from "$lib/components/RequestState.svelte";
-  import { t } from "$lib/i18n.js";
-  import { collectionItems, tabFromRoute } from "$lib/resource-page.js";
+  import { resolve } from "#lib/sveltekit-paths.js";
+  import DetailTabs from "#lib/components/DetailTabs.svelte";
+  import CapabilityStatus from "#lib/components/CapabilityStatus.svelte";
+  import RequestState from "#lib/components/RequestState.svelte";
+  import { t } from "#lib/i18n.js";
+  import { collectionItems, tabFromRoute } from "#lib/resource-page.js";
   import {
     getUser,
     getUserPermissions,
@@ -18,11 +22,11 @@
     listUserOrganizations,
     suspendUser,
     unsuspendUser,
-  } from "$lib/api/client.js";
+  } from "#lib/api/client.js";
   import {
     permissionDescription,
     permissionLabel,
-  } from "$lib/permission-catalog.js";
+  } from "#lib/permission-catalog.js";
 
   const tabs = [
     { value: "settings", labelKey: "detail.settings" },
@@ -273,40 +277,17 @@
 <RequestState {loading} {error} onRetry={loadUser}>
   {#if activeTab === "settings"}
     <div class="grid gap-5 lg:grid-cols-2">
-      <section class="console-card p-6">
-        <h3 class="text-lg font-semibold text-surface-900">{t("Details")}</h3>
-        <dl class="mt-4 space-y-3 text-sm">
-          <div>
-            <dt class="text-surface-500">{t("Email")}</dt>
-            <dd class="mt-1 font-medium text-surface-900">
-              {user?.email || "-"}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-surface-500">{t("Phone")}</dt>
-            <dd class="mt-1 font-medium text-surface-900">
-              {user?.phone || "-"}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-surface-500">{t("users.createdAt")}</dt>
-            <dd class="mt-1 font-medium text-surface-900">
-              {timestamp(user?.created_at)}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-surface-500">{t("users.lastSignIn")}</dt>
-            <dd class="mt-1 font-medium text-surface-900">
-              {timestamp(user?.last_sign_in_at)}
-            </dd>
-          </div>
-        </dl>
-      </section>
-      <section class="console-card p-6">
-        <h3 class="text-lg font-semibold text-surface-900">
-          {t("users.mfaFactors")}
-        </h3>
-        <p class="mt-1 text-xs text-surface-500">{t("mfa.supabaseBoundary")}</p>
+      <DataPanel title={t("Details")} headingLevel="h3">
+        <DescriptionList
+          items={[
+            { label: t("Email"), value: user?.email || "-" },
+            { label: t("Phone"), value: user?.phone || "-" },
+            { label: t("users.createdAt"), value: timestamp(user?.created_at) },
+            { label: t("users.lastSignIn"), value: timestamp(user?.last_sign_in_at) },
+          ]}
+        />
+      </DataPanel>
+      <DataPanel title={t("users.mfaFactors")} description={t("mfa.supabaseBoundary")} headingLevel="h3">
         <div class="mt-4 space-y-2">
           {#each (user?.factors || []).filter((factor) => factor.factor_type === "totp") as factor (factor.id)}
             <div class="rounded-lg border border-surface-200 px-3 py-2">
@@ -326,14 +307,12 @@
         <p class="mt-3 text-xs text-surface-500">
           {t("mfa.aalCapabilityHint")}
         </p>
-      </section>
-      <section class="console-card p-6">
-        <h3 class="text-lg font-semibold text-surface-900">
-          {t("users.linkedIdentities")}
-        </h3>
-        <p class="mt-1 text-xs leading-5 text-surface-500">
-          {t("users.linkedIdentitiesDescription")}
-        </p>
+      </DataPanel>
+      <DataPanel
+        title={t("users.linkedIdentities")}
+        description={t("users.linkedIdentitiesDescription")}
+        headingLevel="h3"
+      >
         <div class="mt-4 space-y-2">
           {#each user?.identities || [] as identity (identity.id || identity.identity_id || identity.provider)}
             <div class="rounded-lg border border-surface-200 px-3 py-2">
@@ -350,14 +329,12 @@
             </p>
           {/each}
         </div>
-      </section>
+      </DataPanel>
       <section class="lg:col-span-2">
-        <h3 class="text-lg font-semibold text-surface-900">
-          {t("users.adminSecurityCapabilities")}
-        </h3>
-        <p class="mt-1 text-sm leading-6 text-surface-500">
-          {t("users.adminSecurityCapabilitiesDescription")}
-        </p>
+        <SectionHeader
+          title={t("users.adminSecurityCapabilities")}
+          description={t("users.adminSecurityCapabilitiesDescription")}
+        />
         <div class="mt-4">
           <RequestState
             loading={capabilitiesLoading}

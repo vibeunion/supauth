@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { base } from '$app/paths';
+  import { base } from '#lib/sveltekit-paths.js';
   import { page } from '$app/state';
-  import { t } from '$lib/i18n.js';
-  import { resolveConsolePath } from '$lib/navigation.js';
+  import { t } from '#lib/i18n.js';
+  import { resolveConsolePath } from '#lib/navigation.js';
 
   let { tabs = [] }: { tabs?: ReadonlyArray<{ path: string; labelKey: string }> } = $props();
 
