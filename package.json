@@ -20,6 +20,8 @@
     "verify:installed": "bun run scripts/verify-supacloud-installed-app.ts",
     "app:compile": "bun run --filter '@supauth/auth-server' app:compile",
     "app:compile:check": "bun run --filter '@supauth/auth-server' app:compile:check",
+    "zenstack:model:generate": "bun run --cwd packages/auth-server model:generate",
+    "zenstack:model:check": "bun run --cwd packages/auth-server model:check",
     "check:artifact": "bun run build && bun run verify:artifact",
     "install:supacloud": "bun run scripts/install-supacloud-app.ts",
     "typecheck": "bun run --filter '@supauth/authorization-core' build && bun run --filter '@supauth/authorization-postgres' build && bun run --filter '@supauth/authorization-conformance' build && bun run --filter '@supauth/shared' build && bun run --filter '@supauth/sdk-typescript' build && bun run --filter '@supauth/sdk-auth-ui' build && bun run --filter '@supauth/auth-server' typecheck",
@@ -48,8 +50,8 @@
   "devDependencies": {
     "@apidevtools/swagger-parser": "13.1.0",
     "@supabase/supabase-js": "2.118.0",
-    "@supacloud/compiler": "0.53.1",
-    "@supacloud/js": "0.45.5",
+    "@supacloud/compiler": "0.62.6",
+    "@supacloud/js": "0.48.3",
     "@types/bun": "^1.4.4",
     "@types/node": "26.6.6",
     "es-module-lexer": "3.0.4",
@@ -63,9 +65,9 @@
   },
   "patchedDependencies": {
     "@supabase/auth-js@2.118.0": "patches/@supabase%2Fauth-js@2.118.0.patch",
-    "elysia@2.0.0-rc.0": "patches/elysia@2.0.0-rc.0.patch",
+    "elysia@2.0.0-rc.3": "patches/elysia@2.0.0-rc.3.patch",
     "drizzle-orm@0.45.4": "patches/drizzle-orm@0.45.4.patch",
     "@tanstack/svelte-query@6.3.7": "patches/@tanstack%2Fsvelte-query@6.3.7.patch",
-    "bits-ui@2.20.3": "patches/bits-ui@2.20.3.patch"
+    "bits-ui@2.21.0": "patches/bits-ui@2.21.0.patch"
   }
 }

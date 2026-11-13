@@ -12,15 +12,15 @@ const contractEntry = realpathSync(fileURLToPath(import.meta.resolve('@supacloud
 const packageDirectory = dirname(dirname(contractEntry));
 const virtualEntry = join(adminDirectory, '__contracts_boundary_entry__.js');
 const expectedEntry = realpathSync(join(packageDirectory, 'dist/client.mjs'));
-const expectedSharedEntry = realpathSync(join(packageDirectory, 'dist/index-3g9015wn.mjs'));
+const expectedSharedEntry = realpathSync(join(packageDirectory, 'dist/index-h5rev07n.mjs'));
 const expectedEntries = new Set([expectedEntry, expectedSharedEntry]);
 const transpiler = new Transpiler({ loader: 'js', target: 'browser' });
 
-// 来自已核验的 npm 0.15.2 发布包；升级必须重新审核发布物和依赖边界。
+// 来自已核验的 npm 0.16.2 发布包；升级必须重新审核发布物和依赖边界。
 const artifactHashes = {
-  'dist/client.mjs': '6b5a43d950094174a93052dcedeeed686f9130160727151dc46f807a1d68b924',
+  'dist/client.mjs': 'dc1184f753706c3003a54bed1e850ad7f13c479d4691d33776d80ad730510c8a',
   'dist/client.d.mts': '297202d36be658faada1d32cdccd062ff8848bb82f86e532bab6a7034b320315',
-  'dist/index-3g9015wn.mjs': '78753bb2dca3c0810ae9551899483317829572eaadb6724efe756cae7f55a612',
+  'dist/index-h5rev07n.mjs': '06cb36c45be1d5b1dbb824c641627c59f4ff342420dbea16352c5bfc75ef31ce',
   'dist/http_contract.d.mts': '5c742f85e2519046afa7c074d594f7e544eedbe04387f64fa33a06314784b747',
 };
 
@@ -212,7 +212,7 @@ const label = "import '@supacloud/app'";
 `, 'page.svelte')).toEqual([]);
   });
 
-  test('resolves the reviewed 0.15.2 export and exact published artifacts', () => {
+  test('resolves the reviewed 0.16.2 export and exact published artifacts', () => {
     const manifest: unknown = JSON.parse(
       readFileSync(join(packageDirectory, 'package.json'), 'utf8'),
     );
@@ -222,7 +222,7 @@ const label = "import '@supacloud/app'";
       throw new Error('Invalid installed @supacloud/contracts manifest');
     }
     expect(manifest.name).toBe('@supacloud/contracts');
-    expect(manifest.version).toBe('0.15.2');
+    expect(manifest.version).toBe('0.16.2');
     expect(manifest.exports).toEqual({
       '.': {
         import: { types: './dist/index.d.mts', default: './dist/index.mjs' },
@@ -248,7 +248,7 @@ const label = "import '@supacloud/app'";
     const runtime = readFileSync(expectedEntry, 'utf8');
     expect(Buffer.byteLength(runtime)).toBe(14265);
     const runtimeScan = transpiler.scan(runtime);
-    expect(runtimeScan.imports).toEqual([{ kind: 'import-statement', path: './index-3g9015wn.mjs' }]);
+    expect(runtimeScan.imports).toEqual([{ kind: 'import-statement', path: './index-h5rev07n.mjs' }]);
     expect(runtimeScan.exports).toContain('createContractCommandClient');
     expect(runtimeScan.exports).toContain('createAuthoritativeCommandClient');
   });
@@ -288,7 +288,7 @@ const label = "import '@supacloud/app'";
     });
     expect(result.success).toBe(true);
     expect(result.logs).toEqual([]);
-    expect(new Set(requestedImports)).toEqual(new Set(['@supacloud/contracts/client', './index-3g9015wn.mjs']));
+    expect(new Set(requestedImports)).toEqual(new Set(['@supacloud/contracts/client', './index-h5rev07n.mjs']));
     checkRuntimeGraph(loadedPaths);
     expect(result.outputs).toHaveLength(1);
     const [output] = result.outputs;

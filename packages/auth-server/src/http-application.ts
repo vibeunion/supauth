@@ -34,16 +34,33 @@ export function createSupAuthHttpApplication(
     // Elysia 1 的隐式 HEAD 语义：使用同一路由、权限与上下文，不重派发请求。
     const withHeadAliases: CompiledModule = {
       ...module,
-      controllers: module.controllers.map(controller => ({
-        ...controller,
-        routes: controller.routes.flatMap(route => {
+      controllers: module.controllers.map(controller => {
+        const aliases: typeof controller.routes = [];
+        const routes = [...controller.routes];
+        for (const route of controller.routes) {
           if (route.method !== 'GET' || controller.routes.some(candidate =>
-            candidate.method === 'HEAD' && candidate.path === route.path)) return [route];
+            candidate.method === 'HEAD' && candidate.path === route.path)) continue;
           const path = `${controller.path}/${route.path}`;
           headAliases.set(routeKey('HEAD', path), routeKey('GET', path));
-          return [route, { ...route, method: 'HEAD' as const }];
-        }),
-      })),
+          aliases.push({ ...route, method: 'HEAD' as const });
+        }
+        return { ...controller, routes: [...routes, ...aliases] };
+      }),
+      registerRoutes(register) {
+        module.registerRoutes?.call(this, register);
+        for (const controller of this.controllers) {
+          const originalController = module.controllers.find(candidate =>
+            candidate.path === controller.path && candidate.serviceKey === controller.serviceKey);
+          for (const route of controller.routes) {
+            if (route.method !== 'HEAD' || originalController === undefined
+              || originalController.routes.some(candidate =>
+                candidate.method === 'HEAD' && candidate.path === route.path)
+              || !controller.routes.some(candidate =>
+                candidate !== route && candidate.method === 'GET' && candidate.path === route.path)) continue;
+            register(controller, route, routeKey('HEAD', `${controller.path}/${route.path}`).slice(5));
+          }
+        }
+      },
     };
     application.use(createModulePlugin(withHeadAliases, owned, (request, context): HttpInvocation => ({
       request,

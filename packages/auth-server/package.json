@@ -12,16 +12,19 @@
     "migrate": "echo 'Direct DB migration is removed; deploy through the SupaCloud app installer so migrations are hosted by SupaCloud Management API.' && exit 1",
     "start": "echo 'SupAuth has no standalone start command. Deploy dist/supacloud-function/supacloud-function.js to SupaCloud Functions.' && exit 1",
     "typecheck": "bunx tsc --noEmit",
+    "model:generate": "supacloud-model generate --schema zenstack/schema.zmodel --output zenstack/generated",
+    "model:check": "supacloud-model check --schema zenstack/schema.zmodel --output zenstack/generated",
     "test": "bun test --isolate src/__tests__"
   },
   "dependencies": {
-    "@supacloud/app": "0.35.0",
-    "@supacloud/db": "0.20.3",
-    "@supacloud/elysia": "0.37.0",
+    "@supacloud/app": "0.39.3",
+    "@supacloud/db": "0.25.0",
+    "@supacloud/db-zenstack": "0.3.0",
+    "@supacloud/elysia": "0.42.4",
     "@supauth/shared": "workspace:*",
     "drizzle-orm": "0.45.4",
     "effect": "4.0.5",
-    "elysia": "2.0.0-rc.0",
+    "elysia": "2.0.0-rc.3",
     "fflate": "^0.8.3",
     "file-type": "^22.3.0",
     "jose": "^6.2.15",
@@ -29,6 +32,7 @@
     "typebox": "1.4.3"
   },
   "devDependencies": {
+    "@supacloud/model-tooling": "0.0.1",
     "@types/bun": "^1.4.4",
     "drizzle-kit": "^0.31.11",
     "typescript": "^6.0.3"

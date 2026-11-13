@@ -12,6 +12,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
   const forceLogin = (params.get('prompt') || '').split(/\s+/).includes('login');
   let authorizationAccessToken = '';
   let authorizationUnavailable = false;
+  let serviceFailureActive = false;
   let hasCustomPageTitle = false;
   let hasCustomButtonLabel = false;
   let signUpEnabled = false;
@@ -44,6 +45,10 @@ import type { PublicSignInConnector } from '@supauth/shared';
       authorizationRestart: 'This sign-in request is no longer available. Return to the application and start sign-in again.',
       authorizationBack: 'Back to previous page',
       authorizationUnavailable: 'This sign-in request cannot be verified right now. Please return to the application and start sign-in again.',
+      authorizationServiceUnavailable: 'The sign-in service is temporarily unavailable. Please try again later; if it still fails, contact your system administrator.',
+      authorizationRetry: 'Retry',
+      authorizationRetrying: 'Retrying...',
+      authorizationContactAdmin: 'If the problem continues, contact your system administrator.',
       consentTitle: 'Authorize application',
       consentDescription: 'Review the requested access before continuing.',
       consentScopes: 'This application requests:',
@@ -95,6 +100,10 @@ import type { PublicSignInConnector } from '@supauth/shared';
       authorizationRestart: '本次登录请求已失效，请返回应用重新发起登录，不要在此页面重复提交。',
       authorizationBack: '返回上一页',
       authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。',
+      authorizationServiceUnavailable: '登录服务暂时不可用，请稍后重试；若持续无法登录，请联系系统管理员。',
+      authorizationRetry: '重试',
+      authorizationRetrying: '正在重试...',
+      authorizationContactAdmin: '若持续无法登录，请联系系统管理员协助处理。',
       consentTitle: '授权应用',
       consentDescription: '继续前请确认该应用请求的访问权限。',
       consentScopes: '该应用请求以下权限：',
@@ -225,9 +234,83 @@ import type { PublicSignInConnector } from '@supauth/shared';
   }
 
   function clearMessage() {
+    serviceFailureActive = false;
+    document.getElementById('authorization-retry')?.remove();
+    document.getElementById('authorization-support')?.remove();
     const el = requiredElement("#message", "div");
     el.className = 'message';
     el.textContent = '';
+    updateAuthorizationControls();
+  }
+
+  function updateAuthorizationControls() {
+    const blocked = authorizationUnavailable || serviceFailureActive;
+    const submit = requiredElement('#submit', 'button');
+    const approve = requiredElement('#consent-approve', 'button');
+    const deny = requiredElement('#consent-deny', 'button');
+    submit.disabled = blocked;
+    approve.disabled = blocked;
+    deny.disabled = blocked;
+    if (serviceFailureActive) {
+      approve.title = t('authorizationServiceUnavailable');
+      deny.title = t('authorizationServiceUnavailable');
+    } else {
+      approve.removeAttribute('title');
+      deny.removeAttribute('title');
+    }
+  }
+
+  function isServiceFailure(value: unknown) {
+    const data = errorRecord(value);
+    const status = data && typeof data['status'] === 'number' ? data['status'] : 0;
+    const code = apiErrorCode(value);
+    const name = data && typeof data['name'] === 'string' ? data['name'] : '';
+    const message = responseMessage(value, '');
+    return status >= 500
+      || ['runtime_unavailable', 'runtime_timeout', 'refresh_retryable'].includes(code)
+      || name === 'AuthRetryableFetchError'
+      || /authentication runtime|service unavailable|bad gateway|gateway timeout|failed to fetch|fetch failed|networkerror/i.test(message);
+  }
+
+  function showServiceFailure(retry: () => Promise<void>) {
+    serviceFailureActive = true;
+    setMessage('error', t('authorizationServiceUnavailable'));
+    const message = requiredElement('#message', 'div');
+    let retryButton = document.getElementById('authorization-retry') as HTMLButtonElement | null;
+    if (!retryButton) {
+      retryButton = document.createElement('button');
+      retryButton.id = 'authorization-retry';
+      retryButton.type = 'button';
+      retryButton.className = 'authorization-retry';
+      retryButton.textContent = t('authorizationRetry');
+      message.after(retryButton);
+    }
+    retryButton.onclick = () => {
+      if (retryButton.disabled) return;
+      retryButton.disabled = true;
+      retryButton.textContent = t('authorizationRetrying');
+      clearMessage();
+      void retry().catch((error: unknown) => {
+        if (isServiceFailure(error)) {
+          showServiceFailure(retry);
+          return;
+        }
+        setMessage('error', responseMessage(error, t('authorizationFailed')));
+      }).finally(() => {
+        if (retryButton?.isConnected) {
+          retryButton.disabled = false;
+          retryButton.textContent = t('authorizationRetry');
+        }
+      });
+    };
+    if (!document.getElementById('authorization-support')) {
+      const support = document.createElement('p');
+      support.id = 'authorization-support';
+      support.className = 'authorization-support';
+      support.textContent = t('authorizationContactAdmin');
+      retryButton.after(support);
+    }
+    updateAuthorizationControls();
   }
 
   function passwordPolicyRequirements(policy: PasswordPolicy) {
@@ -280,8 +363,8 @@ import type { PublicSignInConnector } from '@supauth/shared';
     return typeof code === 'string' ? code : '';
   }
 
-  function createApiError(data: unknown, fallback: string) {
-    return Object.assign(new Error(responseMessage(data, fallback)), { code: apiErrorCode(data) });
+  function createApiError(data: unknown, fallback: string, status?: number) {
+    return Object.assign(new Error(responseMessage(data, fallback)), { code: apiErrorCode(data), status });
   }
 
   function completeStandaloneLogin() {
@@ -356,9 +439,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
         authorizationAccessToken = '';
         const passwordInput = requiredElement('#password', 'input');
         passwordInput.value = '';
-        requiredElement('#submit', 'button').disabled = true;
-        requiredElement('#consent-approve', 'button').disabled = true;
-        requiredElement('#consent-deny', 'button').disabled = true;
+        updateAuthorizationControls();
         if (window.history.length > 1 && !document.getElementById('authorization-back')) {
           const back = document.createElement('button');
           back.id = 'authorization-back';
@@ -370,7 +451,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
         }
         throw new Error(t('authorizationRestart'));
       }
-      throw createApiError(data, t('authorizationFailed'));
+      throw createApiError(data, t('authorizationFailed'), res.status);
     }
     return readContract(res, AuthorizationSchema);
   }
@@ -420,6 +501,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
       completeStandaloneLogin();
       return;
     }
+    authorizationAccessToken = accessToken;
     const authorization = await authorizationRequest('', accessToken);
     if ('redirect_url' in authorization) {
       redirectToAuthorizationResult(authorization);
@@ -441,10 +523,15 @@ import type { PublicSignInConnector } from '@supauth/shared';
       });
       redirectToAuthorizationResult(decision);
     } catch (error) {
+      if (isServiceFailure(error)) {
+        showServiceFailure(async () => {
+          await submitConsent(action);
+        });
+        return;
+      }
       setMessage('error', responseMessage(error, t('authorizationFailed')));
     } finally {
-      approveButton.disabled = authorizationUnavailable;
-      denyButton.disabled = authorizationUnavailable;
+      updateAuthorizationControls();
     }
   }
 
@@ -619,6 +706,10 @@ import type { PublicSignInConnector } from '@supauth/shared';
     try {
       const res = await fetch(url, { credentials: 'include' });
       if (!res.ok) {
+        if (res.status >= 500) {
+          showServiceFailure(() => init());
+          return;
+        }
         setMessage('error', authorizationId ? t('authorizationUnavailable') : t('passwordPolicyUnavailable'));
         return;
       }
@@ -686,7 +777,11 @@ import type { PublicSignInConnector } from '@supauth/shared';
       // Forgot password link always visible (GoTrue supports it)
       requiredElement("#forgot-password-link", "a").style.display = '';
       requiredElement("#tab-forgot", "button").style.display = '';
-    } catch {
+    } catch (error) {
+      if (isServiceFailure(error)) {
+        showServiceFailure(() => init());
+        return;
+      }
       setMessage('error', authorizationId ? t('authorizationUnavailable') : t('passwordPolicyUnavailable'));
     }
   }
@@ -728,6 +823,10 @@ import type { PublicSignInConnector } from '@supauth/shared';
       }
       const { data, error } = await hostedAuth.signInWithPassword({ email, password });
       if (error) {
+        if (isServiceFailure(error)) {
+          showServiceFailure(async () => { window.location.reload(); });
+          return;
+        }
         setMessage('error', loginResponseMessage(error));
         return;
       }
@@ -738,10 +837,14 @@ import type { PublicSignInConnector } from '@supauth/shared';
       }
       await continueAuthorization(session.access_token);
     } catch (error) {
+      if (isServiceFailure(error)) {
+        showServiceFailure(async () => { window.location.reload(); });
+        return;
+      }
       setMessage('error', responseMessage(error, t('networkError')));
     } finally {
-      button.disabled = authorizationUnavailable;
       button.textContent = originalText;
+      updateAuthorizationControls();
     }
   });
 
@@ -861,5 +964,9 @@ import type { PublicSignInConnector } from '@supauth/shared';
     }
   }
   void init().catch((error: unknown) => {
+    if (isServiceFailure(error)) {
+      showServiceFailure(() => init());
+      return;
+    }
     setMessage('error', responseMessage(error, t('authorizationFailed')));
   });

@@ -1,0 +1,577 @@
+// SupaOAuth metadata model contract. Mirrors packages/auth-server/src/db/schema.ts.
+// Lives only in the `supaoauth` schema. Does not model GoTrue `auth` tables.
+// Review-only: not imported by the Function bundle, and not a hosted migration.
+//
+// Policy plugin is declared so access rules are part of the model contract.
+// Every model is explicitly fail-closed with @@deny('all', true). These rules
+// do not replace PostgreSQL RLS or the existing SECURITY DEFINER SQL functions.
+// Cross-schema references to auth.users.id stay plain Uuid columns, not relations.
+
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+  schemas = ["supaoauth"]
+}
+
+// Trusted host identity for model policies. It is injected after the HTTP
+// admin aspect has authenticated the request; it is never read from input.
+type Principal {
+  userId String
+  canManage Boolean
+  @@auth()
+}
+
+plugin policy {
+  provider = '@zenstackhq/plugin-policy'
+}
+
+// ─── API Resources ───────────────────────────────────────────────────────
+model ApiResource {
+  id          String   @id @default(uuid()) @db.Uuid @map("id")
+  name        String   @db.VarChar(255) @map("name")
+  indicator   String   @unique(map: "uq_api_resources_indicator") @db.VarChar(1024) @map("indicator")
+  description String?  @db.Text @map("description")
+  createdAt   DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt   DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  scopes    Scope[]
+  bindings  ApplicationBinding[]
+
+  @@schema("supaoauth")
+  @@map("api_resources")
+  @@deny('all', true)
+}
+
+// ─── Scopes ───────────────────────────────────────────────────────────────
+model Scope {
+  id          String   @id @default(uuid()) @db.Uuid @map("id")
+  name        String   @db.VarChar(255) @map("name")
+  description String?  @db.Text @map("description")
+  resourceId  String   @db.Uuid @map("resource_id")
+  createdAt   DateTime @default(now()) @db.Timestamptz() @map("created_at")
+
+  resource    ApiResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  permissions Permission[]
+  bindings    ApplicationBinding[]
+  consents    UserConsent[]
+
+  @@schema("supaoauth")
+  @@map("scopes")
+  @@index([resourceId], map: "idx_scopes_resource_id")
+  @@unique([resourceId, name], map: "uq_scopes_resource_name")
+  @@deny('all', true)
+}
+
+// ─── Organizations ────────────────────────────────────────────────────────
+model Organization {
+  id          String   @id @default(uuid()) @db.Uuid @map("id")
+  name        String   @db.VarChar(255) @map("name")
+  description String?  @db.Text @map("description")
+  createdAt   DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt   DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  members       OrganizationMember[]
+  assignments   RoleAssignment[]
+  consents      UserConsent[]
+  invitations   OrganizationInvitation[]
+  jitSettings   OrganizationJitSetting[]
+  applications  OrganizationApplication[]
+
+  @@schema("supaoauth")
+  @@map("organizations")
+  @@deny('all', true)
+}
+
+// ─── Organization Members ─────────────────────────────────────────────────
+model OrganizationMember {
+  id             String   @id @default(uuid()) @db.Uuid @map("id")
+  organizationId String   @db.Uuid @map("organization_id")
+  // references auth.users.id (FK across schema; not a ZenStack relation)
+  userId         String   @db.Uuid @map("user_id")
+  role           String   @default("member") @db.VarChar(100) @map("role")
+  joinedAt       DateTime @default(now()) @db.Timestamptz() @map("joined_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@schema("supaoauth")
+  @@map("organization_members")
+  @@index([organizationId], map: "idx_org_members_org_id")
+  @@index([userId], map: "idx_org_members_user_id")
+  @@deny('all', true)
+}
+
+// ─── Roles ────────────────────────────────────────────────────────────────
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid @map("id")
+  name        String   @db.VarChar(255) @map("name")
+  description String?  @db.Text @map("description")
+  createdAt   DateTime @default(now()) @db.Timestamptz() @map("created_at")
+
+  permissions Permission[]
+  assignments RoleAssignment[]
+
+  @@schema("supaoauth")
+  @@map("roles")
+  @@deny('all', true)
+}
+
+// ─── Permissions ──────────────────────────────────────────────────────────
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid @map("id")
+  name        String   @db.VarChar(255) @map("name")
+  description String?  @db.Text @map("description")
+  roleId      String   @db.Uuid @map("role_id")
+  scopeId     String?  @db.Uuid @map("scope_id")
+  createdAt   DateTime @default(now()) @db.Timestamptz() @map("created_at")
+
+  role  Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  scope Scope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  @@schema("supaoauth")
+  @@map("permissions")
+  @@index([roleId], map: "idx_permissions_role_id")
+  @@deny('all', true)
+}
+
+// ─── Sign-in Experience ───────────────────────────────────────────────────
+model SignInExperience {
+  id                      String   @id @default(uuid()) @db.Uuid @map("id")
+  logoUrl                 String?  @db.Text @map("logo_url")
+  faviconUrl              String?  @db.Text @map("favicon_url")
+  primaryColor            String?  @db.VarChar(32) @map("primary_color")
+  pageTitle               String?  @db.VarChar(255) @map("page_title")
+  description             String?  @db.Text @map("description")
+  backgroundUrl           String?  @db.Text @map("background_url")
+  buttonLabel             String?  @db.VarChar(255) @map("button_label")
+  customCss               String?  @db.Text @map("custom_css")
+  content                 Json?    @db.JsonB @map("content")
+  signInMethods           Json     @default("[]") @db.JsonB @map("sign_in_methods")
+  signUpEnabled           Boolean  @default(true) @map("sign_up_enabled")
+  passwordMinLength       Int      @default(8) @map("password_min_length")
+  passwordRequireUppercase Boolean @default(false) @map("password_require_uppercase")
+  passwordRequireLowercase Boolean @default(false) @map("password_require_lowercase")
+  passwordRequireNumbers  Boolean  @default(false) @map("password_require_numbers")
+  passwordRequireSymbols  Boolean  @default(false) @map("password_require_symbols")
+  createdAt               DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt               DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("sign_in_experience")
+  @@deny('all', true)
+}
+
+// ─── Per-Application Sign-in Experience ─────────────────────────────────
+// Optional branding overrides for a GoTrue OAuth client application.
+model ApplicationSignInExperience {
+  id            String   @id @default(uuid()) @db.Uuid @map("id")
+  applicationId String   @db.VarChar(255) @map("application_id")
+  enabled       Boolean  @default(true) @map("enabled")
+  logoUrl       String?  @db.Text @map("logo_url")
+  faviconUrl    String?  @db.Text @map("favicon_url")
+  primaryColor  String?  @db.VarChar(32) @map("primary_color")
+  pageTitle     String?  @db.VarChar(255) @map("page_title")
+  backgroundUrl String?  @db.Text @map("background_url")
+  buttonLabel   String?  @db.VarChar(255) @map("button_label")
+  customCss     String?  @db.Text @map("custom_css")
+  content       Json?    @db.JsonB @map("content")
+  createdAt     DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt     DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("application_sign_in_experience")
+  @@index([applicationId], map: "idx_app_sie_app_id")
+  @@deny('all', true)
+}
+
+// ─── Audit Logs ───────────────────────────────────────────────────────────
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid @map("id")
+  eventType    String   @db.VarChar(255) @map("event_type")
+  actorId      String?  @db.Uuid @map("actor_id")
+  actorType    String   @default("system") @db.VarChar(50) @map("actor_type")
+  resourceType String   @db.VarChar(255) @map("resource_type")
+  resourceId   String   @db.VarChar(255) @map("resource_id")
+  details      Json     @default("{}") @db.JsonB @map("details")
+  createdAt    DateTime @default(now()) @db.Timestamptz() @map("created_at")
+
+  @@schema("supaoauth")
+  @@map("audit_logs")
+  @@index([eventType], map: "idx_audit_logs_event_type")
+  @@index([resourceType, resourceId], map: "idx_audit_logs_resource")
+  @@index([createdAt], map: "idx_audit_logs_created_at")
+  @@deny('all', true)
+}
+
+// ─── Connectors (SupaOAuth metadata layer on top of GoTrue providers) ─────
+model Connector {
+  id          String   @id @default(uuid()) @db.Uuid @map("id")
+  providerId  String   @unique(map: "uq_connectors_provider_id") @db.VarChar(255) @map("provider_id")
+  runtimeKind String   @default("builtin_oauth") @db.VarChar(32) @map("runtime_kind")
+  name        String   @db.VarChar(255) @map("name")
+  category    String   @db.VarChar(50) @map("category")
+  enabled     Boolean  @default(false) @map("enabled")
+  config      Json     @default("{}") @db.JsonB @map("config")
+  createdAt   DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt   DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  enterpriseSso EnterpriseSsoConfig[]
+
+  @@schema("supaoauth")
+  @@map("connectors")
+  @@deny('all', true)
+}
+
+// ─── Application-Resource/Scope Bindings ──────────────────────────────────
+// applicationId is the GoTrue OAuth client_id (string, not a Uuid FK).
+model ApplicationBinding {
+  id            String   @id @default(uuid()) @db.Uuid @map("id")
+  applicationId String   @db.VarChar(255) @map("application_id")
+  resourceId    String   @db.Uuid @map("resource_id")
+  scopeId       String?  @db.Uuid @map("scope_id")
+  createdAt     DateTime @default(now()) @db.Timestamptz() @map("created_at")
+
+  resource ApiResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  scope    Scope?      @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@schema("supaoauth")
+  @@map("application_bindings")
+  @@index([applicationId], map: "idx_app_bindings_app_id")
+  @@index([resourceId], map: "idx_app_bindings_resource_id")
+  @@deny('all', true)
+}
+
+// ─── Role Assignments ────────────────────────────────────────────────────
+model RoleAssignment {
+  id             String   @id @default(uuid()) @db.Uuid @map("id")
+  roleId         String   @db.Uuid @map("role_id")
+  // references auth.users.id (cross-schema); null for M2M assignments
+  userId         String?  @db.Uuid @map("user_id")
+  organizationId String?  @db.Uuid @map("organization_id")
+  applicationId  String?  @db.VarChar(255) @map("application_id")
+  createdAt      DateTime @default(now()) @db.Timestamptz() @map("created_at")
+
+  role         Role          @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@schema("supaoauth")
+  @@map("role_assignments")
+  @@index([roleId], map: "idx_role_assignments_role_id")
+  @@index([userId], map: "idx_role_assignments_user_id")
+  @@index([organizationId], map: "idx_role_assignments_org_id")
+  @@deny('all', true)
+}
+
+// ─── User Consents (P0-17) ───────────────────────────────────────────────
+// Historical overlay records. Active OAuth grants stay authoritative in GoTrue.
+model UserConsent {
+  id             String    @id @default(uuid()) @db.Uuid @map("id")
+  // references auth.users.id (cross-schema)
+  userId         String    @db.Uuid @map("user_id")
+  applicationId  String    @db.VarChar(255) @map("application_id")
+  scopeId        String?   @db.Uuid @map("scope_id")
+  organizationId String?   @db.Uuid @map("organization_id")
+  grantedAt      DateTime  @default(now()) @db.Timestamptz() @map("granted_at")
+  revokedAt      DateTime? @db.Timestamptz() @map("revoked_at")
+
+  scope        Scope?        @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@schema("supaoauth")
+  @@map("user_consents")
+  @@index([userId], map: "idx_user_consents_user_id")
+  @@index([applicationId], map: "idx_user_consents_app_id")
+  @@index([organizationId], map: "idx_user_consents_org_id")
+  @@deny('all', true)
+}
+
+// Records an OAuth approval or denial for audit. grantId only correlates with GoTrue.
+model OauthConsentDecision {
+  id               String   @id @default(uuid()) @db.Uuid @map("id")
+  authorizationId  String?  @unique(map: "uq_oauth_consent_decisions_authorization_id") @db.VarChar(255) @map("authorization_id")
+  userId           String   @db.Uuid @map("user_id")
+  applicationId    String   @db.VarChar(255) @map("application_id")
+  requestedScopes  Json     @default("[]") @db.JsonB @map("requested_scopes")
+  organizationId   String?  @db.VarChar(255) @map("organization_id")
+  decision         String   @db.VarChar(16) @map("decision")
+  grantId          String?  @db.VarChar(255) @map("grant_id")
+  requestId        String?  @db.VarChar(255) @map("request_id")
+  details          Json     @default("{}") @db.JsonB @map("details")
+  decidedAt        DateTime @default(now()) @db.Timestamptz() @map("decided_at")
+
+  @@schema("supaoauth")
+  @@map("oauth_consent_decisions")
+  @@index([userId], map: "idx_oauth_consent_decisions_user_id")
+  @@index([applicationId], map: "idx_oauth_consent_decisions_app_id")
+  @@deny('all', true)
+}
+
+// ─── Organization Templates (P0-18) ──────────────────────────────────────
+model OrganizationTemplate {
+  id             String   @id @default(uuid()) @db.Uuid @map("id")
+  name           String   @db.VarChar(255) @map("name")
+  description    String?  @db.Text @map("description")
+  templateRoles  Json     @default("[]") @db.JsonB @map("template_roles")
+  templateScopes Json     @default("[]") @db.JsonB @map("template_scopes")
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt      DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("organization_templates")
+  @@deny('all', true)
+}
+
+model OrganizationTemplateInstantiation {
+  id             String   @id @default(uuid()) @db.Uuid @map("id")
+  idempotencyKey String   @unique(map: "uq_org_template_instantiations_idempotency_key") @db.VarChar(255) @map("idempotency_key")
+  templateId     String   @db.Uuid @map("template_id")
+  requestHash    String   @db.VarChar(64) @map("request_hash")
+  status         String   @default("pending") @db.VarChar(32) @map("status")
+  organizationId String?  @db.VarChar(255) @map("organization_id")
+  result         Json?    @db.JsonB @map("result")
+  errorDetails   Json?    @db.JsonB @map("error_details")
+  createdAt      DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt      DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("organization_template_instantiations")
+  @@index([templateId], map: "idx_org_template_instantiations_template_id")
+  @@index([status], map: "idx_org_template_instantiations_status")
+  @@deny('all', true)
+}
+
+// ─── Provisioning Records (P0-20) ────────────────────────────────────────
+model ProvisioningRecord {
+  id         String   @id @default(uuid()) @db.Uuid @map("id")
+  projectRef String   @db.VarChar(255) @map("project_ref")
+  step       String   @db.VarChar(100) @map("step")
+  status     String   @default("pending") @db.VarChar(50) @map("status")
+  details    Json     @default("{}") @db.JsonB @map("details")
+  createdAt  DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt  DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("provisioning_records")
+  @@index([projectRef], map: "idx_provisioning_project_ref")
+  @@index([step], map: "idx_provisioning_step")
+  @@unique([projectRef, step], map: "uq_provisioning_records_project_step")
+  @@deny('all', true)
+}
+
+// ─── Security Config (P0-19) ─────────────────────────────────────────────
+model SecurityConfig {
+  id                         String   @id @default(uuid()) @db.Uuid @map("id")
+  adminAuthMode              String   @default("auto") @db.VarChar(50) @map("admin_auth_mode")
+  adminAllowedEmails         Json     @default("[]") @db.JsonB @map("admin_allowed_emails")
+  adminAllowedDomains        Json     @default("[]") @db.JsonB @map("admin_allowed_domains")
+  rateLimitRpm               Int      @default(300) @map("rate_limit_rpm")
+  rateLimitBurst             Int      @default(50) @map("rate_limit_burst")
+  bruteForceProtection       Boolean  @default(true) @map("brute_force_protection")
+  maxLoginAttempts           Int      @default(10) @map("max_login_attempts")
+  lockoutDurationSec         Int      @default(900) @map("lockout_duration_sec")
+  secretRotationReminderDays Int      @default(90) @map("secret_rotation_reminder_days")
+  enforceHttps               Boolean  @default(true) @map("enforce_https")
+  createdAt                  DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt                  DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("security_config")
+  @@deny('all', true)
+}
+
+// ─── Enterprise SSO Connectors (P1-9) ────────────────────────────────────
+model EnterpriseSsoConfig {
+  id                   String   @id @default(uuid()) @db.Uuid @map("id")
+  connectorId          String   @db.Uuid @map("connector_id")
+  domains              Json     @db.JsonB @map("domains")
+  ssoProtocol          String   @default("oidc") @db.VarChar(50) @map("sso_protocol")
+  jitProvisioning      Boolean  @default(false) @map("jit_provisioning")
+  orgMembershipMapping Json     @default("{}") @db.JsonB @map("org_membership_mapping")
+  roleMapping          Json     @default("{}") @db.JsonB @map("role_mapping")
+  createdAt            DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt            DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  connector Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@schema("supaoauth")
+  @@map("enterprise_sso_config")
+  @@index([connectorId], map: "idx_enterprise_sso_connector_id")
+  @@deny('all', true)
+}
+
+// ─── API Version Log (P1-10) ─────────────────────────────────────────────
+model ApiVersionLog {
+  id          String   @id @default(uuid()) @db.Uuid @map("id")
+  version     String   @db.VarChar(50) @map("version")
+  changeType  String   @db.VarChar(50) @map("change_type")
+  path        String   @db.VarChar(500) @map("path")
+  method      String   @db.VarChar(10) @map("method")
+  description String?  @db.Text @map("description")
+  createdAt   DateTime @default(now()) @db.Timestamptz() @map("created_at")
+
+  @@schema("supaoauth")
+  @@map("api_version_log")
+  @@index([version], map: "idx_api_version_log_version")
+  @@allow("read", auth() != null && auth().canManage)
+  @@allow("create", auth() != null && auth().canManage)
+}
+
+// ─── Application Secrets / Consent Configuration (P0-24) ────────────────
+model ApplicationSecret {
+  id            String    @id @default(uuid()) @db.Uuid @map("id")
+  applicationId String    @db.VarChar(255) @map("application_id")
+  secretId      String    @db.VarChar(255) @map("secret_id")
+  secretHash    String?   @db.Text @map("secret_hash")
+  name          String    @db.VarChar(255) @map("name")
+  status        String    @default("active") @db.VarChar(50) @map("status")
+  lastUsedAt    DateTime? @db.Timestamptz() @map("last_used_at")
+  expiresAt     DateTime? @db.Timestamptz() @map("expires_at")
+  createdAt     DateTime  @default(now()) @db.Timestamptz() @map("created_at")
+  disabledAt    DateTime? @db.Timestamptz() @map("disabled_at")
+
+  @@schema("supaoauth")
+  @@map("application_secrets")
+  @@index([applicationId], map: "idx_application_secrets_app_id")
+  @@index([secretId], map: "idx_application_secrets_secret_id")
+  @@deny('all', true)
+}
+
+model ApplicationConsentSetting {
+  id                     String   @id @default(uuid()) @db.Uuid @map("id")
+  applicationId          String   @unique(map: "uq_application_consent_settings_app_id") @db.VarChar(255) @map("application_id")
+  userScopes             Json     @default("[]") @db.JsonB @map("user_scopes")
+  organizationScopes     Json     @default("[]") @db.JsonB @map("organization_scopes")
+  allowedOrganizationIds Json     @default("[]") @db.JsonB @map("allowed_organization_ids")
+  requireExplicitConsent Boolean  @default(true) @map("require_explicit_consent")
+  customData             Json     @default("{}") @db.JsonB @map("custom_data")
+  createdAt              DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt              DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("application_consent_settings")
+  @@deny('all', true)
+}
+
+// ─── Account Provisioning / Claiming ─────────────────────────────────────
+// Tenant-owned external identities stay separate from GoTrue auth.users UUIDs.
+model AccountProvisioningRecord {
+  id                       String    @id @default(uuid()) @db.Uuid @map("id")
+  externalId               String    @db.VarChar(100) @map("external_id")
+  externalType             String    @default("generic") @db.VarChar(100) @map("external_type")
+  displayName              String    @db.VarChar(255) @map("display_name")
+  normalizedDisplayName    String    @db.VarChar(255) @map("normalized_display_name")
+  email                    String    @unique(map: "uq_account_provisioning_email") @db.VarChar(320) @map("email")
+  userId                   String?   @db.Uuid @map("user_id")
+  initialPasswordEncrypted String?   @db.Text @map("initial_password_encrypted")
+  initialPasswordClaimed   Boolean   @default(false) @map("initial_password_claimed")
+  claimedAt                DateTime? @db.Timestamptz() @map("claimed_at")
+  claimCount               Int       @default(0) @map("claim_count")
+  claimProofHash           String?   @db.Text @map("claim_proof_hash")
+  claimState               String    @default("ready") @db.VarChar(32) @map("claim_state")
+  claimMode                String?   @db.VarChar(32) @map("claim_mode")
+  claimPasswordHash        String?   @db.Text @map("claim_password_hash")
+  claimOperationId         String?   @db.Uuid @map("claim_operation_id")
+  claimLeaseExpiresAt      DateTime? @db.Timestamptz() @map("claim_lease_expires_at")
+  sourceStatus             String    @default("active") @db.VarChar(50) @map("source_status")
+  profile                  Json      @default("{}") @db.JsonB @map("profile")
+  importBatch              String?   @db.VarChar(255) @map("import_batch")
+  metadata                 Json      @default("{}") @db.JsonB @map("metadata")
+  createdAt                DateTime  @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt                DateTime  @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("account_provisioning_records")
+  @@unique([externalType, externalId], map: "uq_account_provisioning_external")
+  @@index([normalizedDisplayName], map: "idx_account_provisioning_normalized_name")
+  @@index([userId], map: "idx_account_provisioning_user_id")
+  @@deny('all', true)
+}
+
+model OrganizationInvitation {
+  id             String    @id @default(uuid()) @db.Uuid @map("id")
+  organizationId String    @db.Uuid @map("organization_id")
+  email          String    @db.VarChar(320) @map("email")
+  role           String    @default("member") @db.VarChar(100) @map("role")
+  status         String    @default("pending") @db.VarChar(50) @map("status")
+  tokenHash      String    @db.VarChar(255) @map("token_hash")
+  expiresAt      DateTime? @db.Timestamptz() @map("expires_at")
+  acceptedAt     DateTime? @db.Timestamptz() @map("accepted_at")
+  createdAt      DateTime  @default(now()) @db.Timestamptz() @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@schema("supaoauth")
+  @@map("organization_invitations")
+  @@index([organizationId], map: "idx_org_invitations_org_id")
+  @@index([email], map: "idx_org_invitations_email")
+  @@deny('all', true)
+}
+
+model OrganizationJitSetting {
+  id              String   @id @default(uuid()) @db.Uuid @map("id")
+  organizationId  String   @db.Uuid @map("organization_id")
+  emailDomains    Json     @default("[]") @db.JsonB @map("email_domains")
+  ssoConnectorIds Json     @default("[]") @db.JsonB @map("sso_connector_ids")
+  defaultRoleIds  Json     @default("[]") @db.JsonB @map("default_role_ids")
+  enabled         Boolean  @default(false) @map("enabled")
+  createdAt       DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt       DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@schema("supaoauth")
+  @@map("organization_jit_settings")
+  @@index([organizationId], map: "idx_org_jit_settings_org_id")
+  @@deny('all', true)
+}
+
+model OrganizationApplication {
+  id             String   @id @default(uuid()) @db.Uuid @map("id")
+  organizationId String   @db.Uuid @map("organization_id")
+  applicationId  String   @db.VarChar(255) @map("application_id")
+  roleIds        Json     @default("[]") @db.JsonB @map("role_ids")
+  enabled        Boolean  @default(true) @map("enabled")
+  createdAt      DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt      DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@schema("supaoauth")
+  @@map("organization_applications")
+  @@index([organizationId], map: "idx_org_apps_org_id")
+  @@index([applicationId], map: "idx_org_apps_app_id")
+  @@deny('all', true)
+}
+
+// ─── Connector Factory / Tenant UX Configuration (P1-14/P1-16) ──────────
+model ConnectorFactory {
+  id           String   @id @default(uuid()) @db.Uuid @map("id")
+  factoryId    String   @unique(map: "uq_connector_factories_factory_id") @db.VarChar(255) @map("factory_id")
+  name         String   @db.VarChar(255) @map("name")
+  protocol     String   @db.VarChar(50) @map("protocol")
+  category     String   @db.VarChar(100) @map("category")
+  configSchema Json     @default("{}") @db.JsonB @map("config_schema")
+  enabled      Boolean  @default(true) @map("enabled")
+  createdAt    DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt    DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("connector_factories")
+  @@deny('all', true)
+}
+
+model TenantConfig {
+  id         String   @id @default(uuid()) @db.Uuid @map("id")
+  configType String   @db.VarChar(100) @map("config_type")
+  key        String   @db.VarChar(255) @map("key")
+  value      Json     @default("{}") @db.JsonB @map("value")
+  enabled    Boolean  @default(true) @map("enabled")
+  createdAt  DateTime @default(now()) @db.Timestamptz() @map("created_at")
+  updatedAt  DateTime @default(now()) @db.Timestamptz() @map("updated_at")
+
+  @@schema("supaoauth")
+  @@map("tenant_configs")
+  @@index([configType], map: "idx_tenant_configs_type")
+  @@unique([configType, key], map: "uq_tenant_configs_type_key")
+  @@deny('all', true)
+}

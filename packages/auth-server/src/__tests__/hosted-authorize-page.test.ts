@@ -570,6 +570,16 @@ describe('hostedPageRoutes', () => {
     expectHosted(body).toContain("authorizationExpired: 'This sign-in request has expired. Please return to the application and sign in again.'");
     expectHosted(body).toContain("authorizationExpired: '本次登录请求已过期，请返回应用重新发起登录。'");
     expectHosted(body).toContain("authorizationUnavailable: '暂时无法校验本次登录请求，请返回应用重新发起登录。'");
+    expectHosted(body).toContain("authorizationServiceUnavailable: '登录服务暂时不可用，请稍后重试；若持续无法登录，请联系系统管理员。'");
+    expectHosted(body).toContain("authorizationRetry: '重试'");
+    expectHosted(body).toContain('function isServiceFailure(value)');
+    expectHosted(body).toContain('function showServiceFailure(retry)');
+    expectHosted(body).toContain("retryButton.id = 'authorization-retry'");
+    expectHosted(body).toContain("support.id = 'authorization-support'");
+    expectHosted(body).toContain("approve.title = t('authorizationServiceUnavailable')");
+    expectHosted(body).toContain('updateAuthorizationControls();');
+    expectHosted(body).toContain('showServiceFailure(() => init());');
+    expectHosted(body).toContain("showServiceFailure(async () => { window.location.reload(); });");
     expectHosted(body).toContain("const authorization = await authorizationRequest('', accessToken);");
     expectHosted(body).toContain("if ('redirect_url' in authorization) {");
     expectHosted(body).toContain('showConsent(authorization, accessToken);');
