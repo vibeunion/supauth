@@ -8,14 +8,23 @@ const API_VERSION_ADMIN_IDENTITY = {
 } as const;
 
 let database: ReturnType<typeof createZenStackDatabase<typeof schema>> | null = null;
+type ApiVersionScope = ReturnType<ReturnType<typeof createZenStackDatabase<typeof schema>>['forIdentity']>;
 
 function getDatabase() {
   database ??= createZenStackDatabase(schema, getSql(), {});
   return database;
 }
 
+function getApiVersionScope() {
+  return getDatabase().forIdentity(API_VERSION_ADMIN_IDENTITY);
+}
+
 export function getApiVersionModels() {
-  return getDatabase().forIdentity(API_VERSION_ADMIN_IDENTITY).models;
+  return getApiVersionScope().models;
+}
+
+export function getApiVersionCommandStore(): ApiVersionScope['commandStore'] {
+  return getApiVersionScope().commandStore;
 }
 
 export async function closeZenStackDatabase(): Promise<void> {

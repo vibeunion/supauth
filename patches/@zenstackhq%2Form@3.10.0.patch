@@ -1,0 +1,62 @@
+diff --git a/dist/index.d.cts b/dist/index.d.cts
+index 3c75547..d9a83dc 100644
+--- a/dist/index.d.cts
++++ b/dist/index.d.cts
+@@ -617,7 +617,7 @@ type QueryOptions<Schema extends SchemaDef> = {
+  * typical schema) it inflates type checking dramatically. Projecting to the query-relevant subset
+  * before the fan-out keeps the per-model types cheap while preserving full options on `$options`.
+  */
+-type QueryRelevantOptions<Schema extends SchemaDef, Options> = Pick<Options, Extract<keyof Options, keyof QueryOptions<Schema>>>;
++type QueryRelevantOptions<Schema extends SchemaDef, Options> = Pick<Options, Extract<keyof Options, keyof QueryOptions<Schema>>> & QueryOptions<Schema>;
+ /**
+  * ZenStack client options.
+  */
+@@ -1061,7 +1061,7 @@ type GetIncludedOperations<Slicing extends SlicingOptions<any>, Model extends st
+ } ? '_none_' : Config[Uncapitalize<Model>] extends {
+   includedOperations: readonly (infer IO)[];
+ } ? IO : never : GetAllIncludedOperations<Slicing> : GetAllIncludedOperations<Slicing> : AllCrudOperations : AllCrudOperations;
+-type GetAllIncludedOperations<Slicing extends SlicingOptions<any>> = 'models' extends keyof Slicing ? Slicing extends {
++type GetAllIncludedOperations<Slicing> = 'models' extends keyof Slicing ? Slicing extends {
+   models: infer Config;
+ } ? '$all' extends keyof Config ? Config['$all'] extends {
+   includedOperations: readonly [];
+@@ -1073,7 +1073,7 @@ type GetExcludedOperations<Slicing extends SlicingOptions<any>, Model extends st
+ } ? Uncapitalize<Model> extends keyof Config ? Config[Uncapitalize<Model>] extends {
+   excludedOperations: readonly (infer EO)[];
+ } ? EO : GetAllExcludedOperations<Slicing> : GetAllExcludedOperations<Slicing> : never : never;
+-type GetAllExcludedOperations<Slicing extends SlicingOptions<any>> = 'models' extends keyof Slicing ? Slicing extends {
++type GetAllExcludedOperations<Slicing> = 'models' extends keyof Slicing ? Slicing extends {
+   models: infer M;
+ } ? '$all' extends keyof M ? M['$all'] extends {
+   excludedOperations: readonly (infer EO)[];
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index db1e4fe..b6a3ee0 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -617,7 +617,7 @@ type QueryOptions<Schema extends SchemaDef> = {
+  * typical schema) it inflates type checking dramatically. Projecting to the query-relevant subset
+  * before the fan-out keeps the per-model types cheap while preserving full options on `$options`.
+  */
+-type QueryRelevantOptions<Schema extends SchemaDef, Options> = Pick<Options, Extract<keyof Options, keyof QueryOptions<Schema>>>;
++type QueryRelevantOptions<Schema extends SchemaDef, Options> = Pick<Options, Extract<keyof Options, keyof QueryOptions<Schema>>> & QueryOptions<Schema>;
+ /**
+  * ZenStack client options.
+  */
+@@ -1061,7 +1061,7 @@ type GetIncludedOperations<Slicing extends SlicingOptions<any>, Model extends st
+ } ? '_none_' : Config[Uncapitalize<Model>] extends {
+   includedOperations: readonly (infer IO)[];
+ } ? IO : never : GetAllIncludedOperations<Slicing> : GetAllIncludedOperations<Slicing> : AllCrudOperations : AllCrudOperations;
+-type GetAllIncludedOperations<Slicing extends SlicingOptions<any>> = 'models' extends keyof Slicing ? Slicing extends {
++type GetAllIncludedOperations<Slicing> = 'models' extends keyof Slicing ? Slicing extends {
+   models: infer Config;
+ } ? '$all' extends keyof Config ? Config['$all'] extends {
+   includedOperations: readonly [];
+@@ -1073,7 +1073,7 @@ type GetExcludedOperations<Slicing extends SlicingOptions<any>, Model extends st
+ } ? Uncapitalize<Model> extends keyof Config ? Config[Uncapitalize<Model>] extends {
+   excludedOperations: readonly (infer EO)[];
+ } ? EO : GetAllExcludedOperations<Slicing> : GetAllExcludedOperations<Slicing> : never : never;
+-type GetAllExcludedOperations<Slicing extends SlicingOptions<any>> = 'models' extends keyof Slicing ? Slicing extends {
++type GetAllExcludedOperations<Slicing> = 'models' extends keyof Slicing ? Slicing extends {
+   models: infer M;
+ } ? '$all' extends keyof M ? M['$all'] extends {
+   excludedOperations: readonly (infer EO)[];

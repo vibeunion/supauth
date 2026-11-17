@@ -17,14 +17,15 @@
     "test": "bun test --isolate src/__tests__"
   },
   "dependencies": {
-    "@supacloud/app": "0.39.3",
-    "@supacloud/db": "0.25.0",
-    "@supacloud/db-zenstack": "0.3.0",
-    "@supacloud/elysia": "0.42.4",
+    "@supacloud/app": "0.39.4",
+    "@supacloud/db": "0.25.1",
+    "@supacloud/db-zenstack": "0.3.1",
+    "@supacloud/elysia": "0.42.5",
     "@supauth/shared": "workspace:*",
+    "@zenstackhq/schema": "3.10.0",
     "drizzle-orm": "0.45.4",
     "effect": "4.0.5",
-    "elysia": "2.0.0-rc.3",
+    "elysia": "2.0.0-rc.4",
     "fflate": "^0.8.3",
     "file-type": "^22.3.0",
     "jose": "^6.2.15",
@@ -32,7 +33,7 @@
     "typebox": "1.4.3"
   },
   "devDependencies": {
-    "@supacloud/model-tooling": "0.0.1",
+    "@supacloud/model-tooling": "0.1.1",
     "@types/bun": "^1.4.4",
     "drizzle-kit": "^0.31.11",
     "typescript": "^6.0.3"

@@ -263,6 +263,15 @@ describe('explicit reauthentication after legacy sessions', () => {
     expect(requireRedirectLocation(response).pathname).toBe('/auth/v1/oauth/authorize');
   });
 
+  it('preserves a GoTrue OAuth error callback to the requested redirect URI', async () => {
+    const upstreamLocation = 'https://fa.example.test/auth/callback?error=invalid_request&error_description=bad+request&state=fresh-state';
+    const app = operationTestPlugin(createSsoAuthorizeRoutes('/oauth/sso', publicConfig, async () =>
+      new Response(null, { status: 302, headers: { location: upstreamLocation } })));
+    const response = await app.handle(interactiveRequest());
+    expect(response.status).toBe(302);
+    expect(requireRedirectLocation(response).toString()).toBe(new URL(upstreamLocation).toString());
+  });
+
   it('rejects incompatible prompts and unconfigured outbound origins before fetching', async () => {
     for (const [config, prompt, status] of [
       [publicConfig, 'login none', 400],
@@ -282,6 +291,9 @@ describe('explicit reauthentication after legacy sessions', () => {
 
   for (const location of [
     'https://other.example.test/oauth/authorize?authorization_id=one',
+    'https://evil.example.test/auth/callback?error=access_denied&state=fresh-state',
+    'https://fa.example.test/other?error=access_denied&state=fresh-state',
+    'https://fa.example.test/auth/callback?error=access_denied&state=wrong-state',
     'https://user:password@auth.example.test/oauth/authorize?authorization_id=one',
     '/auth/callback?code=private', '/oauth/authorize', '/oauth/authorize?authorization_id=',
     '/oauth/authorize?authorization_id=one&authorization_id=two',

@@ -1,4 +1,3 @@
-import { STATUS_CODES } from 'node:http';
 import { decodeSchema, type TSchema } from '../../../shared/src/schema.js';
 import { mapObservedError } from '../middleware/index.js';
 import { ApiContractError } from '../utils/api-contract.js';
@@ -63,6 +62,19 @@ export interface HttpOperation<Path extends string = string, Result = unknown> {
   readonly execute: HttpOperationExecutor<Path, Result>;
   invoke(input: HttpInvocation, executor?: HttpOperationExecutor<Path, Result>): Promise<Response>;
 }
+
+// Keep the Function bundle independent from Node's `http` loader. These are
+// the status phrases accepted by the hosted operation contracts.
+const STATUS_CODES: Readonly<Record<number, string>> = {
+  200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content',
+  301: 'Moved Permanently', 302: 'Found', 303: 'See Other', 307: 'Temporary Redirect', 308: 'Permanent Redirect',
+  400: 'Bad Request', 401: 'Unauthorized', 402: 'Payment Required', 403: 'Forbidden', 404: 'Not Found',
+  405: 'Method Not Allowed', 406: 'Not Acceptable', 408: 'Request Timeout', 409: 'Conflict',
+  410: 'Gone', 412: 'Precondition Failed', 413: 'Payload Too Large', 415: 'Unsupported Media Type',
+  422: 'Unprocessable Entity', 423: 'Locked', 429: 'Too Many Requests',
+  500: 'Internal Server Error', 501: 'Not Implemented', 502: 'Bad Gateway', 503: 'Service Unavailable',
+  504: 'Gateway Timeout',
+};
 
 function invalidInput(): ApiContractError {
   return new ApiContractError(400, 'invalid_request_body', 'Request does not match the declared contract');

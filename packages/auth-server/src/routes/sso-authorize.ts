@@ -78,6 +78,56 @@ function normalizePublicBaseUrl(value?: string) {
   return url.toString().replace(/\/$/, '');
 }
 
+const OAUTH_ERROR_REDIRECT_PARAMS = new Set([
+  'error',
+  'error_description',
+  'error_uri',
+  'state',
+]);
+
+function isOAuthErrorRedirect(location: URL, redirectUri: string, state: string) {
+  let requested: URL;
+  try {
+    requested = new URL(redirectUri);
+  } catch {
+    return false;
+  }
+  if (location.origin !== requested.origin
+    || location.pathname !== requested.pathname
+    || location.username !== requested.username
+    || location.password !== requested.password
+    || location.hash !== requested.hash) {
+    return false;
+  }
+
+  const remaining = new Map<string, string[]>();
+  for (const [key, value] of requested.searchParams) {
+    const values = remaining.get(key) || [];
+    values.push(value);
+    remaining.set(key, values);
+  }
+  const extraParams = new Set<string>();
+  for (const [key, value] of location.searchParams) {
+    const values = remaining.get(key);
+    const matchingIndex = values?.indexOf(value) ?? -1;
+    if (matchingIndex >= 0) {
+      values?.splice(matchingIndex, 1);
+      continue;
+    }
+    if (!OAUTH_ERROR_REDIRECT_PARAMS.has(key) || extraParams.has(key)) return false;
+    extraParams.add(key);
+  }
+  if ([...remaining.values()].some(values => values.length > 0)) return false;
+
+  const errors = location.searchParams.getAll('error');
+  if (errors.length !== 1 || !errors[0]?.trim()) return false;
+  const expectedState = state || requested.searchParams.get('state') || '';
+  const states = location.searchParams.getAll('state');
+  return expectedState
+    ? states.length === 1 && states[0] === expectedState
+    : states.length === 0;
+}
+
 export function createSsoAuthorizeRoutes(
   prefix: string,
   config: Pick<ServerConfig, 'publicBaseUrl' | 'trustProxyHeaders'> = getConfig(),
@@ -141,6 +191,11 @@ export function createSsoAuthorizeRoutes(
           }
           if (response.status !== 302 || !location) throw new Error('Missing hosted authorization redirect');
           const hosted = new URL(location, goTrueUrl);
+          if (isOAuthErrorRedirect(hosted, redirectUri, stringParam(input.query, 'state'))) {
+            set.status = 302;
+            set.headers['location'] = hosted.toString();
+            return accountOutput('authorize', { redirect: hosted.toString() });
+          }
           const authorizationIds = hosted.searchParams.getAll('authorization_id');
           if (hosted.origin !== goTrueUrl.origin || hosted.pathname !== '/oauth/authorize'
             || hosted.username || hosted.password || hosted.hash

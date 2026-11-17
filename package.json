@@ -50,8 +50,8 @@
   "devDependencies": {
     "@apidevtools/swagger-parser": "13.1.0",
     "@supabase/supabase-js": "2.118.0",
-    "@supacloud/compiler": "0.62.6",
-    "@supacloud/js": "0.48.3",
+    "@supacloud/compiler": "0.62.7",
+    "@supacloud/js": "0.48.4",
     "@types/bun": "^1.4.4",
     "@types/node": "26.6.6",
     "es-module-lexer": "3.0.4",
@@ -65,7 +65,8 @@
   },
   "patchedDependencies": {
     "@supabase/auth-js@2.118.0": "patches/@supabase%2Fauth-js@2.118.0.patch",
-    "elysia@2.0.0-rc.3": "patches/elysia@2.0.0-rc.3.patch",
+    "elysia@2.0.0-rc.4": "patches/elysia@2.0.0-rc.4.patch",
+    "@zenstackhq/orm@3.10.0": "patches/@zenstackhq%2Form@3.10.0.patch",
     "drizzle-orm@0.45.4": "patches/drizzle-orm@0.45.4.patch",
     "@tanstack/svelte-query@6.3.7": "patches/@tanstack%2Fsvelte-query@6.3.7.patch",
     "bits-ui@2.21.0": "patches/bits-ui@2.21.0.patch"

@@ -1,13 +1,16 @@
+diff --git a/dist/base.d.ts b/dist/base.d.ts
+index f9af5f3..8f2e183 100644
 --- a/dist/base.d.ts
 +++ b/dist/base.d.ts
-@@ -12,5 +12,6 @@
+@@ -12,6 +12,7 @@ import { RouteTable } from "./route-table.js";
  import { Generation } from "./generation.js";
  import Memoirist from "memoirist";
  import { TRef, TSchema } from "typebox";
 +import type { MacroContextField } from "./types.js";
+
  //#region src/base.d.ts
  type AnyElysia = Elysia<any, any, any, any, any, any, any, any>;
-@@ -472,20 +473,20 @@
+@@ -471,20 +472,20 @@ declare class Elysia<const in out BasePath extends string = '', const in out Sco
    } & MacroOptionContext<Metadata['macroFn'], Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, {
      derive: {};
    }>>): Elysia<BasePath, Scope, Singleton, Definitions, Metadata, Routes, Ephemeral, {
@@ -34,7 +37,7 @@
    }>;
    guard<const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends MergeSchema<UnwrapRoute<Input, Definitions['typebox'], BasePath>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>> & Metadata['schemas'] & Ephemeral['schemas'] & Volatile['schemas'], const MacroContext extends ({} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Input, Definitions['typebox']>), const BeforeHandle extends MaybeArray<OptionalHandler<Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, MacroContext>>>, const AfterHandle extends MaybeArray<AfterHandler<Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, MacroContext>>>, const ErrorHandle extends MaybeArray<ErrorHandler<Definitions['error'], Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, MacroContext>>>, const NewElysia extends AnyElysia>(hook: GuardLocalHook<Input, Schema & MacroContext, GuardHookSingleton<Singleton, Ephemeral, Volatile, MacroContext>, keyof Metadata['parser'], BeforeHandle, AfterHandle, ErrorHandle, 'merge'> & {
      schema: 'merge';
-@@ -494,28 +495,28 @@
+@@ -493,28 +494,28 @@ declare class Elysia<const in out BasePath extends string = '', const in out Sco
    }>>, run: (group: Elysia<BasePath, Scope, {
      decorator: Singleton['decorator'];
      store: Singleton['store'];
@@ -69,7 +72,7 @@
    }, {}, {
      derive: Ephemeral['derive'];
      schema: {};
-@@ -534,40 +535,40 @@
+@@ -533,40 +534,40 @@ declare class Elysia<const in out BasePath extends string = '', const in out Sco
    } & MacroOptionContext<Metadata['macroFn'], Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, {
      derive: {};
    }>>): Elysia<BasePath, Scope, Singleton, Definitions, Metadata, Routes, Ephemeral, {
@@ -122,7 +125,7 @@
    }, Volatile>;
    guard<const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends MergeSchema<UnwrapRoute<Input, Definitions['typebox'], BasePath>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>> & Metadata['schemas'] & Ephemeral['schemas'] & Volatile['schemas'], const MacroContext extends ({} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Input, Definitions['typebox']>), const BeforeHandle extends MaybeArray<OptionalHandler<Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, MacroContext>>>, const AfterHandle extends MaybeArray<AfterHandler<Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, MacroContext>>>, const ErrorHandle extends MaybeArray<ErrorHandler<Definitions['error'], Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, MacroContext>>>>(scope: 'global', hook: GuardLocalHook<Input, Schema & MacroContext, GuardHookSingleton<Singleton, Ephemeral, Volatile, MacroContext>, keyof Metadata['parser'], BeforeHandle, AfterHandle, ErrorHandle, 'merge'> & {
      schema: 'merge';
-@@ -576,28 +577,28 @@
+@@ -575,28 +576,28 @@ declare class Elysia<const in out BasePath extends string = '', const in out Sco
    }>>): Elysia<BasePath, Scope, {
      decorator: Singleton['decorator'];
      store: Singleton['store'];
@@ -157,7 +160,7 @@
    }, Routes, Ephemeral, Volatile>;
    group<const Prefix extends string, const NewElysia extends AnyElysia>(prefix: Prefix, run: (group: Elysia<Prefix extends '' ? BasePath : JoinPath<BasePath, Prefix>, Scope, Singleton, Definitions, {
      schema: MergeSchema<UnwrapRoute<{}, Definitions['typebox']>, Metadata['schema']>;
-@@ -614,28 +615,28 @@
+@@ -613,28 +614,28 @@ declare class Elysia<const in out BasePath extends string = '', const in out Sco
    }>>, run: (group: Elysia<JoinPath<BasePath, Prefix>, Scope, {
      decorator: Singleton['decorator'];
      store: Singleton['store'];
@@ -192,7 +195,7 @@
    }, {}, {
      derive: Ephemeral['derive'];
      schema: {};
-@@ -821,7 +822,7 @@
+@@ -820,7 +821,7 @@ declare class Elysia<const in out BasePath extends string = '', const in out Sco
      error: Definitions['error'];
    }, Metadata, Routes, Ephemeral, Volatile>;
    model<const NewType extends Record<string, AnySchema>>(mapper: (decorators: Definitions['typebox'] extends infer Models ? { [Name in keyof Models]: Models[Name] extends TSchema ? TRef<Name & string> : Models[Name] } : {}) => NewType): Elysia<BasePath, Scope, Singleton, {
@@ -201,7 +204,7 @@
      error: Definitions['error'];
    }, Metadata, Routes, Ephemeral, Volatile>;
    /**
-@@ -1020,17 +1021,17 @@
+@@ -1019,17 +1020,17 @@ declare class Elysia<const in out BasePath extends string = '', const in out Sco
     * Requires `.use(websocket())` from `elysia/websocket`.
     */
    ws<const Path extends string, const Input extends Metadata['macro'] & InputSchema<keyof Definitions['typebox'] & string>, const Schema extends IntersectIfObjectSchema<MergeSchema<UnwrapRoute<Input, Definitions['typebox'], JoinPath<BasePath, Path>>, MergeSchema<Volatile['schema'], MergeSchema<Ephemeral['schema'], Metadata['schema']>>, '', undefined extends Input['params'] ? true : false>, MergeScopedSchemas<Metadata['schemas'], Ephemeral['schemas'], Volatile['schemas']>>, const MacroContext extends ({} extends Metadata['macroFn'] ? {} : MacroToContext<Metadata['macroFn'], Input, Definitions['typebox']>), const Handler extends WSMessageHandler<Schema & MacroContext, Singleton & {
@@ -223,9 +226,11 @@
    }> & MacroOptionContext<Metadata['macroFn'], Schema, GuardHookSingleton<Singleton, Ephemeral, Volatile, {
      derive: {};
    }>>, handler: Handler): AddWSRoute<BasePath, Scope, Singleton, Definitions, Metadata, Routes, Ephemeral, Volatile, Path, Schema, MacroContext, WSHandlerResponse<Handler>, Input['error'], Input['beforeHandle']>;
+diff --git a/dist/error.d.ts b/dist/error.d.ts
+index f41f075..7440b22 100644
 --- a/dist/error.d.ts
 +++ b/dist/error.d.ts
-@@ -16,7 +16,7 @@
+@@ -16,7 +16,7 @@ declare class ElysiaError<Status extends number = number, Response extends strin
     * resolves to `<typeBase>/<code>` once {@link HTTPError.typeBase} is set.
     * Defined on the prototype below
     */
@@ -234,7 +239,7 @@
    constructor(message: string, cause?: Error);
    toResponse(headers?: Record<string, any>): globalThis.Response;
  }
-@@ -232,10 +232,10 @@
+@@ -232,10 +232,10 @@ declare function problem<const Code extends number | keyof StatusMap, const P ex
   */
  declare function problem<const P extends Problem>(detail: P): ElysiaStatus<ProblemStatus<P>, ProblemResponseBody<ProblemStatus<P>, P>>;
  type CheckExcessProps<T, U> = 0 extends 1 & T ? T : U extends U ? Exclude<keyof T, keyof U> extends never ? T : { [K in keyof U]: U[K] } & { [K in Exclude<keyof T, keyof U>]: never } : never;
@@ -248,9 +253,11 @@
  /**
   * Class returned by {@link HTTPError.id}
   */
+diff --git a/dist/types.d.ts b/dist/types.d.ts
+index 2f92424..6ccfc94 100644
 --- a/dist/types.d.ts
 +++ b/dist/types.d.ts
-@@ -171,7 +171,7 @@
+@@ -171,7 +171,7 @@ type Replace<Original, Target, With> = IsAny<Target> extends true ? Original : O
  type EventScope = 'global' | 'local' | 'plugin';
  type GuardSchemaType = 'override' | 'merge';
  type ElysiaFormData<T extends Record<keyof any, unknown>> = FormData & {
@@ -259,7 +266,7 @@
  };
  type ContentType = MaybeArray<'none' | 'text' | 'json' | 'formdata' | 'urlencoded' | 'arrayBuffer' | 'text/plain' | 'application/json' | 'multipart/form-data' | 'application/x-www-form-urlencoded' | 'application/octet-stream'>;
  type HTTPMethod = (string & {}) | 'ACL' | 'BIND' | 'CHECKOUT' | 'CONNECT' | 'COPY' | 'DELETE' | 'GET' | 'HEAD' | 'LINK' | 'LOCK' | 'M-SEARCH' | 'MERGE' | 'MKACTIVITY' | 'MKCALENDAR' | 'MKCOL' | 'MOVE' | 'NOTIFY' | 'OPTIONS' | 'PATCH' | 'POST' | 'PROPFIND' | 'PROPPATCH' | 'PURGE' | 'PUT' | 'QUERY' | 'REBIND' | 'REPORT' | 'SEARCH' | 'SOURCE' | 'SUBSCRIBE' | 'TRACE' | 'UNBIND' | 'UNLINK' | 'UNLOCK' | 'UNSUBSCRIBE' | 'ALL';
-@@ -214,7 +214,7 @@
+@@ -214,7 +214,7 @@ interface EmptyInputSchema {
    cookie: unknown;
    response: unknown;
  }
@@ -268,7 +275,7 @@
    detail?: DocumentDecoration;
    /**
     * Short for 'Content-Type'
-@@ -228,43 +228,43 @@
+@@ -228,43 +228,43 @@ type LocalHook<Input extends BaseMacro, Schema extends RouteSchemaWithResolvedMa
     * - 'arrayBuffer' / 'application/octet-stream': parse body as ArrayBuffer
     */
    parse?: MaybeArray<BodyHandler<BeforeValidation<Schema>, Singleton & {
@@ -319,7 +326,7 @@
    }>>;
    tags?: DocumentDecoration['tags'];
  } & (Input extends any ? Input : Prettify<Input>);
-@@ -475,17 +475,13 @@
+@@ -475,17 +475,13 @@ interface BunHTMLBundlelike {
    }[];
  }
  type InlineResponse = string | number | boolean | Record<any, unknown> | Response | AnyElysiaStatus | ElysiaFile | Blob | BunHTMLBundlelike | Error;
@@ -340,7 +347,7 @@
  }>;
  type InlineHandlerNonMacro<Route extends RouteSchema = {}, Singleton extends SingletonBase = DefaultSingleton> = (Route['response'] extends infer ResponseSchema ? {} extends ResponseSchema ? MaybePromise<InlineResponse> : unknown extends ResponseSchema[keyof ResponseSchema] ? MaybePromise<{} | null | undefined> : MaybePromise<ResponseSchema[keyof ResponseSchema] | InlineHandlerResponse<ResponseSchema>> : never) | ((context: Context<Route, Singleton>) => MaybePromise<Response> | MaybePromise<{} extends Route['response'] ? unknown : (Route['response'] extends {
    200: any;
-@@ -792,10 +788,11 @@
+@@ -794,10 +790,11 @@ interface MergeScopedSchemas<Global extends RouteSchema, Scoped extends RouteSch
    response: { [K in keyof Global['response'] | keyof Scoped['response'] | keyof Local['response']]: K extends keyof Local['response'] ? Local['response'][K] : K extends keyof Scoped['response'] ? Scoped['response'][K] : K extends keyof Global['response'] ? Global['response'][K] : never };
  }
  type ReturnTypeIfPossible<T, Enabled = true> = T extends ((...a: any) => infer R) ? R : [Enabled] extends [false] ? {} : T;
@@ -356,7 +363,7 @@
  type AnyElysiaStatus = ElysiaStatus<any, any, any>;
  type Derived<T> = T extends AnyElysiaStatus ? never : T extends Error ? 'stack' extends keyof T ? never : T : T;
  type ExcludeElysiaResponse<T> = Derived<Awaited<T>> extends infer A ? IsNever<A & {}> extends true ? {} : undefined extends A ? Partial<A & {}> : A & {} : {};
-@@ -813,7 +810,7 @@
+@@ -815,7 +812,7 @@ type ExtractOnlyResponseFromMacro<A> = IsNever<A> extends true ? {} : Extract<A,
      '~derive': MergeResponseStatus<S> & ReturnedErrorCarrier<A>;
    };
  } : {};
@@ -365,7 +372,7 @@
  type ExtractAllResponseFromMacro<A, Phase extends MacroPhase> = IsNever<A> extends true ? {} : {
    return: { [_ in Phase]: MergeResponseStatus<A> & (Exclude<NonErrorOf<A>, AnyElysiaStatus> extends infer A ? IsAny<A> extends true ? {} : IsNever<A> extends true ? {} : NonNullable<void> extends A ? {} : undefined extends A ? {} : {
      200: A;
-@@ -901,15 +898,16 @@
+@@ -903,15 +900,16 @@ type MacroLambdaContext<Value, HookValue> = NonNullable<Value> extends {
  } extends {
    output: infer Output;
  } ? Output : {} : {};
@@ -384,7 +391,7 @@
  }> : {}>;
  /**
   * Whether a selected macro may not apply on a request: an object macro set
-@@ -923,16 +921,16 @@
+@@ -925,16 +923,16 @@ type MacroMaybeOff<Fn, Option, Value, Parent extends boolean> = [Parent] extends
   * handler gets the input unvalidated: only the client side (`~input`) and
   * the response keep it
   */
@@ -404,7 +411,7 @@
  type UnwrapMacroSchema<T extends Partial<InputSchema<any>>, Definitions extends DefinitionBase['typebox'] = {}> = UnwrapRoute<{
    body: 'body' extends keyof T ? T['body'] : undefined;
    headers: 'headers' extends keyof T ? T['headers'] : undefined;
-@@ -974,9 +972,9 @@
+@@ -976,9 +974,9 @@ type MacroRefChannel<Refs> = { [K in keyof Refs]: MaybeValueOrVoidFunction<{ [M
   * {@link MacroToContext} is a mapped type whose `derive` key cannot be indexed
   * with a plain `['derive']` on the generic form.
   */
@@ -416,7 +423,7 @@
  /**
   * Parameter type of the object-form `.macro({ name: definition })`
   *
-@@ -1190,7 +1188,7 @@
+@@ -1192,7 +1190,7 @@ type ValueToResponseSchema<Value, Errors extends ErrorDefinition[] = [], IsHandl
  } : {});
  type ValueOrFunctionToResponseSchema<T, Errors extends ErrorDefinition[] = []> = T extends ((...a: any) => MaybePromise<infer R>) ? ValueToResponseSchema<R, Errors, true> : ValueToResponseSchema<T, Errors, true>;
  type ElysiaHandlerToResponseSchema<in out Handle extends Function> = Prettify<Handle extends ((...a: any) => MaybePromise<infer R>) ? ValueToResponseSchema<Exclude<R, undefined>> & ReturnedErrorCarrier<R> : {}>;
@@ -425,7 +432,7 @@
  type ElysiaHandlerToResponseSchemaAmbiguous<Schemas extends MaybeArray<Function>> = MaybeArray<(...a: any) => any> extends Schemas ? {} : Schemas extends Function ? ElysiaHandlerToResponseSchema<Schemas> : Schemas extends Function[] ? ElysiaHandlerToResponseSchemas<Schemas> : {};
  /**
   * Raw `Error`s a `beforeHandle` or `afterHandle` returns. Like the handler's,
-@@ -1214,7 +1212,7 @@
+@@ -1216,7 +1214,7 @@ type DeriveResponse<Derivative> = 0 extends 1 & Derivative ? ExtractErrorFromHan
  type MergeMetadata<A extends MetadataBase, B extends MetadataBase> = {} extends A['response'] ? A & B : {} extends B['response'] ? A & B : Omit<A & B, 'response'> & {
    response: UnionResponseStatus<A['response'], B['response']>;
  };
@@ -434,7 +441,7 @@
  type UnionResponseStatus<A, B> = {} extends A ? B : {} extends B ? A : { [key in keyof A | keyof B]: key extends keyof A ? key extends keyof B ? A[key] | B[key] : A[key] : key extends keyof B ? B[key] : never };
  type ParentResponse<M extends MetadataBase, E extends EphemeralType, V extends EphemeralType> = UnionResponseStatus<M['response'], UnionResponseStatus<E['response'], V['response']>>;
  type HasInputValidator<Schema extends RouteSchema, Path extends string> = EmptyInputSchema extends Pick<Schema, Exclude<InputSchemaKey, 'params' | 'response'>> ? ValidatesMarker<Schema> extends true ? true : undefined extends Schema['params'] ? false : Schema['params'] extends ResolvePath<Path> ? ResolvePath<Path> extends Schema['params'] ? false : true : true : true;
-@@ -1468,7 +1466,7 @@
+@@ -1470,7 +1468,7 @@ type UsedRoutes<Routes, Errors extends ErrorDefinition[], Response> = string ext
   * never does
   */
  type RouteKey = 'params' | 'query' | 'headers' | 'response';
@@ -443,7 +450,7 @@
  /**
   * A used plugin's routes, served under the parent's prefix (or group): its
   * path params are on every one of them, as the router resolves them
-@@ -1516,7 +1514,7 @@
+@@ -1518,7 +1516,7 @@ type RouteHookReturn<Hook> = Hook extends ((...a: any) => MaybePromise<infer R>)
  type RouteHookValue<Hook extends RouteHookCapture> = Exclude<RouteHookReturn<Hook['beforeHandle']>, void> | Exclude<RouteHookReturn<Hook['afterHandle']>, void>;
  type ErrorHookStatus<Handler> = MaybeArray<(...a: any) => any> extends Handler ? {} : RouteHookReturn<Handler> extends infer R ? [ErrorOf<R>] extends [never] ? ExtractErrorFromHandle<R> : UnionResponseStatus<ExtractErrorFromHandle<R>, UnhandledErrorResponse<ErrorOf<R>>> : {};
  type RouteHandle<Handle, Hook extends RouteHookCapture> = (...a: any) => (Handle extends ((...a: any) => MaybePromise<infer R>) ? R : Handle) | RouteHookValue<Hook>;
@@ -452,7 +459,7 @@
  type ComposeRoute<Path extends string, Schema extends RouteSchema, MacroContext extends RouteSchema, ResponseSchema extends RouteSchema, Handle, Possibility extends PossibleResponse, Errors extends ErrorDefinition[]> = '~catchAll' extends keyof Possibility ? ComposeRoute<Path, Schema, MacroContext, ResponseSchema, Handle, Omit<Possibility, '~catchAll'>, [...Errors, ...MacroCatchAll<Possibility>]> : [Possibility] extends [{
    '~error': infer HookError;
  }] ? WithHandledErrors<CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<ResponseSchema, Handle, Omit<Possibility, '~error'>, Errors, Path, HookError>, UnhandledReturnedErrorOf<Handle, Errors> | UnhandledReturnedError<HookError, Errors>>, Handle, Errors, HookError> : WithHandledErrors<CreateEdenResponse<Path, Schema, MacroContext, ComposeElysiaResponse<ResponseSchema, Handle, Possibility, Errors, Path>, UnhandledReturnedErrorOf<Handle, Errors>>, Handle, Errors>;
-@@ -1627,14 +1625,14 @@
+@@ -1629,14 +1627,14 @@ type ScopedMapDeriveReturn<HookScope extends EventScope, BasePath extends string
    error: Volatile['error'];
  }>;
  type AddWSRoute<BasePath extends string, Scope extends EventScope, Singleton extends SingletonBase, Definitions extends DefinitionBase, Metadata extends MetadataBase, Routes extends RouteBase, Ephemeral extends EphemeralType, Volatile extends EphemeralType, Path extends string, Schema extends RouteSchema, MacroContext extends RouteSchema, Response, RouteError = unknown, RouteBeforeHandle = unknown> = Elysia<BasePath, Scope, Singleton, Definitions, Metadata, Routes & CreateRouteEden<BasePath, Path, {
@@ -467,11 +474,14 @@
 -  derive: Ephemeral['derive'] & Volatile['derive'] & MacroContext['derive'];
 +  derive: Ephemeral['derive'] & Volatile['derive'] & MacroContextField<MacroContext, 'derive'>;
  };
- interface StaticMapAliases {
-   method: string;
+ //#endregion
+ export { AddRoute, AddWSRoute, AfterHandler, AfterResponseHandler, AnyErrorConstructor, AnyLocalHook, type AnySchema, AnyWSLocalHook, AppEvent, AppHook, BaseMacro, BodyHandler, BunHTMLBundlelike, CatchAllEntries, CatchAllHookReturn, CompiledHandler, ComposeElysiaResponse, ContentType, ContextAppendType, CreateEden, CreateEdenResponse, CreateWSEdenResponse, DefaultEphemeral, DefaultMetadata, DefaultSingleton, DefinitionBase, DeriveResponse, DocumentDecoration, ElysiaConfig, ElysiaFormData, ElysiaHandlerToResponseSchema, ElysiaHandlerToResponseSchemaAmbiguous, ElysiaHandlerToResponseSchemas, EmptyInputSchema, EphemeralType, Equal, ErrorDefinition, ErrorDefinitionEntry, ErrorHandler, ErrorHandlerResponseSchema, ErrorHookStatus, EventFn, EventScope, ExcludeElysiaResponse, ExtractErrorFromHandle, ExtractReturnedError, GetPathParameter, GlobalHookReturn, GracefulHandler, GuardHookSingleton, GuardLocalHook, GuardSchemaType, HTTPHeaders, HTTPMethod, HandledErrorKey, HandledReturnedErrorOf, Handler, HeadersKeyCheck, HistoryEntry, HookContextSchema, HookContextSingleton, InlineHandler, InlineHandlerNonMacro, InlineHandlerResponse, InlineResponse, InputSchema, InputSchemaKey, InstanceHookReturn, InternalRoute, IntersectIfObject, IntersectIfObjectSchema, IsAny, IsNever, IsTuple, JoinPath, LegacyScope, LocalHook, LocalHookReturn, Macro, MacroCatchAll, MacroOptionContext, MacroProperty, MacroPropertyKey, MacroToContext, MacroToProperty, MacroTypeLambda, MapResponse, MaybeArray, MaybePromise, MaybeValueOrVoidFunction, MergeElysiaInstances, MergeSchema, MergeScopedSchemas, MetadataBase, ObjectMacroDefs, OptionalHandler, ParentInput, ParentResponse, PluginHookReturn, PossibleResponse, PreHandler, PreValidationTransform, Prettify, PublicRoute, Replace, ResolveHandler, ResolvePath, ResolveUsedRouteErrors, RouteBase, RouteInput, RouteSchema, SSEPayload, ScopedHookReturn, ScopedMapDeriveReturn, SingletonBase, type StandardSchemaV1Like, TransformHandler, type TypeBoxSchema, UnhandledReturnedError, UnhandledReturnedErrorOf, UnionResponseStatus, UnionToIntersect, UnwrapArray, UnwrapBodySchema, UnwrapMacroSchema, UnwrapModels, UnwrapRoute, UnwrapSchema, UsedRoutesUnder, ValueOrFunctionToResponseSchema, ValueToResponseSchema, VoidHandler, WithErrorEntries, WithHandledErrors, WithoutMacroCatch, WrapFn };
+\ No newline at end of file
+diff --git a/dist/ws/types.d.ts b/dist/ws/types.d.ts
+index abc8e53..26af90c 100644
 --- a/dist/ws/types.d.ts
 +++ b/dist/ws/types.d.ts
-@@ -69,7 +69,7 @@
+@@ -69,7 +69,7 @@ type WSHandlerResult<Response> = {} extends Response ? unknown : WSResponsePaylo
  type WSHandlerResponse<Handler> = Handler extends ((...args: any[]) => infer R) ? Awaited<R> extends Generator<infer Yield, any, any> | AsyncGenerator<infer Yield, any, any> ? Yield : () => Exclude<Awaited<R>, void | undefined> : never;
  type WSParseHandler<Route extends RouteSchema, Context = {}> = (ws: Prettify<ElysiaWSLike<Context, Omit<Route, 'body'> & {
    body: unknown;
@@ -480,7 +490,7 @@
  type LifecycleFn<Ctx, Body, Response> = (this: void, ws: Ctx, body: Body) => MaybePromise<WSHandlerResult<Response>>;
  interface TypedWebSocketHandler<in out Ctx, in out Route extends RouteSchema = {}> {
    open?: LifecycleFn<Ctx, never, Route['response']>;
-@@ -83,6 +83,7 @@
+@@ -83,6 +83,7 @@ interface TypedWebSocketHandler<in out Ctx, in out Route extends RouteSchema = {
  }
  type UpgradeSchema<Schema extends RouteSchema> = Omit<Schema, 'body'> & {
    body: Schema['body'] | undefined;

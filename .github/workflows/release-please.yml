@@ -28,6 +28,10 @@ jobs:
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       paths_released: ${{ steps.release.outputs.paths_released }}
+      auth_server_release_created: ${{ steps.release.outputs['packages/auth-server--release_created'] }}
+      auth_server_tag_name: ${{ steps.release.outputs['packages/auth-server--tag_name'] }}
+      admin_console_release_created: ${{ steps.release.outputs['packages/admin-console--release_created'] }}
+      admin_console_tag_name: ${{ steps.release.outputs['packages/admin-console--tag_name'] }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: release
@@ -35,6 +39,28 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  dispatch-release-assets:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Dispatch auth-server release assets
+        if: ${{ needs.release-please.outputs.auth_server_release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.auth_server_tag_name }}
+        run: gh workflow run publish-release-assets.yml --ref main --field release_tag="$RELEASE_TAG"
+
+      - name: Dispatch admin-console release assets
+        if: ${{ needs.release-please.outputs.admin_console_release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.admin_console_tag_name }}
+        run: gh workflow run publish-release-assets.yml --ref main --field release_tag="$RELEASE_TAG"
 
   publish-released-npm:
     needs: release-please

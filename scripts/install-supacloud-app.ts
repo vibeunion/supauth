@@ -757,7 +757,14 @@ const adminRootRoutePaths = ['/admin'];
 // The hosted route is at SupaCloud's 20-path limit; keep this separate so legacy
 // Custom UI paths reach the Function's fixed, non-cacheable 404.
 const customUiFallbackRoutePaths = [SUPAUTH_CUSTOM_UI_FALLBACK_ROUTE];
-const apiRoutePaths = ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*', '/'];
+const apiRoutePaths = ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*'];
+
+const preservedRuntimeRoutes = [
+  { id: 'supauth-runtime-rest', path: ['/rest/v1*'] },
+  { id: 'supauth-runtime-storage', path: ['/storage/v1*'] },
+  { id: 'supauth-runtime-realtime', path: ['/realtime/v1/websocket*'] },
+  { id: 'supauth-runtime-functions', path: ['/functions/v1*'] },
+] as const;
 
 async function upsertGatewayRoute(input: {
   client: SupacloudClient;
@@ -782,6 +789,32 @@ async function upsertGatewayRoute(input: {
       enabled: true,
       cors: input.corsOrigins,
       ...(input.upstreamHostHeader ? { headers: { Host: input.upstreamHostHeader } } : {}),
+    }),
+  });
+}
+
+async function upsertPreservedRuntimeRoute(input: {
+  client: SupacloudClient;
+  projectRef: string;
+  id: string;
+  hosts: string[];
+  path: string[];
+  upstreamHost: string;
+}) {
+  await input.client.request(`/v1/projects/${input.projectRef}/gateway/routes`, {
+    method: 'POST',
+    body: JSON.stringify({
+      id: input.id,
+      hosts: input.hosts,
+      path: input.path,
+      upstream: '127.0.0.1:9090',
+      headers: {
+        Host: input.upstreamHost,
+        'X-Forwarded-Host': '{http.request.host}',
+        'X-Forwarded-Proto': '{http.request.scheme}',
+      },
+      priority: 105,
+      enabled: true,
     }),
   });
 }
@@ -857,6 +890,23 @@ async function configureGatewayRoutes(input: {
     path: adminRootRoutePaths,
     priority: 100,
   });
+
+  const runtimeApiHost = hostnameFromUrl(input.apiUrl);
+  const runtimeApiSuffix = runtimeApiHost.split('.').slice(1).join('.');
+  if (runtimeApiSuffix) {
+    const runtimeHosts = uniqueHostnames([input.baseUrl, input.apiUrl]);
+    const upstreamHost = `${input.projectRef}.api.${runtimeApiSuffix}`;
+    for (const route of preservedRuntimeRoutes) {
+      await upsertPreservedRuntimeRoute({
+        client: input.client,
+        projectRef: input.projectRef,
+        id: route.id,
+        hosts: runtimeHosts,
+        path: [...route.path],
+        upstreamHost,
+      });
+    }
+  }
 
   if (input.apiUrl) {
     await upsertGatewayRoute({
