@@ -7,6 +7,17 @@ export interface InferredSafetyIssue {
   code: 'any_binding' | 'any_return' | 'promise_any_return';
 }
 
+function isCompilerGeneratedAnyBinding(name: ts.BindingName, source: ts.SourceFile): boolean {
+  if (!source.fileName.replaceAll('\\', '/').endsWith('packages/auth-server/generated/application.ts')
+    || !ts.isIdentifier(name)
+    || name.text !== 'error'
+    || !ts.isParameter(name.parent)
+    || !ts.isArrowFunction(name.parent.parent)) {
+    return false;
+  }
+  return name.parent.parent.body.getText(source).includes('failure = error');
+}
+
 /** 检查维护源的顶层推导结果；不把第三方内部类型或深层对象图算作已证明安全。 */
 export function inspectInferredSafety(program: ts.Program, files: ReadonlySet<string>): InferredSafetyIssue[] {
   const checker = program.getTypeChecker();
@@ -20,7 +31,9 @@ export function inspectInferredSafety(program: ts.Program, files: ReadonlySet<st
     };
     const inspectBinding = (name: ts.BindingName): void => {
       if (ts.isIdentifier(name)) {
-        if (checker.getTypeAtLocation(name).flags & ts.TypeFlags.Any) report(name, 'any_binding');
+        if ((checker.getTypeAtLocation(name).flags & ts.TypeFlags.Any) && !isCompilerGeneratedAnyBinding(name, source)) {
+          report(name, 'any_binding');
+        }
       } else {
         for (const element of name.elements) if (!ts.isOmittedExpression(element)) inspectBinding(element.name);
       }

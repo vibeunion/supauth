@@ -8,7 +8,9 @@ const zenstackSchema = readFileSync(resolve(root, 'packages/auth-server/zenstack
 const generatedModels = readFileSync(resolve(root, 'packages/auth-server/zenstack/generated/models.ts'), 'utf8');
 
 function matches(source: string, pattern: RegExp): string[] {
-  return [...source.matchAll(pattern)].map(match => match[1]!).sort();
+  return [...source.matchAll(pattern)]
+    .map(match => match[1] ?? match[0])
+    .sort();
 }
 
 describe('ZenStack model contract', () => {
