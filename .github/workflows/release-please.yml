@@ -53,14 +53,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.auth_server_tag_name }}
-        run: gh workflow run publish-release-assets.yml --ref main --field release_tag="$RELEASE_TAG"
+        run: gh workflow run publish-release-assets.yml --repo "$GITHUB_REPOSITORY" --ref main --field release_tag="$RELEASE_TAG"
 
       - name: Dispatch admin-console release assets
-        if: ${{ needs.release-please.outputs.admin_console_release_created == 'true' }}
+        if: ${{ always() && needs.release-please.outputs.admin_console_release_created == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.admin_console_tag_name }}
-        run: gh workflow run publish-release-assets.yml --ref main --field release_tag="$RELEASE_TAG"
+        run: gh workflow run publish-release-assets.yml --repo "$GITHUB_REPOSITORY" --ref main --field release_tag="$RELEASE_TAG"
 
   publish-released-npm:
     needs: release-please
