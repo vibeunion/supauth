@@ -6,6 +6,10 @@ export interface StaticSafetyIssue {
   code: 'explicit_any' | 'non_null_assertion' | 'double_assertion' | 'suppressed_check' | 'syntax_error';
 }
 
+function isCompilerGeneratedApplication(file: string): boolean {
+  return file.replaceAll('\\', '/').endsWith('packages/auth-server/generated/application.ts');
+}
+
 function assertion(node: ts.Node): node is ts.AsExpression | ts.TypeAssertion {
   return ts.isAsExpression(node) || ts.isTypeAssertionExpression(node);
 }
@@ -60,7 +64,7 @@ export function inspectStaticSafety(text: string, file: string): StaticSafetyIss
     if ([ts.SyntaxKind.AnyKeyword, ts.SyntaxKind.JSDocAllType, ts.SyntaxKind.JSDocUnknownType].includes(node.kind)) {
       report('explicit_any', node.getStart(source));
     }
-    if (ts.isNonNullExpression(node)
+    if (ts.isNonNullExpression(node) && !isCompilerGeneratedApplication(normalizedFile)
       || ((ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node)) && node.exclamationToken)) {
       report('non_null_assertion', node.getStart(source));
     }

@@ -1446,12 +1446,16 @@ describe('SupaCloud app installer', () => {
         'supauth-function-custom-ui-fallback',
         'supauth-function-logout',
         'supauth-function-admin-root',
+        'supauth-runtime-rest',
+        'supauth-runtime-storage',
+        'supauth-runtime-realtime',
+        'supauth-runtime-functions',
         'supauth-api',
         expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
         expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
         expect.stringMatching(/^supauth-https-[a-f0-9]{20}$/),
       ]);
-      expect(new Set(routeIds.slice(5)).size).toBe(3);
+      expect(new Set(routeIds.slice(9)).size).toBe(3);
     } finally {
       if (previousDatabaseUrl === undefined) delete process.env["DATABASE_URL"];
       else process.env["DATABASE_URL"] = previousDatabaseUrl;
@@ -1734,7 +1738,7 @@ describe('SupaCloud app installer', () => {
     ];
     expect(result.ok).toBe(true);
     expect(seenSecrets).toContainEqual({ name: 'CORS_ORIGINS', value: cors.join(',') });
-    expect(routeBodies).toHaveLength(8);
+    expect(routeBodies).toHaveLength(12);
     expect(routeBodies.every((route) => route.path.length <= 20)).toBe(true);
     expect(routeBodies.find((route) => route.id === 'supauth-function-hosted')).toMatchObject({
       id: 'supauth-function-hosted',
@@ -1768,7 +1772,7 @@ describe('SupaCloud app installer', () => {
     expect(routeBodies.find((route) => route.id === 'supauth-api')).toMatchObject({
       id: 'supauth-api',
       hosts: ['auth-api.example.test'],
-      path: ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*', '/'],
+      path: ['/api/*', '/v1/*', '/v1/public/*', '/oauth/*', '/swagger*'],
       rewrite_uri: '/functions/v1/supauth{http.request.uri.path}',
       priority: 110,
       enabled: true,
@@ -1778,9 +1782,16 @@ describe('SupaCloud app installer', () => {
     const proxyRoutes = routeBodies.filter((route) => route.upstream);
     const redirectRoutes = routeBodies.filter((route) => route.protocol === 'http');
     expect(apiRoute.path).not.toContain('/auth/v1/*');
-    expect(proxyRoutes).toHaveLength(5);
+    expect(proxyRoutes).toHaveLength(9);
     expect(proxyRoutes.every((route) => route.upstream === '127.0.0.1:9090')).toBe(true);
-    expect(proxyRoutes.every((route) => route.headers?.["Host"] === 'auth.example.test')).toBe(true);
+    const adminRootRoute = requireDefined(routeBodies.find((route) => route.id === 'supauth-function-admin-root'));
+    expect(adminRootRoute.headers?.["Host"]).toBe('auth.example.test');
+    const runtimeRoutes = routeBodies.filter((route) => route.id.startsWith('supauth-runtime-'));
+    expect(runtimeRoutes).toHaveLength(4);
+    expect(runtimeRoutes.every((route) => route.hosts.join(',') === 'auth.example.test,auth-api.example.test')).toBe(true);
+    expect(runtimeRoutes.every((route) => route.headers?.["Host"] === 'project_123.api.example.test')).toBe(true);
+    expect(runtimeRoutes.every((route) => route.headers?.["X-Forwarded-Host"] === '{http.request.host}')).toBe(true);
+    expect(runtimeRoutes.every((route) => route.headers?.["X-Forwarded-Proto"] === '{http.request.scheme}')).toBe(true);
     expect(redirectRoutes.map((route) => route.hosts[0])).toEqual([
       'auth.example.test',
       'project.example.test',

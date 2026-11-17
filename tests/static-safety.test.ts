@@ -55,6 +55,13 @@ describe('static safety syntax gate', () => {
       .some(issue => issue.code === 'explicit_any')).toBe(true);
   });
 
+  it('allows the compiler-generated application route registration assertions', () => {
+    expect(inspectStaticSafety('register(this.controllers[0]!, this.controllers[0]!.routes[0]!);', 'packages/auth-server/generated/application.ts'))
+      .toEqual([]);
+    expect(inspectStaticSafety('register(this.controllers[0]!, this.controllers[0]!.routes[0]!);', 'packages/auth-server/src/app.ts')
+      .map(issue => issue.code)).toEqual(['non_null_assertion', 'non_null_assertion', 'non_null_assertion']);
+  });
+
   it('rejects disabled checks only in comments, not in test fixture strings', () => {
     expect(inspectStaticSafety('// @ts-ignore\nconst x = 1;', 'test.ts')[0]?.code).toBe('suppressed_check');
     expect(inspectStaticSafety('/* @ts-nocheck */', 'test.ts')[0]?.code).toBe('suppressed_check');
@@ -138,6 +145,7 @@ describe('maintained source coverage', () => {
     expect(uncoveredSourceFiles(owned, [project])).toEqual([]);
     expect(uncoveredSourceFiles(owned, [{ ...project, files: project.files.filter(file => !owned.includes(file)) }]))
       .toEqual(owned);
+    expect(maintained).not.toContain(join(root, 'packages/auth-server/zenstack/generated/input.ts'));
   });
 
   it('rejects a maintained source absent from all executed checking projects', () => {

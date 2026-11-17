@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.12.0](https://github.com/vibeunion/supauth/compare/admin-console-v0.11.0...admin-console-v0.12.0) (2026-11-17)
+
+
+### Features
+
+* **auth:** migrate to latest SupaCloud app and SVAdmin UI ([f2fd67d](https://github.com/vibeunion/supauth/commit/f2fd67d089238bfdb2cd190220b5fac84e741aa5))
+
+
+### Bug Fixes
+
+* **release:** complete SupaCloud deployment upgrade ([d420f3b](https://github.com/vibeunion/supauth/commit/d420f3b6e7a7ccf1ad55e84e306306f69d3aa2ee))
+
+
+### Miscellaneous Chores
+
+* upgrade SupaCloud and SVAdmin dependencies ([9fdc316](https://github.com/vibeunion/supauth/commit/9fdc3164c6acf435a5de2a7411003e52484939d5))
+
 ## [0.11.0](https://github.com/vibeunion/supauth/compare/admin-console-v0.10.0...admin-console-v0.11.0) (2026-10-26)
 
 

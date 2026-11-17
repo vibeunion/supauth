@@ -28,6 +28,7 @@ export const CHECKED_PROJECTS = [
 
 const OUTPUT_DIRECTORIES = new Set(['node_modules', 'dist', 'build', '.svelte-kit', '.git']);
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?|svelte)$/;
+const GENERATED_SOURCE_DIRECTORIES = new Set(['packages/auth-server/zenstack/generated']);
 
 export function maintainedSourceFiles(root: string): string[] {
   const files: string[] = [];
@@ -45,7 +46,11 @@ export function maintainedSourceFiles(root: string): string[] {
       const path = join(directory, entry.name);
       if (OUTPUT_DIRECTORIES.has(entry.name)) continue;
       if (entry.isSymbolicLink()) throw new Error(`Maintained source symlink requires an explicit checked owner: ${relative(root, path)}`);
-      if (entry.isDirectory()) walk(path);
+      if (entry.isDirectory()) {
+        const relativePath = relative(root, path).split(sep).join('/');
+        if (GENERATED_SOURCE_DIRECTORIES.has(relativePath)) continue;
+        walk(path);
+      }
       else if (entry.isFile() && SOURCE_EXTENSION.test(entry.name)) files.push(path);
     }
   };

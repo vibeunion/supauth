@@ -25,7 +25,7 @@ jobs:
       - name: Build public SupAuth claims
         run: bun --no-env-file run --filter '@supauth/shared' build
       - name: Typecheck the cross-project gate
-        run: bun --no-env-file x tsc --noEmit --strict --skipLibCheck --target esnext --module esnext --moduleResolution bundler --types bun scripts/check-supacloud-identity.ts tests/integration/supacloud-identity.test.ts
+        run: bun --no-env-file x tsc --noEmit --ignoreConfig --strict --skipLibCheck --target esnext --module esnext --moduleResolution bundler --types bun scripts/check-supacloud-identity.ts tests/integration/supacloud-identity.test.ts
       - name: Checkout the reviewed SupaCloud identity contract
         uses: actions/checkout@v6
         with:

@@ -11,12 +11,19 @@ function source(path: string) {
   return readFileSync(path, 'utf8');
 }
 
-function sourceTree(root: string, extensions = new Set(['.ts', '.js', '.svelte', '.md'])): string {
+function sourceTree(
+  root: string,
+  extensions = new Set(['.ts', '.js', '.svelte', '.md']),
+  ignoredDirectories = new Set<string>(),
+): string {
   if (!existsSync(root)) return '';
   if (/(^|\/)__tests__(\/|$)/.test(root) || /\.(test|spec)\.[^.]+$/.test(root)) return '';
   const stat = statSync(root);
   if (stat.isFile()) return extensions.has(root.slice(root.lastIndexOf('.'))) ? source(root) : '';
-  return readdirSync(root).map((entry) => sourceTree(join(root, entry), extensions)).join('\n');
+  return readdirSync(root)
+    .filter((entry) => !ignoredDirectories.has(entry))
+    .map((entry) => sourceTree(join(root, entry), extensions, ignoredDirectories))
+    .join('\n');
 }
 
 const FORBIDDEN_PRODUCT_SURFACE_FRAGMENTS = [
@@ -101,7 +108,8 @@ describe('GoTrue-only product contract', () => {
   });
 
   it('does not advertise removed capabilities in OpenAPI, console, SDK, or manifest', async () => {
-    const serverSource = sourceTree('packages/auth-server/src');
+    // 生成的 hosted-pages.ts 包含上游 auth-js bundle；其错误文案不属于 SupaOAuth 产品表面。
+    const serverSource = sourceTree('packages/auth-server/src', undefined, new Set(['generated']));
     const consoleSource = sourceTree('packages/admin-console/src');
     const sdkSource = [
       sourceTree('packages/sdks/typescript/src'),
