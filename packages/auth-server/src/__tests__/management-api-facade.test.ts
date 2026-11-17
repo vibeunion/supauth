@@ -606,8 +606,9 @@ describe('SupaCloud Management API facade routes', () => {
     globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const pathname = new URL(url).pathname;
-      calls.push({ url, method: init?.method || 'GET', body: typeof init?.body === 'string' ? init.body : undefined });
-      if (init?.method === 'POST' && pathname.endsWith('/rbac/roles')) {
+      const method = init?.method || 'GET';
+      calls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined });
+      if (method === 'POST' && pathname.endsWith('/rbac/roles')) {
         return Promise.resolve(Response.json({ id: 'role-one', name: 'Reader', permissions: [] }));
       }
       if (init?.method === 'POST' && pathname.endsWith('/permissions')) {
@@ -644,14 +645,15 @@ describe('SupaCloud Management API facade routes', () => {
     globalThis.fetch = strictFetch(mock((input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const pathname = new URL(url).pathname;
-      calls.push({ url, method: init?.method || 'GET', body: typeof init?.body === 'string' ? init.body : undefined });
-      if (init?.method === 'POST' && pathname.endsWith('/rbac/roles')) {
+      const method = init?.method || 'GET';
+      calls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined });
+      if (method === 'POST' && pathname.endsWith('/rbac/roles')) {
         return Promise.resolve(Response.json({ id: 'role-one', name: 'Reader', permissions: [] }));
       }
-      if (init?.method === 'POST' && pathname.endsWith('/permissions')) {
+      if (method === 'POST' && pathname.endsWith('/permissions')) {
         return Promise.resolve(Response.json({ id: 'permission-one', name: 'users.read' }));
       }
-      if (init?.method === 'GET') {
+      if (method === 'GET') {
         return Promise.resolve(Response.json({ id: 'role-one', name: 'Reader', permissions: [] }));
       }
       if (rollbackFails) {
@@ -872,9 +874,12 @@ describe('SupaCloud Management API facade routes', () => {
 
       expect(response.status).toBe(503);
       expect(payload.error.code).toBe('password_policy_unavailable');
-      expect(calls).toHaveLength(1);
-      expect(calls[0]?.method).toBe('GET');
-      expect(new URL(calls[0]?.url || '').pathname).toEndWith('/config/auth');
+      // 幂等 GET 的瞬时 503 会重试一次，随后仍必须 fail closed。
+      expect(calls).toHaveLength(failureMode === 'unavailable' ? 2 : 1);
+      expect(new Set(calls.map(call => call.method))).toEqual(new Set(['GET']));
+      for (const call of calls) {
+        expect(new URL(call.url).pathname).toEndWith('/config/auth');
+      }
     }
   });
 

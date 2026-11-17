@@ -1,5 +1,5 @@
 import { decodeSchema, type TSchema } from '../../../shared/src/schema.js';
-import { mapObservedError } from '../middleware/index.js';
+import { apiErrorHeaders, mapObservedError } from '../middleware/index.js';
 import { ApiContractError } from '../utils/api-contract.js';
 import {
   getServerContractMetadata,
@@ -232,7 +232,10 @@ export function defineHttpOperation<const Path extends string, Result>(
         const recovered = await options.onError?.(error);
         if (recovered !== undefined) return headResponse(input.request, recovered);
         const failure = mapObservedError(input.request, error);
-        return headResponse(input.request, Response.json(failure.body, { status: failure.status }));
+        return headResponse(input.request, Response.json(failure.body, {
+          status: failure.status,
+          headers: apiErrorHeaders(error, failure.status),
+        }));
       }
     },
   };

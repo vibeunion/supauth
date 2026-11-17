@@ -224,14 +224,45 @@ export class SupaCloudApiError extends Error {
   status: number;
   body: string;
   path: string;
+  /** 上游显式建议的重试等待时间（秒），用于下游 503 的 Retry-After。 */
+  retryAfterSeconds?: number;
 
-  constructor(status: number, body: string, path: string) {
+  constructor(status: number, body: string, path: string, retryAfterSeconds?: number) {
     super(`SupaCloud ${status}: ${body}`);
     this.name = 'SupaCloudApiError';
     this.status = status;
     this.body = body;
     this.path = path;
+    if (retryAfterSeconds !== undefined) this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/** 幂等且无请求体时才允许自动重放，避免重复写入。 */
+const RETRYABLE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+/** 5xx 只重试明确的网关/瞬时故障；500 也可能是确定性错误，故不重试。 */
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+const TRANSIENT_MAX_ATTEMPTS = 2;
+const TRANSIENT_RETRY_BASE_MS = 200;
+const TRANSIENT_RETRY_MAX_MS = 2_000;
+
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header.trim());
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+  const at = Date.parse(header);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, (at - Date.now()) / 1000);
+}
+
+function retryDelayMs(attempt: number, retryAfterSeconds: number | undefined): number {
+  const suggested = retryAfterSeconds === undefined
+    ? TRANSIENT_RETRY_BASE_MS * attempt
+    : retryAfterSeconds * 1000;
+  return Math.min(Math.max(0, suggested), TRANSIENT_RETRY_MAX_MS);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function isSupaCloudApiError(error: unknown, statuses?: number[]): error is SupaCloudApiError {
@@ -477,24 +508,38 @@ export class SupaCloudAdapter {
     userAuthorization?: string,
     auditActor?: BffActorContext,
   ): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const method = (options.method ?? 'GET').toUpperCase();
+    const maxAttempts = RETRYABLE_METHODS.has(method) && options.body == null
+      ? TRANSIENT_MAX_ATTEMPTS
+      : 1;
     const outboundUrl = `${this.apiUrl}${path}`;
-    try {
-      const res = await fetch(outboundUrl, {
-        ...options,
-        headers: userAuthorization
-          ? this.bearerHeaders(userAuthorization)
-          : this.requestHeaders(outboundUrl, options, auditActor),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const body = await res.text();
-        throw new SupaCloudApiError(res.status, body, path);
+    for (let attempt = 1; ; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      let res: Response;
+      try {
+        res = await fetch(outboundUrl, {
+          ...options,
+          headers: userAuthorization
+            ? this.bearerHeaders(userAuthorization)
+            : this.requestHeaders(outboundUrl, options, auditActor),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        // 传输层失败保持原样抛出：审计/回滚路径需要区分「未知结果」与明确的 HTTP 状态。
+        if (attempt < maxAttempts) continue;
+        throw error;
+      } finally {
+        clearTimeout(timeout);
       }
-      return res;
-    } finally {
-      clearTimeout(timeout);
+      if (res.ok) return res;
+      const body = await res.text();
+      const retryAfterSeconds = parseRetryAfter(res.headers.get('retry-after'));
+      if (attempt < maxAttempts && RETRYABLE_STATUSES.has(res.status)) {
+        await sleep(retryDelayMs(attempt, retryAfterSeconds));
+        continue;
+      }
+      throw new SupaCloudApiError(res.status, body, path, retryAfterSeconds);
     }
   }
 

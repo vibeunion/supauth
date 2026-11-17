@@ -107,8 +107,7 @@ export function protectObservedResponse(request: Request, response: Response): R
   return protectRawResponse(response, logObservedResponse(request).requestId);
 }
 
-export function mapObservedError(request: Request, error: unknown): NormalizedApiError {
-  const observed = beginObservedRequest(request);
+export function mapObservedError(request: Request, error: unknown): NormalizedApiError {  const observed = beginObservedRequest(request);
   let normalizedError: NormalizedApiError;
   try {
     normalizedError = normalizeApiError(error, observed.requestId);
@@ -158,9 +157,24 @@ export const observabilityMiddleware = new Elysia({ name: 'observability' })
     beginObservedRequest(request, set.headers);
     const normalizedError = mapObservedError(request, error);
     set.status = normalizedError.status;
+    for (const [name, value] of Object.entries(apiErrorHeaders(error, normalizedError.status))) {
+      set.headers[name] = value;
+    }
     return normalizedError.body;
   })
   .as('global');
+
+const DEFAULT_RETRY_AFTER_SECONDS = 2;
+
+/** 把上游建议的 Retry-After 透传给下游，无建议时用保守默认值。 */
+export function apiErrorHeaders(error: unknown, status: number): Record<string, string> {
+  if (status !== 503) return {};
+  const suggested = error instanceof SupaCloudApiError ? error.retryAfterSeconds : undefined;
+  const seconds = suggested === undefined
+    ? DEFAULT_RETRY_AFTER_SECONDS
+    : Math.max(1, Math.ceil(suggested));
+  return { 'retry-after': String(seconds) };
+}
 
 interface NormalizedApiError {
   status: number;
