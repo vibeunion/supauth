@@ -53,6 +53,7 @@ jobs:
       - name: Publish release assets
         env:
           PACKAGE: ${{ steps.release.outputs.package }}
+          SUPACLOUD_DATABASE_GOVERNANCE: check
         run: |
           set -euo pipefail
 
