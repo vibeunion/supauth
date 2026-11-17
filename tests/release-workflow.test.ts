@@ -58,8 +58,9 @@ describe('npm release workflow', () => {
   test('dispatches release assets for manifest package releases', () => {
     expect(workflow).toContain("auth_server_tag_name: ${{ steps.release.outputs['packages/auth-server--tag_name'] }}");
     expect(workflow).toContain("admin_console_tag_name: ${{ steps.release.outputs['packages/admin-console--tag_name'] }}");
-    expect(workflow).toContain('gh workflow run publish-release-assets.yml --ref main --field release_tag="$RELEASE_TAG"');
+    expect(workflow).toContain('gh workflow run publish-release-assets.yml --repo "$GITHUB_REPOSITORY" --ref main --field release_tag="$RELEASE_TAG"');
     expect(workflow).toContain("needs.release-please.outputs.auth_server_release_created == 'true'");
+    expect(workflow).toContain("always() && needs.release-please.outputs.admin_console_release_created == 'true'");
     expect(workflow).toContain("needs.release-please.outputs.admin_console_release_created == 'true'");
   });
 
