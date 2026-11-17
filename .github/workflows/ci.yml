@@ -47,6 +47,8 @@ jobs:
         run: bun run check
 
       - name: Build and verify SupaCloud app artifact
+        env:
+          SUPACLOUD_DATABASE_GOVERNANCE: check
         run: bun run check:artifact
 
   supabase-auth-compat:
