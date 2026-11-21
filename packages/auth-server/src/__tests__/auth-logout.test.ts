@@ -80,9 +80,41 @@ describe('admin BFF logout', () => {
 
   test('requires a verified session id before local logout', async () => {
     const logoutDependencies: AdminLogoutDependencies = dependencies(new Response(null, { status: 204 }));
-    logoutDependencies.verifyToken = async () => ({ sub: 'user-one' });
+    logoutDependencies.verifyToken = async () => ({ sub: 'user-one' }) as never;
     const response = await logoutAdminSession({ authorization: 'Bearer valid-token' }, logoutDependencies);
     expect(response.status).toBe(422);
     expect(logoutDependencies.fetchImpl).not.toHaveBeenCalled();
   });
+
+  test('forwards an explicit global scope so the SSO session is actually revoked', async () => {
+    const logoutDependencies = dependencies(new Response(null, { status: 204 }));
+    logoutDependencies.verifyToken = async () => ({ sub: 'user-one' }) as never;
+    const response = await logoutAdminSession(
+      { authorization: 'Bearer valid-token' },
+      logoutDependencies,
+      { scope: 'global' },
+    );
+    const request = logoutDependencies.fetchImpl.mock.calls[0];
+    if (!request) throw new Error('Expected a GoTrue logout request');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true, scope: 'global' });
+    // global 退出不依赖单个 session_id，但必须把 scope 传给上游，否则会被静默降级成 local。
+    expect(String(request[0])).toBe('https://internal-auth.example.test/auth/v1/logout?scope=global');
+  });
+
+  test('falls back to local scope for unknown scope values', async () => {
+    const logoutDependencies = dependencies(new Response(null, { status: 204 }));
+    const response = await logoutAdminSession(
+      { authorization: 'Bearer valid-token' },
+      logoutDependencies,
+      { scope: 'everything' },
+    );
+    const request = logoutDependencies.fetchImpl.mock.calls[0];
+    if (!request) throw new Error('Expected a GoTrue logout request');
+
+    expect(await response.json()).toEqual({ success: true, scope: 'local' });
+    expect(String(request[0])).toBe('https://internal-auth.example.test/auth/v1/logout?scope=local');
+  });
+
 });

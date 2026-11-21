@@ -1,4 +1,4 @@
-import { requiredElement, requiredInput, htmlElements, errorRecord, textValue } from "./dom.js";
+import { requiredElement, errorRecord, textValue } from "./dom.js";
 
   window.__SUPAOAUTH_POST_LOGOUT_REDIRECT__ = null;
   const status = requiredElement("#status", "p");
@@ -28,7 +28,9 @@ import { requiredElement, requiredInput, htmlElements, errorRecord, textValue } 
     }
     let error: unknown;
     try {
-      ({ error } = await hostedAuth.signOut({ scope: 'local' }));
+      // 退出页承诺的是「撤销当前 SupAuth 会话」：local 只清浏览器令牌，服务端会话仍然有效，
+      // 下一次授权会被直接带回账号中心，无法切换账号，因此这里使用 global。
+      ({ error } = await hostedAuth.signOut({ scope: 'global' }));
     } catch (caughtError) {
       error = caughtError;
     }
