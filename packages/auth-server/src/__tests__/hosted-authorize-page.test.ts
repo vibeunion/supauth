@@ -300,7 +300,9 @@ describe('hostedPageRoutes', () => {
     expect(response.headers.get('referrer-policy')).toBe('no-referrer');
     expect(response.headers.get('content-security-policy')).toContain("connect-src 'self'");
     expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
-    expectHosted(body).toContain("hostedAuth.signOut({ scope: 'local' })");
+    // 退出页必须撤销服务端 SSO 会话：local 只清浏览器令牌，会留下可复用的服务端会话。
+    expectHosted(body).toContain("hostedAuth.signOut({ scope: 'global' })");
+    expectHosted(body).not.toContain("hostedAuth.signOut({ scope: 'local' })");
     expectHosted(body).toContain(new URL(
       '/login?logged_out=1',
       getConfig().publicBaseUrl || requestUrl,

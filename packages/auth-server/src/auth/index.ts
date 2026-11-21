@@ -351,23 +351,31 @@ export interface AdminLogoutDependencies {
   verifyToken: (token: string) => Promise<JWTPayload | null>;
 }
 
+/** 退出范围：local 只撤销当前会话（默认），global 撤销该账号的全部会话。 */
+export type SsoLogoutScope = 'local' | 'global';
+
+function normalizeLogoutScope(value: unknown): SsoLogoutScope {
+  return value === 'global' ? 'global' : 'local';
+}
+
 function logoutFailure(status: number, code: string, message: string): Response {
   return Response.json({ success: false, error: { code, message } }, { status });
 }
 
-function upstreamLogoutUrl(logoutUrl: string): string {
+function upstreamLogoutUrl(logoutUrl: string, scope: SsoLogoutScope): string {
   const url = new URL(logoutUrl);
-  url.searchParams.set('scope', 'local');
+  url.searchParams.set('scope', scope);
   return url.toString();
 }
 
 async function revokeGoTrueSession(
   token: string,
   dependencies: AdminLogoutDependencies,
+  scope: SsoLogoutScope,
 ): Promise<Response> {
   let upstream: Response;
   try {
-    upstream = await dependencies.fetchImpl(upstreamLogoutUrl(dependencies.logoutUrl), {
+    upstream = await dependencies.fetchImpl(upstreamLogoutUrl(dependencies.logoutUrl, scope), {
       method: 'POST',
       headers: { authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(GOTRUE_LOGOUT_TIMEOUT_MS),
@@ -380,7 +388,7 @@ async function revokeGoTrueSession(
       timedOut ? '认证服务退出请求超时。' : '认证服务当前无法完成退出。',
     );
   }
-  if (upstream.ok) return Response.json({ success: true, scope: 'local' });
+  if (upstream.ok) return Response.json({ success: true, scope });
   const status = upstream.status === 401 || upstream.status === 403 ? upstream.status : 502;
   return logoutFailure(status, 'gotrue_logout_rejected', `认证服务拒绝退出请求（${upstream.status}）。`);
 }
@@ -392,19 +400,22 @@ export async function logoutAdminSession(
     fetchImpl: globalThis.fetch,
     verifyToken: verifiedSsoPayload,
   },
+  options: { scope?: unknown } = {},
 ): Promise<Response> {
+  const scope = normalizeLogoutScope(options.scope);
   const token = bearerToken(headers);
   if (!token) return logoutFailure(401, 'missing_bearer_token', '退出登录需要 Bearer token。');
-  if (sessions.delete(token)) return Response.json({ success: true, scope: 'local' });
+  if (sessions.delete(token)) return Response.json({ success: true, scope });
   if (!dependencies.logoutUrl) {
     return logoutFailure(503, 'gotrue_logout_not_configured', '认证服务退出地址未配置。');
   }
   const payload = await dependencies.verifyToken(token);
   if (!payload) return logoutFailure(401, 'invalid_bearer_token', 'Bearer token 无效或已过期。');
-  if (typeof payload["session_id"] !== 'string' || !payload["session_id"]) {
+  // local 退出依赖 session_id 精确定位当前会话；global 退出由上游按账号撤销全部会话。
+  if (scope === 'local' && (typeof payload["session_id"] !== 'string' || !payload["session_id"])) {
     return logoutFailure(422, 'session_id_required', '当前 token 无法安全执行 local scope 退出。');
   }
-  return revokeGoTrueSession(token, dependencies);
+  return revokeGoTrueSession(token, dependencies, scope);
 }
 
 export async function verifyAdminBearer(headers: Record<string, string | undefined>): Promise<AdminBearerAccess> {
@@ -570,8 +581,8 @@ export const authRoutes = defineHttpOperations({ prefix: '/v1/auth' }, {
     }
     return { success: false, error: { message: await ssoMessage() || 'Invalid credentials' } };
   }, hostedContract('adminLogin')),
-  postLogout: defineHttpOperation('POST', '/logout', ({ headers }) => (
-    logoutAdminSession(headers)
+  postLogout: defineHttpOperation('POST', '/logout', ({ headers, query }) => (
+    logoutAdminSession(headers, undefined, { scope: query["scope"] })
   ), hostedContract('adminLogout')),
   getIdentity: defineHttpOperation('GET', '/identity', async ({ headers }) => {
     const access = await verifyAdminBearer(headers);
