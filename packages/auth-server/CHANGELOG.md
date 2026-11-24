@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.0](https://github.com/vibeunion/supauth/compare/auth-server-v0.12.0...auth-server-v0.13.0) (2026-11-24)
+
+
+### Features
+
+* **auth:** support default login email domains ([89fcb38](https://github.com/vibeunion/supauth/commit/89fcb38b207b3ee7bb398fabb1a8d4d1506c7448))
+
+
+### Bug Fixes
+
+* **auth:** 托管退出页按 global scope 撤销 SSO 会话 ([#147](https://github.com/vibeunion/supauth/issues/147)) ([018c769](https://github.com/vibeunion/supauth/commit/018c76973d12bc2f185be8896f08daddcbbc3e6b))
+
 ## [0.12.0](https://github.com/vibeunion/supauth/compare/auth-server-v0.11.0...auth-server-v0.12.0) (2026-11-17)
 
 
