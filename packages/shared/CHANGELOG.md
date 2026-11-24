@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/vibeunion/supauth/compare/shared-v0.10.0...shared-v0.11.0) (2026-11-24)
+
+
+### Features
+
+* **auth:** support default login email domains ([89fcb38](https://github.com/vibeunion/supauth/commit/89fcb38b207b3ee7bb398fabb1a8d4d1506c7448))
+
 ## [0.10.0](https://github.com/vibeunion/supauth/compare/shared-v0.9.0...shared-v0.10.0) (2026-11-17)
 
 
