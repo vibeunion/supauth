@@ -31,7 +31,7 @@ import { CURRENT_COMPAT_VERSION, assertExpectedRuntimeVersion, requiresOfflineAc
  *   OAUTH21_REFRESH_TOKEN=<oauth-refresh-token>
  *   OAUTH21_TOKEN_AUTH_METHOD=none|client_secret_basic|client_secret_post
  *   OAUTH21_CLIENT_SECRET=<client-secret>
- *   SUPABASE_AUTH_COMPAT_VERSION=v2.192.0|v2.196.0|v2.197.0
+ *   SUPABASE_AUTH_COMPAT_VERSION=v2.192.0|v2.196.0|v2.197.0|v2.198.0
  */
 
 import { describe, expect, it } from 'bun:test';
