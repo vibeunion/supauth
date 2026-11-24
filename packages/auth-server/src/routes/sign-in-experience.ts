@@ -13,6 +13,7 @@ import * as tenantConfigRepo from '../repositories/tenant-config.js';
 import { configurationContract, decodeConfigurationInput, decodeConfigurationResponse } from '../utils/configuration-contract.js';
 import { OAuthAuthorizationResultSchema, OAuthRedirectResultSchema, BuiltinOAuthProvidersSchema } from '../../../shared/src/server-configuration.js';
 import { AuthConfigResponseSchema } from '../../../shared/src/sdk-models.js';
+import { LOGIN_EMAIL_DOMAIN_CONFIG, readLoginEmailDomain } from '../../../shared/src/login-email-domain.js';
 import { definedFields, requiredRow } from '../utils/defined-fields.js';
 import { getConfig } from '../config/index.js';
 import { randomUUID } from 'node:crypto';
@@ -965,16 +966,30 @@ async function authoritativePublicPasswordPolicy(getAuthConfig: () => Promise<un
   }
 }
 
+async function publicDefaultEmailDomain() {
+  try {
+    const { type, key } = LOGIN_EMAIL_DOMAIN_CONFIG;
+    return readLoginEmailDomain(await tenantConfigRepo.getTenantConfig(type, key));
+  } catch {
+    // 邮箱后缀仅用于补全；读取异常不能阻断完整邮箱登录。
+    return null;
+  }
+}
+
 export async function resolvePublicSignInExperience(
   applicationId?: string,
   options: PublicSignInExperienceOptions = {},
 ) {
-  const getExperience = options.getExperience || (async (resolvedApplicationId?: string) => (
-    sieRepo.resolveSignInExperience(
-      resolvedApplicationId,
-      await getSupaCloudSignInSource(resolvedApplicationId),
-    )
-  ));
+  const getExperience = options.getExperience || (async (resolvedApplicationId?: string) => {
+    const [experience, defaultEmailDomain] = await Promise.all([
+      getSupaCloudSignInSource(resolvedApplicationId)
+        .then((source) => sieRepo.resolveSignInExperience(resolvedApplicationId, source)),
+      publicDefaultEmailDomain(),
+    ]);
+    return experience && defaultEmailDomain
+      ? { ...experience, default_email_domain: defaultEmailDomain }
+      : experience;
+  });
   const [experience, connectors, passwordPolicy] = await Promise.all([
     getExperience(applicationId),
     (options.getConnectors || getEnabledConnectors)(),

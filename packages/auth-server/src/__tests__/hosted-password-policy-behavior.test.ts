@@ -38,6 +38,7 @@ class FakeElement {
   readonly listeners = new Map<string, EventListener[]>();
   readonly style = {
     display: '',
+    visibility: '',
     backgroundImage: '',
     setProperty: (_name: string, _value: string) => {},
   };
@@ -229,6 +230,7 @@ async function executeHostedPage(
 ) {
   const document = new FakeDocument(html);
   const mutationRequests: Array<{ url: string; init?: RequestInit }> = [];
+  const passwordSignIns: Array<{ email: string; password: string }> = [];
   const pageLocation = {
     href: 'https://auth.example.test/login.html',
     search: '',
@@ -239,7 +241,10 @@ async function executeHostedPage(
   };
   const hostedAuth = {
     getSession: async () => ({ data: { session: null }, error: null }),
-    signInWithPassword: async () => ({ data: { session: null }, error: null }),
+    signInWithPassword: async (credentials: { email: string; password: string }) => {
+      passwordSignIns.push(credentials);
+      return { data: { session: null }, error: null };
+    },
     signOut: async () => ({ error: null }),
   };
   const window = {
@@ -286,7 +291,7 @@ async function executeHostedPage(
   context["globalThis"] = context;
   vm.runInContext(inlineBodyScript(html), context);
   await context["__hostedReady"];
-  return { document, mutationRequests };
+  return { document, mutationRequests, passwordSignIns };
 }
 
 async function authorizeHarness(resolveOutcome: ResolveOutcome): Promise<PageHarness> {
@@ -333,6 +338,65 @@ const hostedPages = [
     mutationPath: '/account-password/change',
   },
 ] as const;
+
+describe('hosted default login email domain', () => {
+  async function loginHarness(defaultEmailDomain?: string) {
+    const harness = await executeHostedPage(authorizeHtml, {
+      status: 200,
+      payload: {
+        branding: {}, connectors: [], sign_in_methods: ['password'], sign_up_enabled: true,
+        password_policy: strongPasswordPolicy,
+        ...(defaultEmailDomain ? { default_email_domain: defaultEmailDomain } : {}),
+      },
+    });
+    const input = harness.document.element('email');
+    const hint = harness.document.element('login-email-domain');
+    return {
+      ...harness, input, hint,
+      async submit(value: string) {
+        input.value = value;
+        harness.document.element('password').value = 'ValidPass12!';
+        await harness.document.element('login-form').dispatch('submit');
+      },
+    };
+  }
+
+  test('shows the configured suffix and submits a complete email for a prefix', async () => {
+    const page = await loginHarness('company.test');
+
+    expect(page.hint.hidden).toBe(false);
+    expect(page.hint.textContent).toBe('@company.test');
+    expect(page.input.getAttribute('aria-describedby')).toBe(page.hint.id);
+    await page.submit(' employee ');
+
+    expect(page.passwordSignIns).toEqual([{ email: 'employee@company.test', password: 'ValidPass12!' }]);
+  });
+
+  test('does not append the default to a complete email or repair a partial explicit domain', async () => {
+    const page = await loginHarness('company.test');
+    page.input.value = 'employee@other.test';
+    await page.input.dispatch('input');
+
+    expect(page.hint.style.visibility).toBe('hidden');
+    expect(page.input.getAttribute('aria-describedby')).toBeNull();
+    await page.submit(' employee@other.test ');
+    await page.submit('employee@');
+
+    expect(page.passwordSignIns).toEqual([{ email: 'employee@other.test', password: 'ValidPass12!' }]);
+    expect(page.document.element('message').textContent).toBe('Enter a valid email address.');
+  });
+
+  test('requires a full email when the suffix is unset', async () => {
+    const page = await loginHarness();
+
+    expect(page.hint.hidden).toBe(true);
+    await page.submit('employee');
+    expect(page.passwordSignIns).toEqual([]);
+    expect(page.document.element('message').textContent).toBe('Enter a valid email address.');
+    await page.submit('employee@company.test');
+    expect(page.passwordSignIns).toEqual([{ email: 'employee@company.test', password: 'ValidPass12!' }]);
+  });
+});
 
 describe('hosted password policy behavior', () => {
   test('signup and recovery do not report malformed 2xx bodies as success', async () => {

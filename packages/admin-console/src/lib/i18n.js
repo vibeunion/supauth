@@ -341,6 +341,10 @@ const en = {
   "signIn.methodsDescription":
     "Choose the sign-in methods advertised by the hosted experience and keep the GoTrue sign-up switch in sync.",
   "signIn.oneMethodRequired": "Keep at least one sign-in method enabled.",
+  "signIn.defaultEmailDomain": "Default email domain",
+  "signIn.defaultEmailDomainHint": "Complete email prefixes on the hosted sign-in page. Leave blank to require a full email.",
+  "signIn.defaultEmailDomainInvalid": "Enter a domain such as example.com.",
+  "signIn.defaultEmailDomainRetry": "Retry",
   "signIn.signUpRuntimeHint":
     "This writes the SupaOAuth experience and the GoTrue sign-up configuration together.",
   "signIn.supabaseMethodBoundary":
@@ -1433,6 +1437,10 @@ const zhCN = {
   "signIn.methodsDescription":
     "选择托管体验展示的登录方式，并同步 GoTrue 注册开关。",
   "signIn.oneMethodRequired": "至少保留一种登录方式。",
+  "signIn.defaultEmailDomain": "默认邮箱后缀",
+  "signIn.defaultEmailDomainHint": "托管登录页会自动补全邮箱后缀。留空时须输入完整邮箱。",
+  "signIn.defaultEmailDomainInvalid": "请输入类似 example.com 的域名。",
+  "signIn.defaultEmailDomainRetry": "重试",
   "signIn.signUpRuntimeHint":
     "该操作同时写入 SupaOAuth 登录体验和 GoTrue 注册配置。",
   "signIn.supabaseMethodBoundary":

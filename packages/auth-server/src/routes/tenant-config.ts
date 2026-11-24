@@ -12,6 +12,7 @@ import { containsSecret, withoutSecrets } from '../utils/secrets.js';
 import { configurationContract, decodeConfigurationInput, decodeTenantConfiguration } from '../utils/configuration-contract.js';
 import { definedFields } from '../utils/defined-fields.js';
 import { defineHttpOperation, defineHttpOperations } from '../http/operation.js';
+import { LOGIN_EMAIL_DOMAIN_CONFIG } from '../../../shared/src/login-email-domain.js';
 
 const adapter = getSupaCloudAdapter();
 
@@ -26,6 +27,7 @@ const allowedTypes = new Set([
   'auth_hook',
   'account_center',
   'account_claim',
+  LOGIN_EMAIL_DOMAIN_CONFIG.type,
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -80,7 +82,9 @@ export const tenantConfigRoutes = defineHttpOperations({ prefix: '/v1/tenant-con
     const { body: data } = decodeConfigurationInput('upsertTenantConfig', { params, body });
     const value = data.value ?? undefined;
     const enabled = data.enabled ?? undefined;
-    if (value !== undefined) decodeTenantConfiguration(params.type, value);
+    if (value !== undefined || params.type === LOGIN_EMAIL_DOMAIN_CONFIG.type) {
+      decodeTenantConfiguration(params.type, value);
+    }
     if (params.type === 'captcha') return updateCaptchaConfig(params.key, definedFields({ ...data, value, enabled }));
     return withoutSecrets(await tenantConfigRepo.upsertTenantConfig(params.type, params.key, definedFields({
       value,

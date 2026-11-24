@@ -13,6 +13,7 @@
   import { Button } from '@svadmin/ui';
   import { Switch } from '@svadmin/ui';
   import { resolveAuthoritativeSignupEnabled } from "./signup-authority.js";
+  import DefaultLoginEmailDomainEditor from "./DefaultLoginEmailDomainEditor.svelte";
   import {
     canonicalStringSet,
     signInMethodsSettingsAuthority,
@@ -208,6 +209,8 @@
         <Switch bind:checked={signUpEnabled} aria-label={t("Sign-up Enabled")} />
       </label>
     </section>
+
+    <DefaultLoginEmailDomainEditor />
 
     <div
       class="rounded-xl border border-blue-200 bg-blue-50 p-5 text-sm leading-6 text-blue-800"

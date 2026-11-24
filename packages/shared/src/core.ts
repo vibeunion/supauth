@@ -2,6 +2,7 @@
 
 import { type TUnsafe } from '@sinclair/typebox';
 import { JsonObjectSchema, JsonValueSchema, StringKeySchema, Type, type Static, type TSchema } from './schema.js';
+import { LoginEmailDomainSchema } from './login-email-domain.js';
 
 // Application types
 export const ApplicationTypeSchema = Type.Union([
@@ -187,7 +188,10 @@ export type PublicSignInConnector = Static<typeof PublicSignInConnectorSchema>;
 
 export const PublicEffectiveSignInExperienceSchema = Type.Composite([
   EffectiveSignInExperienceSchema,
-  Type.Object({ connectors: Type.Optional(Type.Array(PublicSignInConnectorSchema)) }),
+  Type.Object({
+    connectors: Type.Optional(Type.Array(PublicSignInConnectorSchema)),
+    default_email_domain: Type.Optional(LoginEmailDomainSchema),
+  }),
 ]);
 export type PublicEffectiveSignInExperience = Static<typeof PublicEffectiveSignInExperienceSchema>;
 

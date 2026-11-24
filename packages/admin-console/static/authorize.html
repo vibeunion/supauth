@@ -247,6 +247,18 @@
         font-size: 15px;
         font-weight: 600;
       }
+      .login-email-label {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: baseline;
+        gap: 8px;
+      }
+      .login-email-domain {
+        color: #64748b;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+        text-align: right;
+      }
       input {
         width: 100%;
         height: 50px;
@@ -474,7 +486,10 @@
         <!-- Sign In panel -->
         <div id="panel-signin" class="tab-panel active">
           <form id="login-form" novalidate>
-            <label id="email-label" for="email">Email</label>
+            <div class="login-email-label">
+              <label id="email-label" for="email">Email</label>
+              <span id="login-email-domain" class="login-email-domain" hidden></span>
+            </div>
             <input id="email" name="email" type="email" autocomplete="email" required>
             <a id="forgot-password-link" class="forgot-link" style="display:none">Forgot password?</a>
             <label id="password-label" for="password">Password</label>

@@ -2,6 +2,7 @@ import { Type, type Static, type TSchema, JsonObjectSchema, JsonValueSchema, Str
 import { CursorResponseSchema } from './core.js';
 export { JsonObjectSchema, JsonValueSchema } from './schema.js';
 import { ApplicationSchema, CreateApplicationInputSchema, ApiResourceSchema, CreateResourceInputSchema, ScopeSchema, ConnectorSchema, OrganizationSchema, OrganizationMemberSchema, RoleSchema, PermissionSchema, SignInExperienceSchema, ApplicationSignInExperienceSchema, EffectiveSignInExperienceSchema, PublicEffectiveSignInExperienceSchema, PublicPhraseBundleSchema, AuditLogEntrySchema, WebhookSchema, CapabilitiesResponseSchema, CompatibilityCheckResultSchema } from './core.js';
+import { LOGIN_EMAIL_DOMAIN_CONFIG, LoginEmailDomainConfigSchema } from './login-email-domain.js';
 
 export const ListResponseSchema = <S extends TSchema>(item: S) => Type.Object({ items: Type.Array(item), total: Type.Number(), page: Type.Optional(Type.Number()), limit: Type.Optional(Type.Number()) });
 export const CursorListResponseSchema = CursorResponseSchema;
@@ -114,6 +115,7 @@ export const tenantConfigurationValues = {
   email_template: Type.Object({ subject: configString, content: configString, content_path: configString }),
   sms_template: Type.Object({ content: configString, template: configString }),
   domain: Type.Object({ domain: configString, hostname: configString, status: configString }),
+  [LOGIN_EMAIL_DOMAIN_CONFIG.type]: LoginEmailDomainConfigSchema,
   phrase: Type.Record(StringKeySchema, Type.String()),
   profile_field: Type.Object({
     name: configString, label: configString, type: configString, required: configBoolean,

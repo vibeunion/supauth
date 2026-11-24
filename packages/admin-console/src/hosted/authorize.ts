@@ -17,6 +17,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
   let hasCustomButtonLabel = false;
   let signUpEnabled = false;
   let passwordPolicy: PasswordPolicy | null = null;
+  let defaultEmailDomain: string | undefined;
   let systemName = 'SupaOAuth';
   const PASSWORD_POLICY_SYMBOLS = "!@#$%^&*()_+-=[]{};'\\:\"|<>?,./`~";
 
@@ -383,6 +384,17 @@ import type { PublicSignInConnector } from '@supauth/shared';
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   }
 
+  function syncEmailDomainHint() {
+    const input = requiredElement('#email', 'input');
+    const hint = requiredElement('#login-email-domain', 'span');
+    const explicitEmail = normalizeEmailInput(input.value).includes('@');
+    hint.hidden = !defaultEmailDomain;
+    hint.style.visibility = explicitEmail ? 'hidden' : '';
+    hint.textContent = defaultEmailDomain ? `@${defaultEmailDomain}` : '';
+    if (defaultEmailDomain && !explicitEmail) input.setAttribute('aria-describedby', hint.id);
+    else input.removeAttribute('aria-describedby');
+  }
+
   function isInvalidCredentials(candidate: unknown) {
     const data = errorRecord(candidate);
     const fields = [
@@ -718,6 +730,8 @@ import type { PublicSignInConnector } from '@supauth/shared';
         setMessage('error', t('passwordPolicyUnavailable'));
         return;
       }
+      defaultEmailDomain = experience.default_email_domain;
+      syncEmailDomainHint();
       const branding = experience.branding || {};
 
       // Branding
@@ -787,6 +801,8 @@ import type { PublicSignInConnector } from '@supauth/shared';
   }
 
   // ─── Sign In ──────────────────────────────────────────────────────
+  requiredElement('#email', 'input').addEventListener('input', syncEmailDomainHint);
+  requiredElement('#email', 'input').addEventListener('change', syncEmailDomainHint);
   requiredElement("#login-form", "form").addEventListener('submit', async (event) => {
     event.preventDefault();
     if (authorizationUnavailable) {
@@ -795,14 +811,16 @@ import type { PublicSignInConnector } from '@supauth/shared';
     }
     const emailInput = requiredElement("#email", "input");
     const passwordInput = requiredElement("#password", "input");
-    const email = normalizeEmailInput(emailInput.value);
+    const address = normalizeEmailInput(emailInput.value);
     const password = passwordInput.value;
-    emailInput.value = email;
-    if (!email) {
+    emailInput.value = address;
+    syncEmailDomainHint();
+    if (!address) {
       setMessage('error', t('emailRequired'));
       emailInput.focus();
       return;
     }
+    const email = defaultEmailDomain && !address.includes('@') ? `${address}@${defaultEmailDomain}` : address;
     if (!isValidEmail(email)) {
       setMessage('error', t('emailInvalid'));
       emailInput.focus();
@@ -886,6 +904,7 @@ import type { PublicSignInConnector } from '@supauth/shared';
       setTimeout(() => {
         switchTab('signin');
         requiredElement("#email", "input").value = requiredElement("#signup-email", "input").value;
+        syncEmailDomainHint();
       }, 1500);
     } catch {
       setMessage('error', t('networkError'));
